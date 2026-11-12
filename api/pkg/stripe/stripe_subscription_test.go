@@ -49,13 +49,13 @@ func Test_handleSubscriptionEvent(t *testing.T) {
 	store.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_SqicesZoU7LrDR").Return(wallet, nil)
 
 	// Should update wallet with sub info
-	store.EXPECT().UpdateWallet(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, wallet *types.Wallet) (*types.Wallet, error) {
-		require.Equal(t, wallet.StripeSubscriptionID, "sub_1Rv1oVFNNvjhkCqzI3vgc41P")
-		require.Equal(t, wallet.SubscriptionCurrentPeriodStart, int64(1754942123))
-		require.Equal(t, wallet.SubscriptionCurrentPeriodEnd, int64(1757620523))
-		require.Equal(t, wallet.SubscriptionCreated, int64(1754942123))
-		require.Equal(t, wallet.SubscriptionStatus, stripe.SubscriptionStatusActive)
-		return wallet, nil
+	store.EXPECT().UpdateWalletSubscription(gomock.Any(), "123", gomock.Any()).DoAndReturn(func(_ context.Context, walletID string, state types.WalletSubscriptionState) (*types.Wallet, error) {
+		require.Equal(t, "sub_1Rv1oVFNNvjhkCqzI3vgc41P", state.StripeSubscriptionID)
+		require.Equal(t, int64(1754942123), state.CurrentPeriodStart)
+		require.Equal(t, int64(1757620523), state.CurrentPeriodEnd)
+		require.Equal(t, int64(1754942123), state.Created)
+		require.Equal(t, stripe.SubscriptionStatusActive, state.Status)
+		return walletWithSubscription(wallet, state), nil
 	})
 
 	err = s.handleSubscriptionEvent(event)
@@ -104,7 +104,10 @@ func TestHandleSubscriptionEvent_SendsDistinctTrialNotifications(t *testing.T) {
 			wallet := &types.Wallet{ID: "wallet_123", UserID: "user_123", SubscriptionStatus: tt.previousStatus}
 
 			db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_123").Return(wallet, nil)
-			db.EXPECT().UpdateWallet(gomock.Any(), wallet).Return(wallet, nil)
+			db.EXPECT().UpdateWalletSubscription(gomock.Any(), wallet.ID, gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ string, state types.WalletSubscriptionState) (*types.Wallet, error) {
+					return walletWithSubscription(wallet, state), nil
+				})
 			db.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{Email: "test@example.com"}, nil)
 
 			event := stripeEvent(t, tt.eventType, &stripe.Subscription{
@@ -266,14 +269,13 @@ func TestSyncSubscription_UpdatesAndPersistsWallet(t *testing.T) {
 		stripe.SetBackend(stripe.APIBackend, originalAPIBackend)
 	})
 
-	store.EXPECT().UpdateWallet(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, got *types.Wallet) (*types.Wallet, error) {
-		require.Equal(t, wallet.ID, got.ID)
-		require.Equal(t, wallet.StripeSubscriptionID, got.StripeSubscriptionID)
-		require.Equal(t, stripe.SubscriptionStatusPastDue, got.SubscriptionStatus)
-		require.Equal(t, int64(1111), got.SubscriptionCurrentPeriodStart)
-		require.Equal(t, int64(2222), got.SubscriptionCurrentPeriodEnd)
-		require.True(t, got.SubscriptionCancelAtPeriodEnd)
-		return got, nil
+	store.EXPECT().UpdateWalletSubscription(gomock.Any(), wallet.ID, gomock.Any()).DoAndReturn(func(_ context.Context, _ string, state types.WalletSubscriptionState) (*types.Wallet, error) {
+		require.Equal(t, "sub_sync_123", state.StripeSubscriptionID)
+		require.Equal(t, stripe.SubscriptionStatusPastDue, state.Status)
+		require.Equal(t, int64(1111), state.CurrentPeriodStart)
+		require.Equal(t, int64(2222), state.CurrentPeriodEnd)
+		require.True(t, state.CancelAtPeriodEnd)
+		return walletWithSubscription(wallet, state), nil
 	})
 
 	s.SyncSubscription(context.Background(), wallet, false)
@@ -334,7 +336,10 @@ func TestSyncSubscription_DiscoversSubscriptionWhenWebhookIsDelayed(t *testing.T
 	stripe.SetBackend(stripe.APIBackend, mockBackend)
 	t.Cleanup(func() { stripe.SetBackend(stripe.APIBackend, originalAPIBackend) })
 
-	store.EXPECT().UpdateWallet(gomock.Any(), wallet).Return(wallet, nil)
+	store.EXPECT().UpdateWalletSubscription(gomock.Any(), wallet.ID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, state types.WalletSubscriptionState) (*types.Wallet, error) {
+			return walletWithSubscription(wallet, state), nil
+		})
 
 	s.SyncSubscription(context.Background(), wallet, true)
 
@@ -342,4 +347,17 @@ func TestSyncSubscription_DiscoversSubscriptionWhenWebhookIsDelayed(t *testing.T
 	require.Equal(t, "sub_trial_123", wallet.StripeSubscriptionID)
 	require.Equal(t, stripe.SubscriptionStatusTrialing, wallet.SubscriptionStatus)
 	require.Equal(t, int64(1000), wallet.SubscriptionCreated)
+}
+
+// walletWithSubscription returns the wallet a store would hold after
+// UpdateWalletSubscription: base with only the subscription columns replaced.
+func walletWithSubscription(base *types.Wallet, state types.WalletSubscriptionState) *types.Wallet {
+	updated := *base
+	updated.StripeSubscriptionID = state.StripeSubscriptionID
+	updated.SubscriptionStatus = state.Status
+	updated.SubscriptionCurrentPeriodStart = state.CurrentPeriodStart
+	updated.SubscriptionCurrentPeriodEnd = state.CurrentPeriodEnd
+	updated.SubscriptionCreated = state.Created
+	updated.SubscriptionCancelAtPeriodEnd = state.CancelAtPeriodEnd
+	return &updated
 }

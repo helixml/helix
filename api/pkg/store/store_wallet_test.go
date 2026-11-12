@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -248,154 +249,109 @@ func (suite *WalletTestSuite) TestListWallets_NilQuery() {
 	suite.Contains(err.Error(), "query not specified")
 }
 
-func (suite *WalletTestSuite) TestUpdateWallet() {
-	userID := system.GenerateID()
-	wallet := &types.Wallet{
-		UserID:  userID,
+func (suite *WalletTestSuite) TestUpdateWalletSubscription() {
+	createdWallet, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{
+		UserID:  system.GenerateID(),
 		Balance: 100.0,
+	})
+	suite.NoError(err)
+
+	state := types.WalletSubscriptionState{
+		StripeSubscriptionID: "sub_123456789",
+		Status:               stripe.SubscriptionStatusActive,
+		CurrentPeriodStart:   1640995200,
+		CurrentPeriodEnd:     1672531200,
+		Created:              1640995100,
+		CancelAtPeriodEnd:    true,
 	}
-
-	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
+	result, err := suite.db.UpdateWalletSubscription(suite.ctx, createdWallet.ID, state)
 	suite.NoError(err)
-
-	// Update subscription-related fields (UpdateWallet does not update balance)
-	subscriptionID := "sub_123456789"
-	subscriptionStatus := stripe.SubscriptionStatusActive
-	periodStart := int64(1640995200) // Jan 1, 2022
-	periodEnd := int64(1672531200)   // Jan 1, 2023
-	subscriptionCreated := int64(1640995100)
-	cancelAtPeriodEnd := true
-
-	updatedWallet := &types.Wallet{
-		ID:                             createdWallet.ID,
-		PlanOverride:                   types.PlanOverridePro,
-		StripeSubscriptionID:           subscriptionID,
-		SubscriptionStatus:             subscriptionStatus,
-		SubscriptionCurrentPeriodStart: periodStart,
-		SubscriptionCurrentPeriodEnd:   periodEnd,
-		SubscriptionCreated:            subscriptionCreated,
-		SubscriptionCancelAtPeriodEnd:  cancelAtPeriodEnd,
-	}
-
-	result, err := suite.db.UpdateWallet(suite.ctx, updatedWallet)
-	suite.NoError(err)
-	suite.NotNil(result)
-
-	// Verify subscription fields were updated correctly
-	suite.Equal(subscriptionID, result.StripeSubscriptionID)
-	suite.Equal(subscriptionStatus, result.SubscriptionStatus)
-	suite.Equal(periodStart, result.SubscriptionCurrentPeriodStart)
-	suite.Equal(periodEnd, result.SubscriptionCurrentPeriodEnd)
-	suite.Equal(subscriptionCreated, result.SubscriptionCreated)
-	suite.Equal(cancelAtPeriodEnd, result.SubscriptionCancelAtPeriodEnd)
-	suite.Equal(types.PlanOverridePro, result.PlanOverride)
-
-	result.PlanOverride = ""
-	result, err = suite.db.UpdateWallet(suite.ctx, result)
-	suite.NoError(err)
-	suite.Empty(result.PlanOverride)
-
-	// Verify balance was NOT changed (UpdateWallet should not update balance)
+	suite.Equal(state, result.SubscriptionState())
 	suite.Equal(100.0, result.Balance)
-
-	// Verify other fields remain unchanged
-	suite.Equal(createdWallet.ID, result.ID)
+	suite.Empty(result.PlanOverride)
 	suite.Equal(createdWallet.UserID, result.UserID)
-	suite.Equal(createdWallet.OrgID, result.OrgID)
-	suite.Equal(createdWallet.StripeCustomerID, result.StripeCustomerID)
-
-	// Verify updated_at was changed
 	suite.True(result.UpdatedAt.After(createdWallet.UpdatedAt))
 }
 
-func (suite *WalletTestSuite) TestUpdateWallet_EmptyID() {
-	wallet := &types.Wallet{
-		StripeSubscriptionID: "sub_123456789",
+func (suite *WalletTestSuite) TestSetWalletPlanOverride() {
+	createdWallet, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{
+		OrgID:                system.GenerateID(),
+		StripeSubscriptionID: "sub_keep",
 		SubscriptionStatus:   stripe.SubscriptionStatusActive,
-	}
-
-	_, err := suite.db.UpdateWallet(suite.ctx, wallet)
-	suite.Error(err)
-	suite.Contains(err.Error(), "id not specified")
-}
-
-func (suite *WalletTestSuite) TestUpdateWallet_NonExistentWallet() {
-	wallet := &types.Wallet{
-		ID:                   "non-existent-wallet-id",
-		StripeSubscriptionID: "sub_123456789",
-		SubscriptionStatus:   stripe.SubscriptionStatusActive,
-	}
-
-	// The method doesn't explicitly check if wallet exists before updating,
-	// but the returned wallet from GetWallet should be nil if wallet doesn't exist
-	result, err := suite.db.UpdateWallet(suite.ctx, wallet)
-	suite.Error(err)
-	suite.Nil(result)
-	suite.Equal(ErrNotFound, err)
-}
-
-func (suite *WalletTestSuite) TestUpdateWallet_PartialUpdate() {
-	userID := system.GenerateID()
-	wallet := &types.Wallet{
-		UserID:  userID,
-		Balance: 100.0,
-	}
-
-	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
+		Balance:              10.0,
+	})
 	suite.NoError(err)
 
-	// Update only subscription ID, leave other subscription fields empty
-	updatedWallet := &types.Wallet{
-		ID:                   createdWallet.ID,
-		StripeSubscriptionID: "sub_partial_update",
-	}
-
-	result, err := suite.db.UpdateWallet(suite.ctx, updatedWallet)
+	result, err := suite.db.SetWalletPlanOverride(suite.ctx, createdWallet.ID, types.PlanOverridePro)
 	suite.NoError(err)
-	suite.NotNil(result)
+	suite.Equal(types.PlanOverridePro, result.PlanOverride)
+	suite.Equal("sub_keep", result.StripeSubscriptionID)
+	suite.Equal(stripe.SubscriptionStatusActive, result.SubscriptionStatus)
+	suite.Equal(10.0, result.Balance)
 
-	// Verify only subscription ID was updated
-	suite.Equal("sub_partial_update", result.StripeSubscriptionID)
-	suite.Equal(stripe.SubscriptionStatus(""), result.SubscriptionStatus) // Should be empty/zero value
-	suite.Equal(int64(0), result.SubscriptionCurrentPeriodStart)
-	suite.Equal(int64(0), result.SubscriptionCurrentPeriodEnd)
-	suite.Equal(int64(0), result.SubscriptionCreated)
-
-	// Verify other fields remain unchanged
-	suite.Equal(100.0, result.Balance)
-	suite.Equal(createdWallet.UserID, result.UserID)
+	result, err = suite.db.SetWalletPlanOverride(suite.ctx, createdWallet.ID, "")
+	suite.NoError(err)
+	suite.Empty(result.PlanOverride)
 }
 
-func (suite *WalletTestSuite) TestUpdateWallet_SubscriptionStatusVariations() {
-	userID := system.GenerateID()
-	wallet := &types.Wallet{
-		UserID:  userID,
-		Balance: 100.0,
-	}
+func (suite *WalletTestSuite) TestWalletColumnUpdates_EmptyAndUnknownID() {
+	_, err := suite.db.UpdateWalletSubscription(suite.ctx, "", types.WalletSubscriptionState{})
+	suite.ErrorContains(err, "id not specified")
+	_, err = suite.db.SetWalletPlanOverride(suite.ctx, "", types.PlanOverridePro)
+	suite.ErrorContains(err, "id not specified")
 
-	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
+	_, err = suite.db.UpdateWalletSubscription(suite.ctx, "non-existent-wallet-id", types.WalletSubscriptionState{})
+	suite.ErrorIs(err, ErrNotFound)
+	_, err = suite.db.SetWalletPlanOverride(suite.ctx, "non-existent-wallet-id", types.PlanOverridePro)
+	suite.ErrorIs(err, ErrNotFound)
+}
+
+// An admin sets a plan override while a Stripe sync that read the wallet
+// earlier is in flight. The sync's write must not revert the override, and
+// the override must not revert the synced subscription.
+func (suite *WalletTestSuite) TestPlanOverrideSurvivesInterleavedSubscriptionSync() {
+	createdWallet, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{
+		OrgID:                system.GenerateID(),
+		StripeSubscriptionID: "sub_old",
+		SubscriptionStatus:   stripe.SubscriptionStatusTrialing,
+	})
 	suite.NoError(err)
 
-	// Test different subscription statuses
-	statuses := []stripe.SubscriptionStatus{
-		stripe.SubscriptionStatusActive,
-		stripe.SubscriptionStatusCanceled,
-		stripe.SubscriptionStatusIncomplete,
-		stripe.SubscriptionStatusPastDue,
-		stripe.SubscriptionStatusTrialing,
-		stripe.SubscriptionStatusUnpaid,
-	}
+	// Sync and admin both read the wallet before either writes.
+	syncRead, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
+	suite.NoError(err)
+	adminRead, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
+	suite.NoError(err)
 
-	for i, status := range statuses {
-		updatedWallet := &types.Wallet{
-			ID:                 createdWallet.ID,
-			SubscriptionStatus: status,
-		}
+	_, err = suite.db.SetWalletPlanOverride(suite.ctx, adminRead.ID, types.PlanOverridePro)
+	suite.NoError(err)
 
-		result, err := suite.db.UpdateWallet(suite.ctx, updatedWallet)
-		suite.NoError(err, "Failed to update wallet with status %s", status)
-		suite.Equal(status, result.SubscriptionStatus, "Iteration %d: expected status %s, got %s", i, status, result.SubscriptionStatus)
-	}
+	state := syncRead.SubscriptionState()
+	state.Status = stripe.SubscriptionStatusActive
+	state.CurrentPeriodEnd = 1700000000
+	_, err = suite.db.UpdateWalletSubscription(suite.ctx, syncRead.ID, state)
+	suite.NoError(err)
+
+	final, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
+	suite.NoError(err)
+	suite.Equal(types.PlanOverridePro, final.PlanOverride)
+	suite.Equal(stripe.SubscriptionStatusActive, final.SubscriptionStatus)
+	suite.Equal(int64(1700000000), final.SubscriptionCurrentPeriodEnd)
+
+	// Reverse order: a sync lands first, then a stale admin clear.
+	_, err = suite.db.UpdateWalletSubscription(suite.ctx, final.ID, types.WalletSubscriptionState{
+		StripeSubscriptionID: "sub_new",
+		Status:               stripe.SubscriptionStatusPastDue,
+	})
+	suite.NoError(err)
+	_, err = suite.db.SetWalletPlanOverride(suite.ctx, final.ID, "")
+	suite.NoError(err)
+
+	final, err = suite.db.GetWallet(suite.ctx, createdWallet.ID)
+	suite.NoError(err)
+	suite.Empty(final.PlanOverride)
+	suite.Equal("sub_new", final.StripeSubscriptionID)
+	suite.Equal(stripe.SubscriptionStatusPastDue, final.SubscriptionStatus)
 }
 
 func (suite *WalletTestSuite) TestDeleteWallet() {
@@ -501,6 +457,85 @@ func (suite *WalletTestSuite) TestUpdateWalletBalance_TopUpIdempotency() {
 	topUps, err := suite.db.ListTopUps(suite.ctx, &ListTopUpsQuery{WalletID: createdWallet.ID})
 	suite.NoError(err)
 	suite.Len(topUps, 1)
+}
+
+func (suite *WalletTestSuite) TestUpdateWalletBalance_SubscriptionInvoiceIdempotency() {
+	createdWallet, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{
+		OrgID:   system.GenerateID(),
+		Balance: 0,
+	})
+	suite.NoError(err)
+
+	invoiceID := "in_" + system.GenerateID()
+	meta := types.TransactionMetadata{
+		TransactionType: types.TransactionTypeSubscription,
+		StripeInvoiceID: invoiceID,
+	}
+
+	credited, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 20.0, meta)
+	suite.NoError(err)
+	suite.NotNil(credited)
+	suite.Equal(20.0, credited.Balance)
+
+	// Redelivery of the same invoice: no credit.
+	duplicate, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 20.0, meta)
+	suite.NoError(err)
+	suite.Nil(duplicate)
+
+	// Concurrent redeliveries: still no further credit.
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 20.0, meta)
+			suite.NoError(err)
+		}()
+	}
+	wg.Wait()
+
+	// The next month's invoice is a different id and credits normally.
+	next, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 20.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeSubscription,
+		StripeInvoiceID: "in_" + system.GenerateID(),
+	})
+	suite.NoError(err)
+	suite.NotNil(next)
+
+	final, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
+	suite.NoError(err)
+	suite.Equal(40.0, final.Balance)
+
+	txns, err := suite.db.ListTransactions(suite.ctx, &ListTransactionsQuery{
+		WalletID:        createdWallet.ID,
+		TransactionType: types.TransactionTypeSubscription,
+	})
+	suite.NoError(err)
+	suite.Len(txns, 2)
+}
+
+func (suite *WalletTestSuite) TestUpdateWalletBalance_InvoiceClaimRolledBackOnFailure() {
+	createdWallet, err := suite.db.CreateWallet(suite.ctx, &types.Wallet{
+		OrgID:   system.GenerateID(),
+		Balance: 5.0,
+	})
+	suite.NoError(err)
+
+	invoiceID := "in_" + system.GenerateID()
+	// A debit that fails the balance check must not leave the invoice claimed.
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, -50.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeSubscription,
+		StripeInvoiceID: invoiceID,
+	})
+	suite.ErrorContains(err, types.ErrorInsufficientBalance)
+
+	credited, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 20.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeSubscription,
+		StripeInvoiceID: invoiceID,
+	})
+	suite.NoError(err)
+	suite.NotNil(credited)
+	suite.Equal(25.0, credited.Balance)
 }
 
 func (suite *WalletTestSuite) TestUpdateWalletBalance_Negative() {

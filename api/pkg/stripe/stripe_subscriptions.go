@@ -196,19 +196,12 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 	}
 	previousStatus := wallet.SubscriptionStatus
 
-	wallet.StripeSubscriptionID = subscription.ID
-	wallet.SubscriptionCurrentPeriodStart = subscription.CurrentPeriodStart
-	wallet.SubscriptionCurrentPeriodEnd = subscription.CurrentPeriodEnd
-	wallet.SubscriptionCreated = subscription.Created
-	wallet.SubscriptionCancelAtPeriodEnd = subscription.CancelAtPeriodEnd
-
+	state := types.SubscriptionStateFromStripe(&subscription)
 	if eventType == types.SubscriptionEventTypeDeleted {
-		wallet.SubscriptionStatus = stripe.SubscriptionStatusCanceled
-	} else {
-		wallet.SubscriptionStatus = subscription.Status
+		state.Status = stripe.SubscriptionStatusCanceled
 	}
 
-	_, err = s.store.UpdateWallet(ctx, wallet)
+	wallet, err = s.store.UpdateWalletSubscription(ctx, wallet.ID, state)
 	if err != nil {
 		return fmt.Errorf("failed to update wallet: %w", err)
 	}

@@ -214,6 +214,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Wallet{},
 		&types.Transaction{},
 		&types.TopUp{},
+		&types.SubscriptionInvoiceCredit{},
 		&types.Project{},
 		&types.Artifact{},
 		&types.ArtifactVersion{},

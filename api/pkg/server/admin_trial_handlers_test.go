@@ -62,10 +62,7 @@ func TestAdminActivateTrial_AppliesPaidPlanToSelectedOrg(t *testing.T) {
 	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{orgA, orgB}, nil)
 	db.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org-b"}).Return(orgB, nil)
 	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(walletB, nil)
-	db.EXPECT().UpdateWallet(gomock.Any(), walletB).DoAndReturn(func(_ context.Context, got *types.Wallet) (*types.Wallet, error) {
-		require.Equal(t, types.PlanOverridePro, got.PlanOverride)
-		return got, nil
-	})
+	db.EXPECT().SetWalletPlanOverride(gomock.Any(), walletB.ID, types.PlanOverridePro).Return(walletB, nil)
 	db.EXPECT().UpdateUser(gomock.Any(), user).DoAndReturn(func(_ context.Context, got *types.User) (*types.User, error) {
 		require.False(t, got.Waitlisted)
 		return got, nil
@@ -232,10 +229,10 @@ func TestAdminActivateTrial_AppliesStripeTrialToSelectedOrgAndApprovesUser(t *te
 	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{orgA, orgB}, nil)
 	db.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org-b"}).Return(orgB, nil)
 	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(walletB, nil)
-	db.EXPECT().UpdateWallet(gomock.Any(), walletB).DoAndReturn(func(_ context.Context, got *types.Wallet) (*types.Wallet, error) {
-		require.Equal(t, "sub-b", got.StripeSubscriptionID)
-		require.Equal(t, stripeapi.SubscriptionStatusTrialing, got.SubscriptionStatus)
-		return got, nil
+	db.EXPECT().UpdateWalletSubscription(gomock.Any(), walletB.ID, gomock.Any()).DoAndReturn(func(_ context.Context, _ string, state types.WalletSubscriptionState) (*types.Wallet, error) {
+		require.Equal(t, "sub-b", state.StripeSubscriptionID)
+		require.Equal(t, stripeapi.SubscriptionStatusTrialing, state.Status)
+		return walletB, nil
 	})
 	db.EXPECT().UpdateUser(gomock.Any(), user).DoAndReturn(func(_ context.Context, got *types.User) (*types.User, error) {
 		require.False(t, got.Waitlisted)
@@ -282,10 +279,11 @@ func TestAdminRevokeTrial_CancelsTrialOnSelectedOrg(t *testing.T) {
 	db.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target"}).Return(&types.User{ID: "target"}, nil)
 	db.EXPECT().ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target"}).Return([]*types.Organization{orgA, orgB}, nil)
 	db.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(walletB, nil)
-	db.EXPECT().UpdateWallet(gomock.Any(), walletB).DoAndReturn(func(_ context.Context, got *types.Wallet) (*types.Wallet, error) {
-		require.Equal(t, stripeapi.SubscriptionStatusCanceled, got.SubscriptionStatus)
-		require.False(t, got.SubscriptionCancelAtPeriodEnd)
-		return got, nil
+	db.EXPECT().UpdateWalletSubscription(gomock.Any(), walletB.ID, gomock.Any()).DoAndReturn(func(_ context.Context, _ string, state types.WalletSubscriptionState) (*types.Wallet, error) {
+		require.Equal(t, "sub-b", state.StripeSubscriptionID)
+		require.Equal(t, stripeapi.SubscriptionStatusCanceled, state.Status)
+		require.False(t, state.CancelAtPeriodEnd)
+		return walletB, nil
 	})
 
 	originalBackend := stripeapi.GetBackend(stripeapi.APIBackend)
