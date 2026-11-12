@@ -1,22 +1,20 @@
 import React, { FC, useState, useEffect, useCallback, useRef } from 'react'
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  ButtonBase,
-  TextField,
-  Box,
-  FormControl,
-  Select,
-  MenuItem,
-  Typography,
-  Divider,
-  Alert,
-  CircularProgress,
-  Tooltip,
-} from '@mui/material'
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import ButtonBase from '@mui/material/ButtonBase';
+import TextField from '@mui/material/TextField';
+import Box from '@mui/material/Box';
+import FormControl from '@mui/material/FormControl';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import Typography from '@mui/material/Typography';
+import Divider from '@mui/material/Divider';
+import Alert from '@mui/material/Alert';
+import CircularProgress from '@mui/material/CircularProgress';
+import Tooltip from '@mui/material/Tooltip';
 import { Check, ChevronRight, FolderGit2, Link as LinkIcon, Plus } from 'lucide-react'
 import { SiBitbucket, SiGithub, SiGitlab } from 'react-icons/si'
 import { TypesExternalRepositoryType, TypesRepositoryInfo } from '../../api/api'

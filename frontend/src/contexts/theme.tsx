@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, ReactNode } from 'react'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useApi from '../hooks/useApi'
-import { PaletteMode } from '@mui/material'
+import type { PaletteMode } from '@mui/material';
 import { APP_FONT_FAMILY, APP_MONO_FONT_FAMILY, TYPOGRAPHY, typographyCssVariables } from '../styles/typography'
 
 const THEME_MODE_KEY = 'themeMode'

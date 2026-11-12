@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Box,
-  Typography,
-  CircularProgress,
-} from '@mui/material';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import CircularProgress from '@mui/material/CircularProgress';
 import { TypesTriggerExecution, TypesTriggerExecutionStatus } from '../../api/api';
 import { useListAppTriggerExecutions } from '../../services/appService';
 import useAccount from '../../hooks/useAccount';

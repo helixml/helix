@@ -2,10 +2,12 @@ package pubsub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -30,7 +32,6 @@ type ConnectionStatus string
 const (
 	Connected    ConnectionStatus = "connected"
 	Disconnected ConnectionStatus = "disconnected"
-	Reconnecting ConnectionStatus = "reconnecting"
 )
 
 type ConnectionStatusHandler func(status ConnectionStatus)
@@ -40,19 +41,18 @@ type Nats struct {
 	js             jetstream.JetStream
 	embeddedServer *server.Server
 
-	stream jetstream.Stream
+	// ownedStoreDir is the JetStream store directory NewInMemoryNats
+	// created; Close removes it. Empty for configured store directories.
+	ownedStoreDir string
+	stopMonitor   context.CancelFunc
 
 	consumerMu sync.Mutex
 	consumer   jetstream.Consumer
 
-	// Zed agent stream and consumer (separate from GPTScript)
-	zedStream   jetstream.Stream
+	// Zed agent consumer (separate from GPTScript)
 	zedConsumer jetstream.Consumer
 
-	// Support for multiple streams
-	streams   map[string]jetstream.Stream
-	consumers map[string]jetstream.Consumer
-	streamMu  sync.RWMutex
+	streams map[string]jetstream.Stream
 
 	statusHandlers []ConnectionStatusHandler
 	statusMu       sync.RWMutex
@@ -65,9 +65,11 @@ func (n *Nats) OnConnectionStatus(handler ConnectionStatusHandler) {
 }
 
 func (n *Nats) notifyStatusChange(status ConnectionStatus) {
+	// Call handlers outside the lock: one may register another handler.
 	n.statusMu.RLock()
-	defer n.statusMu.RUnlock()
-	for _, handler := range n.statusHandlers {
+	handlers := slices.Clone(n.statusHandlers)
+	n.statusMu.RUnlock()
+	for _, handler := range handlers {
 		handler(status)
 	}
 }
@@ -76,11 +78,6 @@ func setupConnectionHandlers(nc *nats.Conn, n *Nats) {
 	nc.SetDisconnectErrHandler(func(_ *nats.Conn, err error) {
 		log.Warn().Err(err).Msg("nats connection lost")
 		n.notifyStatusChange(Disconnected)
-	})
-
-	nc.SetReconnectHandler(func(_ *nats.Conn) {
-		log.Info().Msg("nats reconnecting")
-		n.notifyStatusChange(Reconnecting)
 	})
 
 	nc.SetClosedHandler(func(_ *nats.Conn) {
@@ -92,9 +89,9 @@ func setupConnectionHandlers(nc *nats.Conn, n *Nats) {
 		log.Debug().Strs("servers", nc.DiscoveredServers()).Msg("discovered nats servers")
 	})
 
-	// Use reconnect handler for connected state since there's no specific connected handler
+	// The reconnect handler fires once the connection is re-established.
 	nc.SetReconnectHandler(func(_ *nats.Conn) {
-		log.Info().Msg("nats connected")
+		log.Info().Msg("nats reconnected")
 		n.notifyStatusChange(Connected)
 	})
 }
@@ -118,8 +115,6 @@ func getRandomPorts() (int, int, error) {
 // returns the server instance and any error that occurred
 func tryStartServer(cfg *config.ServerConfig, serverPort, wsPort int) (*server.Server, error) {
 	opts := &server.Options{
-		Debug:         true,
-		Trace:         true,
 		Host:          "127.0.0.1", // For internal use only
 		Port:          serverPort,
 		JetStream:     cfg.PubSub.Server.JetStream,
@@ -164,7 +159,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	var ns *server.Server
 	var err error
 
-	// Falback to runner token if no token is provided
+	// Fall back to the runner token if no token is provided
 	if cfg.PubSub.Server.Token == "" {
 		cfg.PubSub.Server.Token = cfg.WebServer.RunnerToken
 	}
@@ -231,11 +226,20 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		nc, err = nats.Connect(serverURL, opts...)
 	}
 	if err != nil {
+		if ns != nil {
+			ns.Shutdown()
+			ns.WaitForShutdown()
+		}
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}
 
 	js, err := jetstream.New(nc)
 	if err != nil {
+		nc.Close()
+		if ns != nil {
+			ns.Shutdown()
+			ns.WaitForShutdown()
+		}
 		return nil, fmt.Errorf("failed to create jetstream: %w", err)
 	}
 
@@ -245,7 +249,6 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		embeddedServer: ns,
 		js:             js,
 		streams:        make(map[string]jetstream.Stream),
-		consumers:      make(map[string]jetstream.Consumer),
 		statusHandlers: make([]ConnectionStatusHandler, 0),
 	}
 
@@ -261,9 +264,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		MaxAge:    5 * time.Minute, // Discard messages older than 5 minutes
 	})
 	if err != nil {
-		if n.embeddedServer != nil {
-			n.embeddedServer.Shutdown()
-		}
+		n.Close()
 		return nil, fmt.Errorf("failed to create zed agent stream: %w", err)
 	}
 
@@ -276,14 +277,11 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		MaxAge:    5 * time.Minute,
 	})
 	if err != nil {
-		if n.embeddedServer != nil {
-			n.embeddedServer.Shutdown()
-		}
+		n.Close()
 		return nil, fmt.Errorf("failed to create script runner stream: %w", err)
 	}
 
 	// Store streams in map
-	n.stream = stream
 	n.streams["ZED_AGENTS"] = stream
 	n.streams["SCRIPT_RUNNERS"] = scriptStream
 
@@ -339,6 +337,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 			ReplayPolicy:   jetstream.ReplayInstantPolicy,
 		})
 		if err != nil {
+			n.Close()
 			return nil, fmt.Errorf("failed to create consumer: %w", err)
 		}
 
@@ -349,18 +348,21 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 			Msg("successfully created ZED_AGENTS consumer")
 	}
 	n.consumer = c
-	n.consumers[consumerName] = c
 
-	// Basic monitoring of the stream
+	// Basic monitoring of the stream, stopped by Close.
+	monitorCtx, stopMonitor := context.WithCancel(context.Background())
+	n.stopMonitor = stopMonitor
 	go func() {
 		for {
-			info, err := stream.Info(ctx)
+			wait := 10 * time.Second
+			info, err := stream.Info(monitorCtx)
+			if monitorCtx.Err() != nil {
+				return
+			}
 			if err != nil {
 				log.Err(err).Msg("failed to get stream info")
-				time.Sleep(1 * time.Second) // Wait before retrying on error
-				continue
-			}
-			if info.State.Consumers == 0 {
+				wait = time.Second
+			} else if info.State.Consumers == 0 {
 				log.Trace().
 					Int("messages", int(info.State.Msgs)).
 					Int("consumers", info.State.Consumers).
@@ -374,13 +376,13 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 					Msg("ZED_AGENTS stream has many pending messages")
 			}
 
-			time.Sleep(10 * time.Second)
+			select {
+			case <-monitorCtx.Done():
+				return
+			case <-time.After(wait):
+			}
 		}
 	}()
-
-	// Update the Nats struct with stream and consumer
-	n.stream = stream
-	n.consumer = c
 
 	// Setup connection monitoring
 	setupConnectionHandlers(nc, n)
@@ -398,21 +400,25 @@ func NewInMemoryNats() (*Nats, error) {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
-	randomPort, err := freeport.GetFreePort()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get free port: %w", err)
-	}
-
 	cfg := &config.ServerConfig{}
 	cfg.PubSub.StoreDir = tmpDir
-	cfg.PubSub.Server.Host = "0.0.0.0"
-	cfg.PubSub.Server.Port = randomPort
-	cfg.PubSub.Server.WebsocketPort = randomPort + 1
+	cfg.PubSub.Server.Host = "127.0.0.1" // no token: never reachable off-host
+	// Let the kernel assign both ports at bind time. Probing for a free port
+	// first (and assuming port+1 is free too) races with every other
+	// in-process server; a lost race costs ReadyForConnections' full 4s.
+	cfg.PubSub.Server.Port = server.RANDOM_PORT
+	cfg.PubSub.Server.WebsocketPort = server.RANDOM_PORT
 	cfg.PubSub.Server.JetStream = true
 	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024 // 32MB
 	cfg.PubSub.Server.EmbeddedNatsServerEnabled = true
 
-	return NewNats(cfg)
+	n, err := NewNats(cfg)
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return nil, err
+	}
+	n.ownedStoreDir = tmpDir
+	return n, nil
 }
 
 func NewNatsClient(u string, token string) (*Nats, error) {
@@ -472,11 +478,11 @@ func (n *Nats) Subscribe(_ context.Context, topic string, handler func(payload [
 	sub, err := n.conn.Subscribe(topic, func(msg *nats.Msg) {
 		err := handler(msg.Data)
 		if err != nil {
-			log.Err(err).Msg("error handling message")
+			log.Err(err).Str("subject", msg.Subject).Msg("error handling message")
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("subscribe %q: %w", topic, err)
 	}
 
 	return sub, nil
@@ -486,11 +492,11 @@ func (n *Nats) SubscribeWithCtx(_ context.Context, topic string, handler func(ct
 	sub, err := n.conn.Subscribe(topic, func(msg *nats.Msg) {
 		err := handler(context.Background(), msg)
 		if err != nil {
-			log.Err(err).Msg("error handling message")
+			log.Err(err).Str("subject", msg.Subject).Msg("error handling message")
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("subscribe %q: %w", topic, err)
 	}
 
 	return sub, nil
@@ -540,13 +546,18 @@ func (n *Nats) Request(ctx context.Context, sub string, header map[string]string
 
 func (n *Nats) QueueRequest(ctx context.Context, _, subject string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error) {
 	replyInbox := nats.NewInbox()
-	var dataCh = make(chan []byte)
+	// Buffered with a non-blocking send: a reply arriving after the caller
+	// gave up must not block the subscription's delivery goroutine forever.
+	dataCh := make(chan []byte, 1)
 
 	sub, err := n.conn.Subscribe(replyInbox, func(msg *nats.Msg) {
-		dataCh <- msg.Data
+		select {
+		case dataCh <- msg.Data:
+		default:
+		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("subscribe reply inbox: %w", err)
 	}
 	defer func() {
 		if err := sub.Unsubscribe(); err != nil {
@@ -593,27 +604,32 @@ func (n *Nats) QueueSubscribe(_ context.Context, queue, subject string, handler 
 			msg:    &natsMsgWrapper{msg},
 		})
 		if err != nil {
-			log.Err(err).Msg("error handling message")
+			log.Err(err).Str("subject", msg.Subject).Str("queue", queue).Msg("error handling message")
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("queue subscribe %q on %q: %w", queue, subject, err)
 	}
 
 	return sub, nil
 }
 
-// Request publish a message to the given subject and creates an inbox to receive the response. If response is not
+// StreamRequest publishes a message to the stream and creates an inbox to receive the response. If response is not
 // received within the timeout, an error is returned.
 func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error) {
 	replyInbox := nats.NewInbox()
-	var dataCh = make(chan []byte)
+	// Buffered with a non-blocking send: a reply arriving after the caller
+	// gave up must not block the subscription's delivery goroutine forever.
+	dataCh := make(chan []byte, 1)
 
 	sub, err := n.conn.Subscribe(replyInbox, func(msg *nats.Msg) {
-		dataCh <- msg.Data
+		select {
+		case dataCh <- msg.Data:
+		default:
+		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("subscribe reply inbox: %w", err)
 	}
 	defer func() {
 		if err := sub.Unsubscribe(); err != nil {
@@ -630,19 +646,10 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 	hdr.Set(helixNatsReplyHeader, replyInbox)
 	hdr.Set(helixNatsSubjectHeader, subject)
 
-	// streamTopic := getStreamSub(stream, subject) + "." + nuid.Next()
 	streamTopic := getStreamSub(stream, subject)
 
-	log.Debug().
-		Str("EXTERNAL_AGENT_DEBUG", "publishing_to_jetstream").
-		Str("stream_topic", streamTopic).
-		Str("stream", stream).
-		Str("subject", subject).
-		Msg("🚀 EXTERNAL_AGENT_DEBUG: Publishing message to JetStream")
-
-	// Publish the message to the JetStream stream,
-	// one of the consumer will pick it up
-	ackFuture, err := n.js.PublishMsg(ctx, &nats.Msg{
+	// One of the stream's consumers will pick it up.
+	ack, err := n.js.PublishMsg(ctx, &nats.Msg{
 		Subject: streamTopic,
 		Data:    payload,
 		Header:  hdr,
@@ -651,33 +658,25 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 		jetstream.WithRetryAttempts(10),
 	)
 	if err != nil {
-		log.Error().
-			Str("EXTERNAL_AGENT_DEBUG", "jetstream_publish_error").
-			Err(err).
-			Str("stream_topic", streamTopic).
-			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to publish to JetStream")
-		return nil, fmt.Errorf("failed to publish message to jetstream: %w", err)
+		return nil, fmt.Errorf("failed to publish message to jetstream subject %s: %w", streamTopic, err)
 	}
-
-	// Log the JetStream acknowledgment info
-	if ackFuture != nil {
-		log.Debug().
-			Str("EXTERNAL_AGENT_DEBUG", "jetstream_publish_ack").
-			Str("stream_topic", streamTopic).
-			Str("stream_name", ackFuture.Stream).
-			Uint64("sequence", ackFuture.Sequence).
-			Bool("duplicate", ackFuture.Duplicate).
-			Msg("✅ EXTERNAL_AGENT_DEBUG: JetStream acknowledged message")
-	} else {
-		log.Warn().
-			Str("EXTERNAL_AGENT_DEBUG", "jetstream_publish_no_ack").
-			Str("stream_topic", streamTopic).
-			Msg("⚠️ EXTERNAL_AGENT_DEBUG: JetStream publish returned no acknowledgment")
-	}
+	log.Debug().
+		Str("stream", ack.Stream).
+		Str("subject", streamTopic).
+		Uint64("sequence", ack.Sequence).
+		Bool("duplicate", ack.Duplicate).
+		Msg("published request to jetstream")
 
 	select {
 	case <-ctx.Done():
-		info, err := n.stream.Info(context.Background())
+		target, ok := n.streams[stream]
+		if !ok {
+			return nil, ctx.Err()
+		}
+		// The caller's context is done; bound the diagnostic on its own.
+		infoCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		info, err := target.Info(infoCtx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get stream info: %w", err)
 		}
@@ -694,52 +693,29 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 	}
 }
 
-// QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
-// have multiple subscribers to the same subject, but only one gets it.
+// StreamConsume delivers messages from a JetStream stream to handler. All
+// subscribers of a stream share one consumer, so each message reaches one of
+// them. The subscription stops on Unsubscribe, when ctx ends, or when the
+// iterator fails terminally (e.g. the consumer is deleted).
 func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handler func(msg *Message) error) (Subscription, error) {
-	log.Info().
-		Str("ZED_FLOW_DEBUG", "stream_consume_simple_pattern").
-		Str("stream", stream).
-		Str("subject", subject).
-		Msg("🎯 ZED_FLOW_DEBUG: Using SIMPLE GPTScript pattern - single anonymous consumer")
-
 	n.consumerMu.Lock()
 	defer n.consumerMu.Unlock()
 
-	// Use the EXACT same simple pattern as working GPTScript implementation
-	// Get the appropriate stream (ZED_AGENTS for Zed, SCRIPTS for GPTScript)
-	var targetStream jetstream.Stream
-	var err error
-
-	// Get the appropriate stream from the streams map
-	if storedStream, ok := n.streams[stream]; ok {
-		targetStream = storedStream
-	} else {
+	targetStream, ok := n.streams[stream]
+	if !ok {
 		return nil, fmt.Errorf("stream %s not found", stream)
 	}
 
-	// Check existing consumers - EXACT same logic as GPTScript
 	info, err := targetStream.Info(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream info: %w", err)
 	}
 
-	log.Info().
-		Str("ZED_FLOW_DEBUG", "checking_existing_consumers").
-		Str("stream", stream).
-		Int("consumer_count", info.State.Consumers).
-		Msg("🔧 ZED_FLOW_DEBUG: Checking if consumer already exists")
-
-	// EXACT same logic as GPTScript - only create if no consumers exist
+	// Only create a consumer if the stream has none; otherwise share it.
 	if info.State.Consumers == 0 {
-		log.Info().
-			Str("ZED_FLOW_DEBUG", "creating_anonymous_consumer").
-			Str("stream", stream).
-			Msg("🆕 ZED_FLOW_DEBUG: No consumers exist - creating anonymous consumer like GPTScript")
-
-		// Create ANONYMOUS consumer (no Name field) - EXACT same as GPTScript
+		// Anonymous (no Name): a named one fails with "not unique" when
+		// another process created it concurrently.
 		c, err := targetStream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-			// ✅ NO NAME FIELD - This prevents the "not unique" error
 			AckPolicy:      jetstream.AckExplicitPolicy,
 			FilterSubjects: []string{getStreamSub(stream, subject)},
 			AckWait:        5 * time.Second,
@@ -749,21 +725,13 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handle
 		if err != nil {
 			return nil, fmt.Errorf("failed to create consumer: %w", err)
 		}
-
-		// Store consumer based on stream type (like GPTScript stores in n.consumer)
 		if stream == ZedAgentRunnerStream {
 			n.zedConsumer = c
 		} else {
 			n.consumer = c
 		}
-
-		log.Info().
-			Str("ZED_FLOW_DEBUG", "anonymous_consumer_created").
-			Str("stream", stream).
-			Msg("✅ ZED_FLOW_DEBUG: Anonymous consumer created successfully")
 	}
 
-	// EXACT GPTScript pattern - just use the stored consumer, no recreation logic
 	var activeConsumer jetstream.Consumer
 	if stream == ZedAgentRunnerStream {
 		activeConsumer = n.zedConsumer
@@ -771,138 +739,145 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handle
 		activeConsumer = n.consumer
 	}
 
-	// If consumer is nil, it means we need to use the startup-created consumer
-	// The startup code creates helix-zed-agent-consumer, but we need to get a reference to it
-	if activeConsumer == nil && info.State.Consumers > 0 {
-		log.Info().
-			Str("ZED_FLOW_DEBUG", "using_startup_consumer").
-			Str("stream", stream).
-			Int("consumer_count", info.State.Consumers).
-			Msg("🔧 ZED_FLOW_DEBUG: No local consumer reference - using startup-created consumer")
-
-		// Get the existing consumer created at startup (don't create a new one!)
+	// No local reference yet: adopt the consumer created at startup.
+	if activeConsumer == nil {
 		consumers := targetStream.ListConsumers(ctx)
-
-		// Iterate over the channel to get the first consumer
+		var startup *jetstream.ConsumerInfo
 		for consumerInfo := range consumers.Info() {
-			log.Info().
-				Str("ZED_FLOW_DEBUG", "found_existing_consumer").
-				Str("consumer_name", consumerInfo.Name).
-				Msg("📍 ZED_FLOW_DEBUG: Found existing consumer from startup")
-
-			// Get consumer by name
-			consumer, err := targetStream.Consumer(ctx, consumerInfo.Name)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get consumer %s: %w", consumerInfo.Name, err)
+			if startup == nil {
+				startup = consumerInfo
 			}
-
-			// Store the consumer reference
-			if stream == ZedAgentRunnerStream {
-				n.zedConsumer = consumer
-				activeConsumer = consumer
-			} else {
-				n.consumer = consumer
-				activeConsumer = consumer
-			}
-			break // Use the first consumer
 		}
+		if err := consumers.Err(); err != nil {
+			return nil, fmt.Errorf("failed to list consumers of stream %s: %w", stream, err)
+		}
+		if startup == nil {
+			return nil, fmt.Errorf("stream %s has no consumer to read from", stream)
+		}
+		consumer, err := targetStream.Consumer(ctx, startup.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get consumer %s: %w", startup.Name, err)
+		}
+		if stream == ZedAgentRunnerStream {
+			n.zedConsumer = consumer
+		} else {
+			n.consumer = consumer
+		}
+		activeConsumer = consumer
 	}
 
-	mc, err := activeConsumer.Messages()
+	// Missing heartbeats are transient (a stalled link); the iterator recovers
+	// on its own, so only terminal errors may end the loop.
+	mc, err := activeConsumer.Messages(jetstream.WithMessagesErrOnMissingHeartbeat(false))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get messages context: %w", err)
 	}
 
+	sub := &messagesSubscription{messages: mc, done: make(chan struct{})}
 	go func() {
-		<-ctx.Done()
-		mc.Stop()
+		select {
+		case <-ctx.Done():
+			sub.Unsubscribe()
+		case <-sub.done:
+		}
 	}()
 
 	go func() {
-		log.Info().
-			Str("ZED_FLOW_DEBUG", "nats_consumer_loop_start").
-			Str("stream", stream).
-			Str("subject", subject).
-			Msg("🔄 ZED_FLOW_DEBUG: [STEP 2.7] NATS consumer message loop started - waiting for messages from JetStream")
-
+		defer sub.Unsubscribe()
 		for {
-			select {
-			case <-ctx.Done():
-				log.Debug().
-					Str("EXTERNAL_AGENT_DEBUG", "consumer_loop_cancelled").
-					Str("stream", stream).
-					Str("subject", subject).
-					Msg("🛑 EXTERNAL_AGENT_DEBUG: Consumer message loop cancelled")
+			msg, err := sub.next()
+			if err != nil {
+				if ctx.Err() == nil && !sub.stopped() {
+					log.Error().Err(err).Str("stream", stream).Str("subject", subject).Msg("stream consumer stopped")
+				}
 				return
-			default:
-				log.Trace().
-					Str("ZED_FLOW_DEBUG", "fetching_next_nats_message").
-					Str("stream", stream).
-					Str("subject", subject).
-					Msg("🔍 ZED_FLOW_DEBUG: Polling JetStream for next message...")
+			}
 
-				msg, err := mc.Next()
-				if err != nil {
-					log.Err(err).
-						Str("ZED_FLOW_DEBUG", "nats_fetch_error").
-						Str("stream", stream).
-						Str("subject", subject).
-						Msg("❌ ZED_FLOW_DEBUG: Failed to fetch message from JetStream - retrying in 1s")
-					time.Sleep(1 * time.Second) // Prevent tight loop on connection errors
-					continue
-				}
+			log.Debug().
+				Str("stream", stream).
+				Str("msg_subject", msg.Subject()).
+				Str("reply_header", msg.Headers().Get(helixNatsReplyHeader)).
+				Int("data_length", len(msg.Data())).
+				Msg("nats stream message received")
 
-				log.Info().
-					Str("ZED_FLOW_DEBUG", "nats_message_received").
-					Str("stream", stream).
-					Str("subject", subject).
-					Str("msg_subject", msg.Subject()).
-					Str("reply_header", msg.Headers().Get(helixNatsReplyHeader)).
-					Str("subject_header", msg.Headers().Get(helixNatsSubjectHeader)).
-					Int("data_length", len(msg.Data())).
-					Msg("🎯 ZED_FLOW_DEBUG: [STEP 2.8] NATS message received from JetStream - about to call handler")
-
-				err = handler(&Message{
-					Type:   msg.Headers().Get(helixNatsSubjectHeader),
-					Reply:  msg.Headers().Get(helixNatsReplyHeader),
-					Data:   msg.Data(),
-					Header: msg.Headers(),
-					msg:    msg,
-				})
-				if err != nil {
-					log.Err(err).
-						Str("ZED_FLOW_DEBUG", "handler_error").
-						Str("stream", stream).
-						Str("subject", subject).
-						Msg("❌ ZED_FLOW_DEBUG: [STEP 2.9 FAILED] Handler function returned error")
-				} else {
-					log.Info().
-						Str("ZED_FLOW_DEBUG", "handler_success").
-						Str("stream", stream).
-						Str("subject", subject).
-						Msg("✅ ZED_FLOW_DEBUG: [STEP 2.9] Handler function completed successfully - message forwarded to WebSocket")
-				}
+			err = handler(&Message{
+				Type:   msg.Headers().Get(helixNatsSubjectHeader),
+				Reply:  msg.Headers().Get(helixNatsReplyHeader),
+				Data:   msg.Data(),
+				Header: msg.Headers(),
+				msg:    msg,
+			})
+			if err != nil {
+				log.Err(err).Str("stream", stream).Str("subject", subject).Msg("stream consumer handler failed")
 			}
 		}
-
 	}()
 
-	// Consumer wrapper noop
-	return &consumerWrapper{}, nil
+	return sub, nil
+}
+
+// messagesSubscription stops a JetStream message iterator exactly once.
+type messagesSubscription struct {
+	messages jetstream.MessagesContext
+	done     chan struct{}
+	once     sync.Once
+}
+
+// errUnsubscribed ends a consumer loop whose subscription was stopped.
+var errUnsubscribed = errors.New("subscription stopped")
+
+// next returns the iterator's next message. A message the iterator had
+// already pulled when Unsubscribe ran is NAKed back to the stream rather than
+// handled.
+func (s *messagesSubscription) next() (jetstream.Msg, error) {
+	msg, err := s.messages.Next()
+	if err != nil {
+		return nil, err
+	}
+	if s.stopped() {
+		_ = msg.Nak()
+		return nil, errUnsubscribed
+	}
+	return msg, nil
+}
+
+func (s *messagesSubscription) stopped() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *messagesSubscription) Unsubscribe() error {
+	s.once.Do(func() {
+		close(s.done)
+		s.messages.Stop()
+	})
+	return nil
 }
 
 func (n *Nats) NumSubscriptions() int {
 	return n.conn.NumSubscriptions()
 }
 
+// Close releases everything this instance owns: the stream monitor, the
+// connection, the embedded server and a store directory it created.
 func (n *Nats) Close() {
+	if n.stopMonitor != nil {
+		n.stopMonitor()
+	}
 	n.conn.Close()
-}
-
-type consumerWrapper struct{}
-
-func (c *consumerWrapper) Unsubscribe() error {
-	return nil
+	if n.embeddedServer != nil {
+		n.embeddedServer.Shutdown()
+		n.embeddedServer.WaitForShutdown()
+	}
+	if n.ownedStoreDir != "" {
+		if err := os.RemoveAll(n.ownedStoreDir); err != nil {
+			log.Warn().Err(err).Str("dir", n.ownedStoreDir).Msg("failed to remove nats store dir")
+		}
+	}
 }
 
 // gcJetStream is a helper function to clean up old streams

@@ -1,5 +1,6 @@
 import React, { useMemo, useId } from "react";
-import { Box, Tooltip } from "@mui/material";
+import Box from "@mui/material/Box";
+import Tooltip from "@mui/material/Tooltip";
 import useTheme from "@mui/material/styles/useTheme";
 import { LineChart } from "@mui/x-charts";
 import { ServerBatchTaskUsageMetric } from "../../api/api";

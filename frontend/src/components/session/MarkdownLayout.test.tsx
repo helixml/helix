@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render } from '@testing-library/react'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import { describe, expect, it } from 'vitest'

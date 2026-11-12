@@ -1,17 +1,15 @@
 import React, { FC, useMemo, useState } from 'react'
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  IconButton,
-  Paper,
-  Tab,
-  Tabs,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import Paper from '@mui/material/Paper';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import { ArrowLeft, GitMerge, GitPullRequest, GitPullRequestClosed, ListTodo, RefreshCw } from 'lucide-react'
 
 import type { TypesGitPullRequest, TypesGitRepository, TypesInternalPRFile } from '../../api/api'
