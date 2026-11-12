@@ -739,7 +739,7 @@ func (s *GitRepositoryService) getAzureDevOpsProject(repo *types.GitRepository) 
 
 	u, err := url.Parse(repo.ExternalURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid external URL: %w", err)
+		return "", fmt.Errorf("invalid external URL: %w", redactURLParseError(err))
 	}
 
 	pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
@@ -754,7 +754,7 @@ func (s *GitRepositoryService) getAzureDevOpsProject(repo *types.GitRepository) 
 		}
 	}
 
-	return "", fmt.Errorf("could not parse project from URL: %s", repo.ExternalURL)
+	return "", fmt.Errorf("could not parse project from URL: %s", RedactURLCredentials(repo.ExternalURL))
 }
 
 func (s *GitRepositoryService) getAzureDevOpsRepositoryName(repo *types.GitRepository) (string, error) {
@@ -764,7 +764,7 @@ func (s *GitRepositoryService) getAzureDevOpsRepositoryName(repo *types.GitRepos
 
 	u, err := url.Parse(repo.ExternalURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid external URL: %w", err)
+		return "", fmt.Errorf("invalid external URL: %w", redactURLParseError(err))
 	}
 
 	pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
@@ -778,7 +778,7 @@ func (s *GitRepositoryService) getAzureDevOpsRepositoryName(repo *types.GitRepos
 		}
 	}
 
-	return "", fmt.Errorf("could not parse repository name from URL: %s", repo.ExternalURL)
+	return "", fmt.Errorf("could not parse repository name from URL: %s", RedactURLCredentials(repo.ExternalURL))
 }
 
 // getAzureDevOpsClient creates an Azure DevOps client using the best available authentication method
