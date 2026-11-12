@@ -343,7 +343,7 @@ func (s *OIDCSuite) TestValidateUserToken_WaitlistedNewUser_CallsOnNewUser() {
 	s.NoError(err)
 
 	// User does not exist — triggers creation
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(2)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, u *types.User) (*types.User, error) {
 			s.True(u.Waitlisted)
@@ -384,7 +384,7 @@ func (s *OIDCSuite) TestValidateUserToken_NotWaitlisted_DoesNotCallOnNewUser() {
 	s.NoError(err)
 
 	// User does not exist — triggers creation
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(2)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, u *types.User) (*types.User, error) {
 			s.False(u.Waitlisted)
@@ -474,7 +474,7 @@ func (s *OIDCSuite) TestValidateUserToken_NewUser_ConsumesInvitation_BypassesWai
 	s.NoError(err)
 
 	// New user — not in DB.
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(2)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 
 	// CreateUser is called with Waitlisted=true (global setting). The OIDC
 	// handler flips it back to false in-memory and persists via UpdateUser.
@@ -540,7 +540,7 @@ func (s *OIDCSuite) TestValidateUserToken_NewUser_NoInvitation_StaysWaitlisted()
 	})
 	s.NoError(err)
 
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(2)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, u *types.User) (*types.User, error) { return u, nil })
 	// No invitations match.
@@ -570,7 +570,7 @@ func (s *OIDCSuite) TestValidateUserToken_NewUser_InvitationError_DoesNotFailReg
 	})
 	s.NoError(err)
 
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(2)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, u *types.User) (*types.User, error) { return u, nil })
 	s.mockStore.EXPECT().ConsumePendingInvitations(gomock.Any(), gomock.Any()).

@@ -364,6 +364,13 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 	// deployment moved to SSO, or by an admin). It is linked, never
 	// duplicated, and only on the IdP's word that the address is verified: an
 	// IdP that lets users type any email must not sign them in as its owner.
+	if user == nil {
+		linked, err := c.store.GetUser(ctx, &store.GetUserQuery{OIDCSubject: userInfo.Subject})
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("invalid access token (database error): %w", err)
+		}
+		user = linked
+	}
 	if user == nil && userInfo.Email != "" {
 		existing, err := c.store.GetUser(ctx, &store.GetUserQuery{Email: userInfo.Email})
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -377,11 +384,10 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 			}
 			log.Info().Str("subject", userInfo.Subject).Str("user_id", existing.ID).
 				Msg("Linking OIDC sign-in to the existing account with its verified email")
-			if !existing.EmailVerified {
-				existing.EmailVerified = true
-				if _, err := c.store.UpdateUser(ctx, existing); err != nil {
-					return nil, fmt.Errorf("failed to update user: %w", err)
-				}
+			existing.EmailVerified = true
+			existing.OIDCSubject = userInfo.Subject
+			if _, err := c.store.UpdateUser(ctx, existing); err != nil {
+				return nil, fmt.Errorf("failed to update user: %w", err)
 			}
 			user = existing
 		}
@@ -407,6 +413,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		user, err = c.store.CreateUser(ctx, &types.User{
 			ID:            userInfo.Subject,
 			Username:      userInfo.Subject,
+			OIDCSubject:   userInfo.Subject,
 			Email:         userInfo.Email,
 			EmailVerified: userInfo.EmailVerified,
 			FullName:      fullName,

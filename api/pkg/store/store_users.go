@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 
@@ -17,6 +18,9 @@ import (
 type GetUserQuery struct {
 	ID    string
 	Email string
+	// OIDCSubject selects the account linked to this identity provider
+	// subject (types.User.OIDCSubject).
+	OIDCSubject string
 	// DesktopIdentity selects the Helix Desktop auto-login account (the
 	// oldest, should there ever be more than one).
 	DesktopIdentity bool
@@ -129,7 +133,7 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 
 // GetUser retrieves a user by ID
 func (s *PostgresStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error) {
-	if q.ID == "" && q.Email == "" && !q.DesktopIdentity {
+	if q.ID == "" && q.Email == "" && q.OIDCSubject == "" && !q.DesktopIdentity {
 		return nil, fmt.Errorf("userID or email cannot be empty")
 	}
 
@@ -137,6 +141,9 @@ func (s *PostgresStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.Us
 
 	if q.DesktopIdentity {
 		query = query.Where("desktop_identity = ?", true).Order("created_at ASC")
+	}
+	if q.OIDCSubject != "" {
+		query = query.Where("oidc_subject = ?", q.OIDCSubject).Order("created_at ASC")
 	}
 
 	if q.ID != "" {
@@ -165,6 +172,28 @@ func (s *PostgresStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.Us
 		return nil, err
 	}
 	return &user, nil
+}
+
+// backfillEmailVerified marks accounts created from an identity provider
+// assertion as having a verified email, once, for rows that predate the
+// column. Such accounts use the provider's subject as their ID (not the
+// usr_ prefix of password sign-ups) or record an SSO auth provider. Password
+// sign-ups stay unverified. Idempotent: it only ever sets false to true.
+func (s *PostgresStore) backfillEmailVerified(ctx context.Context) error {
+	if !s.gdb.Migrator().HasTable(&types.User{}) {
+		return nil
+	}
+	err := s.gdb.WithContext(ctx).Exec(`
+		UPDATE users
+		SET email_verified = true
+		WHERE email_verified = false
+		  AND email <> ''
+		  AND (auth_provider = ? OR (id NOT LIKE ? AND auth_provider <> ? AND auth_provider <> ?))
+	`, types.AuthProviderOIDC, system.UserPrefix+"%", types.AuthProviderRegular, types.AuthProviderService).Error
+	if err != nil {
+		return fmt.Errorf("backfill users.email_verified: %w", err)
+	}
+	return nil
 }
 
 // CreateUser creates a new user

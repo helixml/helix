@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/crypto/bcrypt"
+	"gopkg.in/go-jose/go-jose.v2/jwt"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
@@ -39,10 +40,12 @@ func TestValidateUserToken_LinksVerifiedEmailToExistingAccount(t *testing.T) {
 
 	existing := &types.User{ID: "usr_password", Username: "person@example.com", Email: "person@example.com", AuthProvider: types.AuthProviderRegular}
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "idp-sub-1"}).Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{OIDCSubject: "idp-sub-1"}).Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "person@example.com"}).Return(existing, nil)
 	mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
 		require.Equal(t, existing.ID, u.ID)
 		require.True(t, u.EmailVerified, "the IdP's assertion verifies the address")
+		require.Equal(t, "idp-sub-1", u.OIDCSubject, "the link is persisted")
 		return u, nil
 	})
 	mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
@@ -62,6 +65,7 @@ func TestValidateUserToken_RefusesUnverifiedEmailOfExistingAccount(t *testing.T)
 	client := newLinkingTestClient(t, mockStore, false)
 
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "idp-sub-1"}).Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{OIDCSubject: "idp-sub-1"}).Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{Email: "person@example.com"}).
 		Return(&types.User{ID: "usr_password", Email: "person@example.com"}, nil)
 
@@ -76,9 +80,10 @@ func TestValidateUserToken_NewAccountRecordsEmailVerified(t *testing.T) {
 		mockStore := store.NewMockStore(ctrl)
 		client := newLinkingTestClient(t, mockStore, verified)
 
-		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(2)
+		mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).Times(3)
 		mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
 			require.Equal(t, verified, u.EmailVerified)
+			require.Equal(t, "idp-sub-1", u.OIDCSubject)
 			return u, nil
 		})
 		if verified {
@@ -90,6 +95,60 @@ func TestValidateUserToken_NewAccountRecordsEmailVerified(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, verified, user.EmailVerified)
 	}
+}
+
+// Once linked, later sign-ins resolve the account by the stored subject
+// before any email lookup, so a changed or unverified email cannot re-link.
+func TestValidateUserToken_LinkedAccountResolvesBySubject(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	client := newLinkingTestClient(t, mockStore, false)
+
+	linked := &types.User{ID: "usr_password", Email: "person@example.com", EmailVerified: true, OIDCSubject: "idp-sub-1"}
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "idp-sub-1"}).Return(nil, store.ErrNotFound)
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{OIDCSubject: "idp-sub-1"}).Return(linked, nil)
+	// No lookup by email, no UpdateUser, no CreateUser.
+
+	user, err := client.ValidateUserToken(context.Background(), "tok")
+	require.NoError(t, err)
+	require.Equal(t, linked.ID, user.ID)
+}
+
+// A session token is bound to the credentials it was issued under: once the
+// password changes it is refused, while a token issued before the binding
+// existed is accepted until it expires.
+func TestValidateUserToken_RefusesTokenAfterPasswordChange(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	authn, err := NewHelixAuthenticator(&config.ServerConfig{}, mockStore, "a-private-test-secret-value", nil)
+	require.NoError(t, err)
+	authn.cfg.Auth.Regular.TokenValidity = time.Hour
+
+	user := &types.User{ID: "usr_1", Email: "user@example.com", PasswordHash: []byte("hash-v1")}
+	token, err := authn.GenerateUserToken(context.Background(), user)
+	require.NoError(t, err)
+
+	t.Run("same credentials", func(t *testing.T) {
+		mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).Return(user, nil)
+		_, err := authn.ValidateUserToken(context.Background(), token)
+		require.NoError(t, err)
+	})
+	t.Run("password changed", func(t *testing.T) {
+		changed := &types.User{ID: "usr_1", Email: "user@example.com", PasswordHash: []byte("hash-v2")}
+		mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).Return(changed, nil)
+		_, err := authn.ValidateUserToken(context.Background(), token)
+		require.ErrorContains(t, err, "credentials have changed")
+	})
+	t.Run("token without binding", func(t *testing.T) {
+		legacy, err := jwt.Signed(authn.signer).Claims(jwt.Claims{
+			Subject: user.ID, Issuer: "helix", Expiry: jwt.NewNumericDate(time.Now().Add(time.Hour)), IssuedAt: jwt.NewNumericDate(time.Now()),
+		}).Claims(map[string]any{"user_id": user.ID}).CompactSerialize()
+		require.NoError(t, err)
+		changed := &types.User{ID: "usr_1", PasswordHash: []byte("hash-v2")}
+		mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).Return(changed, nil)
+		_, err = authn.ValidateUserToken(context.Background(), legacy)
+		require.NoError(t, err)
+	})
 }
 
 // Completing a password reset shows control of the mailbox the link went to.

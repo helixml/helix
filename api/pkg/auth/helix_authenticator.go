@@ -357,6 +357,13 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
+	// A session token bound to the credentials it was issued under stops
+	// working once the password changes. Tokens issued before the binding
+	// existed carry none and are accepted until they expire.
+	if claims.PasswordBinding != "" && !hmac.Equal([]byte(claims.PasswordBinding), []byte(h.passwordBinding(user))) {
+		return nil, errors.New("invalid token: credentials have changed since it was issued")
+	}
+
 	// Check admin status:
 	// - If user ID is in ADMIN_USER_IDS list (or "all" is set): admin
 	// - Otherwise: use database admin field
@@ -391,6 +398,8 @@ func (h *HelixAuthenticator) GenerateUserToken(_ context.Context, user *types.Us
 		"user_id": user.ID,
 		"email":   user.Email,
 		"admin":   user.Admin,
+		// Bound to the current credentials: see ValidateUserToken.
+		"pwb": h.passwordBinding(user),
 	}
 
 	builder := jwt.Signed(h.signer).Claims(claims).Claims(customClaims)

@@ -26,6 +26,22 @@ func browserWebsocketUpgrader(serverURL string, bufferSize int) websocket.Upgrad
 	}
 }
 
+// allowBrowserWebsocketOrigin applies the same Origin policy to handlers that
+// hijack the connection themselves (the desktop input and video proxies)
+// instead of going through an Upgrader. It answers 403 and returns false for
+// a foreign Origin.
+func (apiServer *HelixAPIServer) allowBrowserWebsocketOrigin(w http.ResponseWriter, r *http.Request) bool {
+	var serverURL string
+	if apiServer.Cfg != nil {
+		serverURL = apiServer.Cfg.WebServer.URL
+	}
+	if websocketOriginAllowed(r, serverURL) {
+		return true
+	}
+	http.Error(w, "websocket: request origin not allowed", http.StatusForbidden)
+	return false
+}
+
 // websocketOriginAllowed reports whether r's Origin header, if any, names
 // this deployment: the host the request was sent to, or the host of
 // serverURL.

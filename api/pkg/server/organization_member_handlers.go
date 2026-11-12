@@ -441,6 +441,7 @@ func (apiServer *HelixAPIServer) lookupOrgUser(rw http.ResponseWriter, r *http.R
 	}
 	if existing != nil {
 		resp.Exists = true
+		resp.EmailVerified = existing.EmailVerified
 		resp.UserID = existing.ID
 		resp.FullName = existing.FullName
 

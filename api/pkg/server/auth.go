@@ -42,6 +42,7 @@ func userResponse(user *types.User, token string) types.UserResponse {
 		Admin:               user.Admin,
 		OnboardingCompleted: user.OnboardingCompleted,
 		Waitlisted:          user.Waitlisted,
+		EmailVerified:       user.EmailVerified,
 		AlphaFeatures:       []string(user.AlphaFeatures),
 	}
 }
@@ -559,12 +560,20 @@ func (s *HelixAPIServer) passwordReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = s.authenticator.RequestPasswordReset(r.Context(), user.Email)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to request password reset")
-		http.Error(w, "Failed to request password reset: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// The mail is sent after the response, and a delivery failure is logged
+	// rather than reported: the answer is the same whatever happened, so it
+	// says nothing about the address. Detached from the request so a client
+	// going away does not cancel the send.
+	email, userID := user.Email, user.ID
+	s.passwordResetSends.Add(1)
+	go func() {
+		defer s.passwordResetSends.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.authenticator.RequestPasswordReset(ctx, email); err != nil {
+			log.Error().Err(err).Str("user_id", userID).Msg("Failed to send password reset email")
+		}
+	}()
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -611,7 +620,9 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 	}
 
 	// A reset is how an account is recovered from whoever holds the old
-	// password, so every session that password opened is closed.
+	// password, so every session that password opened is closed, and any
+	// legacy JWT cookie this browser holds goes with them.
+	NewCookieManager(s.Cfg).DeleteAllCookies(w)
 	if s.sessionManager != nil {
 		if err := s.sessionManager.RevokeUserSessions(ctx, user.ID, ""); err != nil {
 			log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to revoke sessions after password reset")
@@ -907,6 +918,11 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	// Get or create user from OIDC claims via ValidateUserToken
 	// This handles user lookup/creation in the database
 	user, err := s.oidcClient.ValidateUserToken(ctx, oauth2Token.AccessToken)
+	if errors.Is(err, authpkg.ErrOIDCEmailCollision) {
+		log.Warn().Err(err).Msg("OIDC sign-in refused")
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to validate user token and get/create user")
 		http.Error(w, "Failed to get user info: "+err.Error(), http.StatusInternalServerError)
@@ -1040,26 +1056,25 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Uses ValidateUserToken which properly computes admin status from ADMIN_USER_IDS
+		refreshToken, _ := cm.Get(r, refreshTokenCookie)
+		var tokenExpiry time.Time
 		user, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 		if err != nil {
 			log.Debug().Err(err).Msg("Failed to validate access token in /user, attempting refresh")
 
 			// Try to refresh the token if we have a refresh token
-			refreshToken, refreshErr := cm.Get(r, refreshTokenCookie)
-			if refreshErr == nil && refreshToken != "" && !looksLikeHelixJWT(refreshToken) {
+			if refreshToken != "" && !looksLikeHelixJWT(refreshToken) {
 				newToken, refreshErr := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 				if refreshErr == nil && newToken.AccessToken != "" {
-					// Update cookies with new tokens
-					cm.Set(w, accessTokenCookie, newToken.AccessToken)
-					if newToken.RefreshToken != "" {
-						cm.Set(w, refreshTokenCookie, newToken.RefreshToken)
-					}
-
 					// Retry validation with new token
 					user, err = s.oidcClient.ValidateUserToken(ctx, newToken.AccessToken)
 					if err == nil {
 						log.Debug().Msg("Token refreshed and validated successfully in /user")
-						accessToken = newToken.AccessToken // Update for response
+						accessToken = newToken.AccessToken
+						if newToken.RefreshToken != "" {
+							refreshToken = newToken.RefreshToken
+						}
+						tokenExpiry = newToken.Expiry
 					}
 				}
 			}
@@ -1076,10 +1091,30 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// The browser signed in before sessions existed: move it onto one,
+		// as the callback does, so its state-changing requests carry the CSRF
+		// cookie. The IdP tokens live in the session from here on.
+		s.adoptLegacyOIDCCookies(w, r, user, accessToken, refreshToken, tokenExpiry)
+		accessToken = ""
 	}
 
 	response := userResponse(user, accessToken)
 	writeResponse(w, response, http.StatusOK)
+}
+
+// adoptLegacyOIDCCookies moves a browser holding pre-session OIDC token
+// cookies onto a server-side session (as the OIDC callback creates) and
+// clears the legacy cookies.
+func (s *HelixAPIServer) adoptLegacyOIDCCookies(w http.ResponseWriter, r *http.Request, user *types.User, accessToken, refreshToken string, expiry time.Time) {
+	if s.sessionManager == nil || user == nil || user.ID == "" || !s.oidcAuthEnabled() {
+		return
+	}
+	if _, err := s.sessionManager.CreateSession(r.Context(), w, r, user.ID, types.AuthProviderOIDC, accessToken, refreshToken, "", expiry); err != nil {
+		log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to move legacy OIDC cookies to a session")
+		return
+	}
+	NewCookieManager(s.Cfg).DeleteAllCookies(w)
+	log.Info().Str("user_id", user.ID).Msg("Moved legacy OIDC cookies to a server-side session")
 }
 
 // session godoc
@@ -1262,9 +1297,9 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var user *types.User
 	switch s.Cfg.Auth.Provider {
 	case types.AuthProviderRegular:
-		var user *types.User
 		user, err = s.authenticator.ValidateUserToken(ctx, accessToken)
 		if err == nil {
 			s.adoptLegacyJWTCookie(w, r, user)
@@ -1281,7 +1316,11 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 			}, http.StatusOK)
 			return
 		}
-		_, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
+		user, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
+		if err == nil {
+			refreshToken, _ := cm.Get(r, refreshTokenCookie)
+			s.adoptLegacyOIDCCookies(w, r, user, accessToken, refreshToken, time.Time{})
+		}
 	}
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to validate access token, attempting refresh")
@@ -1297,13 +1336,21 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 				// one was moved to a session above, an expired one is a
 				// sign-in.
 			default:
-				// OIDC - use the refresh token to get new access token
+				// OIDC - use the refresh token to get new access token, and
+				// move the browser onto a session rather than renewing the
+				// legacy cookies.
 				newToken, refreshErr := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 				if refreshErr == nil && newToken.AccessToken != "" {
-					cm.Set(w, accessTokenCookie, newToken.AccessToken)
-					if newToken.RefreshToken != "" {
-						cm.Set(w, refreshTokenCookie, newToken.RefreshToken)
+					refreshed, validateErr := s.oidcClient.ValidateUserToken(ctx, newToken.AccessToken)
+					if validateErr != nil {
+						log.Debug().Err(validateErr).Msg("Refreshed token did not validate during authenticated check")
+						break
 					}
+					newRefresh := refreshToken
+					if newToken.RefreshToken != "" {
+						newRefresh = newToken.RefreshToken
+					}
+					s.adoptLegacyOIDCCookies(w, r, refreshed, newToken.AccessToken, newRefresh, newToken.Expiry)
 					log.Debug().Msg("Token refreshed successfully during authenticated check")
 					writeResponse(w, types.AuthenticatedResponse{
 						Authenticated: true,
