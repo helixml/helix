@@ -29,7 +29,7 @@ expect() {
   name="$1"; want="$2"; want_logins="$3"; shift 3
   export FAKE_DOCKER_CALLS="$WORK/calls"
   : > "$FAKE_DOCKER_CALLS"
-  PATH="$WORK/bin:$PATH" GITHUB_TOKEN=t sh "$@" > "$WORK/out" 2>&1
+  PATH="$WORK/bin:$PATH" GITHUB_TOKEN=${GITHUB_TOKEN-t} sh "$@" > "$WORK/out" 2>&1
   got=$?
   logins=$(grep -c '^login$' "$FAKE_DOCKER_CALLS")
   pushes=$(grep -c '^push$' "$FAKE_DOCKER_CALLS")
@@ -61,6 +61,8 @@ FAKE_DOCKER_FAIL="" expect "manifest succeeds" 0 1 "$ROOT/scripts/ghcr-manifest.
 FAKE_DOCKER_FAIL="manifest" expect "manifest failure fails the build" 1 1 "$ROOT/scripts/ghcr-manifest.sh" "$REPO" abc
 FAKE_DOCKER_FAIL="login" FAKE_LOGIN_OUTPUT='unauthorized: authentication required' \
   expect "manifest: rejected token fails without retrying" 1 1 "$ROOT/scripts/ghcr-manifest.sh" "$REPO" abc
+GITHUB_TOKEN="" FAKE_DOCKER_FAIL="" expect "push without GITHUB_TOKEN is an error" 1 0 "$ROOT/scripts/ghcr-push.sh" "$IMG"
+GITHUB_TOKEN="" FAKE_DOCKER_FAIL="" expect "manifest without GITHUB_TOKEN is an error" 1 0 "$ROOT/scripts/ghcr-manifest.sh" "$REPO" abc
 
 [ "$failures" -eq 0 ] || { echo "$failures test(s) failed"; exit 1; }
 echo "all image publish script tests passed"

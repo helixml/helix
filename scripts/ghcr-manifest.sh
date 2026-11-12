@@ -4,7 +4,7 @@
 # Example: scripts/ghcr-manifest.sh registry.helixml.tech/helix/controlplane v1.0
 #
 # Requires GITHUB_TOKEN environment variable for authentication.
-# Skips silently if GITHUB_TOKEN is not set (allows gradual rollout).
+# Fails if it is not set.
 #
 # Resilience:
 #   ghcr.io/helixml is the customer-facing registry (helm charts + install.sh
@@ -17,11 +17,6 @@
 #   ~7.5min); `docker manifest create --amend` is idempotent. A rejected
 #   token is not retried: it fails immediately.
 set -e
-
-if [ -z "$GITHUB_TOKEN" ]; then
-  echo "GITHUB_TOKEN not set, skipping GHCR manifest"
-  exit 0
-fi
 
 OLD_REPO="$1"
 VERSION="$2"
