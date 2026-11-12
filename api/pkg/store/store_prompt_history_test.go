@@ -71,6 +71,112 @@ func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptClaimsExactFailedI
 	suite.Equal("sent", prompt.Status)
 }
 
+func (suite *PostgresStoreTestSuite) TestGetLatestActivationPromptHistoryEntryIncludesCancelled() {
+	ctx := context.Background()
+	now := time.Now()
+	sessionID := system.GenerateSessionID()
+	deletedAt := now
+	entries := []*types.PromptHistoryEntry{
+		{ID: "prompt_activation_old_" + system.GenerateUUID(), UserID: "user", SessionID: sessionID, Content: "old", Status: "sent", CreatedAt: now.Add(-time.Minute)},
+		{ID: "prompt_activation_cancelled_" + system.GenerateUUID(), UserID: "user", SessionID: sessionID, Content: "cancelled", Status: "sent", CreatedAt: now, DeletedAt: &deletedAt},
+		{ID: "promptXactivation_lookalike_" + system.GenerateUUID(), UserID: "user", SessionID: sessionID, Content: "lookalike", Status: "sent", CreatedAt: now.Add(time.Minute)},
+	}
+	for _, entry := range entries {
+		suite.Require().NoError(suite.db.CreatePromptHistoryEntry(ctx, entry))
+		suite.T().Cleanup(func() {
+			suite.db.gdb.WithContext(ctx).Where("id = ?", entry.ID).Delete(&types.PromptHistoryEntry{})
+		})
+	}
+
+	latest, err := suite.db.GetLatestActivationPromptHistoryEntry(ctx, sessionID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(latest)
+	suite.Equal(entries[1].ID, latest.ID)
+	suite.Require().NotNil(latest.DeletedAt)
+}
+
+func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptForConfigChangeOnlyClaimsLatestUncancelledFailure() {
+	ctx := context.Background()
+	now := time.Now()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user_config_recovery", Created: now, Updated: now,
+		Metadata: types.SessionMetadata{Recovery: &types.ProviderRecovery{PromptID: "stale"}},
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	cleared, err := suite.db.ClearSessionProviderRecovery(ctx, session.ID, "newer", "")
+	suite.Require().NoError(err)
+	suite.False(cleared)
+	unchangedSession, err := suite.db.GetSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(unchangedSession.Metadata.Recovery)
+	suite.Equal("stale", unchangedSession.Metadata.Recovery.PromptID)
+	cleared, err = suite.db.ClearSessionProviderRecovery(ctx, session.ID, "stale", "")
+	suite.Require().NoError(err)
+	suite.True(cleared)
+
+	oldPromptID := "prompt_activation_old_" + system.GenerateUUID()
+	suite.Require().NoError(suite.db.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: oldPromptID, UserID: session.Owner, SessionID: session.ID, Content: "old", Status: "sent",
+	}))
+	oldInteraction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptID: oldPromptID,
+		Created: now, Updated: now, State: types.InteractionStateError,
+	})
+	suite.Require().NoError(err)
+	_, err = suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptID: oldPromptID,
+		Created: now.Add(time.Second), Updated: now.Add(time.Second), State: types.InteractionStateComplete,
+	})
+	suite.Require().NoError(err)
+	claimed, err := suite.db.RecoverProviderPromptForConfigChange(ctx, session.ID, oldPromptID, oldInteraction.ID)
+	suite.Require().NoError(err)
+	suite.False(claimed)
+
+	cancelledPromptID := "prompt_activation_cancelled_" + system.GenerateUUID()
+	suite.Require().NoError(suite.db.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: cancelledPromptID, UserID: session.Owner, SessionID: session.ID, Content: "cancelled", Status: "sent",
+	}))
+	cancelledInteraction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptID: cancelledPromptID,
+		Created: now, Updated: now, State: types.InteractionStateError,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.DeletePromptHistoryEntry(ctx, cancelledPromptID))
+	claimed, err = suite.db.RecoverProviderPromptForConfigChange(ctx, session.ID, cancelledPromptID, cancelledInteraction.ID)
+	suite.Require().NoError(err)
+	suite.False(claimed)
+
+	eligiblePromptID := "prompt_activation_eligible_" + system.GenerateUUID()
+	suite.Require().NoError(suite.db.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: eligiblePromptID, UserID: session.Owner, SessionID: session.ID, Content: "eligible", Status: "sent",
+	}))
+	eligibleInteraction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptID: eligiblePromptID,
+		Created: now, Updated: now, State: types.InteractionStateError,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.SetSessionProviderRecovery(ctx, session.ID, &types.ProviderRecovery{
+		PromptID: eligiblePromptID, InteractionID: eligibleInteraction.ID,
+	}))
+	claimed, err = suite.db.RecoverProviderPromptForConfigChange(ctx, session.ID, eligiblePromptID, eligibleInteraction.ID)
+	suite.Require().NoError(err)
+	suite.True(claimed)
+	prompt, err := suite.db.GetPromptHistoryEntry(ctx, eligiblePromptID)
+	suite.Require().NoError(err)
+	suite.Equal("pending", prompt.Status)
+	updatedSession, err := suite.db.GetSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(updatedSession.Metadata.Recovery)
+	suite.Equal(eligiblePromptID, updatedSession.Metadata.Recovery.PromptID)
+	cleared, err = suite.db.ClearSessionProviderRecovery(ctx, session.ID, eligiblePromptID, eligibleInteraction.ID)
+	suite.Require().NoError(err)
+	suite.True(cleared)
+	unchangedInteraction, err := suite.db.GetInteraction(ctx, eligibleInteraction.ID)
+	suite.Require().NoError(err)
+	suite.Equal(types.InteractionStateError, unchangedInteraction.State)
+}
+
 // TestGetNextPendingPrompt_RetryCapExcludesRunawayFailures verifies the runaway
 // guard: a failed prompt whose retry_count has reached the cap is no longer
 // selected by the queue, but is selected again if the cap is raised. Guards the

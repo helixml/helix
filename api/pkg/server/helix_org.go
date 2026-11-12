@@ -179,6 +179,7 @@ type orgWorkerRuntime struct {
 		GetApp(ctx context.Context, id string) (*types.App, error)
 		GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error)
 		GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error)
+		ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
 	}
 	// configs resolves the org's default sandbox config so the DTO can show
 	// what a Bot with no config of its own will actually launch with.
@@ -350,6 +351,30 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 	return s.SessionID, nil
 }
 
+func (o orgWorkerRuntime) LatestSuccessfulTurnStartedAt(ctx context.Context, orgID string, workerID orgchart.NodeID) (time.Time, error) {
+	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if s.SessionID == "" {
+		return time.Time{}, nil
+	}
+	interactions, _, err := o.sessions.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:             s.SessionID,
+		GenerationID:          -1,
+		PerPage:               1,
+		CompletedSuccessfully: true,
+		Order:                 "created DESC, id DESC",
+	})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("list successful turns for session %s: %w", s.SessionID, err)
+	}
+	if len(interactions) == 0 {
+		return time.Time{}, nil
+	}
+	return interactions[0].Created, nil
+}
+
 // botSessionResetter implements helixorgapi.BotSessionResetter: it fully
 // removes a bot's current session so restartBotAgent's follow-up Activate
 // provisions a genuinely fresh one. Composed of two existing high-level
@@ -519,16 +544,24 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 // the /orgs/{org}/ catch-all on the auth router, the org MCP backend,
 // plus the long-lived stream-cron and Socket Mode goroutines. Every
 // org-shaped route + lifecycle hook lives here.
+//
+// A subsystem already held on s.helixOrg is mounted as is instead of being
+// initialised again; route tests use that to mount the real routes without
+// the Postgres-backed org store.
 func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
-	orgHandlers, err := initHelixOrgHandler(ctx, helixOrgConfig{
-		LocalFSPath: s.Cfg.FileStore.LocalFSPath,
-		APIServer:   s,
-	}, s.Store)
-	if err != nil {
-		return fmt.Errorf("initialise helix-org: %w", err)
-	}
+	orgHandlers := s.helixOrg
 	if orgHandlers == nil {
-		return nil
+		var err error
+		orgHandlers, err = initHelixOrgHandler(ctx, helixOrgConfig{
+			LocalFSPath: s.Cfg.FileStore.LocalFSPath,
+			APIServer:   s,
+		}, s.Store)
+		if err != nil {
+			return fmt.Errorf("initialise helix-org: %w", err)
+		}
+		if orgHandlers == nil {
+			return nil
+		}
 	}
 	// Hold the subsystem handle (the Slack handlers reach the per-workspace
 	// Trigger reconciler through it) and register the post-mutation hook so
@@ -1258,6 +1291,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Ensurer:    projectApplier,
 		Dispatcher: dispatcher,
 		Sessions:   workerRuntime,
+		Progress:   workerRuntime,
 		Stopper:    sessionResetter,
 		Resetter:   sessionResetter,
 		Canceller:  activationCanceller,
