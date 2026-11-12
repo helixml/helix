@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -50,6 +51,14 @@ func (apiServer *HelixAPIServer) createRunnerToken(rw http.ResponseWriter, r *ht
 	// session's key), so a token for a desktop- id could do nothing.
 	if strings.HasPrefix(req.RunnerID, "desktop-") {
 		http.Error(rw, "runner_id must be a sandbox host id, not a desktop id", http.StatusBadRequest)
+		return
+	}
+	// The runner id is the bare host id (SANDBOX_INSTANCE_ID), the key the
+	// sandbox registry and runner assignments use; the token covers the
+	// host's hydra-/sandbox- tunnels on its own. A prefixed id is refused
+	// rather than rewritten, so what is stored is exactly what was asked for.
+	if bare := types.CanonicalRunnerID(req.RunnerID); bare != req.RunnerID {
+		http.Error(rw, fmt.Sprintf("runner_id must be the bare host id (%q), not a tunnel id", bare), http.StatusBadRequest)
 		return
 	}
 

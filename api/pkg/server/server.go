@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
@@ -138,9 +139,6 @@ type HelixAPIServer struct {
 	pubsub                      pubsub.PubSub
 	mcpClientGetter             mcp.ClientGetter
 	connman                     *connman.ConnectionManager
-	// sharedRunnerTokenWarned holds the runner ids already warned about
-	// using the shared runner token (authorizeRunnerIdentity).
-	sharedRunnerTokenWarned sync.Map
 	providerManager             manager.ProviderManager
 	modelInfoProvider           model.ModelInfoProvider
 	openCodeResolver            *opencode.Resolver
@@ -244,6 +242,12 @@ type HelixAPIServer struct {
 	// openAIResponsesGuardedTransport is used instead of
 	// openAIResponsesTransport for tenant-controlled (user/org) endpoints.
 	openAIResponsesGuardedTransport http.RoundTripper
+
+	// sharedRunnerTokenWarned holds the runner ids already warned about
+	// using the shared runner token (authorizeRunnerIdentity), and
+	// sharedRunnerTokenWarnCount how many there are (the set is capped).
+	sharedRunnerTokenWarned    sync.Map
+	sharedRunnerTokenWarnCount atomic.Int64
 }
 
 func NewServer(
@@ -2731,7 +2735,7 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		// A per-runner token registers only its own host's tunnels; the
 		// shared token may be refused outright (RUNNER_REQUIRE_PER_HOST_TOKENS).
 		if err := apiServer.authorizeRunnerIdentity(user, runnerID); err != nil {
-			log.Warn().
+			runnerRefusalLog().Warn().
 				Err(err).
 				Str("runner_id", runnerID).
 				Str("remote_addr", r.RemoteAddr).

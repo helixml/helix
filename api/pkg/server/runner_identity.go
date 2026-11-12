@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -25,6 +27,9 @@ import (
 // register/heartbeat, runner assignment) call authorizeRunnerIdentity.
 
 var (
+	// errRunnerTokenInvalid is the only error a client sees for a per-runner
+	// token that cannot be used, whatever the cause (unknown, revoked, store
+	// failure); the cause is logged.
 	errRunnerTokenInvalid       = errors.New("invalid or revoked runner token")
 	errSharedRunnerTokenRefused = errors.New("the shared runner token is not accepted here; use a per-runner token (helix runner token create)")
 )
@@ -56,7 +61,8 @@ func runnerUserFromToken(ctx context.Context, st store.Store, sharedToken, token
 		return nil, true, errRunnerTokenInvalid
 	}
 	if err != nil {
-		return nil, true, fmt.Errorf("error loading runner token: %w", err)
+		log.Error().Err(err).Msg("failed to load runner token")
+		return nil, true, errRunnerTokenInvalid
 	}
 	return &types.User{
 		ID:        "runner-system",
@@ -81,7 +87,7 @@ func (apiServer *HelixAPIServer) authorizeRunnerIdentity(user *types.User, runne
 	}
 	if user.RunnerID != "" {
 		if !types.RunnerIDsMatch(user.RunnerID, runnerID) {
-			log.Warn().
+			runnerRefusalLog().Warn().
 				Str("bound_runner_id", user.RunnerID).
 				Str("requested_runner_id", runnerID).
 				Msg("Refused runner request: per-runner token used for another runner")
@@ -90,7 +96,7 @@ func (apiServer *HelixAPIServer) authorizeRunnerIdentity(user *types.User, runne
 		return nil
 	}
 	if apiServer.Cfg != nil && apiServer.Cfg.WebServer.RunnerRequirePerHostTokens {
-		log.Warn().
+		runnerRefusalLog().Warn().
 			Str("runner_id", runnerID).
 			Msg("Refused runner request: shared runner token used while RUNNER_REQUIRE_PER_HOST_TOKENS is set")
 		return errSharedRunnerTokenRefused
@@ -99,11 +105,28 @@ func (apiServer *HelixAPIServer) authorizeRunnerIdentity(user *types.User, runne
 	return nil
 }
 
+// maxSharedRunnerTokenWarnings caps how many runner ids the deprecation
+// warning remembers. Runner ids come from the caller, so the set must not
+// grow without bound; past the cap no more warnings are logged.
+const maxSharedRunnerTokenWarnings = 1024
+
 // warnSharedRunnerToken logs, once per runner id per process, that a host is
-// still authenticating with the shared runner token.
+// still authenticating with the shared runner token. Only well-formed ids are
+// recorded, and at most maxSharedRunnerTokenWarnings of them.
 func (apiServer *HelixAPIServer) warnSharedRunnerToken(runnerID string) {
 	key := types.CanonicalRunnerID(runnerID)
+	if !runnerIDPattern.MatchString(key) {
+		return
+	}
+	if _, seen := apiServer.sharedRunnerTokenWarned.Load(key); seen {
+		return
+	}
+	if apiServer.sharedRunnerTokenWarnCount.Add(1) > maxSharedRunnerTokenWarnings {
+		apiServer.sharedRunnerTokenWarnCount.Add(-1)
+		return
+	}
 	if _, seen := apiServer.sharedRunnerTokenWarned.LoadOrStore(key, struct{}{}); seen {
+		apiServer.sharedRunnerTokenWarnCount.Add(-1)
 		return
 	}
 	log.Warn().
@@ -130,4 +153,26 @@ func (apiServer *HelixAPIServer) authorizeRunnerProfileRead(ctx context.Context,
 		return errors.New("this runner token may only read the profile assigned to its runner")
 	}
 	return nil
+}
+
+// runnerRefusalSampler limits refused-runner-request warnings to a burst per
+// minute: the requests that trigger them are unauthenticated-enough (any
+// token holder, any id) to be sent in a loop.
+var runnerRefusalSampler = &zerolog.BurstSampler{Burst: 20, Period: time.Minute}
+
+// runnerRefusalLog is the rate-limited logger for refused runner requests.
+func runnerRefusalLog() *zerolog.Logger {
+	l := log.Logger.Sample(runnerRefusalSampler)
+	return &l
+}
+
+// canRunnerReadSession decides whether a runner-token caller may read a
+// session's credentials or sandbox configuration. The shared token may (as
+// before); a per-runner token only for sessions running on its own sandbox
+// host (Session.SandboxID is the host id its hydra-<id> tunnel uses).
+func canRunnerReadSession(user *types.User, session *types.Session) bool {
+	if user.RunnerID == "" {
+		return true
+	}
+	return types.RunnerIDsMatch(user.RunnerID, session.SandboxID)
 }

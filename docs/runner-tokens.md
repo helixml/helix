@@ -12,6 +12,8 @@ A **per-runner token** is bound to one runner id, the host's
 - open the runner websockets as `<id>`;
 - register, heartbeat, deregister and read disk history for sandbox `<id>`;
 - read runner `<id>`'s profile assignment, and only the profile assigned to it.
+- read agent credentials and sandbox configuration only for sessions running
+  on sandbox `<id>`.
 
 Using it for any other runner id gets `403`. A revoked or unknown token gets
 `401`. Everything else the shared token can do, a per-runner token can do too,
@@ -23,7 +25,9 @@ shown once, when it is created.
 ## Rotating hosts to per-runner tokens
 
 1. **Find each host's runner id.** It is the host's `SANDBOX_INSTANCE_ID`, the
-   `<id>` in its `hydra-<id>` tunnel.
+   `<id>` in its `hydra-<id>` tunnel. Mint tokens for the bare id: `gpu-host-1`,
+   not `hydra-gpu-host-1`. A `hydra-` or `sandbox-` prefixed id is refused,
+   since the token already covers both of the host's tunnel ids.
    Hosts that use the shared token log a one-time warning per id on the
    control plane, naming the id and the command to run:
 

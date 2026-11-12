@@ -37,7 +37,7 @@ var (
 )
 
 func init() {
-	createCmd.Flags().StringVar(&createRunnerID, "runner-id", "", "Runner id the token is bound to (the host's SANDBOX_INSTANCE_ID)")
+	createCmd.Flags().StringVar(&createRunnerID, "runner-id", "", "Runner id the token is bound to: the host's bare SANDBOX_INSTANCE_ID, without a hydra- or sandbox- prefix")
 	createCmd.Flags().StringVar(&createName, "name", "", "Optional label, e.g. the host name")
 	_ = createCmd.MarkFlagRequired("runner-id")
 	listCmd.Flags().StringVar(&listRunnerID, "runner-id", "", "Only list this runner's tokens")

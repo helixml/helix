@@ -82,7 +82,7 @@ func TestCreateRunnerToken_RejectsBadRunnerIDs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := store.NewMockStore(ctrl) // no CreateRunnerToken expected
 	h := runnerTokenAdminRouter(st, testAdmin)
-	for _, id := range []string{"", " ", "desktop-ses_1", "a/b", "../x", strings.Repeat("a", 129)} {
+	for _, id := range []string{"", " ", "desktop-ses_1", "a/b", "../x", strings.Repeat("a", 129), "hydra-host1", "sandbox-host1"} {
 		rr := serveJSON(h, http.MethodPost, "/admin/runner-tokens", types.CreateRunnerTokenRequest{RunnerID: id})
 		require.Equal(t, http.StatusBadRequest, rr.Code, "runner id %q", id)
 	}

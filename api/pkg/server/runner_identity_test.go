@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -363,4 +366,112 @@ func TestRunnerNATSProxy_NotRegisteredWhenPerHostTokensRequired(t *testing.T) {
 	var match mux.RouteMatch
 	require.False(t, router.Match(httptest.NewRequest(http.MethodGet, "/runner/any-runner/ws", nil), &match),
 		"the NATS proxy only accepts the shared token, so it stays off once hosts must use per-runner tokens")
+}
+
+// A store failure while checking a per-runner token is logged, and the client
+// sees only the generic invalid-token error.
+func TestRunnerUserFromToken_StoreErrorIsNotShownToClient(t *testing.T) {
+	buf := captureLog(t)
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	st.EXPECT().GetActiveRunnerTokenByHash(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("pq: connection refused to db-internal-7")).AnyTimes()
+
+	_, ok, err := runnerUserFromToken(context.Background(), st, testSharedRunnerToken, testHost1Token)
+	require.True(t, ok)
+	require.ErrorIs(t, err, errRunnerTokenInvalid)
+	require.Contains(t, buf.String(), "db-internal-7", "the cause is logged")
+
+	am := newAuthMiddleware(nil, nil, st, authMiddlewareConfig{runnerToken: testSharedRunnerToken}, &config.ServerConfig{}, nil)
+	h := am.extractMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sandboxes", nil)
+	req.Header.Set("Authorization", "Bearer "+testHost1Token)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	require.NotContains(t, rr.Body.String(), "db-internal-7")
+	require.Contains(t, rr.Body.String(), errRunnerTokenInvalid.Error())
+}
+
+// Runner ids in the deprecation warning come from the caller: malformed ids
+// are not recorded, and the set stops growing at its cap.
+func TestWarnSharedRunnerToken_BoundedAndValidated(t *testing.T) {
+	buf := captureLog(t)
+	apiServer := &HelixAPIServer{}
+
+	for _, bad := range []string{"", "../x", "a/b", strings.Repeat("a", 129), "-x", ".hidden"} {
+		apiServer.warnSharedRunnerToken(bad)
+	}
+	require.Zero(t, apiServer.sharedRunnerTokenWarnCount.Load())
+	require.Empty(t, buf.String())
+
+	for i := 0; i < maxSharedRunnerTokenWarnings+100; i++ {
+		apiServer.warnSharedRunnerToken(fmt.Sprintf("hydra-host%d", i))
+	}
+	// Repeats of a recorded id are not counted again.
+	apiServer.warnSharedRunnerToken("hydra-host0")
+	apiServer.warnSharedRunnerToken("sandbox-host0")
+
+	require.EqualValues(t, maxSharedRunnerTokenWarnings, apiServer.sharedRunnerTokenWarnCount.Load())
+	recorded := 0
+	apiServer.sharedRunnerTokenWarned.Range(func(_, _ any) bool { recorded++; return true })
+	require.Equal(t, maxSharedRunnerTokenWarnings, recorded)
+	require.Equal(t, maxSharedRunnerTokenWarnings, strings.Count(buf.String(), "is using the shared RUNNER_TOKEN"))
+}
+
+// Refusals are logged at most a burst per period, however many arrive.
+func TestAuthorizeRunnerIdentity_RefusalWarningsRateLimited(t *testing.T) {
+	previous := runnerRefusalSampler
+	runnerRefusalSampler = &zerolog.BurstSampler{Burst: 20, Period: time.Hour}
+	t.Cleanup(func() { runnerRefusalSampler = previous })
+	buf := captureLog(t)
+
+	apiServer := &HelixAPIServer{}
+	user := &types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testHost1Token, RunnerID: "host1"}
+	for i := 0; i < 500; i++ {
+		require.Error(t, apiServer.authorizeRunnerIdentity(user, fmt.Sprintf("hydra-other%d", i)))
+	}
+	require.Equal(t, 20, strings.Count(buf.String(), "per-runner token used for another runner"))
+}
+
+func TestCanUseSessionAgentCredential_PerRunnerTokenLimitedToItsHost(t *testing.T) {
+	shared := &types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testSharedRunnerToken}
+	bound := &types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testHost1Token, RunnerID: "host1"}
+	onHost1 := &types.Session{ID: "ses_1", Owner: "usr_A", SandboxID: "host1"}
+	onHost2 := &types.Session{ID: "ses_2", Owner: "usr_B", SandboxID: "host2"}
+	noHost := &types.Session{ID: "ses_3", Owner: "usr_B"}
+
+	// The shared token is unchanged: any session.
+	for _, s := range []*types.Session{onHost1, onHost2, noHost} {
+		require.True(t, canUseSessionAgentCredential(shared, s, "usr_B", types.OwnerTypeUser))
+		require.NoError(t, (&HelixAPIServer{}).authorizeSessionSandboxConfig(context.Background(), shared, s))
+	}
+
+	require.True(t, canUseSessionAgentCredential(bound, onHost1, "usr_A", types.OwnerTypeUser))
+	require.NoError(t, (&HelixAPIServer{}).authorizeSessionSandboxConfig(context.Background(), bound, onHost1))
+	for _, s := range []*types.Session{onHost2, noHost} {
+		require.False(t, canUseSessionAgentCredential(bound, s, "usr_B", types.OwnerTypeUser), s.ID)
+		require.Error(t, (&HelixAPIServer{}).authorizeSessionSandboxConfig(context.Background(), bound, s), s.ID)
+	}
+}
+
+// Through the real handler: a per-runner token asking for the Claude
+// credentials of a session on another host is refused before anything is
+// decrypted.
+func TestGetSessionClaudeCredentials_PerRunnerTokenOtherHostRefused(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	session := &types.Session{ID: "ses_2", Owner: "usr_B", SandboxID: "host2"}
+	st.EXPECT().GetSession(gomock.Any(), "ses_2").Return(session, nil)
+	st.EXPECT().GetSessionClaudeSubscription(gomock.Any(), session).
+		Return(&types.ClaudeSubscription{ID: "csub_1", OwnerID: "usr_B", OwnerType: types.OwnerTypeUser}, nil)
+	apiServer := &HelixAPIServer{Store: st}
+
+	user := types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testHost1Token, RunnerID: "host1"}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/ses_2/claude-credentials", nil)
+	req = mux.SetURLVars(req.WithContext(setRequestUser(req.Context(), user)), map[string]string{"id": "ses_2"})
+	resp, httpErr := apiServer.getSessionClaudeCredentials(nil, req)
+	require.Nil(t, resp)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusForbidden, httpErr.StatusCode)
 }
