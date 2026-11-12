@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import OrgAgentSessionWorkspace, { botSandboxIndicatorState } from './OrgAgentSessionWorkspace'
+import OrgAgentSessionWorkspace from './OrgAgentSessionWorkspace'
+import { botSandboxIndicatorState } from './BotProfile'
 
 const mocks = vi.hoisted(() => ({
   isBigScreen: true,
@@ -104,8 +105,26 @@ describe('OrgAgentSessionWorkspace', () => {
 
     expect(screen.getByRole('heading', { name: 'Chief of Staff' })).toBeInTheDocument()
     expect(screen.getByText('Your Helix bot')).toBeInTheDocument()
-    expect(screen.getByText('Coordinates priorities and keeps your team moving.')).toBeInTheDocument()
-    expect(screen.getByText('Available')).toBeInTheDocument()
+    expect(screen.getByText('Ready to chat')).toBeInTheDocument()
+    expect(screen.getByTestId('bot-profile-compact')).toBeInTheDocument()
+    expect(screen.queryByTestId('bot-profile-expanded')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: "Chief of Staff's desktop" })).toBeInTheDocument()
+  })
+
+  it('replaces the compact banner with the expanded new-conversation profile', () => {
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-chief"
+        organizationId="acme"
+        bot={{ ...runningBot, id: 'chief-of-staff', name: 'Chief of Staff' } as any}
+        expandedBotProfile
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+
+    expect(screen.getByTestId('bot-profile-expanded')).toBeInTheDocument()
+    expect(screen.queryByTestId('bot-profile-compact')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: "Chief of Staff's desktop" })).toBeInTheDocument()
   })
 
@@ -121,7 +140,7 @@ describe('OrgAgentSessionWorkspace', () => {
     )
 
     expect(screen.getByText('Replying')).toBeInTheDocument()
-    expect(screen.queryByText('Available')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ready to chat')).not.toBeInTheDocument()
 
     view.rerender(
       <OrgAgentSessionWorkspace
@@ -147,7 +166,7 @@ describe('OrgAgentSessionWorkspace', () => {
     )
 
     expect(screen.getByText('Needs attention')).toBeInTheDocument()
-    expect(screen.queryByText('Available')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ready to chat')).not.toBeInTheDocument()
   })
 
   it('shows the latest activation error above the workspace', () => {

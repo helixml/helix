@@ -290,6 +290,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
   const [showLoginWindow, setShowLoginWindow] = useState(false)
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
   const [promptAppendText, setPromptAppendText] = useState<string>()
+  const [botProfileExpanded, setBotProfileExpanded] = useState(false)
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
   const [assistantID, setAssistantID] = useState<string | null>(null)
@@ -1682,15 +1683,15 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           enableInteractionDebugCopy
           showSessionPromptQueue
           appendText={promptAppendText}
-          assistantName={orgBot?.name || orgBot?.id}
+          orgBot={orgBot}
+          onWelcomeChange={setBotProfileExpanded}
           welcomeWhenEmpty={!!orgBot}
-          welcomeHeading="How can I help?"
-          welcomeSubheading={orgBot?.id === CHIEF_OF_STAFF_BOT_ID
-            ? 'Talk through a decision or ask me to coordinate the team.'
-            : undefined}
+          welcomeHeading={orgBot ? 'Start a conversation' : 'How can I help?'}
           starterPrompts={orgBot?.id === CHIEF_OF_STAFF_BOT_ID
-            ? ['Help me set up my team of AI bots', 'Help me prioritize', 'What can you help with?']
-            : []}
+            ? ['Help me set up my team of bots', 'Help me prioritize', 'What can you help with?']
+            : orgBot
+              ? ['What can you help with?', 'Help me get started', 'What should we work on first?']
+              : []}
           onSelectStarter={appendToChat}
           leadingActions={(
             <CodeAgentExecutionControls
@@ -1750,6 +1751,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
             currentResponses.get(session.data.id || sessionID),
           )}
           onAppendToChat={appendToChat}
+          expandedBotProfile={botProfileExpanded}
         >
           {externalAgentChat}
         </OrgAgentSessionWorkspace>

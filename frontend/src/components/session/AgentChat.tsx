@@ -1,10 +1,10 @@
-import { FC, useCallback, useMemo, useRef, useState } from 'react'
+import { FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, CircleHelp, ListTodo, UsersRound } from 'lucide-react'
 
 import { TypesInteractionState } from '../../api/api'
 import { useStreaming } from '../../contexts/streaming'
@@ -24,6 +24,7 @@ import SessionPromptQueue from './SessionPromptQueue'
 import { useSessionPromptQueue } from './useSessionPromptQueue'
 import { getChatColors } from './chatStyles'
 import type { WorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
+import type { BotDTO } from '../../services/helixOrgService'
 
 interface AgentChatProps {
   sessionId: string
@@ -63,8 +64,10 @@ interface AgentChatProps {
   starterPrompts?: readonly string[]
   /** Fills the composer with a selected starter prompt. */
   onSelectStarter?: (prompt: string) => void
-  /** Name shown above replies in bot conversations. */
-  assistantName?: string
+  /** Enables the org-bot profile, starters and reply identity. */
+  orgBot?: BotDTO
+  /** Reports the authoritative empty-thread state to the surrounding profile. */
+  onWelcomeChange?: (visible: boolean) => void
 }
 
 /** Shared org/spec-task conversation surface. */
@@ -90,7 +93,8 @@ const AgentChat: FC<AgentChatProps> = ({
   welcomeWhenEmpty = false,
   starterPrompts = [],
   onSelectStarter,
-  assistantName,
+  orgBot,
+  onWelcomeChange,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -162,6 +166,11 @@ const AgentChat: FC<AgentChatProps> = ({
       latestInteractionsLoading,
       hasBriefingTurn || hasOrgHireBriefing,
     )
+  useLayoutEffect(() => {
+    onWelcomeChange?.(showWelcome)
+    // The parent callback does not decide welcome visibility.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showWelcome])
   const composerPlanSteps = isAgentBusy
     ? planStepsFromResponseEntries(latestInteraction?.response_entries as unknown as ResponseEntry[] | undefined)
     : []
@@ -255,30 +264,61 @@ const AgentChat: FC<AgentChatProps> = ({
     />
   )
 
+  const starterIcons = [UsersRound, ListTodo, CircleHelp]
   const starterActions = starterPrompts.length > 0 && onSelectStarter ? (
-    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-      {starterPrompts.map((prompt) => (
-        <Button
-          key={prompt}
-          onClick={() => onSelectStarter(prompt)}
-          disabled={disabled}
-          endIcon={<ChevronRight size={18} />}
-          sx={{
-            minHeight: 48,
-            px: 1,
-            justifyContent: 'space-between',
-            borderRadius: 0,
-            borderTop: '1px solid',
-            borderColor: 'divider',
-            color: 'text.primary',
-            textTransform: 'none',
-            fontWeight: 600,
-            '&:last-of-type': { borderBottom: '1px solid', borderColor: 'divider' },
-          }}
-        >
-          {prompt}
-        </Button>
-      ))}
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: orgBot ? 1.5 : 0 }}>
+      {starterPrompts.map((prompt, index) => {
+        const StarterIcon = starterIcons[index] || CircleHelp
+        return (
+          <Button
+            key={prompt}
+            onClick={() => onSelectStarter(prompt)}
+            disabled={disabled}
+            endIcon={<ChevronRight size={orgBot ? 20 : 18} />}
+            startIcon={orgBot ? (
+              <Box
+                component="span"
+                sx={(theme) => ({
+                  width: 42,
+                  height: 42,
+                  display: 'grid',
+                  placeItems: 'center',
+                  flexShrink: 0,
+                  borderRadius: 1.5,
+                  color: 'primary.main',
+                  backgroundColor: alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.16 : 0.22),
+                })}
+              >
+                <StarterIcon size={22} aria-hidden="true" />
+              </Box>
+            ) : undefined}
+            sx={(theme) => ({
+              minHeight: orgBot ? 72 : 48,
+              px: orgBot ? 1.5 : 1,
+              justifyContent: 'space-between',
+              gap: 1.5,
+              borderRadius: orgBot ? 2 : 0,
+              borderTop: '1px solid',
+              borderColor: 'divider',
+              color: 'text.primary',
+              backgroundColor: orgBot
+                ? alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.08 : 0.1)
+                : 'transparent',
+              textTransform: 'none',
+              fontWeight: 600,
+              textAlign: 'left',
+              '& .MuiButton-startIcon': { mr: 0.5 },
+              '& .MuiButton-endIcon': { ml: 'auto' },
+              '&:hover': orgBot ? {
+                backgroundColor: alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.14 : 0.16),
+              } : undefined,
+              '&:last-of-type': { borderBottom: '1px solid', borderColor: 'divider' },
+            })}
+          >
+            {prompt}
+          </Button>
+        )
+      })}
     </Box>
   ) : null
 
@@ -327,11 +367,12 @@ const AgentChat: FC<AgentChatProps> = ({
               width: '100%',
               px: { xs: 2, sm: 3 },
               display: 'flex',
-              alignItems: 'center',
+              alignItems: orgBot ? 'flex-start' : 'center',
+              overflowY: orgBot ? 'auto' : 'hidden',
             }}
           >
-            <Box sx={{ width: '100%', maxWidth: 480, mx: 'auto' }}>
-              <Typography component="h2" variant="h5" sx={{ fontWeight: 600, mb: welcomeSubheading ? 1 : 3 }}>
+            <Box sx={{ width: '100%', maxWidth: orgBot ? 540 : 480, mx: 'auto', pt: orgBot ? { xs: 3, sm: 4 } : 0, pb: orgBot ? 2 : 0 }}>
+              <Typography component="h2" variant="h5" sx={{ fontWeight: orgBot ? 700 : 600, mb: welcomeSubheading ? 1 : 3 }}>
                 {welcomeHeading}
               </Typography>
               {welcomeSubheading && (
@@ -349,7 +390,8 @@ const AgentChat: FC<AgentChatProps> = ({
             enableInteractionDebugCopy={enableInteractionDebugCopy}
             minimal={minimal}
             hasBriefingTurn={hasBriefingTurn}
-            assistantName={assistantName}
+            assistantName={orgBot?.name || orgBot?.id}
+            assistantId={orgBot?.id}
             trailingContent={
               actionCards || pendingQuestionInteractions.length > 0 ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>

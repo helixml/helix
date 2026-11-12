@@ -15,7 +15,7 @@ import IconButton from '@mui/material/IconButton'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { Bot, Monitor, PanelLeft, PanelRight } from 'lucide-react'
+import { PanelLeft, PanelRight } from 'lucide-react'
 import {
   Group as PanelGroup,
   Panel,
@@ -38,7 +38,8 @@ import SpecTaskViewToolbar, { TaskView, toolbarIconButtonSx } from '../tasks/Spe
 import TaskSessionPlaceholder from '../tasks/TaskSessionPlaceholder'
 import OrgAgentSettingsPane from './OrgAgentSettingsPane'
 import SessionUsagePanel from '../usage/SessionUsagePanel'
-import { CHIEF_OF_STAFF_BOT_ID } from '../../utils/organizations'
+import BotPortrait from './BotPortrait'
+import BotProfile, { botSandboxIndicatorState } from './BotProfile'
 
 export interface OrgAgentSessionWorkspaceProps {
   sessionId: string
@@ -63,6 +64,8 @@ export interface OrgAgentSessionWorkspaceProps {
   subagentInteractions?: readonly TypesInteraction[]
   /** Terminal "copy to chat" lands here; the parent appends it to the composer. */
   onAppendToChat?: (text: string) => void
+  /** AgentChat owns this state because it knows whether the thread is empty. */
+  expandedBotProfile?: boolean
   children: ReactNode
 }
 
@@ -104,28 +107,6 @@ const saveStoredBoolean = (key: string, value: boolean): void => {
   try { localStorage.setItem(key, String(value)) } catch { /* storage unavailable */ }
 }
 
-/** Maps the bot DTO onto the three-state indicator the task page uses. */
-export const botSandboxIndicatorState = (bot?: BotDTO): SandboxIndicatorState => {
-  if (!bot) return 'running'
-  if (bot.status === 'running') return 'running'
-  // A boot in flight — whether reported by the session's own lifecycle status
-  // or by the sandboxes row — must read as "starting", never "stopped".
-  // Showing "stopped" mid-restart invites a second Start click on a bot that
-  // is already coming up.
-  if (bot.status === 'starting') return 'starting'
-  if (bot.sandbox_status === 'pending') return 'starting'
-  return 'stopped'
-}
-
-export const botPresence = (bot?: BotDTO): { label: string; color: string } => {
-  if (bot?.activation_error) return { label: 'Needs attention', color: 'warning.main' }
-  const state = botSandboxIndicatorState(bot)
-  if (state === 'starting') return { label: 'Starting', color: 'warning.main' }
-  if (state === 'stopped') return { label: 'Stopped', color: 'text.disabled' }
-  if (bot?.agent_work_state === 'working') return { label: 'Replying', color: 'info.main' }
-  return { label: 'Available', color: 'success.main' }
-}
-
 const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   sessionId,
   organizationId,
@@ -138,6 +119,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   instanceOf,
   subagentInteractions,
   onAppendToChat,
+  expandedBotProfile = false,
   children,
 }) => {
   const isBigScreen = useIsBigScreen()
@@ -160,11 +142,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   const hasLifecycle = !!bot || !!sessionSandbox
   const desktopRunning = indicatorState === 'running'
   const starting = indicatorState === 'starting'
-  const presence = botPresence(bot)
   const botName = bot?.name || bot?.id || 'Helix bot'
-  const botRole = bot?.id === CHIEF_OF_STAFF_BOT_ID
-    ? 'Coordinates priorities and keeps your team moving.'
-    : undefined
   const defaultView: TaskView = isHeadless ? 'changes' : 'desktop'
 
   const [view, setView] = useState<TaskView>(() => loadView(viewKey) ?? defaultView)
@@ -333,60 +311,6 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     ? <SubagentsPanel interactions={subagentInteractions ?? []} />
     : surface
 
-  const botIdentity = bot ? (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
-      <Box
-        sx={{
-          width: 42,
-          height: 42,
-          display: 'grid',
-          placeItems: 'center',
-          flexShrink: 0,
-          borderRadius: 1,
-          backgroundColor: 'action.selected',
-          color: 'text.primary',
-        }}
-      >
-        <Bot size={28} />
-      </Box>
-      <Box sx={{ minWidth: 0 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-          <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: 600 }}>
-            {botName}
-          </Typography>
-          <Typography
-            variant="caption"
-            sx={{
-              px: 0.75,
-              py: 0.25,
-              flexShrink: 0,
-              borderRadius: 1,
-              color: 'primary.light',
-              backgroundColor: 'action.selected',
-              fontWeight: 600,
-            }}
-          >
-            Your Helix bot
-          </Typography>
-        </Box>
-        {botRole && (
-          <Typography variant="body2" color="text.secondary" noWrap>
-            {botRole}
-          </Typography>
-        )}
-      </Box>
-    </Box>
-  ) : null
-
-  const botPresenceIndicator = bot ? (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-      <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: presence.color }} />
-      <Typography variant="caption" color="text.secondary">
-        {presence.label}
-      </Typography>
-    </Box>
-  ) : null
-
   const content = (singlePanel = false) => (
     <Box sx={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {bot && view === 'desktop' && (
@@ -402,28 +326,15 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
             backgroundColor: 'background.paper',
           }}
         >
-          <Monitor size={24} />
+          <BotPortrait botId={bot.id || botName} size={36} />
           <Typography variant="h6" component="h2" sx={{ fontWeight: 600 }}>
             {botName}&apos;s desktop
           </Typography>
         </Box>
       )}
       {bot && view === 'chat' && (
-        <Box
-          sx={{
-            minHeight: 96,
-            px: 2,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 1,
-            flexShrink: 0,
-            borderBottom: `1px solid ${dividerColor}`,
-            backgroundColor: 'background.paper',
-          }}
-        >
-          {botIdentity}
-          {botPresenceIndicator}
+        <Box sx={{ flexShrink: 0, borderBottom: `1px solid ${dividerColor}` }}>
+          <BotProfile bot={bot} expanded={expandedBotProfile} />
         </Box>
       )}
       <Box sx={{ flexShrink: 0, borderBottom: `1px solid ${dividerColor}` }}>
@@ -449,28 +360,28 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     <Box sx={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Box
         sx={{
-          minHeight: bot ? 96 : 53,
-          px: bot ? 2 : 1,
-          pt: 1,
-          pb: 0.5,
+          minHeight: bot ? undefined : 53,
+          px: bot ? 0 : 1,
+          pt: bot ? 0 : 1,
+          pb: bot ? 0 : 0.5,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 0.25,
+          position: 'relative',
           flexShrink: 0,
           borderBottom: `1px solid ${dividerColor}`,
           backgroundColor: 'background.paper',
           boxSizing: 'border-box',
         }}
       >
-        {botIdentity || <Box />}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-          {botPresenceIndicator}
+        {bot ? <BotProfile bot={bot} expanded={expandedBotProfile} /> : <Box />}
+        <Box sx={{ position: bot ? 'absolute' : 'static', top: 8, right: 8, display: 'flex', alignItems: 'center', gap: bot ? 0 : 1, flexShrink: 0 }}>
           {contentCollapsed ? (
-            <Tooltip title="Show task panel">
+            <Tooltip title={bot ? 'Show workspace' : 'Show task panel'}>
               <IconButton
                 size="small"
-                aria-label="Show task panel"
+                aria-label={bot ? 'Show workspace' : 'Show task panel'}
                 onClick={showContentPanel}
                 sx={toolbarIconButtonSx('comfortable')}
               >

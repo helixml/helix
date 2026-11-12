@@ -155,17 +155,24 @@ describe("AgentChat pending question placement", () => {
     render(
       <AgentChat
         sessionId="session-1"
+        orgBot={{ id: "chief-of-staff", name: "Chief of Staff" } as any}
         welcomeWhenEmpty
-        welcomeHeading="How can I help?"
-        starterPrompts={["Help me set up my team of AI bots"]}
+        welcomeHeading="Start a conversation"
+        starterPrompts={[
+          "Help me set up my team of bots",
+          "Help me prioritize",
+          "What can you help with?",
+        ]}
         onSelectStarter={onSelectStarter}
       />,
     );
 
-    expect(screen.getByText("How can I help?")).toBeInTheDocument();
+    expect(screen.getByText("Start a conversation")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /help me prioritize/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /what can you help with/i })).toBeInTheDocument();
     expect(screen.getByTestId("composer")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /help me set up my team of ai bots/i }));
-    expect(onSelectStarter).toHaveBeenCalledWith("Help me set up my team of AI bots");
+    fireEvent.click(screen.getByRole("button", { name: /help me set up my team of bots/i }));
+    expect(onSelectStarter).toHaveBeenCalledWith("Help me set up my team of bots");
     expect(newInference).not.toHaveBeenCalled();
   });
 
@@ -181,13 +188,13 @@ describe("AgentChat pending question placement", () => {
         sessionId="session-1"
         welcomeWhenEmpty
         welcomeHeading="How can I help?"
-        starterPrompts={["Help me set up my team of AI bots"]}
+        starterPrompts={["Help me set up my team of bots"]}
         onSelectStarter={vi.fn()}
       />,
     );
 
     expect(screen.getByText("How can I help?")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /help me set up my team of ai bots/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /help me set up my team of bots/i })).toBeInTheDocument();
   });
 
   it.each([
@@ -205,7 +212,7 @@ describe("AgentChat pending question placement", () => {
         sessionId="session-1"
         welcomeWhenEmpty
         welcomeHeading="How can I help?"
-        starterPrompts={["Help me set up my team of AI bots"]}
+        starterPrompts={["Help me set up my team of bots"]}
         onSelectStarter={vi.fn()}
       />,
     );
@@ -226,7 +233,7 @@ describe("AgentChat pending question placement", () => {
         sessionId="session-1"
         welcomeWhenEmpty
         welcomeHeading="How can I help?"
-        starterPrompts={["Help me set up my team of AI bots"]}
+        starterPrompts={["Help me set up my team of bots"]}
       />,
     );
 
@@ -246,7 +253,7 @@ describe("AgentChat pending question placement", () => {
         sessionId="session-1"
         welcomeWhenEmpty
         welcomeHeading="How can I help?"
-        starterPrompts={["Help me set up my team of AI bots"]}
+        starterPrompts={["Help me set up my team of bots"]}
         onSelectStarter={vi.fn()}
       />,
     );
@@ -266,7 +273,7 @@ describe("AgentChat pending question placement", () => {
         showSessionPromptQueue
         welcomeWhenEmpty
         welcomeHeading="How can I help?"
-        starterPrompts={["Help me set up my team of AI bots"]}
+        starterPrompts={["Help me set up my team of bots"]}
         onSelectStarter={vi.fn()}
       />,
     );
@@ -283,18 +290,21 @@ describe("AgentChat pending question placement", () => {
     } as any;
     pendingQuestionInteractions.current = [];
     const onWillSend = vi.fn();
+    const onWelcomeChange = vi.fn();
     const props = {
       sessionId: "session-1",
       showSessionPromptQueue: true,
       welcomeWhenEmpty: true,
       welcomeHeading: "How can I help?",
-      starterPrompts: ["Help me set up my team of AI bots"],
+      starterPrompts: ["Help me set up my team of bots"],
       onSelectStarter: vi.fn(),
       onWillSend,
+      onWelcomeChange,
     };
     const view = render(<AgentChat {...props} />);
 
     expect(screen.getByText("How can I help?")).toBeInTheDocument();
+    expect(onWelcomeChange).toHaveBeenLastCalledWith(true);
     fireEvent.click(screen.getByTestId("composer"));
     expect(onWillSend).toHaveBeenCalledTimes(1);
     expect(newInference).not.toHaveBeenCalled();
@@ -302,6 +312,7 @@ describe("AgentChat pending question placement", () => {
     sessionQueueEntries.current = [{ id: "queued-prompt" }];
     view.rerender(<AgentChat {...props} />);
     expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(onWelcomeChange).toHaveBeenLastCalledWith(false);
     expect(screen.getByTestId("session-prompt-queue")).toBeInTheDocument();
 
     sessionQueueEntries.current = [];

@@ -88,6 +88,8 @@ interface EmbeddedSessionViewProps {
   hasBriefingTurn?: boolean;
   /** Name shown above assistant replies in bot conversations. */
   assistantName?: string;
+  /** Stable id used to select the bot portrait. */
+  assistantId?: string;
   // Cards asking the user to act (agent questions, PR proposals), rendered
   // after the last message so any number of them scroll with the thread.
   trailingContent?: ReactNode;
@@ -110,7 +112,7 @@ export interface EmbeddedSessionViewHandle {
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
   EmbeddedSessionViewProps
->(({ sessionId, onScrollToBottom, enableInteractionDebugCopy, minimal = false, hasBriefingTurn = true, assistantName, trailingContent }, ref) => {
+>(({ sessionId, onScrollToBottom, enableInteractionDebugCopy, minimal = false, hasBriefingTurn = true, assistantName, assistantId, trailingContent }, ref) => {
   const account = useAccount();
   const api = useApi();
   const lightTheme = useLightTheme();
@@ -754,6 +756,7 @@ const EmbeddedSessionView = forwardRef<
                 enableDebugCopy={enableInteractionDebugCopy}
                 hidePrompt={index === seedIndex}
                 assistantName={assistantName}
+                assistantId={assistantId}
               >
                 {isLive && (isOwner || account.admin) && (
                   <InteractionLiveStream

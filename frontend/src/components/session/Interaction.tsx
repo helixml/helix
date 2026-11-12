@@ -19,7 +19,7 @@ import { workspaceReviewMessageCopyText } from "./workspaceReviewMessage";
 import useAccount from "../../hooks/useAccount";
 
 import { TypesServerConfigForFrontend } from "../../api/api";
-import { Bot } from "lucide-react";
+import BotPortrait from "../helix-org/BotPortrait";
 
 import {
   TypesSession,
@@ -156,6 +156,10 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     return false;
   }
 
+  if (prevProps.assistantId !== nextProps.assistantId) {
+    return false;
+  }
+
   // In practice this is fixed for the life of an interaction, but it decides
   // whether a system prompt is on screen — too consequential to leave to a
   // comparator that happens not to look at it.
@@ -287,6 +291,8 @@ interface InteractionProps {
   hidePrompt?: boolean;
   /** Name shown above assistant replies in bot conversations. */
   assistantName?: string;
+  /** Stable id used to select the bot portrait. */
+  assistantId?: string;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -304,6 +310,7 @@ export const Interaction: FC<InteractionProps> = ({
   recoveredLater = false,
   hidePrompt = false,
   assistantName,
+  assistantId,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -591,7 +598,7 @@ export const Interaction: FC<InteractionProps> = ({
         >
           {assistantName && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5, color: "text.secondary" }}>
-              <Bot size={16} />
+              {assistantId && <BotPortrait botId={assistantId} size={32} />}
               <Typography variant="caption" sx={{ fontWeight: 600, color: "text.primary" }}>
                 {assistantName}
               </Typography>

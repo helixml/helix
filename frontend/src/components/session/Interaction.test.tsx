@@ -66,6 +66,7 @@ describe("Interaction", () => {
       <Interaction
         {...baseProps}
         assistantName="Chief of Staff"
+        assistantId="chief-of-staff"
         interaction={{
           id: "int_bot",
           prompt_message: "Question",
@@ -75,6 +76,7 @@ describe("Interaction", () => {
     );
 
     expect(screen.getByText("Chief of Staff")).toBeInTheDocument();
+    expect(document.querySelector('img[aria-hidden="true"]')).toBeInTheDocument();
     expect(screen.getByTestId("agent-reply")).toHaveTextContent("Answer");
   });
 
@@ -94,6 +96,29 @@ describe("Interaction", () => {
     );
 
     expect(screen.getByText("Chief of Staff")).toBeInTheDocument();
+  });
+
+  it("adds the portrait when a bot id loads after its name", () => {
+    const interaction = {
+      id: "int_bot",
+      prompt_message: "Question",
+      response_message: "Answer",
+    };
+    const view = render(
+      <MemoizedInteraction {...baseProps} interaction={interaction} assistantName="Chief of Staff" />,
+    );
+
+    expect(document.querySelector('img[aria-hidden="true"]')).not.toBeInTheDocument();
+    view.rerender(
+      <MemoizedInteraction
+        {...baseProps}
+        interaction={interaction}
+        assistantName="Chief of Staff"
+        assistantId="chief-of-staff"
+      />,
+    );
+
+    expect(document.querySelector('img[aria-hidden="true"]')).toBeInTheDocument();
   });
 
   it("shows debug copy only on the agent side after a reply", () => {
