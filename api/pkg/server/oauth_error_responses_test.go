@@ -156,3 +156,38 @@ func TestCreateOAuthProvider_TypeErrorGets400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.Equal(t, "Invalid request body: field \"name\" has the wrong type\n", rr.Body.String())
 }
+
+// Deleting a provider that does not exist (including a malformed id the store
+// treats as not found) is a 404, not a silent 200.
+func TestDeleteOAuthProvider_MissingGets404(t *testing.T) {
+	srv, m := newOAuthTestServer(t)
+	m.EXPECT().GetOAuthProvider(gomock.Any(), "not-a-uuid").Return(nil, store.ErrNotFound)
+	req := mux.SetURLVars(httptest.NewRequest(http.MethodDelete, "/api/v1/oauth/providers/not-a-uuid", nil), map[string]string{"id": "not-a-uuid"})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_admin", Admin: true}))
+
+	rr := httptest.NewRecorder()
+	system.DefaultWrapper(srv.handleDeleteOAuthProvider)(rr, req)
+
+	require.Equal(t, http.StatusNotFound, rr.Code)
+	require.Equal(t, "OAuth provider not found\n", rr.Body.String())
+}
+
+// The body form of POST /api_keys names the missing field instead of calling
+// a well-formed body invalid JSON.
+func TestCreateAPIKey_MissingFieldNamed(t *testing.T) {
+	srv := &HelixAPIServer{Cfg: &config.ServerConfig{}}
+	for body, want := range map[string]string{
+		`{"name":"k","type":"api"}`:           "app_id is required\n",
+		`{"name":"k","app_id":""}`:            "type is required\n",
+		`{"type":"api","app_id":""}`:          "name is required\n",
+		`{"name":1,"type":"api","app_id":""}`: "Invalid request body: field \"name\" must be a string\n",
+		`not json`:                            "Invalid request body: must be a valid JSON object\n",
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/api_keys", strings.NewReader(body))
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_a"}))
+		rr := httptest.NewRecorder()
+		system.DefaultWrapper(srv.createAPIKey)(rr, req)
+		require.Equal(t, http.StatusBadRequest, rr.Code, body)
+		require.Equal(t, want, rr.Body.String(), body)
+	}
+}

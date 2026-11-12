@@ -1135,20 +1135,17 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		if err != nil {
 			return "", jsonDecodeHTTPError(err)
 		}
-		var nameStr string
-		err = json.Unmarshal(objmap["name"], &nameStr)
-		if err != nil {
-			return "", jsonDecodeHTTPError(err)
+		nameStr, httpErr := requiredJSONStringField(objmap, "name")
+		if httpErr != nil {
+			return "", httpErr
 		}
-		var typeStr string
-		err = json.Unmarshal(objmap["type"], &typeStr)
-		if err != nil {
-			return "", jsonDecodeHTTPError(err)
+		typeStr, httpErr := requiredJSONStringField(objmap, "type")
+		if httpErr != nil {
+			return "", httpErr
 		}
-		var apiKeyStr string
-		err = json.Unmarshal(objmap["app_id"], &apiKeyStr)
-		if err != nil {
-			return "", jsonDecodeHTTPError(err)
+		apiKeyStr, httpErr := requiredJSONStringField(objmap, "app_id")
+		if httpErr != nil {
+			return "", httpErr
 		}
 		newAPIKey.Name = nameStr
 		newAPIKey.Type = types.APIKeyType(typeStr)
@@ -1349,4 +1346,18 @@ func frontendLicenseInfo(decoded *license.License, admin bool) *types.FrontendLi
 	info.Limits.Users = decoded.Limits.Users
 	info.Limits.Machines = decoded.Limits.Machines
 	return info
+}
+
+// requiredJSONStringField reads a string field from a decoded JSON object,
+// answering 400 with the field's name when it is absent or not a string.
+func requiredJSONStringField(objmap map[string]json.RawMessage, key string) (string, *system.HTTPError) {
+	raw, ok := objmap[key]
+	if !ok {
+		return "", system.NewHTTPError400(key + " is required")
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", system.NewHTTPError400(fmt.Sprintf("Invalid request body: field %q must be a string", key))
+	}
+	return value, nil
 }
