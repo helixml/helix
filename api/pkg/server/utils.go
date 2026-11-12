@@ -2,15 +2,12 @@ package server
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/crypto"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -70,33 +67,6 @@ func (frw *flushResponseWriter) Flush() {
 	if f, ok := frw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
-}
-
-func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessionID string, filePath string) (string, types.OwnerContext, error) {
-	session, err := apiServer.Store.GetSession(ctx, sessionID)
-	if err != nil {
-		return "", types.OwnerContext{}, err
-	}
-
-	if session == nil {
-		return "", types.OwnerContext{}, fmt.Errorf("no session found with id %v", sessionID)
-	}
-
-	ownerContext := types.OwnerContext{
-		Owner:     session.Owner,
-		OwnerType: session.OwnerType,
-	}
-	// let's remove the /dev/users/XXX part of the path if it's there
-	userPath, err := apiServer.Controller.GetFilestoreUserPath(ownerContext, "")
-	if err != nil {
-		return "", types.OwnerContext{}, err
-	}
-
-	// NOTE(milosgajdos): no need for if check
-	// https://pkg.go.dev/strings#TrimPrefix
-	filePath = strings.TrimPrefix(filePath, userPath)
-
-	return filePath, ownerContext, nil
 }
 
 // getEncryptionKey retrieves the encryption key from environment or generates a default one

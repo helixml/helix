@@ -607,6 +607,10 @@ func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.S
 		Name:           fmt.Sprintf("Sandbox key - %s", sandbox.ID),
 		Type:           types.APIkeytypeAPI,
 		SessionID:      sandbox.ID,
+		// A sandbox created in a project gets a key confined to that
+		// project (enforceKeyProjectScope), so code in the container cannot
+		// reach the owner's other projects.
+		ProjectID: sandbox.ProjectID,
 	})
 	if err != nil {
 		return "", err

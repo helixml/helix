@@ -417,3 +417,104 @@ func TestConnectionManager_OnGracePeriodExpiredCallback_ReconnectPreventsCallbac
 		t.Fatal("Callback should not be called when reconnection happens before grace period expires")
 	}
 }
+
+func TestSetExclusive_RefusesKeyWithLiveConnection(t *testing.T) {
+	m := New()
+	defer m.Stop()
+
+	first := newMockConn()
+	defer first.Close()
+	if err := m.SetExclusive("hydra-host1", first, func() bool { return true }); err != nil {
+		t.Fatalf("first registration: %v", err)
+	}
+	if !m.HasLive("hydra-host1") {
+		t.Fatal("HasLive = false for a key with a live connection")
+	}
+
+	second := newMockConn()
+	defer second.Close()
+	if err := m.SetExclusive("hydra-host1", second, func() bool { return true }); err != ErrKeyInUse {
+		t.Fatalf("second registration err = %v, want ErrKeyInUse", err)
+	}
+	m.lock.RLock()
+	current := m.deviceConnections["hydra-host1"]
+	m.lock.RUnlock()
+	if current != first {
+		t.Fatal("a refused registration replaced the live connection")
+	}
+}
+
+func TestSetExclusive_ReplacesConnectionThatStoppedProvingLiveness(t *testing.T) {
+	m := New()
+	defer m.Stop()
+
+	var mu sync.Mutex
+	firstAlive := true
+	first := newMockConn()
+	defer first.Close()
+	if err := m.SetExclusive("hydra-host1", first, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return firstAlive
+	}); err != nil {
+		t.Fatalf("first registration: %v", err)
+	}
+
+	mu.Lock()
+	firstAlive = false
+	mu.Unlock()
+
+	second := newMockConn()
+	defer second.Close()
+	if err := m.SetExclusive("hydra-host1", second, func() bool { return true }); err != nil {
+		t.Fatalf("reconnect after the old connection went quiet: %v", err)
+	}
+	m.lock.RLock()
+	current := m.deviceConnections["hydra-host1"]
+	m.lock.RUnlock()
+	if current != second {
+		t.Fatal("reconnect did not replace the stale connection")
+	}
+}
+
+func TestSetExclusive_ReplacesClosedConnection(t *testing.T) {
+	m := New()
+	defer m.Stop()
+
+	first := newMockConn()
+	if err := m.SetExclusive("hydra-host1", first, func() bool { return true }); err != nil {
+		t.Fatalf("first registration: %v", err)
+	}
+	first.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for m.HasLive("hydra-host1") {
+		if time.Now().After(deadline) {
+			t.Fatal("closed connection still reported live")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	second := newMockConn()
+	defer second.Close()
+	if err := m.SetExclusive("hydra-host1", second, func() bool { return true }); err != nil {
+		t.Fatalf("registration after the old connection closed: %v", err)
+	}
+}
+
+func TestSet_ConnectionWithoutProbeIsReplaceable(t *testing.T) {
+	m := New()
+	defer m.Stop()
+
+	first := newMockConn()
+	defer first.Close()
+	m.Set("desktop-ses_1", first)
+	if m.HasLive("desktop-ses_1") {
+		t.Fatal("a connection registered without a probe must not block replacement")
+	}
+	second := newMockConn()
+	defer second.Close()
+	if err := m.SetExclusive("desktop-ses_1", second, nil); err != nil {
+		t.Fatalf("replace probe-less connection: %v", err)
+	}
+}

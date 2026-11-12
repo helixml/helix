@@ -16,6 +16,9 @@ var (
 	ErrNoConnection            = errors.New("no connection")
 	ErrReconnectTimeout        = errors.New("reconnect timeout")
 	ErrMaxPendingDialsExceeded = errors.New("max pending dials exceeded")
+	// ErrKeyInUse is returned by SetExclusive when the key already has a
+	// connection that has recently proven it is alive.
+	ErrKeyInUse = errors.New("key already has a live connection")
 )
 
 const (
@@ -42,6 +45,11 @@ type ConnectionManager struct {
 	deviceDialers     map[string]*revdial.Dialer
 	deviceConnections map[string]net.Conn // Raw connections for simple TCP forwarding
 
+	// liveness holds, per key, a probe reporting whether the registered
+	// connection has recently proven it is alive. Keys registered with Set
+	// have no probe and can always be replaced.
+	liveness map[string]func() bool
+
 	// Grace period support for reconnection tolerance
 	disconnectedAt map[string]time.Time     // When each key was disconnected
 	pendingDials   map[string][]*dialWaiter // Pending Dial() calls per key
@@ -60,6 +68,7 @@ func NewWithGracePeriod(gracePeriod time.Duration) *ConnectionManager {
 	m := &ConnectionManager{
 		deviceDialers:     make(map[string]*revdial.Dialer),
 		deviceConnections: make(map[string]net.Conn),
+		liveness:          make(map[string]func() bool),
 		disconnectedAt:    make(map[string]time.Time),
 		pendingDials:      make(map[string][]*dialWaiter),
 		gracePeriod:       gracePeriod,
@@ -124,6 +133,7 @@ func (m *ConnectionManager) cleanupExpired() {
 		delete(m.disconnectedAt, key)
 		delete(m.deviceDialers, key)
 		delete(m.deviceConnections, key)
+		delete(m.liveness, key)
 	}
 
 	// Get callback reference while holding lock
@@ -138,11 +148,49 @@ func (m *ConnectionManager) cleanupExpired() {
 	}
 }
 
-// Set registers a new connection for the given key.
-// If there are pending Dial() calls waiting for reconnection, they will be woken up.
+// Set registers a new connection for the given key, replacing any existing
+// one. If there are pending Dial() calls waiting for reconnection, they will
+// be woken up.
 func (m *ConnectionManager) Set(key string, conn net.Conn) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
+	m.setLocked(key, conn, nil)
+}
+
+// SetExclusive registers conn under key unless the key's current connection
+// has a liveness probe that reports it alive, in which case it returns
+// ErrKeyInUse and leaves the existing connection in place. alive becomes the
+// probe for conn; a nil probe means conn never blocks a later registration.
+//
+// A reconnecting client whose previous connection really died is unaffected:
+// its old probe stops reporting alive and the new connection takes over.
+func (m *ConnectionManager) SetExclusive(key string, conn net.Conn, alive func() bool) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if m.hasLiveLocked(key) {
+		return ErrKeyInUse
+	}
+	m.setLocked(key, conn, alive)
+	return nil
+}
+
+// HasLive reports whether key has a connection whose liveness probe reports
+// it alive, i.e. whether SetExclusive would currently refuse the key.
+func (m *ConnectionManager) HasLive(key string) bool {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	return m.hasLiveLocked(key)
+}
+
+func (m *ConnectionManager) hasLiveLocked(key string) bool {
+	if _, connected := m.deviceDialers[key]; !connected {
+		return false
+	}
+	alive := m.liveness[key]
+	return alive != nil && alive()
+}
+
+func (m *ConnectionManager) setLocked(key string, conn net.Conn, alive func() bool) {
 
 	// Check if this is a reconnection (key was in grace period)
 	if disconnectTime, wasDisconnected := m.disconnectedAt[key]; wasDisconnected {
@@ -162,6 +210,11 @@ func (m *ConnectionManager) Set(key string, conn net.Conn) {
 
 	// Store both the raw connection (for cleanup) and the dialer (for use)
 	m.deviceConnections[key] = conn
+	if alive != nil {
+		m.liveness[key] = alive
+	} else {
+		delete(m.liveness, key)
+	}
 	dialer := revdial.NewDialer(conn, "/revdial")
 	m.deviceDialers[key] = dialer
 
@@ -332,6 +385,7 @@ func (m *ConnectionManager) OnDisconnect(key string) {
 	// Remove the dialer but keep tracking via disconnectedAt
 	delete(m.deviceDialers, key)
 	delete(m.deviceConnections, key)
+	delete(m.liveness, key)
 }
 
 // Remove immediately removes a connection from the manager.
@@ -351,6 +405,7 @@ func (m *ConnectionManager) Remove(key string) {
 	delete(m.disconnectedAt, key)
 	delete(m.deviceDialers, key)
 	delete(m.deviceConnections, key)
+	delete(m.liveness, key)
 }
 
 // List returns all active connection keys
