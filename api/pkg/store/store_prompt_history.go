@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -320,6 +321,25 @@ func (s *PostgresStore) ListPromptHistoryBySession(ctx context.Context, sessionI
 	return entries, nil
 }
 
+// GetLatestActivationPromptHistoryEntry includes deleted entries because a
+// cancelled activation is terminal and must prevent replaying an older one.
+func (s *PostgresStore) GetLatestActivationPromptHistoryEntry(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	prefix := system.PromptHistoryPrefix + "activation_"
+	var entry types.PromptHistoryEntry
+	result := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND left(id, ?) = ?", sessionID, len(prefix), prefix).
+		Order("created_at DESC, id DESC").
+		Limit(1).
+		Find(&entry)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
+	}
+	return &entry, nil
+}
+
 // MarkPromptAsPending marks a prompt as pending (used before retry)
 func (s *PostgresStore) MarkPromptAsPending(ctx context.Context, promptID string) error {
 	return s.gdb.WithContext(ctx).
@@ -369,6 +389,37 @@ func (s *PostgresStore) RecoverProviderPrompt(ctx context.Context, sessionID, pr
 		if err := tx.Model(&types.Session{}).Where("id = ?", sessionID).
 			Update("config", gorm.Expr("jsonb_set(config, '{provider_recovery}', ?::jsonb)", string(payload))).Error; err != nil {
 			return err
+		}
+		recovered = true
+		return nil
+	})
+	return recovered, err
+}
+
+func (s *PostgresStore) RecoverProviderPromptForConfigChange(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	recovered := false
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var session types.Session
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", sessionID).First(&session).Error; err != nil {
+			return err
+		}
+		var interaction types.Interaction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("session_id = ? AND prompt_id = ?", sessionID, promptID).
+			Order("created DESC, id DESC").
+			First(&interaction).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if interaction.ID != interactionID || interaction.State != types.InteractionStateError {
+			return nil
+		}
+		result := tx.Model(&types.PromptHistoryEntry{}).
+			Where("id = ? AND session_id = ? AND status = 'sent' AND deleted_at IS NULL", promptID, sessionID).
+			Updates(map[string]any{"status": "pending", "next_retry_at": nil, "error_message": ""})
+		if result.Error != nil || result.RowsAffected == 0 {
+			return result.Error
 		}
 		recovered = true
 		return nil

@@ -1590,6 +1590,9 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 		log.Printf("config_changed event: field=%s color_scheme=%s", evt.Field, evt.ColorScheme)
 		if err := d.syncFromHelix(); err != nil {
 			log.Printf("re-sync after config_changed failed: %v", err)
+			if evt.Field == "agent" {
+				continue
+			}
 		}
 		// In-place agent switch coordination:
 		//   field="agent"          → fast path. settings.json has just been

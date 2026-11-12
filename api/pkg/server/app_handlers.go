@@ -803,6 +803,17 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		}
 	}
 
+	codeAssistant := external_agent.FindZedExternalAssistant(app)
+	if codeAssistant != nil && (codeAssistant.AgentType == types.AgentTypeZedExternal || codeAssistant.CodeAgentRuntime != "") {
+		snapshot, err := s.discoverSelectedProviderSnapshot(ctx, app, endpoints, providerSnapshotFromEndpoints(endpoints))
+		if err != nil {
+			return fmt.Errorf("failed to validate selected provider model: %w", err)
+		}
+		if reason := external_agent.ValidateAssistantModelConfig(app, snapshot); reason != "" {
+			return errors.New(reason)
+		}
+	}
+
 	return nil
 }
 

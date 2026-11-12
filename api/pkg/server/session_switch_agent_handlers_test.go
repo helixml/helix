@@ -10,12 +10,30 @@ import (
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+type configAppliedInterleavingStore struct {
+	*memorystore.MemoryStore
+	newRecovery *types.ProviderRecovery
+	interleaved bool
+}
+
+func (s *configAppliedInterleavingStore) GetSession(ctx context.Context, sessionID string) (*types.Session, error) {
+	session, err := s.MemoryStore.GetSession(ctx, sessionID)
+	if err == nil && !s.interleaved {
+		s.interleaved = true
+		if setErr := s.MemoryStore.SetSessionProviderRecovery(ctx, sessionID, s.newRecovery); setErr != nil {
+			return nil, setErr
+		}
+	}
+	return session, err
+}
 
 func callSwitchAgentHTTP(t *testing.T, srv *HelixAPIServer, user *types.User, sessionID string, body SwitchAgentRequest) *httptest.ResponseRecorder {
 	t.Helper()
@@ -27,6 +45,32 @@ func callSwitchAgentHTTP(t *testing.T, srv *HelixAPIServer, user *types.User, se
 	rr := httptest.NewRecorder()
 	system.Wrapper(srv.switchAgent)(rr, req)
 	return rr
+}
+
+func TestAgentConfigAppliedPreservesConcurrentRecoveryUpdate(t *testing.T) {
+	srv, memory := newForkTestServer(t)
+	ctx := context.Background()
+	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
+	oldRecovery := &types.ProviderRecovery{PromptID: "prompt-old", InteractionID: "interaction-old"}
+	newRecovery := &types.ProviderRecovery{PromptID: "prompt-new", InteractionID: "interaction-new"}
+	session := newTestParentSession(user.ID)
+	session.Metadata.Recovery = oldRecovery
+	_, err := memory.CreateSession(ctx, *session)
+	require.NoError(t, err)
+	srv.Store = &configAppliedInterleavingStore{MemoryStore: memory, newRecovery: newRecovery}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/"+session.ID+"/agent-config-applied", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+	req = req.WithContext(setRequestUser(req.Context(), *user))
+	response, httpErr := srv.agentConfigApplied(httptest.NewRecorder(), req)
+	require.Nil(t, httpErr)
+	require.Equal(t, "ok", response.Status)
+
+	stored, err := memory.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Equal(t, newRecovery, stored.Metadata.Recovery)
+	require.False(t, stored.Metadata.AgentConfigAppliedAt.IsZero())
+	require.True(t, stored.Metadata.AgentHandoffDeliveredAt.IsZero())
 }
 
 // switchAgentInPlace mutates the SAME session: repoints the agent, clears the
