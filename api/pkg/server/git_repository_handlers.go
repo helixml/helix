@@ -513,7 +513,8 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 
 	// Org owners see every repository in their org. Owner-scoped lists are
 	// filtered too, so repositories in orgs the caller has left drop out.
-	isOrgOwner := orgMembership != nil && orgMembership.Role == types.OrganizationRoleOwner
+	// A project-scoped key is filtered even for an org owner.
+	isOrgOwner := orgMembership != nil && orgMembership.Role == types.OrganizationRoleOwner && user.ProjectID == ""
 	if !isAdmin(user) && !isOrgOwner && (orgID != "" || projectID == "") {
 		repositories = s.filterReadableRepositories(ctx, user, repositories)
 	}

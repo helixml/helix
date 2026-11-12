@@ -46,16 +46,27 @@ type prProposalGit interface {
 	ValidateUserOAuth(ctx context.Context, repo *types.GitRepository, userID string) error
 }
 
+// PRApproverAuthorizer reports whether user may currently approve pull
+// requests in projectID.
+type PRApproverAuthorizer func(ctx context.Context, user *types.User, projectID string) error
+
 type PRProposalService struct {
-	store         store.Store
-	git           prProposalGit
-	attention     *AttentionService
-	enqueue       SpecTaskMessageEnqueuer
-	serverBaseURL string
+	store             store.Store
+	authorizeApprover PRApproverAuthorizer
+	git               prProposalGit
+	attention         *AttentionService
+	enqueue           SpecTaskMessageEnqueuer
+	serverBaseURL     string
 }
 
 func NewPRProposalService(s store.Store, git prProposalGit, attention *AttentionService, serverBaseURL string) *PRProposalService {
 	return &PRProposalService{store: s, git: git, attention: attention, serverBaseURL: serverBaseURL}
+}
+
+// SetApproverAuthorizer wires the project access check that auto-approval
+// applies to the stored approver. Without it, auto-approval waits for a human.
+func (s *PRProposalService) SetApproverAuthorizer(fn PRApproverAuthorizer) {
+	s.authorizeApprover = fn
 }
 
 // SetMessageEnqueuer wires delivery of decision outcomes to the task's agent.
@@ -211,6 +222,20 @@ func (s *PRProposalService) autoApprove(ctx context.Context, task *types.SpecTas
 	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: actorID})
 	if err != nil {
 		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver not found; waiting for a human")
+		return nil
+	}
+	// The approver was recorded when auto-approval was turned on; they may
+	// since have lost access to the project, so check it now.
+	if err := user.AccountAccessError(); err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver account inactive; waiting for a human")
+		return nil
+	}
+	if s.authorizeApprover == nil {
+		log.Warn().Str("task_id", task.ID).Msg("pr proposal: no approver authorizer configured; waiting for a human")
+		return nil
+	}
+	if err := s.authorizeApprover(ctx, user, task.ProjectID); err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver no longer has project access; waiting for a human")
 		return nil
 	}
 	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true)

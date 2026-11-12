@@ -266,6 +266,17 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		query.OrganizationID = ""
 	}
 
+	// A project-scoped key lists only its own project's sessions.
+	if user.ProjectID != "" {
+		if projectID != "" && projectID != user.ProjectID {
+			return nil, system.NewHTTPError403(errProjectScopedKey.Error())
+		}
+		if !query.RestrictToProjects {
+			query.RestrictToProjects = true
+			query.ProjectIDs = []string{user.ProjectID}
+		}
+	}
+
 	// Parse query parameters
 	page, err := strconv.Atoi(req.URL.Query().Get("page"))
 	if err != nil || page < 1 {

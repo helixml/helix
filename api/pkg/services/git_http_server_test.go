@@ -150,6 +150,31 @@ func (s *HasReadAccessSuite) TestNonOwner_AuthorizeFnDenies() {
 	s.False(result)
 }
 
+// A project-scoped key held by the repository owner must not take the owner
+// shortcut: the authorizer, which knows the key's project, decides.
+func (s *HasReadAccessSuite) TestScopedKeyOwner_DefersToAuthorizeFn() {
+	repoPath := s.createBareRepo("repo4")
+
+	var called int
+	authFn := func(ctx context.Context, user *types.User, repo *types.GitRepository, action types.Action) error {
+		called++
+		return fmt.Errorf("repository is outside the key's project")
+	}
+	server := s.newServer(authFn)
+
+	repo := &types.GitRepository{
+		ID:        "repo4",
+		OwnerID:   "user1",
+		LocalPath: repoPath,
+	}
+	s.mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo4").Return(repo, nil).Times(2)
+
+	user := &types.User{ID: "user1", ProjectID: "prj_other"}
+	s.False(server.hasReadAccess(context.Background(), user, "repo4"))
+	s.False(server.hasWriteAccess(context.Background(), user, "repo4"))
+	s.Equal(2, called)
+}
+
 // TestParsePullRequestMarkdown tests the parsePullRequestMarkdown function
 func TestParsePullRequestMarkdown(t *testing.T) {
 	tests := []struct {

@@ -316,6 +316,11 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	if err != nil {
 		return nil, nil, fmt.Errorf("user not found: %w", err)
 	}
+	// Carry the key's scope so repository authorization can confine a
+	// project-scoped key to its project, as the API auth middleware does.
+	user.ProjectID = apiKeyRecord.ProjectID
+	user.SpecTaskID = apiKeyRecord.SpecTaskID
+	user.SessionID = apiKeyRecord.SessionID
 
 	return user, apiKeyRecord, nil
 }
@@ -1091,8 +1096,9 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 		return false
 	}
 
-	// Repository owner can always read the repository
-	if user.ID == repo.OwnerID {
+	// Repository owner can always read the repository, unless their key is
+	// confined to a project: then authorizeFn decides.
+	if user.ID == repo.OwnerID && user.ProjectID == "" {
 		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: user is repo owner, allowing")
 		return true
 	}
@@ -1119,8 +1125,9 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 		return false
 	}
 
-	// Repository owner can always write to the repository
-	if user.ID == repo.OwnerID {
+	// Repository owner can always write to the repository, unless their key
+	// is confined to a project: then authorizeFn decides.
+	if user.ID == repo.OwnerID && user.ProjectID == "" {
 		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasWriteAccess: user is repo owner, allowing")
 		return true
 	}

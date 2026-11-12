@@ -616,7 +616,7 @@ func NewServer(
 	apiServer.mcpGateway.RegisterBackend("helix", NewHelixMCPBackend(store, appController, apiServer.authorizeUserToApp))
 
 	// Register Session MCP backend (session navigation and context tools)
-	sessionMCPBackend := NewSessionMCPBackend(store, appController.Options.Notifier)
+	sessionMCPBackend := NewSessionMCPBackend(store, appController.Options.Notifier, apiServer.authorizeUserToSession)
 	apiServer.mcpGateway.RegisterBackend("session", sessionMCPBackend)
 
 	// Register Visualization MCP backend (html_render inline pages). Wired into
@@ -705,6 +705,9 @@ func NewServer(
 	// Every spec-task PR is opened from an agent proposal a user approved.
 	apiServer.prProposals = services.NewPRProposalService(store, gitRepositoryService, apiServer.attentionService, cfg.WebServer.URL)
 	apiServer.prProposals.SetMessageEnqueuer(apiServer.enqueueSpecTaskAgentMessage)
+	apiServer.prProposals.SetApproverAuthorizer(func(ctx context.Context, user *types.User, projectID string) error {
+		return apiServer.authorizeUserToProjectByID(ctx, user, projectID, types.ActionUpdate)
+	})
 	apiServer.gitHTTPServer.SetPRProposals(apiServer.prProposals)
 	sessionMCPBackend.SetPRProposals(apiServer.prProposals)
 
