@@ -11,37 +11,34 @@ import teal from '../../assets/bots/teal.webp'
 
 const portraits = [lavender, cyan, magenta, indigo, teal, pearl] as const
 
-export const botPortraitForId = (botId: string): string => {
-  let hash = 2166136261
-  for (let index = 0; index < botId.length; index += 1) {
-    hash = Math.imul(hash ^ botId.charCodeAt(index), 16777619)
-  }
-  return portraits[(hash >>> 0) % portraits.length]
-}
-
 interface BotPortraitProps {
-  botId: string
+  portraitIndex?: number
   size?: number
   sx?: SxProps<Theme>
 }
 
-const BotPortrait: FC<BotPortraitProps> = ({ botId, size = 40, sx }) => (
-  <Box
-    component="img"
-    src={botPortraitForId(botId)}
-    alt=""
-    aria-hidden="true"
-    sx={[
-      {
-        width: size,
-        height: size,
-        display: 'block',
-        flexShrink: 0,
-        objectFit: 'contain',
-      },
-      ...(sx ? (Array.isArray(sx) ? sx : [sx]) : []),
-    ]}
-  />
-)
+const BotPortrait: FC<BotPortraitProps> = ({ portraitIndex, size = 40, sx }) => {
+  if (portraitIndex === undefined || !Number.isInteger(portraitIndex) || portraitIndex < 0 || portraitIndex >= portraits.length) {
+    return null
+  }
+  return (
+    <Box
+      component="img"
+      src={portraits[portraitIndex]}
+      alt=""
+      aria-hidden="true"
+      sx={[
+        {
+          width: size,
+          height: size,
+          display: 'block',
+          flexShrink: 0,
+          objectFit: 'contain',
+        },
+        ...(sx ? (Array.isArray(sx) ? sx : [sx]) : []),
+      ]}
+    />
+  )
+}
 
 export default BotPortrait

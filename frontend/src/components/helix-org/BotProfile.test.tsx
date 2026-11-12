@@ -8,6 +8,7 @@ const runningBot = {
   name: 'Chief of Staff',
   status: 'running',
   sandbox_status: 'running',
+  portrait_index: 5,
 } as any
 
 describe('BotProfile', () => {

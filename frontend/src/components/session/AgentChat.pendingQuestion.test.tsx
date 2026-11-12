@@ -88,10 +88,10 @@ vi.mock("../common/RobustPromptInput", () => ({
 
 vi.mock("./EmbeddedSessionView", () => ({
   default: React.forwardRef(function EmbeddedSessionView(
-    { trailingContent }: { trailingContent?: React.ReactNode },
+    { assistantPortraitIndex, trailingContent }: { assistantPortraitIndex?: number; trailingContent?: React.ReactNode },
     _ref,
   ) {
-    return <div data-testid="session-view">{trailingContent}</div>;
+    return <div data-testid="session-view" data-portrait-index={assistantPortraitIndex}>{trailingContent}</div>;
   }),
 }));
 
@@ -329,6 +329,19 @@ describe("AgentChat pending question placement", () => {
 
     expect(screen.queryByText("What would you like to know?")).not.toBeInTheDocument();
     expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("passes the persisted portrait into an active bot conversation", () => {
+    pendingQuestionInteractions.current = [];
+    render(
+      <AgentChat
+        sessionId="session-1"
+        orgBot={{ id: "b-joke-writer", name: "Joke Writer", portrait_index: 0 } as any}
+        welcomeWhenEmpty
+      />,
+    );
+
+    expect(screen.getByTestId("session-view")).toHaveAttribute("data-portrait-index", "0");
   });
 
   it("puts a question older than the loaded transcript after newer replies and action cards", () => {

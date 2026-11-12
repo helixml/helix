@@ -70,6 +70,7 @@ const runningBot = {
   id: 'b-eng',
   status: 'running',
   sandbox_status: 'running',
+  portrait_index: 5,
   effective_sandbox_runtime: 'ubuntu-desktop',
 } as const
 

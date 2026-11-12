@@ -326,7 +326,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
             backgroundColor: 'background.paper',
           }}
         >
-          <BotPortrait botId={bot.id || botName} size={36} />
+          <BotPortrait portraitIndex={bot.portrait_index} size={36} />
           <Typography variant="h6" component="h2" sx={{ fontWeight: 600 }}>
             {botName}&apos;s desktop
           </Typography>

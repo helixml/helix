@@ -73,7 +73,7 @@ const BotProfile: FC<BotProfileProps> = ({ bot, expanded = false }) => {
           </Box>
         </Box>
         <BotPortrait
-          botId={bot.id || botName}
+          portraitIndex={bot.portrait_index}
           sx={{
             width: 116,
             height: 116,
@@ -129,7 +129,7 @@ const BotProfile: FC<BotProfileProps> = ({ bot, expanded = false }) => {
         )}
       </Box>
       <BotPortrait
-        botId={bot.id || botName}
+        portraitIndex={bot.portrait_index}
         sx={{
           width: { xs: '54%', sm: '58%' },
           height: '100%',

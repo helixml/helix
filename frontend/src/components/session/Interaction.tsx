@@ -156,7 +156,7 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     return false;
   }
 
-  if (prevProps.assistantId !== nextProps.assistantId) {
+  if (prevProps.assistantPortraitIndex !== nextProps.assistantPortraitIndex) {
     return false;
   }
 
@@ -291,8 +291,8 @@ interface InteractionProps {
   hidePrompt?: boolean;
   /** Name shown above assistant replies in bot conversations. */
   assistantName?: string;
-  /** Stable id used to select the bot portrait. */
-  assistantId?: string;
+  /** Server-assigned bot portrait slot. */
+  assistantPortraitIndex?: number;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -310,7 +310,7 @@ export const Interaction: FC<InteractionProps> = ({
   recoveredLater = false,
   hidePrompt = false,
   assistantName,
-  assistantId,
+  assistantPortraitIndex,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -598,7 +598,7 @@ export const Interaction: FC<InteractionProps> = ({
         >
           {assistantName && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5, color: "text.secondary" }}>
-              {assistantId && <BotPortrait botId={assistantId} size={32} />}
+              <BotPortrait portraitIndex={assistantPortraitIndex} size={32} />
               <Typography variant="caption" sx={{ fontWeight: 600, color: "text.primary" }}>
                 {assistantName}
               </Typography>

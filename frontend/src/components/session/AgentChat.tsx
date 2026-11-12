@@ -396,7 +396,7 @@ const AgentChat: FC<AgentChatProps> = ({
             minimal={minimal}
             hasBriefingTurn={hasBriefingTurn}
             assistantName={orgBot?.name || orgBot?.id}
-            assistantId={orgBot?.id}
+            assistantPortraitIndex={orgBot?.portrait_index}
             trailingContent={
               actionCards || pendingQuestionInteractions.length > 0 ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
