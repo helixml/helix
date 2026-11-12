@@ -335,16 +335,23 @@ func (s *ControllerSessionSuite) TestDeleteRoutesSessionBackedTeardownToDesktopS
 	s.Require().Equal("ses_1", stopped)
 }
 
+// The sandbox's key is revoked before teardown, so it stops working even when
+// the desktop cannot be stopped (no stopper here; a gone host in production).
 func (s *ControllerSessionSuite) TestDeleteFailsLoudlyWhenNoDesktopStopperIsWired() {
 	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_1").Return(&types.Sandbox{
 		ID:             "sbx_1",
 		OrganizationID: "org_1",
+		Owner:          "usr_1",
 		SessionID:      "ses_1",
 		Runtime:        types.SandboxRuntimeUbuntuDesktop,
 		Status:         types.SandboxStatusRunning,
 	}, nil)
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
 	s.store.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_1", types.SandboxStatusStopping, "").Return(nil)
+	s.store.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{
+		OrganizationID: "org_1", Owner: "usr_1", OwnerType: types.OwnerTypeUser, SessionID: "sbx_1",
+	}).Return(&types.ApiKey{Key: "hl-sbx"}, nil)
+	s.store.EXPECT().DeleteAPIKey(gomock.Any(), "hl-sbx").Return(nil)
 
 	err := s.controller.Delete(s.ctx, "sbx_1")
 	s.Require().Error(err)
