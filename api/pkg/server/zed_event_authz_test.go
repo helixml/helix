@@ -239,14 +239,16 @@ func TestZedHeartbeat_BindsSpecTaskToCaller(t *testing.T) {
 	}
 }
 
-// A caller naming its own task must not reach a thread of another task.
+// A caller naming its own task must not reach a thread of another task, and
+// is told no more than for a missing thread.
 func TestZedThreadEvent_OwnTaskWithForeignThreadIsRefused(t *testing.T) {
 	srv, writes := newZedAuthzTestServer(t)
 	vars := map[string]string{"instanceId": zedTestInstance, "threadId": zedForeignExternal}
 	rec := httptest.NewRecorder()
 	srv.handleZedThreadEvent(rec, zedRequest(zedOwner, "/api/v1/zed/instances/x/threads/y/events",
 		`{"status":"failed","spec_task_id":"`+zedTestTask+`"}`, vars))
-	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	require.Equal(t, errZedSpecTaskNotFound+"\n", rec.Body.String())
 	require.Zero(t, *writes)
 }
 

@@ -214,8 +214,10 @@ func (s *HelixAPIServer) handleZedThreadEvent(w http.ResponseWriter, r *http.Req
 	if specTask == nil {
 		return
 	}
+	// A thread of another task answers like a missing one, so the route does
+	// not reveal which thread ids exist.
 	if threadSpecTaskID != "" && threadSpecTaskID != specTask.ID {
-		http.Error(w, "thread does not belong to this spec task", http.StatusConflict)
+		http.Error(w, errZedSpecTaskNotFound, http.StatusNotFound)
 		return
 	}
 	if !checkZedEventInstance(w, specTask, instanceID, event.EventType) {
