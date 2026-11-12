@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -144,7 +145,21 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 }
 
 func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
-	return apiServer.getConfig(req.Context())
+	config, err := apiServer.getConfig(req.Context())
+	if err != nil {
+		return config, err
+	}
+	// The exact build and the deployment's identity are for signed-in users
+	// (update banner, licence gate, support debug context); an anonymous
+	// caller only needs what renders the login and registration pages. The
+	// Sentry DSN and RudderStack write key stay: they are browser-side
+	// ingestion keys the SPA needs before sign-in.
+	if !hasUser(getRequestUser(req)) {
+		config.Version = ""
+		config.LatestVersion = ""
+		config.DeploymentID = ""
+	}
+	return config, nil
 }
 
 // status godoc
@@ -166,27 +181,10 @@ func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request
 	}
 
 	// License info moved here from /config so it is not disclosed
-	// unauthenticated. Self-hosted deployments would otherwise leak the
-	// licence org / expiry / seat limits to anyone hitting /api/v1/config.
+	// unauthenticated.
 	if apiServer.pingService != nil {
 		if decoded, err := apiServer.pingService.GetLicenseInfo(ctx); err == nil && decoded != nil {
-			status.License = &types.FrontendLicenseInfo{
-				Valid:        decoded.Valid && !decoded.Expired(),
-				Organization: decoded.Organization,
-				ValidUntil:   decoded.ValidUntil,
-				Features: struct {
-					Users bool `json:"users"`
-				}{
-					Users: decoded.Features.Users,
-				},
-				Limits: struct {
-					Users    int64 `json:"users"`
-					Machines int64 `json:"machines"`
-				}{
-					Users:    decoded.Limits.Users,
-					Machines: decoded.Limits.Machines,
-				},
-			}
+			status.License = frontendLicenseInfo(decoded, isAdmin(user))
 		}
 	}
 
@@ -1331,6 +1329,23 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 		return nil, system.NewHTTPError404("api key not found")
 	}
 	return key, nil
+}
+
+// frontendLicenseInfo is the licence block of /api/v1/status. Everyone needs
+// to know whether the deployment is licensed (the SPA locks itself when it is
+// not); who holds the licence, when it expires and what it allows is for
+// deployment admins, the same audience as /api/v1/license.
+func frontendLicenseInfo(decoded *license.License, admin bool) *types.FrontendLicenseInfo {
+	info := &types.FrontendLicenseInfo{Valid: decoded.Valid && !decoded.Expired()}
+	if !admin {
+		return info
+	}
+	info.Organization = decoded.Organization
+	info.ValidUntil = decoded.ValidUntil
+	info.Features.Users = decoded.Features.Users
+	info.Limits.Users = decoded.Limits.Users
+	info.Limits.Machines = decoded.Limits.Machines
+	return info
 }
 
 // requiredJSONStringField reads a string field from a decoded JSON object,

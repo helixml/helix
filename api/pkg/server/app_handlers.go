@@ -30,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgdomainstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
@@ -477,12 +478,33 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 		return nil, system.NewHTTPError403("only admins can create global agents")
 	}
 
+	// An org-scoped key acts for its organization: an agent it creates without
+	// naming one belongs to that organization, not to a personal scope the key
+	// cannot list or manage afterwards.
+	if app.OrganizationID == "" && user.OrganizationID != "" {
+		app.OrganizationID = user.OrganizationID
+	}
+
 	// If organization ID is set, authorize the user to the organization,
 	// must be a member to create it
 	if app.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, app.OrganizationID)
+		// An org that does not exist and one the caller cannot use answer the
+		// same 404, as on the organization routes.
+		org, err := s.lookupOrg(ctx, app.OrganizationID)
 		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			log.Error().Err(err).Msg("failed to look up organization for new agent")
+			return nil, system.NewHTTPError500("failed to look up organization")
+		}
+		app.OrganizationID = org.ID
+		if _, err := s.authorizeOrgMember(ctx, user, app.OrganizationID); err != nil {
+			if errors.Is(err, store.ErrNotFound) || errors.Is(err, orgstore.ErrKeyOrgScope) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			log.Error().Err(err).Msg("failed to check organization membership for new agent")
+			return nil, system.NewHTTPError500("failed to check organization membership")
 		}
 	}
 
@@ -611,6 +633,9 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 			if err != nil {
 				return nil, system.NewHTTPError400(err.Error())
 			}
+		}
+		if httpErr := s.checkNewAPIToolDestinations(ctx, assistant, nil); httpErr != nil {
+			return nil, httpErr
 		}
 
 		for _, k := range assistant.Knowledge {
@@ -1258,6 +1283,9 @@ func (s *HelixAPIServer) updateAgent(_ http.ResponseWriter, r *http.Request) (*t
 			if err != nil {
 				return nil, system.NewHTTPError400(err.Error())
 			}
+		}
+		if httpErr := s.checkNewAPIToolDestinations(r.Context(), assistant, existing); httpErr != nil {
+			return nil, httpErr
 		}
 
 		for _, k := range assistant.Knowledge {
@@ -2540,4 +2568,38 @@ func isSafeFetchIP(ip net.IP) bool {
 		return false
 	}
 	return true
+}
+
+// checkNewAPIToolDestinations checks the URL of every API tool on assistant
+// that existing (the stored agent, nil on create) does not already call
+// against the tools outbound policy. Unchanged URLs are not re-checked, so an
+// agent saved before this check existed can still be edited.
+func (s *HelixAPIServer) checkNewAPIToolDestinations(ctx context.Context, assistant *types.AssistantConfig, existing *types.App) *system.HTTPError {
+	known := map[string]bool{}
+	if existing != nil {
+		for _, a := range existing.Config.Helix.Assistants {
+			for _, api := range a.APIs {
+				known[strings.TrimSpace(api.URL)] = true
+			}
+			for _, tool := range a.Tools {
+				if tool != nil && tool.Config.API != nil {
+					known[strings.TrimSpace(tool.Config.API.URL)] = true
+				}
+			}
+		}
+	}
+	policy := netguard.Policy{AllowPrivate: s.Cfg != nil && s.Cfg.Tools.AllowPrivateNetworks}
+	for _, tool := range assistant.Tools {
+		if tool == nil || tool.ToolType != types.ToolTypeAPI || tool.Config.API == nil {
+			continue
+		}
+		toolURL := strings.TrimSpace(tool.Config.API.URL)
+		if known[toolURL] {
+			continue
+		}
+		if err := tools.CheckAPIToolDestination(ctx, policy, toolURL); err != nil {
+			return system.NewHTTPError400(fmt.Sprintf("tool %q: %s", tool.Name, err))
+		}
+	}
+	return nil
 }

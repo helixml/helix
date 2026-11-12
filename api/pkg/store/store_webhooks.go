@@ -36,7 +36,7 @@ func (s *PostgresStore) CreateWebhookEndpoint(ctx context.Context, endpoint *typ
 
 func (s *PostgresStore) GetWebhookEndpoint(ctx context.Context, organizationID, endpointID string) (*types.WebhookEndpoint, error) {
 	var endpoint types.WebhookEndpoint
-	if err := s.gdb.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, endpointID).First(&endpoint).Error; err != nil {
+	if err := s.gdb.WithContext(ctx).Where("organization_id = ? AND id = ? AND status <> ?", organizationID, endpointID, types.WebhookEndpointStatusDeleted).First(&endpoint).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
@@ -47,7 +47,7 @@ func (s *PostgresStore) GetWebhookEndpoint(ctx context.Context, organizationID, 
 
 func (s *PostgresStore) ListWebhookEndpoints(ctx context.Context, organizationID string) ([]*types.WebhookEndpoint, error) {
 	var endpoints []*types.WebhookEndpoint
-	if err := s.gdb.WithContext(ctx).Where("organization_id = ?", organizationID).Order("created_at DESC").Find(&endpoints).Error; err != nil {
+	if err := s.gdb.WithContext(ctx).Where("organization_id = ? AND status <> ?", organizationID, types.WebhookEndpointStatusDeleted).Order("created_at DESC").Find(&endpoints).Error; err != nil {
 		return nil, fmt.Errorf("list webhook endpoints: %w", err)
 	}
 	return endpoints, nil

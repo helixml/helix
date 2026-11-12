@@ -518,6 +518,24 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// optionalUser puts the caller on the request context when the request carries
+// a valid session or token, and otherwise serves it anonymously. It never
+// refuses a request, so it suits public routes whose response only narrows
+// for anonymous callers; anything that must be authenticated belongs on
+// authRouter instead.
+func (auth *authMiddleware) optionalUser(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := auth.getUserFromSession(r.Context(), r)
+		if err != nil || user == nil {
+			user, err = auth.getUserFromToken(r.Context(), getRequestToken(r))
+		}
+		if err == nil && hasUser(user) && user.AccountAccessError() == nil {
+			r = r.WithContext(setRequestUser(r.Context(), *user))
+		}
+		f(w, r)
+	}
+}
+
 // csrfExemptPaths are paths that don't require CSRF protection
 // These are typically auth endpoints or APIs used before/during session creation
 var csrfExemptPaths = map[string]bool{
