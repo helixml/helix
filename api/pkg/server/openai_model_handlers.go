@@ -21,6 +21,13 @@ import (
 // @Router /v1/models [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
+	// Mounted behind authMiddleware.auth, which lets anonymous requests through:
+	// without this check anyone could make the server query its providers.
+	if !hasUserOrRunner(getRequestUser(r)) {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Anthropic clients identify themselves with this header — proxy straight through
 	if r.Header.Get("anthropic-version") != "" {
 		apiServer.listModelsAnthropic(rw, r)
