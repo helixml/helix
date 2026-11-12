@@ -1,15 +1,12 @@
 package server
 
 import (
+	"errors"
+	"net/http"
 	"strings"
-	"sync/atomic"
-	"time"
-)
 
-// revDialLivenessWindow is how long a RevDial control connection counts as
-// alive after its last pong. The API pings every 15s, so three missed pongs
-// release the id for a reconnecting client.
-const revDialLivenessWindow = 45 * time.Second
+	"github.com/helixml/helix/api/pkg/types"
+)
 
 // runnerTokenMayRegisterRevDial reports whether a runner-token caller may
 // register a RevDial tunnel under runnerID. Sandbox hosts register
@@ -24,22 +21,29 @@ func runnerTokenMayRegisterRevDial(runnerID string) bool {
 	return false
 }
 
-// revDialLiveness records when a RevDial control connection last answered a
-// ping.
-type revDialLiveness struct {
-	lastPong atomic.Int64 // unix nanoseconds
+// revDialKeyMayRegisterDesktop checks the key side of a "desktop-{sessionID}"
+// registration; the handler separately checks that the caller owns the
+// session or sandbox.
+//
+// Delegated keys other than a bot instance's (app and embed keys, held by
+// people who are not the owner) never register tunnels. A key minted for one
+// session's sandbox (User.SessionID set) registers only that session's
+// desktop, so a sandbox cannot take over its owner's other desktops.
+func revDialKeyMayRegisterDesktop(user *types.User, sessionID string) error {
+	if isDelegatedAPIKey(user.APIKeyType) && user.APIKeyType != types.APIkeytypeBotInstance {
+		return errors.New("this key type cannot register desktop tunnels")
+	}
+	if user.SessionID != "" && user.SessionID != sessionID {
+		return errors.New("key is scoped to another session")
+	}
+	return nil
 }
 
-func newRevDialLiveness(now time.Time) *revDialLiveness {
-	l := &revDialLiveness{}
-	l.touch(now)
-	return l
-}
-
-func (l *revDialLiveness) touch(now time.Time) {
-	l.lastPong.Store(now.UnixNano())
-}
-
-func (l *revDialLiveness) alive(now time.Time) bool {
-	return now.Sub(time.Unix(0, l.lastPong.Load())) < revDialLivenessWindow
+// revDialOrigin describes where a RevDial registration came from, for logs:
+// the peer address, plus the client chain a reverse proxy reported.
+func revDialOrigin(r *http.Request) string {
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		return r.RemoteAddr + " (forwarded for " + forwarded + ")"
+	}
+	return r.RemoteAddr
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/mock/gomock"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -35,18 +36,25 @@ func TestRunnerTokenMayRegisterRevDial(t *testing.T) {
 	}
 }
 
-func TestRevDialLiveness(t *testing.T) {
-	start := time.Now()
-	l := newRevDialLiveness(start)
-	if !l.alive(start.Add(revDialLivenessWindow - time.Second)) {
-		t.Fatal("connection should be alive inside the window")
-	}
-	if l.alive(start.Add(revDialLivenessWindow + time.Second)) {
-		t.Fatal("connection should not be alive after the window without a pong")
-	}
-	l.touch(start.Add(revDialLivenessWindow))
-	if !l.alive(start.Add(revDialLivenessWindow + time.Second)) {
-		t.Fatal("a pong should extend the window")
+func TestRevDialKeyMayRegisterDesktop(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		user types.User
+		ok   bool
+	}{
+		{"session key for this session", types.User{APIKeyType: types.APIkeytypeAPI, SessionID: "ses_A"}, true},
+		{"bot instance key for this session", types.User{APIKeyType: types.APIkeytypeBotInstance, SessionID: "ses_A"}, true},
+		{"owner key without a session", types.User{APIKeyType: types.APIkeytypeAPI}, true},
+		{"session key for another session", types.User{APIKeyType: types.APIkeytypeAPI, SessionID: "ses_B"}, false},
+		{"app key", types.User{APIKeyType: types.APIkeytypeApp}, false},
+		{"embed key", types.User{APIKeyType: types.APIkeytypeEmbed, SessionID: "ses_A"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := revDialKeyMayRegisterDesktop(&tc.user, "ses_A")
+			if (err == nil) != tc.ok {
+				t.Fatalf("err = %v, want allowed=%v", err, tc.ok)
+			}
+		})
 	}
 }
 
@@ -62,7 +70,14 @@ func revDialTestServer(t *testing.T, apiServer *HelixAPIServer, user types.User)
 	return srv
 }
 
-func dialRevDialControl(t *testing.T, srv *httptest.Server, runnerID string) (*websocket.Conn, int) {
+// revDialControl is a test client's control connection. closed is closed
+// when the server ends the connection.
+type revDialControl struct {
+	*websocket.Conn
+	closed chan struct{}
+}
+
+func dialRevDialControl(t *testing.T, srv *httptest.Server, runnerID string) (*revDialControl, int) {
 	t.Helper()
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/v1/revdial?runnerid=" + runnerID
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
@@ -72,16 +87,18 @@ func dialRevDialControl(t *testing.T, srv *httptest.Server, runnerID string) (*w
 		}
 		return nil, resp.StatusCode
 	}
+	control := &revDialControl{Conn: conn, closed: make(chan struct{})}
 	// Keep reading so control frames (pings) are answered, as the real
 	// listener does.
 	go func() {
+		defer close(control.closed)
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
 				return
 			}
 		}
 	}()
-	return conn, resp.StatusCode
+	return control, resp.StatusCode
 }
 
 func TestHandleRevDial_RunnerTokenCannotRegisterDesktopTunnel(t *testing.T) {
@@ -99,40 +116,84 @@ func TestHandleRevDial_RunnerTokenCannotRegisterDesktopTunnel(t *testing.T) {
 	}
 }
 
-func TestHandleRevDial_LiveTunnelIsNotTakenOver(t *testing.T) {
+func TestHandleRevDial_RefusesNonWebSocketControlConnection(t *testing.T) {
+	cm := connman.New()
+	t.Cleanup(cm.Stop)
+	srv := revDialTestServer(t, &HelixAPIServer{connman: cm}, types.User{TokenType: types.TokenTypeRunner})
+
+	resp, err := http.Get(srv.URL + "/api/v1/revdial?runnerid=hydra-host1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if len(cm.List()) != 0 {
+		t.Fatalf("connman has registrations after a refused request: %v", cm.List())
+	}
+}
+
+func TestHandleRevDial_SessionKeyCannotRegisterAnotherSessionsDesktop(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := store.NewMockStore(ctrl)
-	st.EXPECT().GetSession(gomock.Any(), "ses_A").Return(&types.Session{ID: "ses_A", Owner: "usr_A"}, nil).AnyTimes()
+	st.EXPECT().GetSession(gomock.Any(), "ses_B").Return(&types.Session{ID: "ses_B", Owner: "usr_A"}, nil).AnyTimes()
 
 	cm := connman.New()
 	t.Cleanup(cm.Stop)
-	apiServer := &HelixAPIServer{connman: cm, Store: st}
-	srv := revDialTestServer(t, apiServer, types.User{ID: "usr_A", TokenType: types.TokenTypeAPIKey, SessionID: "ses_A"})
+	srv := revDialTestServer(t, &HelixAPIServer{connman: cm, Store: st},
+		types.User{ID: "usr_A", TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI, SessionID: "ses_A"})
 
-	first, status := dialRevDialControl(t, srv, "desktop-ses_A")
+	_, status := dialRevDialControl(t, srv, "desktop-ses_B")
+	if status != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", status)
+	}
+	if len(cm.List()) != 0 {
+		t.Fatalf("connman has registrations after a refused request: %v", cm.List())
+	}
+}
+
+// A runner-token registration displaces the current tunnel for the id (last
+// writer wins), so a host that reconnects always gets its id back. The
+// displaced tunnel is closed so its client notices and reconnects.
+func TestHandleRevDial_RunnerTokenReconnectDisplacesOldTunnel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	// ensureSandboxRegistered: no existing host row, register a new one.
+	st.EXPECT().ListSandboxInstances(gomock.Any()).Return(nil, nil).AnyTimes()
+	st.EXPECT().RegisterSandboxInstance(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	cm := connman.New()
+	t.Cleanup(cm.Stop)
+	srv := revDialTestServer(t, &HelixAPIServer{connman: cm, Store: st, Cfg: &config.ServerConfig{}}, types.User{TokenType: types.TokenTypeRunner})
+
+	first, status := dialRevDialControl(t, srv, "hydra-host1")
 	if first == nil {
 		t.Fatalf("first registration failed with status %d", status)
 	}
-	waitFor(t, func() bool { return cm.HasLive("desktop-ses_A") })
+	defer first.Close()
+	waitFor(t, func() bool { return len(cm.List()) == 1 })
 
-	second, status := dialRevDialControl(t, srv, "desktop-ses_A")
-	if second != nil {
-		second.Close()
-		t.Fatal("second registration of a live tunnel was accepted")
+	second, status := dialRevDialControl(t, srv, "hydra-host1")
+	if second == nil {
+		t.Fatalf("reconnect failed with status %d", status)
 	}
-	if status != http.StatusConflict {
-		t.Fatalf("status = %d, want 409", status)
-	}
+	defer second.Close()
 
-	// Once the first client goes away the id is free again.
-	first.Close()
-	waitFor(t, func() bool { return !cm.HasLive("desktop-ses_A") })
-
-	third, status := dialRevDialControl(t, srv, "desktop-ses_A")
-	if third == nil {
-		t.Fatalf("reconnect after the old tunnel closed failed with status %d", status)
+	// The displaced tunnel is closed by the server.
+	select {
+	case <-first.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("displaced tunnel was not closed")
 	}
-	third.Close()
+	select {
+	case <-second.closed:
+		t.Fatal("the new tunnel was closed")
+	default:
+	}
+	if keys := cm.List(); len(keys) != 1 || keys[0] != "hydra-host1" {
+		t.Fatalf("connman keys = %v, want [hydra-host1]", keys)
+	}
 }
 
 func waitFor(t *testing.T, cond func() bool) {

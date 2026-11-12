@@ -69,7 +69,7 @@ func TestConnectionManager_GracePeriod(t *testing.T) {
 
 	// Set a connection
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 
 	// Verify connection is listed
 	keys := m.List()
@@ -106,7 +106,7 @@ func TestConnectionManager_GracePeriod(t *testing.T) {
 
 	// Reconnect
 	conn2 := newMockConn()
-	m.Set(key, conn2)
+	m.Set(key, conn2, "")
 
 	// The queued dial should now complete (though it will fail because our mock dialer doesn't work)
 	select {
@@ -129,7 +129,7 @@ func TestConnectionManager_GracePeriodExpires(t *testing.T) {
 
 	// Set and disconnect
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 	m.OnDisconnect(key)
 
 	// Verify in grace period
@@ -164,7 +164,7 @@ func TestConnectionManager_ReconnectionClearsGracePeriod(t *testing.T) {
 
 	// Set, disconnect, then reconnect
 	conn1 := newMockConn()
-	m.Set(key, conn1)
+	m.Set(key, conn1, "")
 	m.OnDisconnect(key)
 
 	// Verify in grace period
@@ -174,7 +174,7 @@ func TestConnectionManager_ReconnectionClearsGracePeriod(t *testing.T) {
 
 	// Reconnect
 	conn2 := newMockConn()
-	m.Set(key, conn2)
+	m.Set(key, conn2, "")
 
 	// Should no longer be in grace period
 	if len(m.ListWithGracePeriod()) != 0 {
@@ -199,7 +199,7 @@ func TestConnectionManager_Stats(t *testing.T) {
 
 	// Add connection
 	conn := newMockConn()
-	m.Set("test", conn)
+	m.Set("test", conn, "")
 
 	stats = m.Stats()
 	if stats.ActiveConnections != 1 {
@@ -224,7 +224,7 @@ func TestConnectionManager_MaxPendingDials(t *testing.T) {
 
 	// Set and disconnect to enter grace period
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 	m.OnDisconnect(key)
 
 	// Start MaxPendingDials goroutines waiting
@@ -251,7 +251,7 @@ func TestConnectionManager_MaxPendingDials(t *testing.T) {
 
 	// Clean up - reconnect to wake waiting goroutines
 	conn2 := newMockConn()
-	m.Set(key, conn2)
+	m.Set(key, conn2, "")
 	wg.Wait()
 }
 
@@ -264,7 +264,7 @@ func TestConnectionManager_ContextCancellation(t *testing.T) {
 
 	// Set and disconnect to enter grace period
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 	m.OnDisconnect(key)
 
 	// Start a dial with short timeout
@@ -311,7 +311,7 @@ func TestConnectionManager_OnGracePeriodExpiredCallback(t *testing.T) {
 
 	// Set and disconnect to enter grace period
 	conn := newMockConn()
-	m.Set(key, conn)
+	m.Set(key, conn, "")
 	m.OnDisconnect(key)
 
 	// Verify in grace period
@@ -359,7 +359,7 @@ func TestConnectionManager_OnGracePeriodExpiredCallback_MultipleKeys(t *testing.
 	keys := []string{"hydra-sandbox1", "hydra-sandbox2", "hydra-sandbox3"}
 	for _, key := range keys {
 		conn := newMockConn()
-		m.Set(key, conn)
+		m.Set(key, conn, "")
 		m.OnDisconnect(key)
 	}
 
@@ -401,13 +401,13 @@ func TestConnectionManager_OnGracePeriodExpiredCallback_ReconnectPreventsCallbac
 
 	// Set, disconnect, then reconnect before grace period expires
 	conn1 := newMockConn()
-	m.Set(key, conn1)
+	m.Set(key, conn1, "")
 	m.OnDisconnect(key)
 
 	// Reconnect before grace period expires
 	time.Sleep(50 * time.Millisecond)
 	conn2 := newMockConn()
-	m.Set(key, conn2)
+	m.Set(key, conn2, "")
 
 	// Wait past original grace period
 	time.Sleep(gracePeriod + CleanupInterval + 50*time.Millisecond)
@@ -418,103 +418,67 @@ func TestConnectionManager_OnGracePeriodExpiredCallback_ReconnectPreventsCallbac
 	}
 }
 
-func TestSetExclusive_RefusesKeyWithLiveConnection(t *testing.T) {
+func TestSet_LastRegistrationWinsAndClosesDisplacedConnection(t *testing.T) {
 	m := New()
 	defer m.Stop()
 
 	first := newMockConn()
-	defer first.Close()
-	if err := m.SetExclusive("hydra-host1", first, func() bool { return true }); err != nil {
-		t.Fatalf("first registration: %v", err)
-	}
-	if !m.HasLive("hydra-host1") {
-		t.Fatal("HasLive = false for a key with a live connection")
+	if displaced := m.Set("hydra-host1", first, "10.0.0.1:1111"); displaced != nil {
+		t.Fatalf("first registration reported a displacement: %+v", displaced)
 	}
 
 	second := newMockConn()
 	defer second.Close()
-	if err := m.SetExclusive("hydra-host1", second, func() bool { return true }); err != ErrKeyInUse {
-		t.Fatalf("second registration err = %v, want ErrKeyInUse", err)
+	displaced := m.Set("hydra-host1", second, "10.0.0.2:2222")
+	if displaced == nil || displaced.Origin != "10.0.0.1:1111" {
+		t.Fatalf("displaced = %+v, want origin 10.0.0.1:1111", displaced)
 	}
+
+	// The displaced connection is closed so a client still holding it
+	// reconnects rather than silently losing its traffic.
+	select {
+	case <-first.closeChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("displaced connection was not closed")
+	}
+
+	// Closing the displaced dialer must not put the key into a grace period
+	// or remove the new registration.
+	time.Sleep(50 * time.Millisecond)
 	m.lock.RLock()
 	current := m.deviceConnections["hydra-host1"]
-	m.lock.RUnlock()
-	if current != first {
-		t.Fatal("a refused registration replaced the live connection")
-	}
-}
-
-func TestSetExclusive_ReplacesConnectionThatStoppedProvingLiveness(t *testing.T) {
-	m := New()
-	defer m.Stop()
-
-	var mu sync.Mutex
-	firstAlive := true
-	first := newMockConn()
-	defer first.Close()
-	if err := m.SetExclusive("hydra-host1", first, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return firstAlive
-	}); err != nil {
-		t.Fatalf("first registration: %v", err)
-	}
-
-	mu.Lock()
-	firstAlive = false
-	mu.Unlock()
-
-	second := newMockConn()
-	defer second.Close()
-	if err := m.SetExclusive("hydra-host1", second, func() bool { return true }); err != nil {
-		t.Fatalf("reconnect after the old connection went quiet: %v", err)
-	}
-	m.lock.RLock()
-	current := m.deviceConnections["hydra-host1"]
+	_, inGrace := m.disconnectedAt["hydra-host1"]
+	origin := m.origins["hydra-host1"]
 	m.lock.RUnlock()
 	if current != second {
-		t.Fatal("reconnect did not replace the stale connection")
+		t.Fatal("the new registration is not current")
+	}
+	if inGrace {
+		t.Fatal("closing the displaced connection started a grace period")
+	}
+	if origin != "10.0.0.2:2222" {
+		t.Fatalf("origin = %q, want the new registrant's", origin)
 	}
 }
 
-func TestSetExclusive_ReplacesClosedConnection(t *testing.T) {
+func TestSet_AfterDisconnectIsNotADisplacement(t *testing.T) {
 	m := New()
 	defer m.Stop()
 
 	first := newMockConn()
-	if err := m.SetExclusive("hydra-host1", first, func() bool { return true }); err != nil {
-		t.Fatalf("first registration: %v", err)
-	}
+	m.Set("hydra-host1", first, "10.0.0.1:1111")
 	first.Close()
-
 	deadline := time.Now().Add(2 * time.Second)
-	for m.HasLive("hydra-host1") {
+	for len(m.List()) != 0 {
 		if time.Now().After(deadline) {
-			t.Fatal("closed connection still reported live")
+			t.Fatal("closed connection was not removed")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	second := newMockConn()
 	defer second.Close()
-	if err := m.SetExclusive("hydra-host1", second, func() bool { return true }); err != nil {
-		t.Fatalf("registration after the old connection closed: %v", err)
-	}
-}
-
-func TestSet_ConnectionWithoutProbeIsReplaceable(t *testing.T) {
-	m := New()
-	defer m.Stop()
-
-	first := newMockConn()
-	defer first.Close()
-	m.Set("desktop-ses_1", first)
-	if m.HasLive("desktop-ses_1") {
-		t.Fatal("a connection registered without a probe must not block replacement")
-	}
-	second := newMockConn()
-	defer second.Close()
-	if err := m.SetExclusive("desktop-ses_1", second, nil); err != nil {
-		t.Fatalf("replace probe-less connection: %v", err)
+	if displaced := m.Set("hydra-host1", second, "10.0.0.1:1112"); displaced != nil {
+		t.Fatalf("reconnect after disconnect reported a displacement: %+v", displaced)
 	}
 }

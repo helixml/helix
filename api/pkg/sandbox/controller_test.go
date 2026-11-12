@@ -238,6 +238,31 @@ func (s *ControllerSuite) TestEnsureSandboxAPITokenMintsNewKeyWhenNoneExists() {
 	s.Require().NotEmpty(tok)
 }
 
+func (s *ControllerSuite) TestEnsureSandboxAPITokenReplacesKeyWithMismatchedProject() {
+	sb := &types.Sandbox{ID: "sbx_old", OrganizationID: "org_1", Owner: "user_1", ProjectID: "prj_1"}
+	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(&types.ApiKey{Key: "unscoped-token", SessionID: "sbx_old"}, nil)
+	s.store.EXPECT().DeleteAPIKey(s.ctx, "unscoped-token").Return(nil)
+	s.store.EXPECT().CreateAPIKey(s.ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.ApiKey) (*types.ApiKey, error) {
+			s.Require().Equal("prj_1", k.ProjectID)
+			return k, nil
+		},
+	)
+
+	tok, err := s.controller.ensureSandboxAPIToken(s.ctx, sb)
+	s.Require().NoError(err)
+	s.Require().NotEqual("unscoped-token", tok)
+}
+
+func (s *ControllerSuite) TestEnsureSandboxAPITokenReturnsScopedKeyForProjectSandbox() {
+	sb := &types.Sandbox{ID: "sbx_ok", OrganizationID: "org_1", Owner: "user_1", ProjectID: "prj_1"}
+	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(&types.ApiKey{Key: "scoped-token", ProjectID: "prj_1"}, nil)
+
+	tok, err := s.controller.ensureSandboxAPIToken(s.ctx, sb)
+	s.Require().NoError(err)
+	s.Require().Equal("scoped-token", tok)
+}
+
 func (s *ControllerSuite) TestEnsureSandboxAPITokenScopesKeyToSandboxProject() {
 	sb := &types.Sandbox{ID: "sbx_proj", OrganizationID: "org_1", Owner: "user_1", ProjectID: "prj_1"}
 	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
