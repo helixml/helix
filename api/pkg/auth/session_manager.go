@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 )
 
@@ -52,14 +53,18 @@ type SessionManager struct {
 	store      store.Store
 	oidcClient OIDC
 	cfg        *config.ServerConfig
+
+	refreshGroup singleflight.Group
+	refreshRetry refreshRetryGate
 }
 
 // NewSessionManager creates a new session manager
 func NewSessionManager(store store.Store, oidcClient OIDC, cfg *config.ServerConfig) *SessionManager {
 	return &SessionManager{
-		store:      store,
-		oidcClient: oidcClient,
-		cfg:        cfg,
+		store:        store,
+		oidcClient:   oidcClient,
+		cfg:          cfg,
+		refreshRetry: refreshRetryGate{interval: oidcRefreshRetryInterval},
 	}
 }
 
@@ -204,10 +209,16 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 
 	// For OIDC sessions, check if access token needs refresh
 	if session.NeedsOIDCRefresh() && sm.oidcClient != nil {
-		if err := sm.refreshOIDCToken(ctx, session); err != nil {
+		refreshed, err := sm.refreshSessionOIDC(ctx, session)
+		switch {
+		case errors.Is(err, ErrSessionRevoked), errors.Is(err, ErrSessionNotFound):
+			return nil, err
+		case err != nil:
+			// Transient failure: carry on with the current token; the retry
+			// gate stops the next requests from asking the provider again.
 			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to refresh OIDC token")
-			// Continue with potentially expired token - the API call might still work
-			// or will fail and force re-login
+		default:
+			session = refreshed
 		}
 	}
 
@@ -219,34 +230,6 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 	}
 
 	return session, nil
-}
-
-// refreshOIDCToken refreshes the OIDC access token using the refresh token
-func (sm *SessionManager) refreshOIDCToken(ctx context.Context, session *types.UserSession) error {
-	if session.OIDCRefreshToken == "" {
-		return errors.New("no refresh token available")
-	}
-
-	newToken, err := sm.oidcClient.RefreshAccessToken(ctx, session.OIDCRefreshToken)
-	if err != nil {
-		return err
-	}
-
-	// Update session with new tokens
-	session.UpdateOIDCTokens(newToken.AccessToken, newToken.RefreshToken, newToken.Expiry)
-
-	// Persist the updated session
-	_, err = sm.store.UpdateUserSession(ctx, session)
-	if err != nil {
-		return err
-	}
-
-	log.Debug().
-		Str("session_id", session.ID).
-		Time("new_expiry", newToken.Expiry).
-		Msg("Refreshed OIDC token for session")
-
-	return nil
 }
 
 // DeleteSession removes a session and clears the session cookie
@@ -465,7 +448,7 @@ func (sm *SessionManager) refreshExpiredSessions(ctx context.Context) {
 	log.Debug().Int("count", len(sessions)).Msg("Refreshing OIDC tokens for sessions")
 
 	for _, session := range sessions {
-		if err := sm.refreshOIDCToken(ctx, session); err != nil {
+		if _, err := sm.refreshSessionOIDC(ctx, session); err != nil && !errors.Is(err, ErrSessionRevoked) {
 			log.Warn().
 				Err(err).
 				Str("session_id", session.ID).

@@ -16,6 +16,7 @@ import {
 } from '../types'
 import { TypesFrontendLicenseInfo, TypesServerConfigForFrontend } from '../api/api'
 import { clearSelectedOrg } from '../utils/localStorage'
+import { sessionExpiry } from '../utils/sessionExpiry'
 import { isEmbedRouteName } from '../utils/organizations'
 
 // Embed routes are fullscreen, single-purpose views of one task or session,
@@ -264,6 +265,7 @@ export const useAccountContext = (): IAccountContext => {
   const onLogout = useCallback(async () => {
     setLoggingOut(true)
     setUser(undefined)
+    sessionExpiry.setSignedIn(false)
 
     // `selected_org` is a per-browser value, not a per-user one. Leaving it
     // behind navigated the next person to sign in on this browser straight
@@ -318,6 +320,7 @@ export const useAccountContext = (): IAccountContext => {
         }
 
         setUser(user)
+        sessionExpiry.setSignedIn(true)
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
