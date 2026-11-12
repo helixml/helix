@@ -1025,7 +1025,7 @@ type WebServer struct {
 	// Path to UNIX socket for serving embeddings without auth
 	// TODO: naming
 	EmbeddingsSocket       string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
-	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID to use for the UNIX socket server."`
+	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID that requests on the UNIX socket run as. If unset, they run as the fixed 'socket' identity. The socket is created mode 0660, so clients must run as the API server's user or group."`
 
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 
@@ -1260,6 +1260,11 @@ type SSL struct {
 
 type Organizations struct {
 	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
+
+	// JSProcessorTimeout is the wall-clock limit for one run of an org JS
+	// processor script (loading it plus one process call, including its
+	// http.* calls). A run that exceeds it is stopped and reported as failed.
+	JSProcessorTimeout time.Duration `envconfig:"ORG_JS_PROCESSOR_TIMEOUT" default:"30s"`
 }
 
 // AuditLog configures the request audit trail: one durable record per API
