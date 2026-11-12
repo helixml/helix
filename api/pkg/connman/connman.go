@@ -46,6 +46,8 @@ type ConnectionManager struct {
 	disconnectedAt map[string]time.Time     // When each key was disconnected
 	pendingDials   map[string][]*dialWaiter // Pending Dial() calls per key
 	gracePeriod    time.Duration
+	// cleanupInterval is CleanupInterval except in tests.
+	cleanupInterval time.Duration
 
 	// Callback when grace period expires for a key (e.g., to clean up session state)
 	onGracePeriodExpired func(key string)
@@ -57,12 +59,17 @@ type ConnectionManager struct {
 
 // NewWithGracePeriod creates a ConnectionManager with a custom grace period
 func NewWithGracePeriod(gracePeriod time.Duration) *ConnectionManager {
+	return newWithIntervals(gracePeriod, CleanupInterval)
+}
+
+func newWithIntervals(gracePeriod, cleanupInterval time.Duration) *ConnectionManager {
 	m := &ConnectionManager{
 		deviceDialers:     make(map[string]*revdial.Dialer),
 		deviceConnections: make(map[string]net.Conn),
 		disconnectedAt:    make(map[string]time.Time),
 		pendingDials:      make(map[string][]*dialWaiter),
 		gracePeriod:       gracePeriod,
+		cleanupInterval:   cleanupInterval,
 		stopCh:            make(chan struct{}),
 	}
 	go m.cleanupLoop()
@@ -83,7 +90,7 @@ func (m *ConnectionManager) Stop() {
 
 // cleanupLoop periodically removes expired grace period entries
 func (m *ConnectionManager) cleanupLoop() {
-	ticker := time.NewTicker(CleanupInterval)
+	ticker := time.NewTicker(m.cleanupInterval)
 	defer ticker.Stop()
 
 	for {
