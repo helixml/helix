@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -41,6 +42,17 @@ func (c *ChainStrategy) validateAndDefaultAPI(ctx context.Context, tool *types.T
 		}
 	}
 
+	// The API server calls this URL on the agent's behalf. Refuse destinations
+	// the outbound policy would block at call time (loopback, private,
+	// link-local and metadata addresses) when the tool is saved, not when it
+	// is first invoked.
+	if err := c.outboundPolicy().ValidateURL(ctx, tool.Config.API.URL); err != nil {
+		if errors.Is(err, netguard.ErrBlockedDestination) {
+			return nil, fmt.Errorf("API URL is not an allowed destination: %w", err)
+		}
+		return nil, fmt.Errorf("invalid API URL: %w", err)
+	}
+
 	// Validate that all paths have operation IDs set
 	err = c.validateOperationIDs(ctx, tool, schema)
 	if err != nil {
@@ -50,6 +62,12 @@ func (c *ChainStrategy) validateAndDefaultAPI(ctx context.Context, tool *types.T
 	// TODO: create a better summary for the tool if possible
 
 	return tool, nil
+}
+
+// outboundPolicy is the policy API tool requests are dialled under (see
+// apiToolTransport).
+func (c *ChainStrategy) outboundPolicy() netguard.Policy {
+	return netguard.Policy{AllowPrivate: c.cfg != nil && c.cfg.Tools.AllowPrivateNetworks}
 }
 
 func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, schema *openapi3.T) error {

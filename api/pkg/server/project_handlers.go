@@ -1092,6 +1092,11 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
 	}
 
+	if err := s.releaseProjectOwnedResources(r.Context(), project); err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("failed to release project-owned resources")
+		return nil, system.NewHTTPError500("failed to release project resources; retry the delete")
+	}
+
 	// Now soft delete the project
 	err = s.Store.DeleteProject(r.Context(), projectID)
 	if err != nil {

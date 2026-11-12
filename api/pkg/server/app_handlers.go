@@ -477,11 +477,26 @@ func (s *HelixAPIServer) createAgent(_ http.ResponseWriter, r *http.Request) (*A
 		return nil, system.NewHTTPError403("only admins can create global agents")
 	}
 
+	// An org-scoped key acts for its organization: an agent it creates without
+	// naming one belongs to that organization, not to a personal scope the key
+	// cannot list or manage afterwards.
+	if app.OrganizationID == "" && user.OrganizationID != "" {
+		app.OrganizationID = user.OrganizationID
+	}
+
 	// If organization ID is set, authorize the user to the organization,
 	// must be a member to create it
 	if app.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, app.OrganizationID)
+		org, err := s.lookupOrg(ctx, app.OrganizationID)
 		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			log.Error().Err(err).Msg("failed to look up organization for new agent")
+			return nil, system.NewHTTPError500("failed to look up organization")
+		}
+		app.OrganizationID = org.ID
+		if _, err := s.authorizeOrgMember(ctx, user, app.OrganizationID); err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
 	}

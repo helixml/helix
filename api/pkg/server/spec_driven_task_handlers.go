@@ -1367,6 +1367,12 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	// PUT used to accept "archived" and ignore it, answering 200 for a change
+	// it never made. Refuse it so the caller uses the archive endpoint.
+	if updateReq.Archived != nil {
+		http.Error(w, "archived cannot be changed with PUT; use PATCH /api/v1/spec-tasks/{taskId}/archive", http.StatusBadRequest)
+		return
+	}
 	if err := types.ValidateSpecTaskTypeAndPriority("", updateReq.Priority); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1973,121 +1979,112 @@ func (s *HelixAPIServer) getChecklistProgress(ctx context.Context, task *types.S
 
 // getBoardSettings godoc
 // @Summary Get board settings for spec tasks
-// @Description Get the Kanban board settings (WIP limits) for the default project
+// @Description Get the Kanban board settings (WIP limits) of a project
 // @Tags spec-driven-tasks
 // @Produce json
+// @Param project_id query string true "Project ID"
 // @Success 200 {object} types.BoardSettings
-// @Failure 500 {object} types.APIError
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
 // @Router /api/v1/spec-tasks/board-settings [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	// Get default project
-	project, err := s.Store.GetProject(ctx, "default")
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get default project")
-		http.Error(w, "failed to get board settings", http.StatusInternalServerError)
+	project, ok := s.loadBoardSettingsProject(w, r, types.ActionGet)
+	if !ok {
 		return
 	}
 
-	user := getRequestUser(r)
-	if user == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+	boardSettings := types.BoardSettings{
+		WIPLimits: types.WIPLimits{Planning: 3, Review: 2},
 	}
-
-	// Authorize user to get board settings in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, project.ID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
-	}
-
-	// Return board settings or defaults
-	var boardSettings types.BoardSettings
 	if project.Metadata.BoardSettings != nil {
 		boardSettings = *project.Metadata.BoardSettings
-	} else {
-		// Return default settings if not found
-		boardSettings = types.BoardSettings{
-			WIPLimits: types.WIPLimits{
-				Planning: 3,
-				Review:   2,
-			},
-		}
 	}
 	if boardSettings.WIPLimits.Implementation <= 0 {
-		boardSettings.WIPLimits.Implementation, err = services.ProjectImplementationWIPLimit(ctx, s.Store, project)
+		limit, err := services.ProjectImplementationWIPLimit(ctx, s.Store, project)
 		if err != nil {
 			log.Error().Err(err).Str("project_id", project.ID).Msg("failed to resolve implementation WIP limit")
 			http.Error(w, "failed to resolve board settings", http.StatusInternalServerError)
 			return
 		}
+		boardSettings.WIPLimits.Implementation = limit
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(boardSettings)
+	writeResponse(w, boardSettings, http.StatusOK)
 }
 
 // updateBoardSettings godoc
 // @Summary Update board settings for spec tasks
-// @Description Update the Kanban board settings (WIP limits) for the default project
+// @Description Update the Kanban board settings (WIP limits) of a project
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
+// @Param project_id query string true "Project ID"
 // @Param request body types.BoardSettings true "Board settings"
 // @Success 200 {object} types.BoardSettings
 // @Failure 400 {object} types.APIError
-// @Failure 500 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 404 {object} types.APIError
 // @Router /api/v1/spec-tasks/board-settings [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	user := getRequestUser(r)
-	if user == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// Authorize user to update board settings in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, "default", types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	project, ok := s.loadBoardSettingsProject(w, r, types.ActionUpdate)
+	if !ok {
 		return
 	}
 
 	var settings types.BoardSettings
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-		log.Error().Err(err).Msg("Failed to decode board settings")
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
+		return
+	}
+	if settings.WIPLimits.Planning < 0 || settings.WIPLimits.Review < 0 || settings.WIPLimits.Implementation < 0 {
+		http.Error(w, "WIP limits must not be negative", http.StatusBadRequest)
 		return
 	}
 
-	// Get default project
-	project, err := s.Store.GetProject(ctx, "default")
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get default project")
-		http.Error(w, "failed to update board settings", http.StatusInternalServerError)
-		return
-	}
-
-	// Update board settings in metadata
 	project.Metadata.BoardSettings = &settings
 	project.UpdatedAt = time.Now()
-
-	err = s.Store.UpdateProject(ctx, project)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to save project")
+	if err := s.Store.UpdateProject(ctx, project); err != nil {
+		log.Error().Err(err).Str("project_id", project.ID).Msg("failed to save board settings")
 		http.Error(w, "failed to save board settings", http.StatusInternalServerError)
 		return
 	}
 
-	log.Info().
-		Str("user_id", user.ID).
-		Interface("wip_limits", settings.WIPLimits).
-		Msg("Updated board settings")
+	writeResponse(w, settings, http.StatusOK)
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(settings)
+// loadBoardSettingsProject resolves the project named by the required
+// project_id query parameter and authorizes the caller for action. A missing
+// project and one the caller cannot read answer the same 404; a reader who
+// may not update gets 403.
+func (s *HelixAPIServer) loadBoardSettingsProject(w http.ResponseWriter, r *http.Request, action types.Action) (*types.Project, bool) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	projectID := r.URL.Query().Get("project_id")
+	if projectID == "" {
+		http.Error(w, "project_id is required", http.StatusBadRequest)
+		return nil, false
+	}
+
+	project, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		writeStoreLookupError(w, err, "project")
+		return nil, false
+	}
+	if err := s.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+		http.Error(w, "project not found", http.StatusNotFound)
+		return nil, false
+	}
+	if action != types.ActionGet {
+		if err := s.authorizeUserToProject(ctx, user, project, action); err != nil {
+			http.Error(w, "not authorized to change this project's board settings", http.StatusForbidden)
+			return nil, false
+		}
+	}
+	return project, true
 }
 
 // deriveAgentWorkState maps the SandboxState + latest-interaction state to a
