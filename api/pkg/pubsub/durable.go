@@ -64,9 +64,9 @@ func (n *Nats) ConsumeDurable(ctx context.Context, streamName, consumerName, sub
 	go func() {
 		defer sub.Unsubscribe()
 		for {
-			msg, err := messages.Next()
+			msg, err := sub.next()
 			if err != nil {
-				if ctx.Err() == nil {
+				if ctx.Err() == nil && !sub.stopped() {
 					log.Error().Err(err).Str("consumer", consumerName).Msg("durable consumer stopped")
 				}
 				return

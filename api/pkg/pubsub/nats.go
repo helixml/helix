@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -784,11 +785,9 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handle
 	go func() {
 		defer sub.Unsubscribe()
 		for {
-			msg, err := mc.Next()
+			msg, err := sub.next()
 			if err != nil {
-				select {
-				case <-sub.done:
-				default:
+				if ctx.Err() == nil && !sub.stopped() {
 					log.Error().Err(err).Str("stream", stream).Str("subject", subject).Msg("stream consumer stopped")
 				}
 				return
@@ -822,6 +821,33 @@ type messagesSubscription struct {
 	messages jetstream.MessagesContext
 	done     chan struct{}
 	once     sync.Once
+}
+
+// errUnsubscribed ends a consumer loop whose subscription was stopped.
+var errUnsubscribed = errors.New("subscription stopped")
+
+// next returns the iterator's next message. A message the iterator had
+// already pulled when Unsubscribe ran is NAKed back to the stream rather than
+// handled.
+func (s *messagesSubscription) next() (jetstream.Msg, error) {
+	msg, err := s.messages.Next()
+	if err != nil {
+		return nil, err
+	}
+	if s.stopped() {
+		_ = msg.Nak()
+		return nil, errUnsubscribed
+	}
+	return msg, nil
+}
+
+func (s *messagesSubscription) stopped() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *messagesSubscription) Unsubscribe() error {
