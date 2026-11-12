@@ -38,6 +38,10 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 		return nil
 	}
 
+	if invoice.ID == "" {
+		return fmt.Errorf("paid invoice has no id")
+	}
+
 	// Handle only subscription invoices, normal top-ups
 	// are handled by the payment intent webhook
 	if invoice.Subscription == nil {
@@ -125,12 +129,18 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 		return nil
 	}
 
-	_, err = s.store.UpdateWalletBalance(context.Background(), wallet.ID, amount, types.TransactionMetadata{
+	updated, err := s.store.UpdateWalletBalance(context.Background(), wallet.ID, amount, types.TransactionMetadata{
 		TransactionType: types.TransactionTypeSubscription,
+		StripeInvoiceID: invoice.ID,
 	})
-
 	if err != nil {
-		return fmt.Errorf("error updating wallet balance: %s", err.Error())
+		return fmt.Errorf("error updating wallet balance: %w", err)
+	}
+	if updated == nil {
+		log.Info().
+			Str("invoice_id", invoice.ID).
+			Str("wallet_id", wallet.ID).
+			Msg("subscription invoice already credited, skipping")
 	}
 
 	return nil

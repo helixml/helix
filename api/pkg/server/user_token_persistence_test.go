@@ -34,7 +34,7 @@ func TestCreateOrganization_FirstOrgGrantDoesNotPersistRequestCredentials(t *tes
 	}, nil)
 	mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org_1"}).Return(&types.Organization{ID: "org_1"}, nil)
 	mockStore.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(&types.Wallet{ID: "wal_1"}, nil)
-	mockStore.EXPECT().UpdateWallet(gomock.Any(), gomock.Any()).Return(&types.Wallet{ID: "wal_1"}, nil)
+	mockStore.EXPECT().SetWalletPlanOverride(gomock.Any(), "wal_1", "pro").Return(&types.Wallet{ID: "wal_1", PlanOverride: "pro"}, nil)
 	mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, u *types.User) (*types.User, error) {
 		require.Empty(t, u.Token, "the bearer token must not be written to the users table")
 		require.Empty(t, u.TokenType)

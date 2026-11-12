@@ -140,6 +140,7 @@ func Test_handleInvoicePaymentPaidEvent(t *testing.T) {
 
 	store.EXPECT().UpdateWalletBalance(gomock.Any(), "123", float64(250), types.TransactionMetadata{
 		TransactionType: types.TransactionTypeSubscription,
+		StripeInvoiceID: "in_1Rv1oVFNNvjhkCqzrdVp2JkZ",
 	}).Return(wallet, nil)
 
 	err = s.handleInvoicePaymentPaidEvent(event)
@@ -400,6 +401,7 @@ func Test_handleInvoicePaymentPaidEvent_AdminGrantedConvertedToPaid_StillCredits
 
 	store.EXPECT().UpdateWalletBalance(gomock.Any(), "wal_converted", float64(200), types.TransactionMetadata{
 		TransactionType: types.TransactionTypeSubscription,
+		StripeInvoiceID: "in_1Rv1oVFNNvjhkCqzrdVp2JkZ",
 	}).Return(wallet, nil)
 
 	err = s.handleInvoicePaymentPaidEvent(event)
@@ -440,10 +442,39 @@ func Test_handleInvoicePaymentPaidEvent_SubscriptionFetchFails_FallsThrough(t *t
 
 	store.EXPECT().UpdateWalletBalance(gomock.Any(), "wal_sub_err", float64(150), types.TransactionMetadata{
 		TransactionType: types.TransactionTypeSubscription,
+		StripeInvoiceID: "in_1Rv1oVFNNvjhkCqzrdVp2JkZ",
 	}).Return(wallet, nil)
 
 	err = s.handleInvoicePaymentPaidEvent(event)
 	require.NoError(t, err)
 	require.True(t, backend.subscriptionInvoked)
 	require.True(t, backend.productInvoked, "product credit path should run even if subscription fetch failed")
+}
+
+// A failed invoice credit must return non-2xx so Stripe redelivers; the
+// invoice id makes the redelivery safe.
+func TestProcessWebhook_InvoicePaidReturns500OnFailedCredit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{WebhookSigningSecret: testWebhookSecret}, db)
+	installInvoiceWebhookBackend(t, &invoiceWebhookBackend{
+		t:                t,
+		subscriptionPath: invoiceSubscriptionPath,
+		subscription:     nonAdminSubscription("sub_1Rv1oVFNNvjhkCqzI3vgc41P"),
+		productPath:      invoiceProductPath,
+		product: &stripe.Product{
+			ID:       "prod_Sqia5TdP4XGk1x",
+			Metadata: map[string]string{"credits": "250"},
+		},
+	})
+
+	db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_SqicesZoU7LrDR").Return(&types.Wallet{ID: "123"}, nil)
+	db.EXPECT().UpdateWalletBalance(gomock.Any(), "123", float64(250), types.TransactionMetadata{
+		TransactionType: types.TransactionTypeSubscription,
+		StripeInvoiceID: "in_1Rv1oVFNNvjhkCqzrdVp2JkZ",
+	}).Return(nil, fmt.Errorf("database unavailable"))
+
+	payload, err := os.ReadFile("testdata/paid.json")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusInternalServerError, deliverEvent(t, s, payload))
 }
