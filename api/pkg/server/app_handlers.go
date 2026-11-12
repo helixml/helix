@@ -828,8 +828,8 @@ func (s *HelixAPIServer) validateTriggers(triggers []types.Trigger) error {
 	return nil
 }
 
-// validateTeamsTrigger refuses a Teams trigger that is enabled, or partly
-// configured, without both Bot Framework credentials. The activity handler
+// validateTeamsTrigger refuses to enable a Teams trigger without both Bot
+// Framework credentials. The activity handler
 // authenticates deliveries with the App ID; without one the Bot Framework
 // SDK treats authentication as disabled, so an incomplete trigger must never
 // be saved as enabled.
@@ -837,8 +837,9 @@ func validateTeamsTrigger(teams *types.TeamsTrigger) error {
 	if teams == nil {
 		return nil
 	}
-	configured := teams.Enabled || teams.AppID != "" || teams.AppPassword != "" || teams.TenantID != ""
-	if !configured {
+	// A disabled block may be partial: the editor saves as the operator
+	// types. Only an enabled trigger has to be complete.
+	if !teams.Enabled {
 		return nil
 	}
 	if strings.TrimSpace(teams.AppID) == "" {

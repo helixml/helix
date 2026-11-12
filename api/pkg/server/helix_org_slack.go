@@ -386,7 +386,7 @@ func (s *HelixAPIServer) newSlackSocketManager(ingest *slacktransport.Ingest, lo
 		go func() {
 			connector := slackcore.NewConnector(app.AppToken, "", "", logger)
 			onEvent := func(ctx context.Context, teamID string, ev slackcore.Event) error {
-				return ingest.OnEvent(slackcore.WithVerifiedAppID(ctx, app.ID), teamID, ev)
+				return ingest.OnEvent(slackcore.WithVerifiedAppIDs(ctx, []string{app.ID}), teamID, ev)
 			}
 			runner := slackcore.NewSocketMode(onEvent, connector, logger)
 			if err := runner.Run(appCtx); err != nil && appCtx.Err() == nil {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -86,9 +87,9 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 	// A delivery authenticated by one app must not be routed into a
 	// workspace installed from another: the signature proves which app's
 	// secret signed it, and team_id alone is attacker-chosen content.
-	if verifiedApp := slackcore.VerifiedAppIDFromContext(ctx); verifiedApp != "" && ws.AppConnectionID != "" && verifiedApp != ws.AppConnectionID {
+	if verifiedApps := slackcore.VerifiedAppIDsFromContext(ctx); len(verifiedApps) > 0 && ws.AppConnectionID != "" && !slices.Contains(verifiedApps, ws.AppConnectionID) {
 		i.logger.Warn("slack.ingest: delivery signed by a different app than the workspace install — dropping",
-			"team", teamID, "workspace", ws.ID, "verified_app", verifiedApp, "workspace_app", ws.AppConnectionID)
+			"team", teamID, "workspace", ws.ID, "verified_apps", verifiedApps, "workspace_app", ws.AppConnectionID)
 		return nil
 	}
 

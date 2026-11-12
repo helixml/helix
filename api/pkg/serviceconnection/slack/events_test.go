@@ -185,9 +185,9 @@ func TestEventsAPI_NonMessageEvent_Ignored(t *testing.T) {
 // The handler tells the event consumer which configured app's secret
 // verified the delivery, so routing can hold the team to that app.
 func TestEventsAPI_PassesVerifiedAppToHandler(t *testing.T) {
-	var gotApp string
+	var gotApps []string
 	h := EventsAPIHandler(secretFn, func(ctx context.Context, _ string, _ Event) error {
-		gotApp = VerifiedAppIDFromContext(ctx)
+		gotApps = VerifiedAppIDsFromContext(ctx)
 		return nil
 	}, nil)
 
@@ -197,7 +197,7 @@ func TestEventsAPI_PassesVerifiedAppToHandler(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if gotApp != "app-1" {
-		t.Fatalf("verified app = %q, want app-1", gotApp)
+	if len(gotApps) != 1 || gotApps[0] != "app-1" {
+		t.Fatalf("verified apps = %v, want [app-1]", gotApps)
 	}
 }

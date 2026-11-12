@@ -66,3 +66,13 @@ func TestCompleteAuthorization_UsesExactStateToken(t *testing.T) {
 	_, err := p.CompleteAuthorization(context.Background(), "usr_me", "code", "my-state")
 	require.ErrorContains(t, err, "failed to exchange code")
 }
+
+func TestCompleteAuthorization_ExpiredStateTokenRefused(t *testing.T) {
+	p, st := newStateTestProvider(t, "https://example.invalid/token")
+	st.EXPECT().GetOAuthRequestTokenByState(gomock.Any(), "stale").Return([]*types.OAuthRequestToken{
+		{ID: "req-stale", UserID: "usr_me", ProviderID: "prov-1", State: "stale", ExpiresAt: time.Now().Add(-time.Minute)},
+	}, nil)
+
+	_, err := p.CompleteAuthorization(context.Background(), "usr_me", "code", "stale")
+	require.ErrorContains(t, err, "expired")
+}

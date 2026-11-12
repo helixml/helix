@@ -564,30 +564,10 @@ func sanitizeOAuthError(errInput interface{}) oauthErrorInfo {
 }
 
 // handleOAuthCallback handles the OAuth callback
-// oauthCallbackHandler serves /oauth/flow/callback. The route is unauthenticated
-// (it is a top-level redirect from the provider), but it runs the standard
-// identity extraction so the handler can compare the browser session against
-// the user who started the flow.
-func (s *HelixAPIServer) oauthCallbackHandler() http.Handler {
-	return s.authMiddleware.extractMiddleware(http.HandlerFunc(s.handleOAuthCallback))
-}
-
-func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
-	// Get the OAuth parameters from the query
-	code := r.URL.Query().Get("code")
-	state := r.URL.Query().Get("state")
-	errorMsg := r.URL.Query().Get("error")
-
-	if errorMsg != "" {
-		log.Warn().Str("error", errorMsg).Msg("OAuth provider returned an error to the callback")
-	}
-
-	// Check for errors
-	if errorMsg != "" {
-		// Sanitize error to prevent leaking internal details
-		errInfo := sanitizeOAuthError(errorMsg)
-
-		htmlError := fmt.Sprintf(`<!DOCTYPE html>
+// oauthFailurePageTemplate is the branded page the callback popup shows when
+// linking fails. It posts an oauth-failure message to the opener so the app
+// never reads a failed callback as success.
+const oauthFailurePageTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
 	<title>%s - Helix</title>
@@ -659,13 +639,41 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		}, '*');
 	</script>
 </body>
-</html>`, errInfo.Title, errInfo.Color, errInfo.Color, errInfo.Title, errInfo.Message, errInfo.Message)
+</html>`
 
-		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(http.StatusBadRequest)
-		if _, writeErr := w.Write([]byte(htmlError)); writeErr != nil {
-			log.Error().Err(writeErr).Msg("error writing OAuth error response")
-		}
+func writeOAuthFailurePage(w http.ResponseWriter, status int, errInfo oauthErrorInfo) {
+	htmlError := fmt.Sprintf(oauthFailurePageTemplate, errInfo.Title, errInfo.Color, errInfo.Color, errInfo.Title, errInfo.Message, errInfo.Message)
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(status)
+	if _, writeErr := w.Write([]byte(htmlError)); writeErr != nil {
+		log.Error().Err(writeErr).Msg("error writing OAuth error response")
+	}
+}
+
+// oauthCallbackHandler serves /oauth/flow/callback. The route is unauthenticated
+// (it is a top-level redirect from the provider), but it runs the standard
+// identity extraction so the handler can compare the browser session against
+// the user who started the flow.
+func (s *HelixAPIServer) oauthCallbackHandler() http.Handler {
+	return s.authMiddleware.extractMiddleware(http.HandlerFunc(s.handleOAuthCallback))
+}
+
+func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	// Get the OAuth parameters from the query
+	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+	errorMsg := r.URL.Query().Get("error")
+
+	if errorMsg != "" {
+		log.Warn().Str("error", errorMsg).Msg("OAuth provider returned an error to the callback")
+	}
+
+	// Check for errors
+	if errorMsg != "" {
+		// Sanitize error to prevent leaking internal details
+		errInfo := sanitizeOAuthError(errorMsg)
+
+		writeOAuthFailurePage(w, http.StatusBadRequest, errInfo)
 		return
 	}
 
@@ -688,7 +696,11 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 			Str("provider_id", requestToken.ProviderID).
 			Str("flow_user_id", requestToken.UserID).
 			Msg("OAuth callback identity does not match the flow starter")
-		http.Error(w, "OAuth flow must be completed from the signed-in session that started it", http.StatusForbidden)
+		writeOAuthFailurePage(w, http.StatusForbidden, oauthErrorInfo{
+			Title:   "Session Mismatch",
+			Message: "This connection must be completed from the signed-in Helix session that started it. Sign in and try connecting again.",
+			Color:   "#FC3600", // Helix red
+		})
 		return
 	}
 
@@ -715,85 +727,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		// Sanitize error to prevent leaking internal details
 		errInfo := sanitizeOAuthError(err)
 
-		htmlError := fmt.Sprintf(`<!DOCTYPE html>
-<html lang="en">
-<head>
-	<title>%s - Helix</title>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<style>
-		* { box-sizing: border-box; margin: 0; padding: 0; }
-		body {
-			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-			min-height: 100vh;
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			justify-content: center;
-			background: linear-gradient(135deg, #101014 0%%, #18181c 100%%);
-			color: #e0e0e0;
-			padding: 24px;
-		}
-		.container { text-align: center; max-width: 400px; }
-		.logo {
-			width: 120px;
-			height: auto;
-			margin-bottom: 32px;
-			filter: drop-shadow(0 4px 12px rgba(239, 46, 198, 0.3));
-		}
-		.icon-wrapper {
-			width: 80px;
-			height: 80px;
-			border-radius: 50%%;
-			background: %s;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			margin: 0 auto 24px;
-			box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-		}
-		.icon { font-size: 40px; color: white; }
-		h1 { font-size: 24px; font-weight: 600; color: #ffffff; margin-bottom: 12px; }
-		p { font-size: 15px; color: #a0a0b0; line-height: 1.5; margin-bottom: 8px; }
-		.close-button {
-			background: %s;
-			color: white;
-			border: none;
-			padding: 12px 32px;
-			border-radius: 8px;
-			font-size: 14px;
-			font-weight: 500;
-			cursor: pointer;
-			margin-top: 24px;
-			transition: transform 0.2s, box-shadow 0.2s;
-		}
-		.close-button:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
-	</style>
-</head>
-<body>
-	<div class="container">
-		<img src="/img/logo.png" alt="Helix" class="logo" onerror="this.style.display='none'">
-		<div class="icon-wrapper">
-			<span class="icon">&#10005;</span>
-		</div>
-		<h1>%s</h1>
-		<p>%s</p>
-		<button class="close-button" onclick="window.close()">Close Window</button>
-	</div>
-	<script>
-		window.opener && window.opener.postMessage({
-			type: 'oauth-failure',
-			error: '%s'
-		}, '*');
-	</script>
-</body>
-</html>`, errInfo.Title, errInfo.Color, errInfo.Color, errInfo.Title, errInfo.Message, errInfo.Message)
-
-		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(http.StatusBadRequest)
-		if _, writeErr := w.Write([]byte(htmlError)); writeErr != nil {
-			log.Error().Err(writeErr).Msg("error writing OAuth error response")
-		}
+		writeOAuthFailurePage(w, http.StatusBadRequest, errInfo)
 		return
 	}
 

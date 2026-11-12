@@ -23,7 +23,7 @@ func newAppBoundIngest(t *testing.T) (*Ingest, *recordingPublisher) {
 
 func TestIngest_SignedByOtherApp_Dropped(t *testing.T) {
 	ing, pub := newAppBoundIngest(t)
-	ctx := slackcore.WithVerifiedAppID(context.Background(), "app-B")
+	ctx := slackcore.WithVerifiedAppIDs(context.Background(), []string{"app-B"})
 	if err := ing.OnEvent(ctx, "T1", slackcore.Event{Channel: "C1", User: "U1", Text: "hi", TS: "1700.1"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)
 	}
@@ -32,9 +32,11 @@ func TestIngest_SignedByOtherApp_Dropped(t *testing.T) {
 	}
 }
 
+// Several apps may share a signing secret; the delivery is accepted when any
+// verifying app is the installing one.
 func TestIngest_SignedByInstallingApp_Published(t *testing.T) {
 	ing, pub := newAppBoundIngest(t)
-	ctx := slackcore.WithVerifiedAppID(context.Background(), "app-A")
+	ctx := slackcore.WithVerifiedAppIDs(context.Background(), []string{"app-B", "app-A"})
 	if err := ing.OnEvent(ctx, "T1", slackcore.Event{Channel: "C1", User: "U1", Text: "hi", TS: "1700.1"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)
 	}

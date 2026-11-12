@@ -81,6 +81,11 @@ func TestOAuthCallback_RefusesAnotherUsersSession(t *testing.T) {
 	s.oauthCallbackHandler().ServeHTTP(rr, oauthCallbackRequest("attacker-state", "sess-victim"))
 
 	require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
+	// The popup must learn it failed: the branded failure page posts
+	// oauth-failure to the opener, never oauth-success.
+	require.Equal(t, "text/html", rr.Header().Get("Content-Type"))
+	require.Contains(t, rr.Body.String(), "oauth-failure")
+	require.NotContains(t, rr.Body.String(), "oauth-success")
 }
 
 func TestOAuthCallback_CompletesForFlowStarter(t *testing.T) {

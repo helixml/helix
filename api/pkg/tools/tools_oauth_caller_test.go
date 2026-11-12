@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -52,4 +53,21 @@ func TestResolveOAuthTokens_NoCallerNoTokens(t *testing.T) {
 	tokens := strategy.resolveOAuthTokens(ctx, "", tool, strategy.getDefaultOptions())
 
 	require.Empty(t, tokens)
+}
+
+// A tool bound to an OAuth provider is never called without a token: the
+// run fails with an error telling the user to connect the account.
+func TestRunAction_RequiresOAuthConnection(t *testing.T) {
+	strategy, err := NewChainStrategy(&config.ServerConfig{}, nil, nil)
+	require.NoError(t, err)
+	tool := &types.Tool{Name: "gh", ToolType: types.ToolTypeAPI, Config: types.ToolConfig{API: &types.ToolAPIConfig{OAuthProvider: "github", URL: "http://127.0.0.1:1"}}}
+
+	_, err = strategy.RunAction(context.Background(), "sess-1", "int-1", tool, nil, "listRepos")
+	var need *OAuthConnectionRequiredError
+	require.True(t, errors.As(err, &need), "got %v", err)
+	require.Equal(t, "github", need.Provider)
+	require.Contains(t, err.Error(), "Account → Connections")
+
+	_, err = strategy.RunActionStream(context.Background(), "sess-1", "int-1", tool, nil, "listRepos")
+	require.True(t, errors.As(err, &need), "got %v", err)
 }

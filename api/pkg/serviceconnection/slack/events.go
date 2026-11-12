@@ -53,17 +53,17 @@ type SigningSecretFunc func(ctx context.Context) ([]SigningSecret, error)
 
 type verifiedAppKey struct{}
 
-// WithVerifiedAppID records on ctx which Slack app authenticated the
-// delivery being handled.
-func WithVerifiedAppID(ctx context.Context, appID string) context.Context {
-	return context.WithValue(ctx, verifiedAppKey{}, appID)
+// WithVerifiedAppIDs records on ctx which Slack apps' signing secrets
+// verified the delivery being handled (several when apps share a secret).
+func WithVerifiedAppIDs(ctx context.Context, appIDs []string) context.Context {
+	return context.WithValue(ctx, verifiedAppKey{}, appIDs)
 }
 
-// VerifiedAppIDFromContext returns the app id set by WithVerifiedAppID, or
-// "" when the delivery was not attributed to an app.
-func VerifiedAppIDFromContext(ctx context.Context) string {
-	id, _ := ctx.Value(verifiedAppKey{}).(string)
-	return id
+// VerifiedAppIDsFromContext returns the app ids set by WithVerifiedAppIDs,
+// or nil when the delivery was not attributed to any app.
+func VerifiedAppIDsFromContext(ctx context.Context) []string {
+	ids, _ := ctx.Value(verifiedAppKey{}).([]string)
+	return ids
 }
 
 // EventHandler consumes a normalised inbound event for one workspace
@@ -131,8 +131,8 @@ func EventsAPIHandler(signingSecret SigningSecretFunc, onEvent EventHandler, log
 			http.Error(w, "slack not configured", http.StatusServiceUnavailable)
 			return
 		}
-		verifiedApp, ok := verifyAny(r.Header, body, secrets)
-		if !ok {
+		verifiedApps := verifyAny(r.Header, body, secrets)
+		if len(verifiedApps) == 0 {
 			logger.Warn("slack.events: bad signature")
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return
@@ -146,7 +146,7 @@ func EventsAPIHandler(signingSecret SigningSecretFunc, onEvent EventHandler, log
 		}
 		if parsed.Type == slackevents.CallbackEvent {
 			if ev, ok := ToEvent(parsed.InnerEvent.Data); ok {
-				if err := onEvent(WithVerifiedAppID(r.Context(), verifiedApp), parsed.TeamID, ev); err != nil {
+				if err := onEvent(WithVerifiedAppIDs(r.Context(), verifiedApps), parsed.TeamID, ev); err != nil {
 					logger.Error("slack.events: handle", "team", parsed.TeamID, "err", err)
 				}
 			}
@@ -155,10 +155,11 @@ func EventsAPIHandler(signingSecret SigningSecretFunc, onEvent EventHandler, log
 	})
 }
 
-// verifyAny reports whether the request verifies against any of the
-// candidate signing secrets. Each secret gets its own verifier (Write
+// verifyAny returns the ids of every app whose signing secret verifies the
+// request; empty when none does. Each secret gets its own verifier (Write
 // consumes the body).
-func verifyAny(header http.Header, body []byte, secrets []SigningSecret) (string, bool) {
+func verifyAny(header http.Header, body []byte, secrets []SigningSecret) []string {
+	var apps []string
 	for _, secret := range secrets {
 		if secret.Secret == "" {
 			continue
@@ -171,10 +172,10 @@ func verifyAny(header http.Header, body []byte, secrets []SigningSecret) (string
 			continue
 		}
 		if v.Ensure() == nil {
-			return secret.AppID, true
+			apps = append(apps, secret.AppID)
 		}
 	}
-	return "", false
+	return apps
 }
 
 // ToEvent normalises a parsed inner event into the transport-neutral

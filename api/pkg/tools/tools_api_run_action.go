@@ -56,6 +56,9 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 	}
 
 	oauthTokens := c.resolveOAuthTokens(ctx, sessionID, tool, opts)
+	if err := requireOAuthToken(tool, oauthTokens); err != nil {
+		return nil, err
+	}
 
 	// Process the OAuth tokens if we have any
 	if len(oauthTokens) > 0 && tool.ToolType == types.ToolTypeAPI {
@@ -106,6 +109,9 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	}
 
 	oauthTokens := c.resolveOAuthTokens(ctx, sessionID, tool, opts)
+	if err := requireOAuthToken(tool, oauthTokens); err != nil {
+		return nil, err
+	}
 
 	// Process the OAuth tokens if we have any
 	if len(oauthTokens) > 0 && tool.ToolType == types.ToolTypeAPI {
@@ -578,4 +584,28 @@ func (c *ChainStrategy) resolveOAuthTokens(ctx context.Context, sessionID string
 		}
 	}
 	return oauthTokens
+}
+
+// OAuthConnectionRequiredError is returned when a tool is bound to an OAuth
+// provider and the calling user has no usable connection for it. The tool is
+// never called unauthenticated in that case.
+type OAuthConnectionRequiredError struct {
+	Provider string
+	Tool     string
+}
+
+func (e *OAuthConnectionRequiredError) Error() string {
+	return fmt.Sprintf("the %s tool needs your %s account: connect your %s account in Account → Connections and try again", e.Tool, e.Provider, e.Provider)
+}
+
+// requireOAuthToken fails an API tool run whose provider token did not
+// resolve, instead of sending the request without credentials.
+func requireOAuthToken(tool *types.Tool, oauthTokens map[string]string) error {
+	if tool.ToolType != types.ToolTypeAPI || tool.Config.API == nil || tool.Config.API.OAuthProvider == "" {
+		return nil
+	}
+	if oauthTokens[tool.Config.API.OAuthProvider] != "" {
+		return nil
+	}
+	return &OAuthConnectionRequiredError{Provider: tool.Config.API.OAuthProvider, Tool: tool.Name}
 }

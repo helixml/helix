@@ -159,9 +159,13 @@ func (p *OAuth2Provider) lookupRequestToken(ctx context.Context, userID, state s
 			return nil, fmt.Errorf("failed to get request token: %w", err)
 		}
 		for _, token := range tokens {
-			if token.UserID == userID && token.ProviderID == p.config.ID {
-				return token, nil
+			if token.UserID != userID || token.ProviderID != p.config.ID {
+				continue
 			}
+			if time.Now().After(token.ExpiresAt) {
+				return nil, errors.New("request token has expired")
+			}
+			return token, nil
 		}
 		return nil, errors.New("request token does not match this user and provider")
 	}
