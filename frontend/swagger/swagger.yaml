@@ -3791,24 +3791,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - gitlab
+    - cron
     - github
+    - slack
     - helix_events
     - webhook
-    - cron
-    - slack
-    - gitlab
-    - email
     - local
+    - email
     type: string
     x-enum-varnames:
+    - KindGitLab
+    - KindCron
     - KindGitHub
+    - KindSlack
     - KindHelixEvents
     - KindWebhook
-    - KindCron
-    - KindSlack
-    - KindGitLab
-    - KindEmail
     - KindLocal
+    - KindEmail
   transport.ResolvedActivation:
     properties:
       address:
@@ -15218,6 +15218,482 @@ definitions:
       thread_count:
         type: integer
       zed_instance_id:
+        type: string
+    type: object
+  websearch.AnswerRequest:
+    properties:
+      model:
+        type: string
+      outputSchema:
+        items:
+          type: integer
+        type: array
+      query:
+        type: string
+      stream:
+        type: boolean
+      systemPrompt:
+        type: string
+      text:
+        type: boolean
+      userIdentifier:
+        type: string
+      userLocation:
+        $ref: '#/definitions/websearch.UserLocation'
+    type: object
+  websearch.AnswerResponse:
+    properties:
+      answer:
+        description: string, or object when outputSchema is set
+      citations:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      costDollars:
+        $ref: '#/definitions/websearch.CostDollars'
+      requestId:
+        type: string
+    type: object
+  websearch.Citation:
+    properties:
+      title:
+        type: string
+      url:
+        type: string
+    type: object
+  websearch.ContentError:
+    properties:
+      httpStatusCode:
+        type: integer
+      tag:
+        type: string
+    type: object
+  websearch.ContentStatus:
+    properties:
+      error:
+        $ref: '#/definitions/websearch.ContentError'
+      id:
+        type: string
+      source:
+        description: cached | crawled
+        type: string
+      status:
+        description: success | error
+        type: string
+    type: object
+  websearch.ContentsOptions:
+    properties:
+      context:
+        $ref: '#/definitions/websearch.ContextOption'
+      crawledBeforeDate:
+        type: string
+      extras:
+        $ref: '#/definitions/websearch.ExtrasOptions'
+      highlights:
+        $ref: '#/definitions/websearch.HighlightsOption'
+      livecrawl:
+        type: string
+      livecrawlTimeout:
+        type: integer
+      maxAgeHours:
+        type: integer
+      snapshotAsOf:
+        type: string
+      subpageTarget:
+        items:
+          type: string
+        type: array
+      subpages:
+        type: integer
+      summary:
+        $ref: '#/definitions/websearch.SummaryOptions'
+      text:
+        $ref: '#/definitions/websearch.TextOption'
+    type: object
+  websearch.ContentsRequest:
+    properties:
+      compliance:
+        type: string
+      context:
+        $ref: '#/definitions/websearch.ContextOption'
+      crawledBeforeDate:
+        type: string
+      extras:
+        $ref: '#/definitions/websearch.ExtrasOptions'
+      highlights:
+        $ref: '#/definitions/websearch.HighlightsOption'
+      ids:
+        items:
+          type: string
+        type: array
+      livecrawl:
+        type: string
+      livecrawlTimeout:
+        type: integer
+      maxAgeHours:
+        type: integer
+      snapshotAsOf:
+        type: string
+      subpageTarget:
+        items:
+          type: string
+        type: array
+      subpages:
+        type: integer
+      summary:
+        $ref: '#/definitions/websearch.SummaryOptions'
+      text:
+        $ref: '#/definitions/websearch.TextOption'
+      urls:
+        items:
+          type: string
+        type: array
+      userIdentifier:
+        type: string
+    type: object
+  websearch.ContentsResponse:
+    properties:
+      context:
+        type: string
+      costDollars:
+        $ref: '#/definitions/websearch.CostDollars'
+      requestId:
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      searchTime:
+        type: number
+      statuses:
+        items:
+          $ref: '#/definitions/websearch.ContentStatus'
+        type: array
+    type: object
+  websearch.ContextOption:
+    properties:
+      enabled:
+        type: boolean
+      maxCharacters:
+        type: integer
+    type: object
+  websearch.CostDollars:
+    properties:
+      total:
+        type: number
+    type: object
+  websearch.ErrorResponse:
+    properties:
+      error:
+        type: string
+      requestId:
+        type: string
+      tag:
+        type: string
+    type: object
+  websearch.Extras:
+    properties:
+      imageLinks:
+        items:
+          type: string
+        type: array
+      links:
+        items:
+          type: string
+        type: array
+      richImageLinks:
+        items:
+          $ref: '#/definitions/websearch.ImageLink'
+        type: array
+    type: object
+  websearch.ExtrasOptions:
+    properties:
+      codeBlocks:
+        description: deprecated
+        type: integer
+      imageLinks:
+        type: integer
+      links:
+        type: integer
+      richImageLinks:
+        type: integer
+      richLinks:
+        description: deprecated
+        type: integer
+    type: object
+  websearch.FindSimilarRequest:
+    properties:
+      category:
+        type: string
+      contents:
+        $ref: '#/definitions/websearch.ContentsOptions'
+      endCrawlDate:
+        type: string
+      endPublishedDate:
+        type: string
+      excludeDomains:
+        items:
+          type: string
+        type: array
+      excludeSourceDomain:
+        type: boolean
+      excludeText:
+        items:
+          type: string
+        type: array
+      includeDomains:
+        items:
+          type: string
+        type: array
+      includeText:
+        items:
+          type: string
+        type: array
+      numResults:
+        type: integer
+      startCrawlDate:
+        type: string
+      startPublishedDate:
+        type: string
+      url:
+        type: string
+      userIdentifier:
+        type: string
+    type: object
+  websearch.FindSimilarResponse:
+    properties:
+      context:
+        type: string
+      costDollars:
+        $ref: '#/definitions/websearch.CostDollars'
+      requestId:
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      searchTime:
+        type: number
+    type: object
+  websearch.Grounding:
+    properties:
+      citations:
+        items:
+          $ref: '#/definitions/websearch.Citation'
+        type: array
+      confidence:
+        description: low | medium | high
+        type: string
+      field:
+        type: string
+    type: object
+  websearch.HighlightsOption:
+    properties:
+      dynamic:
+        description: beta
+        type: boolean
+      enabled:
+        type: boolean
+      highlightsPerUrl:
+        description: 'deprecated: ignored'
+        type: integer
+      maxCharacters:
+        type: integer
+      numSentences:
+        description: 'deprecated: ~1333 chars per sentence'
+        type: integer
+      query:
+        type: string
+      verbosity:
+        description: beta
+        type: string
+    type: object
+  websearch.ImageLink:
+    properties:
+      alt:
+        type: string
+      url:
+        type: string
+    type: object
+  websearch.Result:
+    properties:
+      author:
+        type: string
+      extras:
+        $ref: '#/definitions/websearch.Extras'
+      favicon:
+        type: string
+      highlightScores:
+        description: findSimilar only
+        items:
+          type: number
+        type: array
+      highlights:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      image:
+        type: string
+      publishedDate:
+        type: string
+      score:
+        description: findSimilar only
+        type: number
+      subpages:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      summary:
+        type: string
+      text:
+        type: string
+      title:
+        type: string
+      url:
+        type: string
+    type: object
+  websearch.SearchOutput:
+    properties:
+      content: {}
+      grounding:
+        items:
+          $ref: '#/definitions/websearch.Grounding'
+        type: array
+    type: object
+  websearch.SearchRequest:
+    properties:
+      additionalQueries:
+        items:
+          type: string
+        type: array
+      category:
+        type: string
+      compliance:
+        type: string
+      contents:
+        $ref: '#/definitions/websearch.ContentsOptions'
+      context:
+        $ref: '#/definitions/websearch.ContextOption'
+      endCrawlDate:
+        type: string
+      endPublishedDate:
+        type: string
+      excludeDomains:
+        items:
+          type: string
+        type: array
+      excludeText:
+        items:
+          type: string
+        type: array
+      includeDomains:
+        items:
+          type: string
+        type: array
+      includeText:
+        items:
+          type: string
+        type: array
+      moderation:
+        type: boolean
+      numResults:
+        type: integer
+      objective:
+        type: string
+      outputSchema:
+        items:
+          type: integer
+        type: array
+      query:
+        type: string
+      startCrawlDate:
+        type: string
+      startPublishedDate:
+        type: string
+      stream:
+        type: boolean
+      systemPrompt:
+        type: string
+      type:
+        type: string
+      userIdentifier:
+        type: string
+      userLocation:
+        $ref: '#/definitions/websearch.UserLocation'
+    type: object
+  websearch.SearchResponse:
+    properties:
+      context:
+        type: string
+      costDollars:
+        $ref: '#/definitions/websearch.CostDollars'
+      output:
+        $ref: '#/definitions/websearch.SearchOutput'
+      requestId:
+        type: string
+      resolvedSearchType:
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      searchTime:
+        type: number
+      warnings:
+        items:
+          $ref: '#/definitions/websearch.Warning'
+        type: array
+    type: object
+  websearch.SummaryOptions:
+    properties:
+      query:
+        type: string
+      schema:
+        items:
+          type: integer
+        type: array
+    type: object
+  websearch.TextOption:
+    properties:
+      enabled:
+        type: boolean
+      excludeSections:
+        items:
+          type: string
+        type: array
+      includeHtmlTags:
+        type: boolean
+      includeSections:
+        items:
+          type: string
+        type: array
+      linkStyle:
+        description: '"full" | "citation"'
+        type: string
+      maxCharacters:
+        type: integer
+      verbosity:
+        description: '"compact" | "standard" | "full"'
+        type: string
+    type: object
+  websearch.UserLocation:
+    properties:
+      country:
+        type: string
+      latitude:
+        type: number
+      longitude:
+        type: number
+    type: object
+  websearch.Warning:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+      path:
         type: string
     type: object
   workersecret.AvailableSource:
@@ -31062,6 +31538,138 @@ paths:
       summary: Get a wallet
       tags:
       - wallets
+  /api/v1/websearch/answer:
+    post:
+      consumes:
+      - application/json
+      description: 'Exa-compatible answer. With stream=true the response is a text/event-stream
+        of websearch.AnswerEvent ending with "data: [DONE]".'
+      parameters:
+      - description: Answer request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/websearch.AnswerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/websearch.AnswerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Answer a question from web search results
+      tags:
+      - websearch
+  /api/v1/websearch/contents:
+    post:
+      consumes:
+      - application/json
+      description: 'Exa-compatible contents: text, highlights, summaries and extras
+        for URLs or result ids.'
+      parameters:
+      - description: Contents request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/websearch.ContentsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/websearch.ContentsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get page contents
+      tags:
+      - websearch
+  /api/v1/websearch/findSimilar:
+    post:
+      consumes:
+      - application/json
+      description: Exa-compatible findSimilar.
+      parameters:
+      - description: Find similar request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/websearch.FindSimilarRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/websearch.FindSimilarResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Find pages similar to a URL
+      tags:
+      - websearch
+  /api/v1/websearch/search:
+    post:
+      consumes:
+      - application/json
+      description: 'Exa-compatible search. With stream=true and an outputSchema the
+        response is a text/event-stream of websearch.SearchEvent ending with "data:
+        [DONE]".'
+      parameters:
+      - description: Search request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/websearch.SearchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/websearch.SearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Search the web
+      tags:
+      - websearch
   /api/v1/work-sessions/{sessionId}/zed-thread:
     post:
       consumes:

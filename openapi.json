@@ -29143,6 +29143,234 @@
                 }
             }
         },
+        "/api/v1/websearch/answer": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible answer. With stream=true the response is a text/event-stream of websearch.AnswerEvent ending with \"data: [DONE]\".",
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Answer a question from web search results",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/websearch.AnswerRequest"
+                            }
+                        }
+                    },
+                    "description": "Answer request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.AnswerResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/contents": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible contents: text, highlights, summaries and extras for URLs or result ids.",
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Get page contents",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/websearch.ContentsRequest"
+                            }
+                        }
+                    },
+                    "description": "Contents request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ContentsResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/findSimilar": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible findSimilar.",
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Find pages similar to a URL",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/websearch.FindSimilarRequest"
+                            }
+                        }
+                    },
+                    "description": "Find similar request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.FindSimilarResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/search": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible search. With stream=true and an outputSchema the response is a text/event-stream of websearch.SearchEvent ending with \"data: [DONE]\".",
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Search the web",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/websearch.SearchRequest"
+                            }
+                        }
+                    },
+                    "description": "Search request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.SearchResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/work-sessions/{sessionId}/zed-thread": {
             "post": {
                 "security": [
@@ -35066,24 +35294,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
+                    "gitlab",
+                    "cron",
                     "github",
+                    "slack",
                     "helix_events",
                     "webhook",
-                    "cron",
-                    "slack",
-                    "gitlab",
-                    "email",
-                    "local"
+                    "local",
+                    "email"
                 ],
                 "x-enum-varnames": [
+                    "KindGitLab",
+                    "KindCron",
                     "KindGitHub",
+                    "KindSlack",
                     "KindHelixEvents",
                     "KindWebhook",
-                    "KindCron",
-                    "KindSlack",
-                    "KindGitLab",
-                    "KindEmail",
-                    "KindLocal"
+                    "KindLocal",
+                    "KindEmail"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -50439,6 +50667,726 @@
                         "type": "integer"
                     },
                     "zed_instance_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.AnswerRequest": {
+                "type": "object",
+                "properties": {
+                    "model": {
+                        "type": "string"
+                    },
+                    "outputSchema": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    },
+                    "query": {
+                        "type": "string"
+                    },
+                    "stream": {
+                        "type": "boolean"
+                    },
+                    "systemPrompt": {
+                        "type": "string"
+                    },
+                    "text": {
+                        "type": "boolean"
+                    },
+                    "userIdentifier": {
+                        "type": "string"
+                    },
+                    "userLocation": {
+                        "$ref": "#/components/schemas/websearch.UserLocation"
+                    }
+                }
+            },
+            "websearch.AnswerResponse": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "description": "string, or object when outputSchema is set"
+                    },
+                    "citations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.Result"
+                        }
+                    },
+                    "costDollars": {
+                        "$ref": "#/components/schemas/websearch.CostDollars"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.Citation": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.ContentError": {
+                "type": "object",
+                "properties": {
+                    "httpStatusCode": {
+                        "type": "integer"
+                    },
+                    "tag": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.ContentStatus": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "$ref": "#/components/schemas/websearch.ContentError"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "source": {
+                        "description": "cached | crawled",
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "success | error",
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.ContentsOptions": {
+                "type": "object",
+                "properties": {
+                    "context": {
+                        "$ref": "#/components/schemas/websearch.ContextOption"
+                    },
+                    "crawledBeforeDate": {
+                        "type": "string"
+                    },
+                    "extras": {
+                        "$ref": "#/components/schemas/websearch.ExtrasOptions"
+                    },
+                    "highlights": {
+                        "$ref": "#/components/schemas/websearch.HighlightsOption"
+                    },
+                    "livecrawl": {
+                        "type": "string"
+                    },
+                    "livecrawlTimeout": {
+                        "type": "integer"
+                    },
+                    "maxAgeHours": {
+                        "type": "integer"
+                    },
+                    "snapshotAsOf": {
+                        "type": "string"
+                    },
+                    "subpageTarget": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "subpages": {
+                        "type": "integer"
+                    },
+                    "summary": {
+                        "$ref": "#/components/schemas/websearch.SummaryOptions"
+                    },
+                    "text": {
+                        "$ref": "#/components/schemas/websearch.TextOption"
+                    }
+                }
+            },
+            "websearch.ContentsRequest": {
+                "type": "object",
+                "properties": {
+                    "compliance": {
+                        "type": "string"
+                    },
+                    "context": {
+                        "$ref": "#/components/schemas/websearch.ContextOption"
+                    },
+                    "crawledBeforeDate": {
+                        "type": "string"
+                    },
+                    "extras": {
+                        "$ref": "#/components/schemas/websearch.ExtrasOptions"
+                    },
+                    "highlights": {
+                        "$ref": "#/components/schemas/websearch.HighlightsOption"
+                    },
+                    "ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "livecrawl": {
+                        "type": "string"
+                    },
+                    "livecrawlTimeout": {
+                        "type": "integer"
+                    },
+                    "maxAgeHours": {
+                        "type": "integer"
+                    },
+                    "snapshotAsOf": {
+                        "type": "string"
+                    },
+                    "subpageTarget": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "subpages": {
+                        "type": "integer"
+                    },
+                    "summary": {
+                        "$ref": "#/components/schemas/websearch.SummaryOptions"
+                    },
+                    "text": {
+                        "$ref": "#/components/schemas/websearch.TextOption"
+                    },
+                    "urls": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "userIdentifier": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.ContentsResponse": {
+                "type": "object",
+                "properties": {
+                    "context": {
+                        "type": "string"
+                    },
+                    "costDollars": {
+                        "$ref": "#/components/schemas/websearch.CostDollars"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.Result"
+                        }
+                    },
+                    "searchTime": {
+                        "type": "number"
+                    },
+                    "statuses": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.ContentStatus"
+                        }
+                    }
+                }
+            },
+            "websearch.ContextOption": {
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "maxCharacters": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "websearch.CostDollars": {
+                "type": "object",
+                "properties": {
+                    "total": {
+                        "type": "number"
+                    }
+                }
+            },
+            "websearch.ErrorResponse": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "tag": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.Extras": {
+                "type": "object",
+                "properties": {
+                    "imageLinks": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "links": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "richImageLinks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.ImageLink"
+                        }
+                    }
+                }
+            },
+            "websearch.ExtrasOptions": {
+                "type": "object",
+                "properties": {
+                    "codeBlocks": {
+                        "description": "deprecated",
+                        "type": "integer"
+                    },
+                    "imageLinks": {
+                        "type": "integer"
+                    },
+                    "links": {
+                        "type": "integer"
+                    },
+                    "richImageLinks": {
+                        "type": "integer"
+                    },
+                    "richLinks": {
+                        "description": "deprecated",
+                        "type": "integer"
+                    }
+                }
+            },
+            "websearch.FindSimilarRequest": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string"
+                    },
+                    "contents": {
+                        "$ref": "#/components/schemas/websearch.ContentsOptions"
+                    },
+                    "endCrawlDate": {
+                        "type": "string"
+                    },
+                    "endPublishedDate": {
+                        "type": "string"
+                    },
+                    "excludeDomains": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "excludeSourceDomain": {
+                        "type": "boolean"
+                    },
+                    "excludeText": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "includeDomains": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "includeText": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "numResults": {
+                        "type": "integer"
+                    },
+                    "startCrawlDate": {
+                        "type": "string"
+                    },
+                    "startPublishedDate": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string"
+                    },
+                    "userIdentifier": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.FindSimilarResponse": {
+                "type": "object",
+                "properties": {
+                    "context": {
+                        "type": "string"
+                    },
+                    "costDollars": {
+                        "$ref": "#/components/schemas/websearch.CostDollars"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.Result"
+                        }
+                    },
+                    "searchTime": {
+                        "type": "number"
+                    }
+                }
+            },
+            "websearch.Grounding": {
+                "type": "object",
+                "properties": {
+                    "citations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.Citation"
+                        }
+                    },
+                    "confidence": {
+                        "description": "low | medium | high",
+                        "type": "string"
+                    },
+                    "field": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.HighlightsOption": {
+                "type": "object",
+                "properties": {
+                    "dynamic": {
+                        "description": "beta",
+                        "type": "boolean"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "highlightsPerUrl": {
+                        "description": "deprecated: ignored",
+                        "type": "integer"
+                    },
+                    "maxCharacters": {
+                        "type": "integer"
+                    },
+                    "numSentences": {
+                        "description": "deprecated: ~1333 chars per sentence",
+                        "type": "integer"
+                    },
+                    "query": {
+                        "type": "string"
+                    },
+                    "verbosity": {
+                        "description": "beta",
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.ImageLink": {
+                "type": "object",
+                "properties": {
+                    "alt": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.Result": {
+                "type": "object",
+                "properties": {
+                    "author": {
+                        "type": "string"
+                    },
+                    "extras": {
+                        "$ref": "#/components/schemas/websearch.Extras"
+                    },
+                    "favicon": {
+                        "type": "string"
+                    },
+                    "highlightScores": {
+                        "description": "findSimilar only",
+                        "type": "array",
+                        "items": {
+                            "type": "number"
+                        }
+                    },
+                    "highlights": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "image": {
+                        "type": "string"
+                    },
+                    "publishedDate": {
+                        "type": "string"
+                    },
+                    "score": {
+                        "description": "findSimilar only",
+                        "type": "number"
+                    },
+                    "subpages": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.Result"
+                        }
+                    },
+                    "summary": {
+                        "type": "string"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.SearchOutput": {
+                "type": "object",
+                "properties": {
+                    "content": {},
+                    "grounding": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.Grounding"
+                        }
+                    }
+                }
+            },
+            "websearch.SearchRequest": {
+                "type": "object",
+                "properties": {
+                    "additionalQueries": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "compliance": {
+                        "type": "string"
+                    },
+                    "contents": {
+                        "$ref": "#/components/schemas/websearch.ContentsOptions"
+                    },
+                    "context": {
+                        "$ref": "#/components/schemas/websearch.ContextOption"
+                    },
+                    "endCrawlDate": {
+                        "type": "string"
+                    },
+                    "endPublishedDate": {
+                        "type": "string"
+                    },
+                    "excludeDomains": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "excludeText": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "includeDomains": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "includeText": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "moderation": {
+                        "type": "boolean"
+                    },
+                    "numResults": {
+                        "type": "integer"
+                    },
+                    "objective": {
+                        "type": "string"
+                    },
+                    "outputSchema": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    },
+                    "query": {
+                        "type": "string"
+                    },
+                    "startCrawlDate": {
+                        "type": "string"
+                    },
+                    "startPublishedDate": {
+                        "type": "string"
+                    },
+                    "stream": {
+                        "type": "boolean"
+                    },
+                    "systemPrompt": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "userIdentifier": {
+                        "type": "string"
+                    },
+                    "userLocation": {
+                        "$ref": "#/components/schemas/websearch.UserLocation"
+                    }
+                }
+            },
+            "websearch.SearchResponse": {
+                "type": "object",
+                "properties": {
+                    "context": {
+                        "type": "string"
+                    },
+                    "costDollars": {
+                        "$ref": "#/components/schemas/websearch.CostDollars"
+                    },
+                    "output": {
+                        "$ref": "#/components/schemas/websearch.SearchOutput"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "resolvedSearchType": {
+                        "type": "string"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.Result"
+                        }
+                    },
+                    "searchTime": {
+                        "type": "number"
+                    },
+                    "warnings": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/websearch.Warning"
+                        }
+                    }
+                }
+            },
+            "websearch.SummaryOptions": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string"
+                    },
+                    "schema": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            },
+            "websearch.TextOption": {
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "excludeSections": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "includeHtmlTags": {
+                        "type": "boolean"
+                    },
+                    "includeSections": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "linkStyle": {
+                        "description": "\"full\" | \"citation\"",
+                        "type": "string"
+                    },
+                    "maxCharacters": {
+                        "type": "integer"
+                    },
+                    "verbosity": {
+                        "description": "\"compact\" | \"standard\" | \"full\"",
+                        "type": "string"
+                    }
+                }
+            },
+            "websearch.UserLocation": {
+                "type": "object",
+                "properties": {
+                    "country": {
+                        "type": "string"
+                    },
+                    "latitude": {
+                        "type": "number"
+                    },
+                    "longitude": {
+                        "type": "number"
+                    }
+                }
+            },
+            "websearch.Warning": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "path": {
                         "type": "string"
                     }
                 }

@@ -11,6 +11,8 @@ import (
 	"github.com/helixml/helix/api/pkg/websearch"
 )
 
+//go:generate mockgen -source $GOFILE -destination components_mocks.go -package $GOPACKAGE
+
 // Discoverer finds candidate pages for a search. It owns translating Exa
 // search filters into engine queries and post-filtering what comes back.
 type Discoverer interface {

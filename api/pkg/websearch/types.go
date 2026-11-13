@@ -400,6 +400,25 @@ type AnswerEvent struct {
 	RequestID   string         `json:"requestId,omitempty"`
 }
 
+// AnswerErrorEvent is the event a streamed /answer ends with when it fails
+// after streaming started: {"tag":"ERROR","payload":{"error":{...}}}.
+type AnswerErrorEvent struct {
+	Tag       string             `json:"tag"` // AnswerErrorTag
+	Payload   AnswerErrorPayload `json:"payload"`
+	RequestID string             `json:"requestId"`
+}
+
+const AnswerErrorTag = "ERROR"
+
+type AnswerErrorPayload struct {
+	Error AnswerErrorDetail `json:"error"`
+}
+
+type AnswerErrorDetail struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
 type AnswerChoice struct {
 	Index        int         `json:"index"`
 	Delta        AnswerDelta `json:"delta"`

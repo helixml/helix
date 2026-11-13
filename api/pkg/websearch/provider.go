@@ -7,6 +7,8 @@ import (
 	"net/http"
 )
 
+//go:generate mockgen -source $GOFILE -destination provider_mocks.go -package $GOPACKAGE
+
 // Provider serves the Exa-compatible API. Handlers, agent skills and the CLI
 // depend only on this; a deployment picks the implementation (Helix's own
 // stack, or Exa) in configuration.
@@ -42,6 +44,13 @@ type Error struct {
 }
 
 func (e *Error) Error() string { return e.Message }
+
+// ErrorResponse is Exa's error body: {requestId, error, tag}.
+type ErrorResponse struct {
+	RequestID string `json:"requestId"`
+	Error     string `json:"error"`
+	Tag       string `json:"tag"`
+}
 
 // InvalidRequest is a 400 for a request that breaks the API contract.
 func InvalidRequest(format string, args ...any) *Error {

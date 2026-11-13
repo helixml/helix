@@ -62,6 +62,9 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            - name: browser-proxy
+              containerPort: 8090
+              protocol: TCP
             {{- if .Values.controlplane.vhostTLS.enabled }}
             - name: https
               containerPort: 443
@@ -164,6 +167,13 @@ spec:
               value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }}
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
+            {{- if .Values.searxng.enabled }}
+            - name: SEARCH_SEARXNG_BASE_URL
+              value: http://{{ include "helix-controlplane.fullname" . }}-searxng:8080
+            {{- end }}
+            # Chrome's web search page fetches go through the API's egress proxy.
+            - name: SEARCH_BROWSER_PROXY_URL
+              value: http://{{ include "helix-controlplane.fullname" . }}-browser-proxy:8090
             # Postgres configuration
             {{- include "helix-controlplane.postgres-env" . | nindent 12 }}
             {{- if .Values.controlplane.rag }}

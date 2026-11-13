@@ -2452,14 +2452,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindGitLab = "gitlab",
+  KindCron = "cron",
   KindGitHub = "github",
+  KindSlack = "slack",
   KindHelixEvents = "helix_events",
   KindWebhook = "webhook",
-  KindCron = "cron",
-  KindSlack = "slack",
-  KindGitLab = "gitlab",
-  KindEmail = "email",
   KindLocal = "local",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -9612,6 +9612,259 @@ export interface TypesZedInstanceStatus {
   status?: string;
   thread_count?: number;
   zed_instance_id?: string;
+}
+
+export interface WebsearchAnswerRequest {
+  model?: string;
+  outputSchema?: number[];
+  query?: string;
+  stream?: boolean;
+  systemPrompt?: string;
+  text?: boolean;
+  userIdentifier?: string;
+  userLocation?: WebsearchUserLocation;
+}
+
+export interface WebsearchAnswerResponse {
+  /** string, or object when outputSchema is set */
+  answer?: any;
+  citations?: WebsearchResult[];
+  costDollars?: WebsearchCostDollars;
+  requestId?: string;
+}
+
+export interface WebsearchCitation {
+  title?: string;
+  url?: string;
+}
+
+export interface WebsearchContentError {
+  httpStatusCode?: number;
+  tag?: string;
+}
+
+export interface WebsearchContentStatus {
+  error?: WebsearchContentError;
+  id?: string;
+  /** cached | crawled */
+  source?: string;
+  /** success | error */
+  status?: string;
+}
+
+export interface WebsearchContentsOptions {
+  context?: WebsearchContextOption;
+  crawledBeforeDate?: string;
+  extras?: WebsearchExtrasOptions;
+  highlights?: WebsearchHighlightsOption;
+  livecrawl?: string;
+  livecrawlTimeout?: number;
+  maxAgeHours?: number;
+  snapshotAsOf?: string;
+  subpageTarget?: string[];
+  subpages?: number;
+  summary?: WebsearchSummaryOptions;
+  text?: WebsearchTextOption;
+}
+
+export interface WebsearchContentsRequest {
+  compliance?: string;
+  context?: WebsearchContextOption;
+  crawledBeforeDate?: string;
+  extras?: WebsearchExtrasOptions;
+  highlights?: WebsearchHighlightsOption;
+  ids?: string[];
+  livecrawl?: string;
+  livecrawlTimeout?: number;
+  maxAgeHours?: number;
+  snapshotAsOf?: string;
+  subpageTarget?: string[];
+  subpages?: number;
+  summary?: WebsearchSummaryOptions;
+  text?: WebsearchTextOption;
+  urls?: string[];
+  userIdentifier?: string;
+}
+
+export interface WebsearchContentsResponse {
+  context?: string;
+  costDollars?: WebsearchCostDollars;
+  requestId?: string;
+  results?: WebsearchResult[];
+  searchTime?: number;
+  statuses?: WebsearchContentStatus[];
+}
+
+export interface WebsearchContextOption {
+  enabled?: boolean;
+  maxCharacters?: number;
+}
+
+export interface WebsearchCostDollars {
+  total?: number;
+}
+
+export interface WebsearchErrorResponse {
+  error?: string;
+  requestId?: string;
+  tag?: string;
+}
+
+export interface WebsearchExtras {
+  imageLinks?: string[];
+  links?: string[];
+  richImageLinks?: WebsearchImageLink[];
+}
+
+export interface WebsearchExtrasOptions {
+  /** deprecated */
+  codeBlocks?: number;
+  imageLinks?: number;
+  links?: number;
+  richImageLinks?: number;
+  /** deprecated */
+  richLinks?: number;
+}
+
+export interface WebsearchFindSimilarRequest {
+  category?: string;
+  contents?: WebsearchContentsOptions;
+  endCrawlDate?: string;
+  endPublishedDate?: string;
+  excludeDomains?: string[];
+  excludeSourceDomain?: boolean;
+  excludeText?: string[];
+  includeDomains?: string[];
+  includeText?: string[];
+  numResults?: number;
+  startCrawlDate?: string;
+  startPublishedDate?: string;
+  url?: string;
+  userIdentifier?: string;
+}
+
+export interface WebsearchFindSimilarResponse {
+  context?: string;
+  costDollars?: WebsearchCostDollars;
+  requestId?: string;
+  results?: WebsearchResult[];
+  searchTime?: number;
+}
+
+export interface WebsearchGrounding {
+  citations?: WebsearchCitation[];
+  /** low | medium | high */
+  confidence?: string;
+  field?: string;
+}
+
+export interface WebsearchHighlightsOption {
+  /** beta */
+  dynamic?: boolean;
+  enabled?: boolean;
+  /** deprecated: ignored */
+  highlightsPerUrl?: number;
+  maxCharacters?: number;
+  /** deprecated: ~1333 chars per sentence */
+  numSentences?: number;
+  query?: string;
+  /** beta */
+  verbosity?: string;
+}
+
+export interface WebsearchImageLink {
+  alt?: string;
+  url?: string;
+}
+
+export interface WebsearchResult {
+  author?: string;
+  extras?: WebsearchExtras;
+  favicon?: string;
+  /** findSimilar only */
+  highlightScores?: number[];
+  highlights?: string[];
+  id?: string;
+  image?: string;
+  publishedDate?: string;
+  /** findSimilar only */
+  score?: number;
+  subpages?: WebsearchResult[];
+  summary?: string;
+  text?: string;
+  title?: string;
+  url?: string;
+}
+
+export interface WebsearchSearchOutput {
+  content?: any;
+  grounding?: WebsearchGrounding[];
+}
+
+export interface WebsearchSearchRequest {
+  additionalQueries?: string[];
+  category?: string;
+  compliance?: string;
+  contents?: WebsearchContentsOptions;
+  context?: WebsearchContextOption;
+  endCrawlDate?: string;
+  endPublishedDate?: string;
+  excludeDomains?: string[];
+  excludeText?: string[];
+  includeDomains?: string[];
+  includeText?: string[];
+  moderation?: boolean;
+  numResults?: number;
+  objective?: string;
+  outputSchema?: number[];
+  query?: string;
+  startCrawlDate?: string;
+  startPublishedDate?: string;
+  stream?: boolean;
+  systemPrompt?: string;
+  type?: string;
+  userIdentifier?: string;
+  userLocation?: WebsearchUserLocation;
+}
+
+export interface WebsearchSearchResponse {
+  context?: string;
+  costDollars?: WebsearchCostDollars;
+  output?: WebsearchSearchOutput;
+  requestId?: string;
+  resolvedSearchType?: string;
+  results?: WebsearchResult[];
+  searchTime?: number;
+  warnings?: WebsearchWarning[];
+}
+
+export interface WebsearchSummaryOptions {
+  query?: string;
+  schema?: number[];
+}
+
+export interface WebsearchTextOption {
+  enabled?: boolean;
+  excludeSections?: string[];
+  includeHtmlTags?: boolean;
+  includeSections?: string[];
+  /** "full" | "citation" */
+  linkStyle?: string;
+  maxCharacters?: number;
+  /** "compact" | "standard" | "full" */
+  verbosity?: string;
+}
+
+export interface WebsearchUserLocation {
+  country?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+export interface WebsearchWarning {
+  code?: string;
+  message?: string;
+  path?: string;
 }
 
 export interface WorkersecretAvailableSource {
@@ -21090,6 +21343,86 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Exa-compatible answer. With stream=true the response is a text/event-stream of websearch.AnswerEvent ending with "data: [DONE]".
+     *
+     * @tags websearch
+     * @name V1WebsearchAnswerCreate
+     * @summary Answer a question from web search results
+     * @request POST:/api/v1/websearch/answer
+     * @secure
+     */
+    v1WebsearchAnswerCreate: (request: WebsearchAnswerRequest, params: RequestParams = {}) =>
+      this.request<WebsearchAnswerResponse, WebsearchErrorResponse>({
+        path: `/api/v1/websearch/answer`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Exa-compatible contents: text, highlights, summaries and extras for URLs or result ids.
+     *
+     * @tags websearch
+     * @name V1WebsearchContentsCreate
+     * @summary Get page contents
+     * @request POST:/api/v1/websearch/contents
+     * @secure
+     */
+    v1WebsearchContentsCreate: (request: WebsearchContentsRequest, params: RequestParams = {}) =>
+      this.request<WebsearchContentsResponse, WebsearchErrorResponse>({
+        path: `/api/v1/websearch/contents`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Exa-compatible findSimilar.
+     *
+     * @tags websearch
+     * @name V1WebsearchFindSimilarCreate
+     * @summary Find pages similar to a URL
+     * @request POST:/api/v1/websearch/findSimilar
+     * @secure
+     */
+    v1WebsearchFindSimilarCreate: (request: WebsearchFindSimilarRequest, params: RequestParams = {}) =>
+      this.request<WebsearchFindSimilarResponse, WebsearchErrorResponse>({
+        path: `/api/v1/websearch/findSimilar`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Exa-compatible search. With stream=true and an outputSchema the response is a text/event-stream of websearch.SearchEvent ending with "data: [DONE]".
+     *
+     * @tags websearch
+     * @name V1WebsearchSearchCreate
+     * @summary Search the web
+     * @request POST:/api/v1/websearch/search
+     * @secure
+     */
+    v1WebsearchSearchCreate: (request: WebsearchSearchRequest, params: RequestParams = {}) =>
+      this.request<WebsearchSearchResponse, WebsearchErrorResponse>({
+        path: `/api/v1/websearch/search`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

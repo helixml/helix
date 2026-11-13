@@ -24432,6 +24432,210 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/websearch/answer": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible answer. With stream=true the response is a text/event-stream of websearch.AnswerEvent ending with \"data: [DONE]\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Answer a question from web search results",
+                "parameters": [
+                    {
+                        "description": "Answer request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.AnswerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.AnswerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/contents": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible contents: text, highlights, summaries and extras for URLs or result ids.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Get page contents",
+                "parameters": [
+                    {
+                        "description": "Contents request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ContentsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ContentsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/findSimilar": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible findSimilar.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Find pages similar to a URL",
+                "parameters": [
+                    {
+                        "description": "Find similar request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.FindSimilarRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.FindSimilarResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/search": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible search. With stream=true and an outputSchema the response is a text/event-stream of websearch.SearchEvent ending with \"data: [DONE]\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Search the web",
+                "parameters": [
+                    {
+                        "description": "Search request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.SearchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.SearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/work-sessions/{sessionId}/zed-thread": {
             "post": {
                 "security": [
@@ -30188,24 +30392,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
+                "gitlab",
+                "cron",
                 "github",
+                "slack",
                 "helix_events",
                 "webhook",
-                "cron",
-                "slack",
-                "gitlab",
-                "email",
-                "local"
+                "local",
+                "email"
             ],
             "x-enum-varnames": [
+                "KindGitLab",
+                "KindCron",
                 "KindGitHub",
+                "KindSlack",
                 "KindHelixEvents",
                 "KindWebhook",
-                "KindCron",
-                "KindSlack",
-                "KindGitLab",
-                "KindEmail",
-                "KindLocal"
+                "KindLocal",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -45561,6 +45765,726 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "zed_instance_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.AnswerRequest": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string"
+                },
+                "outputSchema": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "systemPrompt": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "boolean"
+                },
+                "userIdentifier": {
+                    "type": "string"
+                },
+                "userLocation": {
+                    "$ref": "#/definitions/websearch.UserLocation"
+                }
+            }
+        },
+        "websearch.AnswerResponse": {
+            "type": "object",
+            "properties": {
+                "answer": {
+                    "description": "string, or object when outputSchema is set"
+                },
+                "citations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "requestId": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Citation": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentError": {
+            "type": "object",
+            "properties": {
+                "httpStatusCode": {
+                    "type": "integer"
+                },
+                "tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentStatus": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/websearch.ContentError"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "cached | crawled",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "success | error",
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentsOptions": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "$ref": "#/definitions/websearch.ContextOption"
+                },
+                "crawledBeforeDate": {
+                    "type": "string"
+                },
+                "extras": {
+                    "$ref": "#/definitions/websearch.ExtrasOptions"
+                },
+                "highlights": {
+                    "$ref": "#/definitions/websearch.HighlightsOption"
+                },
+                "livecrawl": {
+                    "type": "string"
+                },
+                "livecrawlTimeout": {
+                    "type": "integer"
+                },
+                "maxAgeHours": {
+                    "type": "integer"
+                },
+                "snapshotAsOf": {
+                    "type": "string"
+                },
+                "subpageTarget": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "subpages": {
+                    "type": "integer"
+                },
+                "summary": {
+                    "$ref": "#/definitions/websearch.SummaryOptions"
+                },
+                "text": {
+                    "$ref": "#/definitions/websearch.TextOption"
+                }
+            }
+        },
+        "websearch.ContentsRequest": {
+            "type": "object",
+            "properties": {
+                "compliance": {
+                    "type": "string"
+                },
+                "context": {
+                    "$ref": "#/definitions/websearch.ContextOption"
+                },
+                "crawledBeforeDate": {
+                    "type": "string"
+                },
+                "extras": {
+                    "$ref": "#/definitions/websearch.ExtrasOptions"
+                },
+                "highlights": {
+                    "$ref": "#/definitions/websearch.HighlightsOption"
+                },
+                "ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "livecrawl": {
+                    "type": "string"
+                },
+                "livecrawlTimeout": {
+                    "type": "integer"
+                },
+                "maxAgeHours": {
+                    "type": "integer"
+                },
+                "snapshotAsOf": {
+                    "type": "string"
+                },
+                "subpageTarget": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "subpages": {
+                    "type": "integer"
+                },
+                "summary": {
+                    "$ref": "#/definitions/websearch.SummaryOptions"
+                },
+                "text": {
+                    "$ref": "#/definitions/websearch.TextOption"
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "userIdentifier": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentsResponse": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "searchTime": {
+                    "type": "number"
+                },
+                "statuses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.ContentStatus"
+                    }
+                }
+            }
+        },
+        "websearch.ContextOption": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "maxCharacters": {
+                    "type": "integer"
+                }
+            }
+        },
+        "websearch.CostDollars": {
+            "type": "object",
+            "properties": {
+                "total": {
+                    "type": "number"
+                }
+            }
+        },
+        "websearch.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Extras": {
+            "type": "object",
+            "properties": {
+                "imageLinks": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "richImageLinks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.ImageLink"
+                    }
+                }
+            }
+        },
+        "websearch.ExtrasOptions": {
+            "type": "object",
+            "properties": {
+                "codeBlocks": {
+                    "description": "deprecated",
+                    "type": "integer"
+                },
+                "imageLinks": {
+                    "type": "integer"
+                },
+                "links": {
+                    "type": "integer"
+                },
+                "richImageLinks": {
+                    "type": "integer"
+                },
+                "richLinks": {
+                    "description": "deprecated",
+                    "type": "integer"
+                }
+            }
+        },
+        "websearch.FindSimilarRequest": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "contents": {
+                    "$ref": "#/definitions/websearch.ContentsOptions"
+                },
+                "endCrawlDate": {
+                    "type": "string"
+                },
+                "endPublishedDate": {
+                    "type": "string"
+                },
+                "excludeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "excludeSourceDomain": {
+                    "type": "boolean"
+                },
+                "excludeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "numResults": {
+                    "type": "integer"
+                },
+                "startCrawlDate": {
+                    "type": "string"
+                },
+                "startPublishedDate": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "userIdentifier": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.FindSimilarResponse": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "searchTime": {
+                    "type": "number"
+                }
+            }
+        },
+        "websearch.Grounding": {
+            "type": "object",
+            "properties": {
+                "citations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Citation"
+                    }
+                },
+                "confidence": {
+                    "description": "low | medium | high",
+                    "type": "string"
+                },
+                "field": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.HighlightsOption": {
+            "type": "object",
+            "properties": {
+                "dynamic": {
+                    "description": "beta",
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "highlightsPerUrl": {
+                    "description": "deprecated: ignored",
+                    "type": "integer"
+                },
+                "maxCharacters": {
+                    "type": "integer"
+                },
+                "numSentences": {
+                    "description": "deprecated: ~1333 chars per sentence",
+                    "type": "integer"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "verbosity": {
+                    "description": "beta",
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ImageLink": {
+            "type": "object",
+            "properties": {
+                "alt": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Result": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "extras": {
+                    "$ref": "#/definitions/websearch.Extras"
+                },
+                "favicon": {
+                    "type": "string"
+                },
+                "highlightScores": {
+                    "description": "findSimilar only",
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "highlights": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "publishedDate": {
+                    "type": "string"
+                },
+                "score": {
+                    "description": "findSimilar only",
+                    "type": "number"
+                },
+                "subpages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.SearchOutput": {
+            "type": "object",
+            "properties": {
+                "content": {},
+                "grounding": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Grounding"
+                    }
+                }
+            }
+        },
+        "websearch.SearchRequest": {
+            "type": "object",
+            "properties": {
+                "additionalQueries": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "category": {
+                    "type": "string"
+                },
+                "compliance": {
+                    "type": "string"
+                },
+                "contents": {
+                    "$ref": "#/definitions/websearch.ContentsOptions"
+                },
+                "context": {
+                    "$ref": "#/definitions/websearch.ContextOption"
+                },
+                "endCrawlDate": {
+                    "type": "string"
+                },
+                "endPublishedDate": {
+                    "type": "string"
+                },
+                "excludeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "excludeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "moderation": {
+                    "type": "boolean"
+                },
+                "numResults": {
+                    "type": "integer"
+                },
+                "objective": {
+                    "type": "string"
+                },
+                "outputSchema": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                },
+                "startCrawlDate": {
+                    "type": "string"
+                },
+                "startPublishedDate": {
+                    "type": "string"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "systemPrompt": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "userIdentifier": {
+                    "type": "string"
+                },
+                "userLocation": {
+                    "$ref": "#/definitions/websearch.UserLocation"
+                }
+            }
+        },
+        "websearch.SearchResponse": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "output": {
+                    "$ref": "#/definitions/websearch.SearchOutput"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "resolvedSearchType": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "searchTime": {
+                    "type": "number"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Warning"
+                    }
+                }
+            }
+        },
+        "websearch.SummaryOptions": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "websearch.TextOption": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "excludeSections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeHtmlTags": {
+                    "type": "boolean"
+                },
+                "includeSections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "linkStyle": {
+                    "description": "\"full\" | \"citation\"",
+                    "type": "string"
+                },
+                "maxCharacters": {
+                    "type": "integer"
+                },
+                "verbosity": {
+                    "description": "\"compact\" | \"standard\" | \"full\"",
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.UserLocation": {
+            "type": "object",
+            "properties": {
+                "country": {
+                    "type": "string"
+                },
+                "latitude": {
+                    "type": "number"
+                },
+                "longitude": {
+                    "type": "number"
+                }
+            }
+        },
+        "websearch.Warning": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "path": {
                     "type": "string"
                 }
             }

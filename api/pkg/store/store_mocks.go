@@ -4628,6 +4628,36 @@ func (mr *MockStoreMockRecorder) GetWalletByUser(ctx, userID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByUser", reflect.TypeOf((*MockStore)(nil).GetWalletByUser), ctx, userID)
 }
 
+// GetWebPage mocks base method.
+func (m *MockStore) GetWebPage(ctx context.Context, id string) (*types.WebPage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebPage", ctx, id)
+	ret0, _ := ret[0].(*types.WebPage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWebPage indicates an expected call of GetWebPage.
+func (mr *MockStoreMockRecorder) GetWebPage(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebPage", reflect.TypeOf((*MockStore)(nil).GetWebPage), ctx, id)
+}
+
+// GetWebPageByURL mocks base method.
+func (m *MockStore) GetWebPageByURL(ctx context.Context, url string) (*types.WebPage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebPageByURL", ctx, url)
+	ret0, _ := ret[0].(*types.WebPage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWebPageByURL indicates an expected call of GetWebPageByURL.
+func (mr *MockStoreMockRecorder) GetWebPageByURL(ctx, url any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebPageByURL", reflect.TypeOf((*MockStore)(nil).GetWebPageByURL), ctx, url)
+}
+
 // GetWebhookDelivery mocks base method.
 func (m *MockStore) GetWebhookDelivery(ctx context.Context, endpointID, deliveryID string) (*types.WebhookDelivery, error) {
 	m.ctrl.T.Helper()
@@ -8197,6 +8227,20 @@ func (m *MockStore) UpsertProjectWebServiceState(ctx context.Context, state *typ
 func (mr *MockStoreMockRecorder) UpsertProjectWebServiceState(ctx, state any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertProjectWebServiceState", reflect.TypeOf((*MockStore)(nil).UpsertProjectWebServiceState), ctx, state)
+}
+
+// UpsertWebPage mocks base method.
+func (m *MockStore) UpsertWebPage(ctx context.Context, page *types.WebPage) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertWebPage", ctx, page)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertWebPage indicates an expected call of UpsertWebPage.
+func (mr *MockStoreMockRecorder) UpsertWebPage(ctx, page any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWebPage", reflect.TypeOf((*MockStore)(nil).UpsertWebPage), ctx, page)
 }
 
 // UpsertZedSettingsOverride mocks base method.

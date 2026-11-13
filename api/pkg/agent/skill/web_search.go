@@ -9,14 +9,14 @@ import (
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
-	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
+	"github.com/helixml/helix/api/pkg/websearch"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchProvider, browser *browser.Browser) agent.Skill {
+func NewSearchSkill(config *types.ToolWebSearchConfig, provider websearch.Provider, browser *browser.Browser) agent.Skill {
 	return agent.Skill{
 		Name:        "WebSearch",
 		Description: "Search the web for current information and recent data, can open URLs, look for information in the page and return the results.",
@@ -47,8 +47,12 @@ func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchPr
 
 type searchTool struct {
 	config   *types.ToolWebSearchConfig
-	provider searxng.SearchProvider
+	provider websearch.Provider
 }
+
+// searchSnippetChars bounds the page text shown per result: enough for the
+// model to judge relevance before opening the page with the browser tool.
+const searchSnippetChars = 1000
 
 func (t *searchTool) String() string {
 	return "Web Search Tool"
@@ -86,12 +90,8 @@ func (t *searchTool) OpenAI() []openai.Tool {
 						},
 						"category": {
 							Type:        jsonschema.String,
-							Description: "Optional category for the search (general, news, social_media)",
-							Enum:        []string{"general", "news", "social_media"},
-						},
-						"language": {
-							Type:        jsonschema.String,
-							Description: "Optional language code for the search (e.g., 'en', 'es', 'fr')",
+							Description: "Optional category for the search (general, news)",
+							Enum:        []string{searchCategoryGeneral, websearch.CategoryNews},
 						},
 					},
 					Required: []string{"query"},
@@ -101,74 +101,54 @@ func (t *searchTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (t *searchTool) Execute(ctx context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
+const searchCategoryGeneral = "general"
+
+func (t *searchTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
 	query, ok := args["query"].(string)
 	if !ok {
 		return "", fmt.Errorf("query parameter is required and must be a string")
 	}
-
 	if query == "" {
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
-	category := searxng.GeneralCategory
-	if cat, ok := args["category"].(string); ok && cat != "" {
-		category = cat
-	}
-
-	language := ""
-	if lang, ok := args["language"].(string); ok {
-		language = lang
-	}
-
-	log.Debug().
-		Str("query", query).
-		Str("category", category).
-		Str("language", language).
-		Msg("Executing web search")
-
-	searchReq := &searxng.SearchRequest{
-		MaxResults: t.config.MaxResults,
-		Queries: []searxng.SearchQuery{
-			{
-				Query:    query,
-				Category: category,
-				Language: language,
-			},
+	req := &websearch.SearchRequest{
+		Query:      query,
+		NumResults: t.config.MaxResults,
+		Contents: &websearch.ContentsOptions{
+			Text: &websearch.TextOption{Enabled: true, TextOptions: websearch.TextOptions{MaxCharacters: searchSnippetChars}},
 		},
 	}
+	switch category, _ := args["category"].(string); category {
+	case "", searchCategoryGeneral:
+	case websearch.CategoryNews:
+		req.Category = websearch.CategoryNews
+	default:
+		return "", fmt.Errorf("unsupported category %q: use general or news", category)
+	}
 
-	results, err := t.provider.Search(ctx, searchReq)
+	log.Debug().Str("query", query).Str("category", req.Category).Msg("Executing web search")
+
+	ctx = websearch.WithCaller(ctx, websearch.Caller{UserID: meta.UserID})
+	resp, err := t.provider.Search(ctx, req)
 	if err != nil {
-		log.Error().Err(err).Str("query", query).Msg("Error searching with searxng")
 		return "", fmt.Errorf("search failed: %w", err)
 	}
-
-	if len(results) == 0 {
-		return "No search results found for the query.", nil
-	}
-
-	// Format results as JSON for better structure
-	output := searxng.Output{
-		Query:    query,
-		Category: category,
-		Results:  results,
-	}
-
-	return formatSearchResponse(&output), nil
+	return formatSearchResponse(resp.Results), nil
 }
 
-func formatSearchResponse(output *searxng.Output) string {
-	if len(output.Results) == 0 {
-		return "No results found"
+func formatSearchResponse(results []websearch.Result) string {
+	if len(results) == 0 {
+		return "No search results found for the query."
 	}
 	var buf bytes.Buffer
-
 	buf.WriteString("## Results: \n")
-
-	for _, result := range output.Results {
-		buf.WriteString(fmt.Sprintf("### Source: %s\n- URL: %s\n- Snippet: %s\n\n", result.Title, result.URL, result.Content))
+	for _, result := range results {
+		snippet := ""
+		if result.Text != nil {
+			snippet = *result.Text
+		}
+		fmt.Fprintf(&buf, "### Source: %s\n- URL: %s\n- Snippet: %s\n\n", result.Title, result.URL, snippet)
 	}
-
 	return buf.String()
 }

@@ -258,6 +258,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.ProjectWebServiceState{},
 		&types.WebServiceDeploy{},
 		&types.SandboxCacheState{}, // golden_builds
+		&types.WebPage{},
 	)
 	if err != nil {
 		return err

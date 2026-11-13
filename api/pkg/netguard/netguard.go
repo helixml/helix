@@ -212,9 +212,8 @@ func isLocalhostName(host string) bool {
 
 // GuardTransport enforces the policy on every connection t makes.
 //
-// Direct connections: the target host is resolved once, every address is
-// checked, and the connection is made only to those checked addresses so the
-// HTTP stack cannot re-resolve to something else (DNS rebinding).
+// Direct connections get the same check as DialContext, made through t's
+// own dialer when it has one.
 //
 // Proxied connections (HTTP(S)_PROXY from the operator's environment): the
 // proxy address itself comes from operator configuration and is dialled
@@ -237,33 +236,45 @@ func (p Policy) GuardTransport(t *http.Transport) {
 		}
 	}
 
-	dialer := &net.Dialer{Timeout: dialTimeout, KeepAlive: dialKeepAlive}
 	baseDial := t.DialContext
 	if baseDial == nil {
-		baseDial = dialer.DialContext
+		baseDial = defaultDialer.DialContext
 	}
 	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		if _, ok := proxyAddrs.Load(addr); ok {
 			return baseDial(ctx, network, addr)
 		}
-		host, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			return nil, err
-		}
-		ips, err := p.resolve(ctx, host)
-		if err != nil {
-			return nil, err
-		}
-		var lastErr error
-		for _, ip := range ips {
-			conn, err := baseDial(ctx, network, net.JoinHostPort(ip.String(), port))
-			if err == nil {
-				return conn, nil
-			}
-			lastErr = err
-		}
-		return nil, lastErr
+		return p.dialVia(ctx, network, addr, baseDial)
 	}
+}
+
+var defaultDialer = &net.Dialer{Timeout: dialTimeout, KeepAlive: dialKeepAlive}
+
+// DialContext connects to addr (host:port) only if the policy allows it: the
+// host is resolved once, every address is checked, and only the checked
+// addresses are dialled, so a second lookup cannot rebind the name.
+func (p Policy) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return p.dialVia(ctx, network, addr, defaultDialer.DialContext)
+}
+
+func (p Policy) dialVia(ctx context.Context, network, addr string, dial func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := p.resolve(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	var lastErr error
+	for _, ip := range ips {
+		conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 func (p Policy) checkProxiedDestination(ctx context.Context, host string) error {

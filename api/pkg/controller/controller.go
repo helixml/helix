@@ -20,11 +20,11 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
-	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/websearch"
 )
 
 type Options struct {
@@ -42,7 +42,7 @@ type Options struct {
 	ModelInfoProvider     model.ModelInfoProvider // Model capability/pricing catalog
 	OAuthManager          *oauth.Manager
 	Browser               *browser.Browser
-	SearchProvider        searxng.SearchProvider
+	WebSearch             websearch.Provider
 	MCPClientGetter       mcp.ClientGetter
 }
 

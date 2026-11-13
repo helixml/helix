@@ -212,7 +212,7 @@ services:
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   searxng:
     logging: *default-logging
-    image: searxng/searxng:latest
+    image: searxng/searxng:2025.12.7-9d3ec9a2a
     # ports:
     #   - 8112:8080
     volumes:

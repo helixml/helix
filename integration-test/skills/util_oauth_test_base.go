@@ -283,6 +283,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		anthropicProxy,
 		nil, // gitRepositoryService
 		nil, // preInitKodit
+		nil, // webSearch
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)
