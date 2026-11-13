@@ -31,7 +31,7 @@ type ServerConfig struct {
 	FineTuning         FineTuning
 	Apps               Apps
 	Triggers           Triggers
-	Search             Search
+	WebSearch          WebSearch
 	Kodit              Kodit
 	SSL                SSL
 	Organizations      Organizations
@@ -576,8 +576,60 @@ type Inference struct {
 	AgentToolNudgeModels []string `envconfig:"INFERENCE_AGENT_TOOL_NUDGE_MODELS" default:"glm,qwen"`
 }
 
-type Search struct {
-	SearXNGBaseURL string `envconfig:"SEARCH_SEARXNG_BASE_URL" default:"http://searxng:8080"`
+// WebSearch configures the Exa-compatible web search API and the agent web
+// search skill, which share one websearch.Provider.
+type WebSearch struct {
+	// Provider is "native" (SearXNG + Chrome + Helix LLMs) or "exa".
+	Provider   string `envconfig:"SEARCH_PROVIDER" default:"native"`
+	ExaAPIKey  string `envconfig:"SEARCH_EXA_API_KEY"`
+	ExaBaseURL string `envconfig:"SEARCH_EXA_BASE_URL" default:"https://api.exa.ai"`
+
+	SearXNGBaseURL string   `envconfig:"SEARCH_SEARXNG_BASE_URL" default:"http://searxng:8080"`
+	SearXNGEngines []string `envconfig:"SEARCH_SEARXNG_ENGINES" default:"yandex"`
+
+	// AllowPrivateNetworks lets page fetches reach loopback/RFC1918 hosts.
+	// Only for self-hosted installs searching an internal web.
+	AllowPrivateNetworks bool `envconfig:"SEARCH_FETCH_ALLOW_PRIVATE_NETWORKS" default:"false"`
+	FetchConcurrency     int  `envconfig:"SEARCH_FETCH_CONCURRENCY" default:"8"`
+	// Chrome fetches go through an egress proxy in the API process that
+	// applies the same destination policy. Chrome reaches it at ProxyURL.
+	BrowserProxyListenAddr string `envconfig:"SEARCH_BROWSER_PROXY_LISTEN_ADDR" default:":8090"`
+	BrowserProxyURL        string `envconfig:"SEARCH_BROWSER_PROXY_URL" default:"http://api:8090"`
+
+	// LLM tasks (summaries, answers, deep search, outputSchema). Empty
+	// provider disables them: requests that need them get FEATURE_DISABLED.
+	LLMProvider    string `envconfig:"SEARCH_LLM_PROVIDER"`
+	LLMFastModel   string `envconfig:"SEARCH_LLM_FAST_MODEL"`
+	LLMModel       string `envconfig:"SEARCH_LLM_MODEL"`
+	LLMStrongModel string `envconfig:"SEARCH_LLM_STRONG_MODEL"`
+	// Embeddings rank highlights and findSimilar results. Empty provider
+	// disables highlights.
+	EmbeddingsProvider string `envconfig:"SEARCH_EMBEDDINGS_PROVIDER"`
+	EmbeddingsModel    string `envconfig:"SEARCH_EMBEDDINGS_MODEL"`
+
+	Prices WebSearchPrices
+}
+
+// WebSearchPrices is what web search costs callers in Helix credits
+// (dollars), whichever provider serves it. The defaults are Exa's list
+// prices (exa.ai/pricing, 2026-11-13).
+type WebSearchPrices struct {
+	// Search is the base price of a /search by type: lite (and legacy
+	// instant), auto (and legacy fast), deep and deep-lite (and legacy
+	// deep-reasoning).
+	SearchLite float64 `envconfig:"SEARCH_PRICE_SEARCH_LITE" default:"0.004"`
+	Search     float64 `envconfig:"SEARCH_PRICE_SEARCH" default:"0.007"`
+	SearchDeep float64 `envconfig:"SEARCH_PRICE_SEARCH_DEEP" default:"0.012"`
+	// ResultOver10 is charged for each /search or /findSimilar result
+	// beyond the tenth.
+	ResultOver10 float64 `envconfig:"SEARCH_PRICE_RESULT_OVER_10" default:"0.001"`
+	// ContentPage is charged per page, subpages included, for each of text,
+	// highlights and summary returned.
+	ContentPage float64 `envconfig:"SEARCH_PRICE_CONTENT_PAGE" default:"0.001"`
+	// Answer is the whole price of an /answer, its searches included.
+	Answer float64 `envconfig:"SEARCH_PRICE_ANSWER" default:"0.005"`
+	// FindSimilar is the base price of a /findSimilar.
+	FindSimilar float64 `envconfig:"SEARCH_PRICE_FIND_SIMILAR" default:"0.007"`
 }
 
 type Kodit struct {
@@ -907,6 +959,7 @@ type RAG struct {
 		ChromeURL       string `envconfig:"RAG_CRAWLER_CHROME_URL" default:"http://chrome:9222" description:"The URL to the Chrome instance."`
 		LauncherEnabled bool   `envconfig:"RAG_CRAWLER_LAUNCHER_ENABLED" default:"true" description:"Whether to use the Launcher to start the browser."`
 		LauncherURL     string `envconfig:"RAG_CRAWLER_LAUNCHER_URL" default:"http://chrome:7317" description:"The URL to the Launcher instance."`
+		LauncherToken   string `envconfig:"RAG_CRAWLER_LAUNCHER_TOKEN" description:"Shared secret sent to the Launcher (its CHROME_LAUNCHER_TOKEN)."`
 		BrowserPoolSize int    `envconfig:"RAG_CRAWLER_BROWSER_POOL_SIZE" default:"5" description:"The number of browsers to keep in the pool."`
 		PagePoolSize    int    `envconfig:"RAG_CRAWLER_PAGE_POOL_SIZE" default:"50" description:"The number of pages to keep in the pool."`
 

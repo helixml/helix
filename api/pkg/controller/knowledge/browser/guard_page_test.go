@@ -1,6 +1,7 @@
 package browser_test
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -88,7 +89,7 @@ const f = document.createElement("iframe"); f.src = "http://localhost:` + public
 	for _, path := range []string{"/sw", "/worker", "/frame"} {
 		t.Run(path, func(t *testing.T) {
 			before := internalHits.Load()
-			rb, err := b.GetBrowser()
+			rb, err := b.GetBrowser(context.Background())
 			require.NoError(t, err)
 			page, err := b.GetPage(rb, proto.TargetCreateTarget{})
 			require.NoError(t, err)

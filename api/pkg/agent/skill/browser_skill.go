@@ -2,23 +2,14 @@ package skill
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"time"
 
-	"github.com/dgraph-io/ristretto/v2"
 	"github.com/helixml/helix/api/pkg/agent"
-	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
-	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
-	"github.com/helixml/helix/api/pkg/netguard"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
+	"github.com/helixml/helix/api/pkg/websearch"
 
-	md "github.com/JohannesKaufmann/html-to-markdown"
-	"github.com/go-rod/rod/lib/proto"
 	"github.com/rs/zerolog/log"
 	"github.com/sashabaranov/go-openai"
 )
@@ -74,7 +65,7 @@ const browserProcessOutputUserMessage = `
 
 const browserSkillDescription = `- Fetches content from a specified URL and processes it using an AI model
 - Takes a URL and a prompt as input
-- Fetches the URL content, converts HTML to markdown
+- Fetches the URL content and converts it to markdown
 - Processes the content with the prompt using a small, fast model
 - Returns the model's response about the content
 - Use this tool when you need to retrieve and analyze web content
@@ -84,8 +75,8 @@ Usage notes:
 - The prompt should describe what information you want to extract from the page
 - This tool is read-only and does not modify any files
 - Results may be summarized if the content is very large
-- Includes a self-cleaning 15-minute cache for faster responses when repeatedly accessing the same URL
-- When a URL redirects to a different host, the tool will inform you and provide the redirect URL in a special format. You should then make a new WebFetch request with the redirect URL to fetch the content.`
+- Recently fetched pages may be served from a cache
+- Private and internal network addresses cannot be fetched`
 
 var browserSkillParameters = jsonschema.Definition{
 	Type: jsonschema.Object,
@@ -102,18 +93,9 @@ var browserSkillParameters = jsonschema.Definition{
 	Required: []string{"url", "prompt"},
 }
 
-// NewBrowserSkill creates a new browser skill, this skill provides a tool to open URLs in a browser (Chrome runner).
-// URLs come from the model (and so from user content); every request, whether
-// fetched directly or by the browser, goes through the outbound policy.
-func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, llm *agent.LLM, cache *ristretto.Cache[string, string], tlsSkipVerify bool, outbound netguard.Policy) agent.Skill {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if tlsSkipVerify {
-		// Optional TLS skip verify for enterprise environments
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	}
-	outbound.GuardTransport(transport)
-	httpClient := &http.Client{Transport: transport}
-
+// NewBrowserSkill creates the Browser skill, which reads web pages through the
+// web search provider's Contents API.
+func NewBrowserSkill(config *types.ToolBrowserConfig, provider websearch.Provider, llm *agent.LLM) agent.Skill {
 	return agent.Skill{
 		Name:          "Browser",
 		Description:   browserSkillDescription,
@@ -123,26 +105,20 @@ func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, 
 		ProcessOutput: config.ProcessOutput,
 		Tools: []agent.Tool{
 			&browserTool{
-				browser:    browser,
-				config:     config,
-				llm:        llm,
-				parser:     readability.NewParser(), // TODO: add config for this
-				converter:  md.NewConverter("", true, nil),
-				httpClient: httpClient,
-				cache:      cache,
+				provider:      provider,
+				llm:           llm,
+				processOutput: config.ProcessOutput,
 			},
 		},
 	}
 }
 
 type browserTool struct {
-	browser    *browser.Browser
-	config     *types.ToolBrowserConfig
-	parser     readability.Parser
-	converter  *md.Converter
-	llm        *agent.LLM
-	httpClient *http.Client
-	cache      *ristretto.Cache[string, string]
+	provider websearch.Provider
+	llm      *agent.LLM
+	// processOutput answers the prompt from the page with the small
+	// generation model instead of returning the page itself.
+	processOutput bool
 }
 
 func (t *browserTool) Name() string {
@@ -179,7 +155,7 @@ func (t *browserTool) OpenAI() []openai.Tool {
 }
 
 func (t *browserTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
-	url, ok := args["url"].(string)
+	pageURL, ok := args["url"].(string)
 	if !ok {
 		return "", fmt.Errorf("url is required")
 	}
@@ -189,168 +165,60 @@ func (t *browserTool) Execute(ctx context.Context, meta agent.Meta, args map[str
 		return "", fmt.Errorf("prompt is required")
 	}
 
-	log.Info().Str("url", url).
+	log.Info().Str("url", pageURL).
 		Str("user_id", meta.UserID).
 		Str("session_id", meta.SessionID).
 		Str("interaction_id", meta.InteractionID).
 		Str("app_id", meta.AppID).
 		Msg("Executing browser tool")
 
-	var (
-		respCh = make(chan string, 1)
-		errCh  = make(chan error, 1)
-	)
-
-	go func() {
-		var html string
-
-		// If cache is enabled, try to get it directly from it
-		if t.config.Cache && t.cache != nil {
-			html, ok := t.cache.Get(url)
-			if ok {
-				respCh <- html
-				return
-			}
-		}
-
-		if t.config.NoBrowser {
-			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-			if err != nil {
-				errCh <- fmt.Errorf("error creating request: %w", err)
-				return
-			}
-			resp, err := t.httpClient.Do(req)
-			if err != nil {
-				errCh <- fmt.Errorf("error doing request: %w", err)
-				return
-			}
-			defer resp.Body.Close()
-
-			bts, err := io.ReadAll(resp.Body)
-			if err != nil {
-				errCh <- fmt.Errorf("error reading response body: %w", err)
-				return
-			}
-
-			if resp.StatusCode >= 400 {
-				errCh <- fmt.Errorf("error getting response body: %w", err)
-				return
-			}
-
-			html = string(bts)
-
-		} else {
-			b, err := t.browser.GetBrowser()
-			if err != nil {
-				errCh <- fmt.Errorf("error getting browser: %w", err)
-				return
-			}
-			defer func() {
-				if err := t.browser.PutBrowser(b); err != nil {
-					log.Warn().Err(err).Msg("error putting browser")
-				}
-			}()
-
-			page, err := t.browser.GetPage(b, proto.TargetCreateTarget{})
-			if err != nil {
-				errCh <- fmt.Errorf("error getting page for %s: %w", url, err)
-				return
-			}
-			defer t.browser.PutPage(page)
-
-			// Chrome's own requests go through the same policy.
-			stop, err := browser.GuardPage(page, t.httpClient)
-			if err != nil {
-				errCh <- fmt.Errorf("error guarding page for %s: %w", url, err)
-				return
-			}
-			defer stop()
-
-			if err := page.Navigate(url); err != nil {
-				errCh <- fmt.Errorf("error navigating to %s: %w", url, err)
-				return
-			}
-
-			err = page.WaitLoad()
-			if err != nil {
-				errCh <- fmt.Errorf("error waiting for page to load for %s: %w", url, err)
-				return
-			}
-
-			// Wait until stable
-			err = page.WaitStable(5 * time.Second)
-			if err != nil {
-				log.Warn().Err(err).Str("url", url).Msg("error waiting for page to be stable")
-			}
-
-			html, err = page.HTML()
-			if err != nil {
-				errCh <- fmt.Errorf("error getting HTML for %s: %w", url, err)
-				return
-			}
-		}
-
-		// Cache it
-		if t.config.Cache && t.cache != nil {
-			t.cache.SetWithTTL(url, html, 1, 15*time.Minute)
-		}
-
-		if t.config.MarkdownPostProcessing {
-			markdown, err := t.converter.ConvertString(html)
-			if err != nil {
-				log.Warn().Err(err).Msg("error converting HTML to markdown")
-				// Return the HTML as is, we can't do anything about it
-				respCh <- html
-				return
-			}
-
-			respCh <- markdown
-			return
-		}
-
-		respCh <- html
-	}()
-
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	select {
-	case <-ctx.Done():
-		log.Warn().Str("url", url).
-			Str("user_id", meta.UserID).
-			Str("session_id", meta.SessionID).
-			Str("interaction_id", meta.InteractionID).
-			Str("app_id", meta.AppID).
-			Msg("timeout while browsing the web")
-		return "", fmt.Errorf("timeout while browsing the web")
-	case err := <-errCh:
+	ctx = withWebSearchCaller(ctx, meta)
+	page, err := t.fetch(ctx, pageURL)
+	if err != nil {
 		return "", err
-	case resp := <-respCh:
-		if t.config.ProcessOutput {
-			processedOutput, err := t.processOutput(ctx, prompt, resp)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("url", url).
-					Str("user_id", meta.UserID).
-					Str("session_id", meta.SessionID).
-					Str("interaction_id", meta.InteractionID).
-					Str("app_id", meta.AppID).
-					Msg("error processing output")
-				return resp, nil
-			}
-			return processedOutput, nil
-		}
-		return resp, nil
 	}
+	if !t.processOutput {
+		return page, nil
+	}
+	return t.answer(ctx, prompt, page)
 }
 
-func (t *browserTool) processOutput(ctx context.Context, prompt, output string) (string, error) {
+// fetch returns the page text as markdown.
+func (t *browserTool) fetch(ctx context.Context, pageURL string) (string, error) {
+	resp, err := t.provider.Contents(ctx, &websearch.ContentsRequest{
+		URLs:            []string{pageURL},
+		ContentsOptions: websearch.ContentsOptions{Text: &websearch.TextOption{Enabled: true}},
+	})
+	if err != nil {
+		return "", fmt.Errorf("error fetching %s: %w", pageURL, err)
+	}
+	for _, status := range resp.Statuses {
+		if status.Status == websearch.ContentStatusError {
+			return "", contentError(pageURL, status.Error)
+		}
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Text == nil {
+		return "", fmt.Errorf("error fetching %s: no content returned", pageURL)
+	}
+	return *resp.Results[0].Text, nil
+}
+
+func contentError(pageURL string, e *websearch.ContentError) error {
+	if e == nil {
+		return fmt.Errorf("error fetching %s", pageURL)
+	}
+	if e.HTTPStatusCode != 0 {
+		return fmt.Errorf("error fetching %s: %s (HTTP %d)", pageURL, e.Tag, e.HTTPStatusCode)
+	}
+	return fmt.Errorf("error fetching %s: %s", pageURL, e.Tag)
+}
+
+func (t *browserTool) answer(ctx context.Context, prompt, page string) (string, error) {
 	ctx = oai.SetStep(ctx, &oai.Step{
 		Step: types.LLMCallStep("skill_context_runner (browser | process_output)"),
 	})
 
-	prompt = fmt.Sprintf(browserProcessOutputUserMessage, prompt, output)
+	prompt = fmt.Sprintf(browserProcessOutputUserMessage, prompt, page)
 
 	completion, err := t.llm.New(ctx, t.llm.SmallGenerationModel, openai.ChatCompletionRequest{
 		Model: t.llm.SmallGenerationModel.Model,

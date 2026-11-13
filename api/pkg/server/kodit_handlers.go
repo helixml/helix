@@ -565,10 +565,8 @@ func (apiServer *HelixAPIServer) getRepositoryEnrichments(w http.ResponseWriter,
 	json.NewEncoder(w).Encode(enrichmentListToDTO(enrichments, commitSHA))
 }
 
-// getEnrichment fetches a specific enrichment by ID from Kodit.
-// TODO: enrichment is fetched by global ID without verifying it belongs to this
-// repo's commits. A user with access to any repo can read any enrichment by ID.
-// Fix requires kodit library to expose commit/repo relationship on enrichments.
+// getEnrichment fetches one enrichment of the repository from Kodit. An
+// enrichment id that belongs to another repository answers 404.
 // @Summary Get enrichment by ID
 // @Description Get a specific code intelligence enrichment by ID from Kodit
 // @Tags git-repositories
@@ -591,12 +589,12 @@ func (apiServer *HelixAPIServer) getEnrichment(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	_, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
+	koditRepoID, _, ok := apiServer.ensureKoditRepoID(w, r, repoID, types.ActionGet)
 	if !ok {
 		return
 	}
 
-	e, err := apiServer.koditService.GetEnrichment(r.Context(), enrichmentID)
+	e, err := apiServer.koditService.GetRepositoryEnrichment(r.Context(), koditRepoID, enrichmentID)
 	if err != nil {
 		log.Error().Err(err).Str("enrichment_id", enrichmentID).Msg("Failed to fetch enrichment from Kodit")
 		handleKoditError(w, err, "Failed to fetch enrichment")

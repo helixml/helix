@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/kodit/domain/tracking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 // Fakes — unavoidable: real KoditService needs FTS5, real Store needs Postgres.
@@ -27,11 +28,14 @@ type fakeKoditService struct {
 	enabled     bool
 	enrichments []enrichment.Enrichment
 	enrichment  enrichment.Enrichment
-	commits     []repository.Commit
-	status      tracking.RepositoryStatusSummary
-	repoID      int64
-	isNew       bool
-	err         error
+	// enrichmentRepoID, when set, is the only Kodit repository whose
+	// GetRepositoryEnrichment returns enrichment.
+	enrichmentRepoID int64
+	commits          []repository.Commit
+	status           tracking.RepositoryStatusSummary
+	repoID           int64
+	isNew            bool
+	err              error
 }
 
 func (f *fakeKoditService) IsEnabled() bool          { return f.enabled }
@@ -42,7 +46,10 @@ func (f *fakeKoditService) RegisterRepository(_ context.Context, _ *services.Reg
 func (f *fakeKoditService) GetRepositoryEnrichments(_ context.Context, _ int64, _, _ string) ([]enrichment.Enrichment, error) {
 	return f.enrichments, f.err
 }
-func (f *fakeKoditService) GetEnrichment(_ context.Context, _ string) (enrichment.Enrichment, error) {
+func (f *fakeKoditService) GetRepositoryEnrichment(_ context.Context, koditRepoID int64, _ string) (enrichment.Enrichment, error) {
+	if f.enrichmentRepoID != 0 && f.enrichmentRepoID != koditRepoID {
+		return enrichment.Enrichment{}, services.ErrKoditNotFound
+	}
 	return f.enrichment, f.err
 }
 func (f *fakeKoditService) GetRepositoryCommits(_ context.Context, _ int64, _ int) ([]repository.Commit, error) {
@@ -252,6 +259,34 @@ func TestEnsureKoditRepoID_EdgeCases(t *testing.T) {
 	})
 }
 
+// An enrichment is read through the repository the caller is authorized
+// for: the handler must ask Kodit for that repository's enrichment, so an
+// enrichment id from another repository answers 404.
+func TestGetEnrichment_OtherRepositoryIsNotFound(t *testing.T) {
+	repo := &types.GitRepository{
+		ID: "repo-123", OwnerID: koditTestOwnerID, KoditIndexing: true, LocalPath: initGitRepo(t),
+		Metadata: map[string]any{"kodit_repo_id": int64(999)},
+	}
+	vars := map[string]string{"id": "repo-123", "enrichmentId": "42"}
+	tests := []struct {
+		name             string
+		enrichmentRepoID int64
+		want             int
+	}{
+		{"enrichment of the authorized repository", 999, http.StatusOK},
+		{"enrichment of another repository", 555, http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			koditSvc := &fakeKoditService{enabled: true, enrichment: enrichment.NewCookbook("content"), enrichmentRepoID: tt.enrichmentRepoID}
+			srv := newTestAPIServer(t, koditSvc, &fakeGitRepositoryStore{repository: repo})
+			rec := httptest.NewRecorder()
+			srv.getEnrichment(rec, makeRequest(vars, ""))
+			assert.Equal(t, tt.want, rec.Code, rec.Body.String())
+		})
+	}
+}
+
 // Every repository-scoped Kodit route must refuse a caller who cannot read
 // the repository, before Kodit is asked for anything: enrichments, search
 // results, wiki pages and file contents are the repository's source code.
@@ -363,4 +398,24 @@ func TestExtractKoditRepoID(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Unified code search covers the user's own indexed repositories, but only
+// those the repository endpoints would still serve: a repository the user
+// owns in an organization they are no longer a member of is left out.
+func TestSearchCodeAcrossRepositories_OnlyReadableRepositories(t *testing.T) {
+	st := store.NewMockStore(gomock.NewController(t))
+	st.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{OwnerID: "usr_a"}).Return([]*types.GitRepository{
+		{ID: "repo_personal", OwnerID: "usr_a", KoditIndexing: true, Metadata: map[string]any{"kodit_repo_id": int64(1)}},
+		{ID: "repo_left_org", OwnerID: "usr_a", OrganizationID: "org_left", KoditIndexing: true, Metadata: map[string]any{"kodit_repo_id": int64(2)}},
+	}, nil)
+	st.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+
+	srv := &HelixAPIServer{
+		Store:        st,
+		koditService: &fakeKoditService{enabled: true, enrichments: []enrichment.Enrichment{enrichment.NewSnippetEnrichment("func main() {}")}},
+	}
+	results := srv.searchCodeAcrossRepositories(context.Background(), &types.User{ID: "usr_a"}, "main", 10)
+	require.Len(t, results, 1)
+	assert.Equal(t, "repo_personal", results[0].Metadata["repoId"])
 }

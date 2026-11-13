@@ -990,7 +990,7 @@ type Store interface {
 	GetLatestActivationPromptHistoryEntry(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error)
-	RecoverProviderPromptForConfigChange(ctx context.Context, sessionID, promptID, interactionID string) (bool, error)
+	RecoverFailedPrompt(ctx context.Context, sessionID, promptID, interactionID string) (bool, error)
 	// RevertPromptToPending returns a claimed prompt to the queue after a
 	// busy-defer, without charging the retry budget. See the implementation.
 	RevertPromptToPending(ctx context.Context, promptID string) error
@@ -1077,6 +1077,10 @@ type Store interface {
 	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
 	ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error)
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
+
+	// Web search page cache, shared across organizations (public content).
+	GetWebPage(ctx context.Context, url string) (*types.WebPage, error)
+	UpsertWebPage(ctx context.Context, page *types.WebPage) error
 }
 
 // SecretIntakeStore owns the atomic persistence operations used by secret intake.

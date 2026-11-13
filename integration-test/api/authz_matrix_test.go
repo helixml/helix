@@ -37,9 +37,17 @@ const (
 	// projKey is a spec-task session key as minted for a sandbox agent: A's
 	// owner, scoped to project projA, session sessA and spec task taskA.
 	projKey actor = "a-project-key"
-	// sessKey is a session key with no project, as minted for a plain chat or
-	// a helix-org worker: A's owner, scoped to session sessChat.
+	// sessKey is a session key with no project, as minted for a plain chat's
+	// desktop: A's owner, scoped to session sessChat. The API middleware
+	// confines it to that session's desktop routes and the LLM proxy.
 	sessKey actor = "a-session-key"
+	// projChatKey is the desktop key of sessProjChat, a projA session with
+	// no spec task or desktop role, minted by GetOrCreateSessionAPIKey: it
+	// carries projA.
+	projChatKey actor = "a-project-chat-key"
+	// sandboxKey is the key of a sandbox outside any project, as
+	// ensureSandboxAPIToken mints it: A's owner, org A, bound to a sandbox id.
+	sandboxKey actor = "a-sandbox-key"
 	// appKey is an app key for agent appA minted by A's owner.
 	appKey actor = "a-app-key"
 	// workerKey is a helix-org worker's session key: A's owner, org A,

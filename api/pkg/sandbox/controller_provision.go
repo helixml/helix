@@ -597,7 +597,7 @@ func resolveImage(host *types.SandboxInstance, imageName, versionKey string) (st
 // the sandbox is deleted. The key never carries the owner's full authority:
 // in a project it is confined to the project, and outside one the API auth
 // middleware confines it by route to the sandbox's own needs
-// (server.sandboxKeyAllows) and git refuses it.
+// (server.desktopKeyRefusal) and git refuses it.
 func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.Sandbox) (string, error) {
 	existing, err := c.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: sandbox.OrganizationID,

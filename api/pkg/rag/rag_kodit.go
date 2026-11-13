@@ -60,6 +60,9 @@ func (k *KoditRAG) Index(_ context.Context, _ ...*types.SessionRAGIndexChunk) er
 // a second file was added), it triggers a sync so Kodit rescans and picks up
 // new files.
 func (k *KoditRAG) RegisterDirectory(ctx context.Context, dataEntityID, localPath, owner, ownerType string) error {
+	if marker := gitMetadataAt(localPath); marker != "" {
+		return fmt.Errorf("knowledge folder %s contains git metadata (%s); remove it before indexing", filepath.Base(localPath), marker)
+	}
 	fileURI := "file://" + filepath.ToSlash(localPath)
 
 	log.Info().
@@ -354,4 +357,23 @@ func (k *KoditRAG) Delete(ctx context.Context, req *types.DeleteIndexRequest) er
 	}
 
 	return nil
+}
+
+// gitMetadataAt returns the git marker found at the root of a knowledge
+// folder, or "". Kodit treats a file:// folder that git recognises as a
+// repository as one, and then runs git with that folder's own config and
+// object store, so uploaded files must never make it look like a repository:
+// a .git entry, or the bare-repository layout (HEAD, objects/, refs/).
+func gitMetadataAt(dir string) string {
+	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+		return ".git"
+	}
+	head, errHead := os.Lstat(filepath.Join(dir, "HEAD"))
+	objects, errObjects := os.Lstat(filepath.Join(dir, "objects"))
+	refs, errRefs := os.Lstat(filepath.Join(dir, "refs"))
+	if errHead == nil && errObjects == nil && errRefs == nil &&
+		!head.IsDir() && objects.IsDir() && refs.IsDir() {
+		return "HEAD, objects/ and refs/"
+	}
+	return ""
 }

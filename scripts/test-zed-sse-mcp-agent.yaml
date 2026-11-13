@@ -41,10 +41,7 @@ spec:
         enabled: false
       browser:
         enabled: false
-        markdown_post_processing: false
         process_output: false
-        cache: false
-        no_browser: false
       web_search:
         enabled: false
         max_results: 0

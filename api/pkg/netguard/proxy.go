@@ -1,0 +1,203 @@
+package netguard
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httputil"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+)
+
+// BlockedHeader is set on the 403 a Proxy returns for a forbidden
+// destination, so a client can tell a policy block from an origin's 403.
+const BlockedHeader = "X-Helix-Egress-Blocked"
+
+const proxyRealm = "helix-egress"
+
+// blockedLogSampler rate-limits block logs: one fetched page can make Chrome
+// request hundreds of blocked subresources.
+var blockedLogSampler = &zerolog.BurstSampler{Burst: 10, Period: time.Second, NextSampler: &zerolog.BasicSampler{N: 100}}
+
+// Proxy is an authenticated HTTP forward proxy (CONNECT for https,
+// absolute-URI requests for http) whose every upstream connection is made by
+// Policy.DialContext. It confines software that resolves and connects on its
+// own, such as headless Chrome, to the policy.
+type Proxy struct {
+	policy    Policy
+	username  string
+	password  string
+	forwarder *httputil.ReverseProxy
+}
+
+// NewProxy returns a Proxy that admits only requests carrying its
+// Credentials, generated per process so nothing else on the network can use
+// it.
+func NewProxy(policy Policy) (*Proxy, error) {
+	username, err := randomCredential()
+	if err != nil {
+		return nil, err
+	}
+	password, err := randomCredential()
+	if err != nil {
+		return nil, err
+	}
+	transport := &http.Transport{
+		DialContext:           policy.DialContext,
+		ForceAttemptHTTP2:     false,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+	}
+	p := &Proxy{policy: policy, username: username, password: password}
+	p.forwarder = &httputil.ReverseProxy{
+		Rewrite:   func(*httputil.ProxyRequest) {}, // Out.URL is already the absolute target
+		Transport: transport,
+		// Only the proxy may say a destination is blocked.
+		ModifyResponse: func(resp *http.Response) error {
+			resp.Header.Del(BlockedHeader)
+			return nil
+		},
+		ErrorHandler: writeDialError,
+	}
+	return p, nil
+}
+
+// Credentials are the Basic auth username and password clients must send.
+func (p *Proxy) Credentials() (username, password string) {
+	return p.username, p.password
+}
+
+func randomCredential() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate proxy credential: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !p.authorized(r.Header.Get("Proxy-Authorization")) {
+		w.Header().Set("Proxy-Authenticate", `Basic realm="`+proxyRealm+`"`)
+		http.Error(w, "proxy authentication required", http.StatusProxyAuthRequired)
+		return
+	}
+	if r.Method == http.MethodConnect {
+		p.tunnel(w, r)
+		return
+	}
+	if r.URL.Scheme != "http" || r.URL.Host == "" {
+		http.Error(w, "only absolute http:// requests and CONNECT are proxied", http.StatusBadRequest)
+		return
+	}
+	p.forwarder.ServeHTTP(w, r)
+}
+
+func (p *Proxy) authorized(header string) bool {
+	encoded, ok := strings.CutPrefix(header, "Basic ")
+	if !ok {
+		return false
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+	if err != nil {
+		return false
+	}
+	user, pass, ok := strings.Cut(string(raw), ":")
+	if !ok {
+		return false
+	}
+	userOK := subtle.ConstantTimeCompare([]byte(user), []byte(p.username))
+	passOK := subtle.ConstantTimeCompare([]byte(pass), []byte(p.password))
+	return userOK&passOK == 1
+}
+
+func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), dialTimeout)
+	upstream, err := p.policy.DialContext(ctx, "tcp", r.Host)
+	cancel()
+	if err != nil {
+		writeDialError(w, r, err)
+		return
+	}
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		upstream.Close()
+		http.Error(w, "connection cannot be hijacked", http.StatusInternalServerError)
+		return
+	}
+	client, buffered, err := hijacker.Hijack()
+	if err != nil {
+		upstream.Close()
+		log.Warn().Err(err).Msg("egress proxy: hijack failed")
+		return
+	}
+	if _, err := client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+		client.Close()
+		upstream.Close()
+		return
+	}
+	// Bytes the client sent after the CONNECT head are already buffered.
+	if n := buffered.Reader.Buffered(); n > 0 {
+		head, _ := buffered.Reader.Peek(n)
+		if _, err := upstream.Write(head); err != nil {
+			client.Close()
+			upstream.Close()
+			return
+		}
+	}
+	splice(r.Context(), client, upstream)
+}
+
+// splice copies both ways until either side ends or ctx is done, then
+// closes both.
+func splice(ctx context.Context, a, b net.Conn) {
+	var once sync.Once
+	closeBoth := func() { a.Close(); b.Close() }
+	stop := context.AfterFunc(ctx, func() { once.Do(closeBoth) })
+	defer stop()
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(a, b); once.Do(closeBoth); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(b, a); once.Do(closeBoth); done <- struct{}{} }()
+	<-done
+	<-done
+}
+
+func writeDialError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, ErrBlockedDestination) {
+		blockedLog := log.Sample(blockedLogSampler)
+		blockedLog.Warn().Str("method", r.Method).Str("host", r.Host).Err(err).Msg("egress proxy: destination blocked")
+		w.Header().Set(BlockedHeader, "1")
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	log.Debug().Str("method", r.Method).Str("host", r.Host).Err(err).Msg("egress proxy: upstream unavailable")
+	http.Error(w, "upstream unavailable", http.StatusBadGateway)
+}
+
+// Serve runs the proxy on ln until ctx is cancelled. Cancelling ctx also
+// closes open CONNECT tunnels, which http.Server.Close does not track.
+func (p *Proxy) Serve(ctx context.Context, ln net.Listener) error {
+	srv := &http.Server{
+		Handler:           p,
+		ReadHeaderTimeout: 30 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
+	}
+	stop := context.AfterFunc(ctx, func() { _ = srv.Close() })
+	defer stop()
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("egress proxy: %w", err)
+	}
+	return nil
+}

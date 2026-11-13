@@ -142,7 +142,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		collector.WithTransport(d.transport)
 	}
 
-	b, err := d.browser.GetBrowser()
+	b, err := d.browser.GetBrowser(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting browser: %w", err)
 	}

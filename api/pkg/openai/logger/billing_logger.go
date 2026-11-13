@@ -6,6 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/wallet"
 
 	"github.com/dgraph-io/ristretto/v2"
 	"github.com/rs/zerolog/log"
@@ -83,22 +84,11 @@ func (l *BillingLogger) getWalletID(ctx context.Context, organizationID, userID 
 		return cached, nil
 	}
 
-	if organizationID == "" {
-		wallet, err := l.store.GetWalletByUser(ctx, userID)
-		if err != nil {
-			return "", err
-		}
-		l.cache.Set(key, wallet.ID, 0)
-
-		return wallet.ID, nil
-	}
-
-	wallet, err := l.store.GetWalletByOrg(ctx, organizationID)
+	w, err := wallet.For(ctx, l.store, organizationID, userID)
 	if err != nil {
 		return "", err
 	}
+	l.cache.Set(key, w.ID, 0)
 
-	l.cache.Set(key, wallet.ID, 0)
-
-	return wallet.ID, nil
+	return w.ID, nil
 }

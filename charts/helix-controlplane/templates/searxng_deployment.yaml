@@ -38,7 +38,7 @@ spec:
         - name: searxng
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.searxng.image.repository | default "searxng/searxng" }}:{{ .Values.searxng.image.tag | default "latest" }}"
+          image: "{{ .Values.searxng.image.repository | default "searxng/searxng" }}:{{ .Values.searxng.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http

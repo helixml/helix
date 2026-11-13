@@ -29,17 +29,35 @@ searxng:
   enabled: true
   image:
     repository: searxng/searxng
-    tag: "latest"
+    # Pinned: Helix parses SearXNG's JSON results.
+    tag: "2025.12.7-9d3ec9a2a"
 
 chrome:
   enabled: true
   image:
-    repository: ghcr.io/go-rod/rod
-    # Pinned by digest: the crawler browser loads user-supplied URLs. Keep the
-    # version in step with github.com/go-rod/rod in go.mod (the launcher client).
-    tag: "v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107"
+    # Crawler browser built from Dockerfile.chrome: go-rod's launcher manager
+    # (matching the API's go-rod version) and a current Chromium, released
+    # with Helix. Any image serving the go-rod launcher protocol on :7317 works.
+    repository: ghcr.io/helixml/chrome
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
   # Extra environment variables for the Chrome container (in addition to global.extraEnv)
   extraEnv: []
+  # Shared secret the controlplane sends to the browser manager; it refuses
+  # launches without it. Left empty, the chart generates one and keeps it in
+  # the <release>-chrome-launcher Secret across upgrades (read back with
+  # lookup). With `helm template`/GitOps, where lookup sees no cluster, set
+  # launcherToken or launcherTokenExistingSecret so it stays stable.
+  launcherToken: ""
+  launcherTokenExistingSecret: ""
+  launcherTokenExistingSecretKey: ""
+  networkPolicy:
+    # Only the controlplane pods may reach the browser manager on :7317; it
+    # launches a browser for any client that can connect. Needs a CNI that
+    # enforces NetworkPolicy (most do; kindnet and flannel alone do not).
+    enabled: true
+    # Further allowed sources, as NetworkPolicy "from" peers.
+    extraFrom: []
 
 controlplane:
   # Wait for PostgreSQL to be ready before starting the controlplane.
