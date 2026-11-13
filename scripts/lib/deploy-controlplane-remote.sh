@@ -4,8 +4,9 @@
 #   STACK_DIR VERSION SNAP HEALTH_HOST COMPOSE_SYNC RECREATE_POSTGRES REPO_COMPOSE_B64
 #
 # Plan (read-only): diff the stack's docker-compose.yaml against the one being
-# deployed, resolve each service's image before and after, refuse unsafe
-# database changes, and confirm every image the deploy pulls is pullable. Only
+# deployed, compare each service's running image with the one it will get,
+# refuse unsafe database changes, and confirm every image the deploy pulls is
+# pullable. Only
 # then mutate: snapshot the DB, optionally install the new compose file, bump
 # HELIX_VERSION, pull and converge every non-database service, health-check.
 # Any failure after the snapshot restores the exact prior .env and compose file
@@ -15,8 +16,9 @@
 # whole script before any command can consume the ssh stdin it arrives on.
 
 # Database services hold data a recreate can strand: they are created or
-# recreated only with RECREATE_POSTGRES=true, and never across a PostgreSQL
-# major. A service is a database by name, or by a PostgreSQL-family image.
+# recreated only with RECREATE_POSTGRES=true, and their target image must match
+# the major of the data they run on (PG_VERSION), whatever .env says. A service
+# is a database by name, or by a PostgreSQL-family image.
 DB_SERVICES="postgres vectorchord-kodit"
 
 main() {
@@ -25,10 +27,13 @@ main() {
 
   die() { echo "controlplane: ERROR: $*" >&2; exit 1; }
   image_of() { awk -v s="$1" '$1 == s { print $2 }' "$2"; }
+  # $tmp/running holds "service container image" for each running container.
+  running_cid() { awk -v s="$1" '$1 == s { print $2 }' "$tmp/running"; }
+  running_image() { awk -v s="$1" '$1 == s { print $3 }' "$tmp/running"; }
   is_db() {
     local img
     case " $DB_SERVICES " in *" $1 "*) return 0 ;; esac
-    for img in "$(image_of "$1" "$tmp/old")" "$(image_of "$1" "$tmp/new")"; do
+    for img in "$(image_of "$1" "$tmp/old")" "$(image_of "$1" "$tmp/new")" "$(running_image "$1")"; do
       img=${img##*/}
       case "${img%%[:@]*}" in postgres | postgresql | pgvector | vchord* | vectorchord*) return 0 ;; esac
     done
@@ -110,12 +115,23 @@ main() {
   trap 'exit 143' TERM
   printf '%s' "$REPO_COMPOSE_B64" | base64 -d > "$tmp/docker-compose.yaml"
 
-  local override=()
+  local override=() current
   [ -f docker-compose.override.yaml ] && override=(-f docker-compose.override.yaml)
-  service_images sudo docker compose --project-directory . -f docker-compose.yaml "${override[@]}" > "$tmp/old"
+  current=(sudo docker compose --project-directory . -f docker-compose.yaml "${override[@]}")
+  service_images "${current[@]}" > "$tmp/old"
   service_images sudo env HELIX_VERSION="$VERSION" docker compose --project-directory . \
     -f "$tmp/docker-compose.yaml" "${override[@]}" > "$tmp/new"
   if [ ! -s "$tmp/old" ] || [ ! -s "$tmp/new" ]; then die "could not resolve service images"; fi
+
+  # What runs now, not what the host's compose renders: .env may have been
+  # edited since the containers were created.
+  local svc cid
+  : > "$tmp/running"
+  while read -r svc _; do
+    cid=$("${current[@]}" ps -q "$svc" | head -1)
+    [ -n "$cid" ] || continue
+    printf '%s %s %s\n' "$svc" "$cid" "$(sudo docker inspect --format '{{.Config.Image}}' "$cid")" >> "$tmp/running"
+  done < "$tmp/old"
 
   old_version=$(sudo grep -E '^HELIX_VERSION=' .env | head -1 | cut -d= -f2- | tr -d '"')
   echo "controlplane: ${old_version:-<none>} -> $VERSION"
@@ -123,29 +139,38 @@ main() {
   local drift=false
   sudo cmp -s docker-compose.yaml "$tmp/docker-compose.yaml" || drift=true
 
-  # --- image-pin diff ---------------------------------------------------------
-  local svc old new old_major new_major db_changed=()
-  echo "controlplane: image pins (current -> deploying):"
+  # --- image-pin diff: running -> deploying ------------------------------------
+  local cur new rendered note data target db_changed=()
+  echo "controlplane: image pins (running -> deploying):"
   while read -r svc; do
-    old=$(image_of "$svc" "$tmp/old")
+    cur=$(running_image "$svc")
     new=$(image_of "$svc" "$tmp/new")
-    if [ "$old" = "$new" ]; then
-      echo "  $svc: $old (unchanged)"
-    elif [ -z "$new" ]; then
-      echo "  $svc: $old -> <removed from compose; its container is left running>"
+    rendered=$(image_of "$svc" "$tmp/old")
+    note=""
+    [ -z "$cur" ] || [ -z "$rendered" ] || [ "$rendered" = "$cur" ] || note=" [host compose now renders $rendered]"
+    if [ -z "$new" ]; then
+      echo "  $svc: ${cur:-<not running>} -> <removed from compose; its container is left running>$note"
+      continue
+    elif [ "$cur" = "$new" ]; then
+      echo "  $svc: $cur (unchanged)$note"
     else
-      echo "  $svc: ${old:-<new service>} -> $new"
-      if is_db "$svc"; then
-        db_changed+=("$svc")
-        if [ -n "$old" ]; then
-          old_major=$(pg_major "$old")
-          new_major=$(pg_major "$new")
-          [ "$old_major" = "$new_major" ] ||
-            die "$svc would change PostgreSQL major ($old -> $new); that is a dump/restore (docs/postgres-upgrade.md), never a deploy"
-        fi
-      fi
+      echo "  $svc: ${cur:-<not running>} -> $new$note"
+      # A stopped database the host already defines is held (or refused below).
+      if is_db "$svc" && { [ -n "$cur" ] || [ -z "$rendered" ]; }; then db_changed+=("$svc"); fi
     fi
-  done < <(cut -d' ' -f1 "$tmp/old" "$tmp/new" | sort -u)
+    is_db "$svc" || continue
+    # The data decides the major: a running database must stay on it.
+    if [ -n "$cur" ]; then
+      cid=$(running_cid "$svc")
+      data=$(sudo docker exec "$cid" sh -c 'cat "$PGDATA/PG_VERSION"') ||
+        die "cannot read PG_VERSION from $svc ($cid)"
+      target=$(pg_major "$new")
+      [ "$data" = "$target" ] ||
+        die "$svc data is PostgreSQL $data but would run $new; a major change is a dump/restore (docs/postgres-upgrade.md), never a deploy"
+    elif [ -n "$rendered" ] && [ "$RECREATE_POSTGRES" = "true" ]; then
+      die "$svc is defined on this host but not running, so its data major is unknown; start it on its current image before deploying with RECREATE_POSTGRES=true"
+    fi
+  done < <(cut -d' ' -f1 "$tmp/old" "$tmp/new" "$tmp/running" | sort -u)
 
   if [ "$drift" = "true" ]; then
     echo "controlplane: $STACK_DIR/docker-compose.yaml differs from the $VERSION docker-compose.yaml" \
@@ -185,7 +210,9 @@ main() {
   sudo cp -p .env "$tmp/env.prev"
   sudo cp -p docker-compose.yaml "$tmp/compose.prev"
   # Crash-consistent DB snapshot for rollback (CHECKPOINT first to minimise WAL replay).
-  sudo docker exec helix-postgres-1 psql -U postgres -c 'CHECKPOINT;' > /dev/null 2>&1 || true
+  local pg_cid
+  pg_cid=$(running_cid postgres)
+  [ -z "$pg_cid" ] || sudo docker exec "$pg_cid" psql -U postgres -c 'CHECKPOINT;' > /dev/null 2>&1 || true
   sudo zfs snapshot "$SNAP"
   applying=true
 

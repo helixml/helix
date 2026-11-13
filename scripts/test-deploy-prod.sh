@@ -32,13 +32,29 @@ if [ "${EXEC_REMOTE:-false}" = "true" ]; then
 fi
 EOF
 
+# Running containers come from $RUNNING ("service image PG_VERSION|-"); each
+# runs as container ctr-<service>. These reads are not logged.
 cat > "$work/bin/docker" <<'EOF'
 #!/bin/bash
 set -euo pipefail
 if [ "${1:-}" = "compose" ]; then
   for arg in "$@"; do
     [ "$arg" = "config" ] && exec "$REAL_DOCKER" "$@"
+    if [ "$arg" = "ps" ]; then
+      awk -v s="${*: -1}" '$1 == s { print "ctr-" s }' "$RUNNING"
+      exit 0
+    fi
   done
+fi
+if [ "${1:-} ${2:-} ${3:-}" = "inspect --format {{.Config.Image}}" ]; then
+  awk -v s="${4#ctr-}" '$1 == s { print $2 }' "$RUNNING"
+  exit 0
+fi
+if [ "${1:-}" = "exec" ] && [ "${3:-}" = "sh" ]; then
+  version=$(awk -v s="${2#ctr-}" '$1 == s { print $3 }' "$RUNNING")
+  [ -n "$version" ] && [ "$version" != "-" ] || exit 1
+  echo "$version"
+  exit 0
 fi
 printf '%s\n' "$*" >> "$DOCKER_CALLS"
 if [ "${1:-} ${2:-}" = "manifest inspect" ]; then
@@ -128,17 +144,41 @@ git -C "$src" tag 9.8.7
 run_deploy() {
   local version=$1
   shift
+  [ "${running_pinned:-false}" = "true" ] || render_running
   env -u HELIX_CD_SSH_KEY -u SLACK_WEBHOOK_URL -u LONDON_SSH \
     -u RUNNER_SSH -u RUNNER_UPGRADE_SCRIPT -u RUNNER_START_SCRIPT \
     -u RUNNER_CONTAINER -u DEPLOY_CONTROLPLANE -u DEPLOY_RUNNER \
     -u COMPOSE_SYNC -u RECREATE_POSTGRES \
     PATH="$work/bin:$PATH" HOME="$work/home" TMPDIR="$work" REAL_SED="$real_sed" \
     REAL_DOCKER="$real_docker" SSH_HOSTS="$work/ssh-hosts" SSH_SCRIPTS="$work/ssh-scripts" \
-    DOCKER_CALLS="$work/docker-calls" ZFS_CALLS="$work/zfs-calls" \
+    DOCKER_CALLS="$work/docker-calls" ZFS_CALLS="$work/zfs-calls" RUNNING="$work/running" \
     LONDON_STACK_DIR="$stack" "$@" "$src/scripts/deploy-prod.sh" "$version"
 }
 
+# Unless a test pins $work/running, the host runs exactly what its compose
+# file and .env render, on data of each PostgreSQL image's major.
+render_running() {
+  local override=() svc img tag
+  : > "$work/running"
+  [ -f "$stack/docker-compose.yaml" ] || return 0
+  [ -f "$stack/docker-compose.override.yaml" ] && override=(-f "$stack/docker-compose.override.yaml")
+  "$real_docker" compose --project-directory "$stack" -f "$stack/docker-compose.yaml" "${override[@]}" config |
+    awk '
+      /^[^ ]/ { in_services = ($0 == "services:"); next }
+      in_services && /^  [^ ]/ { svc = $1; sub(/:$/, "", svc); next }
+      in_services && /^    image: / { img = $0; sub(/^    image: /, "", img); print svc, img }
+    ' | while read -r svc img; do
+      tag=${img##*:}
+      tag=${tag#pg}
+      case "$img" in
+        *postgres* | *pgvector* | *vchord*) echo "$svc $img ${tag%%[!0-9]*}" ;;
+        *) echo "$svc $img -" ;;
+      esac
+    done > "$work/running"
+}
+
 reset_calls() {
+  running_pinned=false
   : > "$work/ssh-hosts"
   : > "$work/ssh-scripts"
   : > "$work/docker-calls"
@@ -217,7 +257,55 @@ cmp -s "$stack/docker-compose.yaml" "$repo/docker-compose.yaml" || fail "no-drif
 [ -f "$stack/docker-compose.override.yaml" ] || fail "override file removed"
 [ "$(grep -c '^CHROME_LAUNCHER_TOKEN=' "$stack/.env")" = 1 ] || fail "existing launcher token was replaced"
 if compgen -G "$stack/docker-compose.yaml.bak*" > /dev/null; then fail "no-drift deploy made a compose backup"; fi
+grep -q "^exec ctr-postgres psql -U postgres -c CHECKPOINT;$" "$work/docker-calls" ||
+  fail "CHECKPOINT did not go to the compose-resolved postgres container"
 if grep -q 'helix-sandbox' "$work/ssh-scripts"; then fail "control-plane step included a runner deployment"; fi
+
+# The plan reads what runs, not what .env now renders: postgres 12 runs on PG12
+# data while someone has pinned HELIX_POSTGRES_IMAGE=postgres:17-alpine.
+pin_pg17_over_pg12() {
+  setup_stack "$repo/docker-compose.yaml"
+  sed -i 's/^HELIX_POSTGRES_IMAGE=.*/HELIX_POSTGRES_IMAGE=postgres:17-alpine/' "$stack/.env"
+  reset_calls
+  render_running
+  sed -i 's/^postgres .*/postgres postgres:12.13-alpine 12/' "$work/running"
+  running_pinned=true
+}
+for recreate in true false; do
+  pin_pg17_over_pg12
+  if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true RECREATE_POSTGRES=$recreate 2>&1); then
+    fail "RECREATE_POSTGRES=$recreate: postgres 17 over PG12 data was not refused"
+  fi
+  grep -q 'postgres: postgres:12.13-alpine -> postgres:17-alpine \[host compose now renders postgres:17-alpine\]' <<<"$out" ||
+    fail "RECREATE_POSTGRES=$recreate: pin diff hid the running postgres image"
+  grep -q 'postgres data is PostgreSQL 12 but would run postgres:17-alpine' <<<"$out" ||
+    fail "RECREATE_POSTGRES=$recreate: data major mismatch not explained"
+  if [ -s "$work/zfs-calls" ] || [ -s "$work/docker-calls" ]; then
+    fail "RECREATE_POSTGRES=$recreate: data major mismatch touched the host"
+  fi
+done
+
+# A database the host defines but does not run has an unknown data major:
+# RECREATE_POSTGRES fails closed; without it the database is simply held.
+setup_stack "$repo/docker-compose.yaml"
+reset_calls
+render_running
+sed -i '/^postgres /d' "$work/running"
+running_pinned=true
+if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true RECREATE_POSTGRES=true 2>&1); then
+  fail "RECREATE_POSTGRES with postgres not running did not fail"
+fi
+grep -q 'postgres is defined on this host but not running' <<<"$out" || fail "stopped postgres refusal not explained"
+[ ! -s "$work/zfs-calls" ] || fail "stopped postgres refusal took a snapshot"
+setup_stack "$repo/docker-compose.yaml"
+printf 'CHROME_LAUNCHER_TOKEN=existing\n' >> "$stack/.env"
+reset_calls
+render_running
+sed -i '/^postgres /d' "$work/running"
+running_pinned=true
+out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true 2>&1) || fail "deploy with postgres held and stopped failed: $out"
+[ "$(compose_calls)" = "$converge_calls" ] || fail "stopped postgres was touched: $(compose_calls)"
+if grep -q 'CHECKPOINT' "$work/docker-calls"; then fail "CHECKPOINT sent with no postgres container"; fi
 
 # A green main build deploys by its short SHA.
 setup_stack "$repo/docker-compose.yaml"
@@ -371,7 +459,7 @@ reset_calls
 if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true 2>&1); then
   fail "PostgreSQL major change did not fail"
 fi
-grep -q 'postgres would change PostgreSQL major' <<<"$out" || fail "major change failure not explained"
+grep -q 'postgres data is PostgreSQL 12 but would run postgres:17-alpine' <<<"$out" || fail "major change failure not explained"
 if [ -s "$work/zfs-calls" ] || [ -s "$work/docker-calls" ]; then fail "major change failure touched the host"; fi
 
 # A same-major database image change needs RECREATE_POSTGRES and still snapshots first.
