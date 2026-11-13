@@ -37,6 +37,7 @@ import EmbedSessionPage from './pages/EmbedSessionPage'
 import Projects from './pages/Projects'
 import Sandboxes from './pages/Sandboxes'
 import SandboxDetail from './pages/SandboxDetail'
+import OrgWebSearchUsage from './components/websearch/OrgWebSearchUsage'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import GitRepoDetail from './pages/GitRepoDetail'
@@ -205,6 +206,17 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <SandboxDetail />
+  ),
+}, {
+  name: 'org_websearch',
+  path: '/orgs/:org_id/search',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+    title: 'Search',
+  },
+  render: () => (
+    <OrgWebSearchUsage />
   ),
 }, {
   // Backward compat: redirect /apps to /agents
