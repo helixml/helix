@@ -573,6 +573,8 @@ func TestRequestAuditMiddlewareDropsSensitiveRouteBodies(t *testing.T) {
 		"/api/v1/organizations/org_1/sandboxes",
 		"/api/v1/projects/prj_1/secret-intakes",
 		"/connect/intake/submit",
+		"/api/v1/identity/attestations",
+		"/api/v1/identity/attestations/verify",
 	}
 
 	const body = `{"name":"prod-key","value":"plaintext-value-here"}`

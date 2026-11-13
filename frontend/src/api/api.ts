@@ -2720,6 +2720,11 @@ export interface TypesApiKey {
   session_id?: string;
   /** Used for isolation and metrics tracking */
   spec_task_id?: string;
+  /**
+   * TaskConfined confines a session key of a spec task created with
+   * confine_agent_key to that task (SpecTask.ConfineAgentKey).
+   */
+  task_confined?: boolean;
   type?: TypesAPIKeyType;
 }
 
@@ -2736,6 +2741,14 @@ export interface TypesArtifact {
   name?: string;
   organization_id?: string;
   project_id?: string;
+  /**
+   * SpecTaskID is the spec task whose task-confined key created the
+   * artifact, set by the server from the key and never from the request.
+   * Such a key may change or delete only its own task's artifacts, and a
+   * reader can tell one lane's artifacts from another's. Empty for
+   * artifacts created any other way.
+   */
+  spec_task_id?: string;
   subdomain_url?: string;
   updated_at?: string;
   updated_by?: string;
@@ -3139,6 +3152,8 @@ export enum TypesAuditEventType {
   AuditEventProjectDeleted = "project_deleted",
   AuditEventProjectSettingsUpdated = "project_settings_updated",
   AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
+  AuditEventIdentityAttestationMinted = "identity_attestation_minted",
+  AuditEventIdentityAttestationVerified = "identity_attestation_verified",
   AuditEventAPIKeyCreated = "api_key_created",
   AuditEventAPIKeyRevoked = "api_key_revoked",
 }
@@ -3147,6 +3162,9 @@ export interface TypesAuditMetadata {
   /** API key events: the key's non-secret id and name, never the secret */
   api_key_id?: string;
   api_key_name?: string;
+  attestation_audience?: string;
+  /** Identity attestation tracking */
+  attestation_jti?: string;
   branch_name?: string;
   /** Group ID linking related cloned tasks */
   clone_group_id?: string;
@@ -3170,6 +3188,7 @@ export interface TypesAuditMetadata {
   pull_requests?: TypesRepoPR[];
   /** Hash of requirements spec content */
   requirements_spec_hash?: string;
+  sandbox_id?: string;
   /** Helix session/interaction linking */
   session_id?: string;
   /** Spec versioning - capture spec state at time of event */
@@ -3492,6 +3511,11 @@ export interface TypesCloneTaskError {
 export interface TypesCloneTaskRequest {
   /** Auto-start cloned tasks */
   auto_start?: boolean;
+  /**
+   * ConfineAgentKey confines the clones' agent keys to their own task
+   * (SpecTask.ConfineAgentKey). A clone of a confined task is always confined.
+   */
+  confine_agent_key?: boolean;
   /** Create new projects for repos */
   create_projects?: TypesCloneTaskCreateProjectSpec[];
   target_project_ids?: string[];
@@ -3970,6 +3994,11 @@ export interface TypesCreateTaskRequest {
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
   code_agent_config?: TypesCodeAgentExecutionConfig;
+  /**
+   * ConfineAgentKey confines the API keys minted for this task's sessions
+   * to the task itself (see SpecTask.ConfineAgentKey). Fixed at creation.
+   */
+  confine_agent_key?: boolean;
   /**
    * CredentialOwnerID optionally names the user whose Claude subscription should
    * authenticate this task's agent, for orchestrators dispatching work on a
@@ -4689,6 +4718,47 @@ export interface TypesGuidelinesHistory {
   /** Set for user-level (personal workspace) guidelines */
   user_id?: string;
   version?: number;
+}
+
+export interface TypesIdentityAttestationClaims {
+  aud?: string;
+  exp?: string;
+  iat?: string;
+  jti?: string;
+  /**
+   * KeyConfined: the attested key reaches only its own spec task and that
+   * task's sessions (a task created with confine_agent_key).
+   */
+  key_confined?: boolean;
+  nonce?: string;
+  organization_id?: string;
+  owner?: string;
+  project_id?: string;
+  sandbox_id?: string;
+  session_id?: string;
+  spec_task_id?: string;
+}
+
+export interface TypesIdentityAttestationError {
+  error?: string;
+}
+
+export interface TypesIdentityAttestationRequest {
+  /** Audience names the verifier the token is for, e.g. "ptaas.example.com". */
+  audience?: string;
+  /** Nonce is the verifier's challenge (16–128 characters). */
+  nonce?: string;
+}
+
+export interface TypesIdentityAttestationResponse {
+  expires_at?: string;
+  token?: string;
+}
+
+export interface TypesIdentityAttestationVerifyRequest {
+  audience?: string;
+  nonce?: string;
+  token?: string;
 }
 
 export enum TypesImageURLDetail {
@@ -7907,6 +7977,15 @@ export interface TypesSpecTask {
    * done (mark_task_complete) awaits the user's decision.
    */
   completion_requested_at?: string;
+  /**
+   * ConfineAgentKey confines every API key minted for this task's sessions
+   * to this task: its sessions and the task itself, not the project's other
+   * tasks and sessions, and it may not create tasks. Project files, git,
+   * repositories, artifacts and the LLM proxy stay reachable as for any
+   * project-scoped key. Set at creation and never changed, so a key cannot
+   * outlive the confinement it was minted under.
+   */
+  confine_agent_key?: boolean;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -8391,6 +8470,15 @@ export interface TypesSpecTaskWithProject {
    * done (mark_task_complete) awaits the user's decision.
    */
   completion_requested_at?: string;
+  /**
+   * ConfineAgentKey confines every API key minted for this task's sessions
+   * to this task: its sessions and the task itself, not the project's other
+   * tasks and sessions, and it may not create tasks. Project files, git,
+   * repositories, artifacts and the LLM proxy stay reachable as for any
+   * project-scoped key. Set at creation and never changed, so a key cannot
+   * outlive the confinement it was minted under.
+   */
+  confine_agent_key?: boolean;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -9338,6 +9426,11 @@ export interface TypesUser {
   session_id?: string;
   /** When running in Helix Code sandbox */
   spec_task_id?: string;
+  /**
+   * TaskConfined: the key reaches only its spec task (SpecTaskID) and that
+   * task's sessions (ApiKey.TaskConfined).
+   */
+  task_confined?: boolean;
   /** none, runner. keycloak, api_key */
   token_type?: TypesTokenType;
   trial_credits_on_first_org?: number;
@@ -14240,6 +14333,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns a short-lived token stating which spec task, session or sandbox the caller's key belongs to, for one audience and nonce. Only the session or sandbox key of a desktop in a project may call it.
+     *
+     * @tags identity
+     * @name V1IdentityAttestationsCreate
+     * @summary Mint an identity attestation
+     * @request POST:/api/v1/identity/attestations
+     * @secure
+     */
+    v1IdentityAttestationsCreate: (request: TypesIdentityAttestationRequest, params: RequestParams = {}) =>
+      this.request<TypesIdentityAttestationResponse, SystemHTTPError>({
+        path: `/api/v1/identity/attestations`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Redeems an attestation once. The caller must be a user or an org-scoped API key that may read the attested project; session, project and app keys are refused. Every invalid, expired, foreign or replayed token gets the same 404.
+     *
+     * @tags identity
+     * @name V1IdentityAttestationsVerifyCreate
+     * @summary Verify an identity attestation
+     * @request POST:/api/v1/identity/attestations/verify
+     * @secure
+     */
+    v1IdentityAttestationsVerifyCreate: (request: TypesIdentityAttestationVerifyRequest, params: RequestParams = {}) =>
+      this.request<TypesIdentityAttestationClaims, SystemHTTPError | TypesIdentityAttestationError>({
+        path: `/api/v1/identity/attestations/verify`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Cancels the agent question currently pending on an interaction
      *
      * @tags interactions
@@ -17288,10 +17421,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/projects/{id}/artifacts
      * @secure
      */
-    v1ProjectsArtifactsDetail: (id: string, params: RequestParams = {}) =>
+    v1ProjectsArtifactsDetail: (
+      id: string,
+      query?: {
+        /** Only artifacts created by this spec task's task-confined key */
+        spec_task_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesArtifactsListResponse, any>({
         path: `/api/v1/projects/${id}/artifacts`,
         method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,

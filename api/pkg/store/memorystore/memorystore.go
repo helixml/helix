@@ -216,6 +216,9 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 		if query.RestrictToProjects && !containsString(query.ProjectIDs, s.ProjectID) {
 			continue
 		}
+		if query.SpecTaskID != "" && s.Metadata.SpecTaskID != query.SpecTaskID {
+			continue
+		}
 		cp := *s
 		if query.SortBy == "last_message" {
 			for _, interaction := range m.interactions {
@@ -963,6 +966,9 @@ func (m *MemoryStore) ListSpecTasks(_ context.Context, filters *types.SpecTaskFi
 	defer m.mu.RUnlock()
 	out := make([]*types.SpecTask, 0, len(m.specTasks))
 	for _, t := range m.specTasks {
+		if filters != nil && filters.ID != "" && t.ID != filters.ID {
+			continue
+		}
 		if filters != nil && containsSpecTaskStatus(filters.ExcludeStatuses, t.Status) {
 			continue
 		}

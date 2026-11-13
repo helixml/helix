@@ -214,6 +214,8 @@ func TestIsSensitiveBodyRoute(t *testing.T) {
 		"/api/v1/projects/prj_1/secret-intakes/sci_1/submissions",
 		"/connect/intake/redeem",
 		"/connect/intake/submit",
+		"/api/v1/identity/attestations",
+		"/api/v1/identity/attestations/verify",
 	}
 	for _, path := range sensitive {
 		require.True(t, IsSensitiveBodyRoute(path), "path %q", path)

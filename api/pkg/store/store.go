@@ -68,6 +68,8 @@ type ListSessionsQuery struct {
 	// caller can access.
 	RestrictToProjects bool     `json:"restrict_to_projects"`
 	ProjectIDs         []string `json:"project_ids"`
+	// SpecTaskID limits results to the sessions of one spec task.
+	SpecTaskID string `json:"spec_task_id"`
 	// AnyOwner drops the owner clause. Only valid together with a project
 	// scope the caller has been authorized for: it is how a project group
 	// shows every member's chats.
@@ -895,6 +897,11 @@ type Store interface {
 	// Project Audit Log methods - append-only audit trail for project activity
 	CreateProjectAuditLog(ctx context.Context, log *types.ProjectAuditLog) error
 	ListProjectAuditLogs(ctx context.Context, filters *types.ProjectAuditLogFilters) (*types.ProjectAuditLogResponse, error)
+
+	// RedeemIdentityAttestation records an attestation's jti as verified. It
+	// returns false when the jti was already redeemed. Expired redemptions
+	// are dropped on the way.
+	RedeemIdentityAttestation(ctx context.Context, jti string, expiresAt time.Time) (bool, error)
 
 	// Org Audit Log methods - append-only audit trail for Helix org activity
 	CreateOrgAuditLog(ctx context.Context, log *types.OrgAuditLog) error

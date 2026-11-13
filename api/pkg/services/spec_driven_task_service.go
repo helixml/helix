@@ -334,6 +334,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 		SandboxRuntime:           sandboxRuntime,
 		SandboxDisplay:           req.SandboxDisplay,
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
+		ConfineAgentKey:          req.ConfineAgentKey,
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's
 		// delegation grant; missing or revoked grants fail closed.
@@ -2053,7 +2054,9 @@ type SessionAPIKeyRequest struct {
 // Keys are scoped to the session for lifecycle management (minted on start, revoked on stop).
 // The key capabilities vary based on session type:
 //   - sessions in a project (spec tasks, exploratory desktops): confined to
-//     that project; a spec task's key pushes only to its branch;
+//     that project; a spec task's key pushes only to its branch, and a task
+//     created with confine_agent_key confines its keys to the task itself
+//     (ApiKey.TaskConfined);
 //   - bot instances: the restricted bot instance key type;
 //   - sessions outside any project (a plain chat's desktop): confined by the
 //     API auth middleware to its own session's desktop routes and the LLM
@@ -2083,13 +2086,17 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 	// (its spec tasks and their sessions), so its key is confined to the
 	// project rather than to its single session.
 	projectID, specTaskID := sessionKeyScope(session)
-	if session.Metadata.SpecTaskID != "" {
+	// A task created with confine_agent_key gets keys confined to it, so the
+	// task must be loaded: minting without knowing would hand out a broader
+	// key than the task allows.
+	taskConfined := false
+	if specTaskID != "" {
 		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
-			log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get spec task for API key attribution")
-		} else {
-			projectID = specTask.ProjectID
+			return "", fmt.Errorf("failed to get spec task '%s' for session key scope: %w", specTaskID, err)
 		}
+		projectID = specTask.ProjectID
+		taskConfined = specTask.ConfineAgentKey
 	}
 
 	// Check for existing session-scoped key of that type and scope. Type and
@@ -2109,7 +2116,14 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 	}
 
 	if existing != nil {
-		return existing.Key, nil
+		if existing.TaskConfined == taskConfined {
+			return existing.Key, nil
+		}
+		// GORM ignores a false TaskConfined in the lookup, so a key of the
+		// other confinement can match: replace it rather than hand it out.
+		if err := s.store.DeleteAPIKey(ctx, existing.Key); err != nil {
+			return "", fmt.Errorf("failed to replace session API key with different task confinement: %w", err)
+		}
 	}
 
 	newKey, err := system.GenerateAPIKey()
@@ -2133,6 +2147,7 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		SessionID:      req.SessionID,
 		ProjectID:      projectID,  // For metrics/attribution
 		SpecTaskID:     specTaskID, // For metrics/attribution
+		TaskConfined:   taskConfined,
 	}
 
 	createdKey, err := s.store.CreateAPIKey(ctx, apiKey)
@@ -2146,6 +2161,7 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		Str("project_id", projectID).
 		Str("spec_task_id", specTaskID).
 		Bool("is_spec_task", specTaskID != "").
+		Bool("task_confined", taskConfined).
 		Msg("✅ Created ephemeral session API key")
 
 	return createdKey.Key, nil

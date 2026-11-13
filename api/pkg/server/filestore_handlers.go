@@ -7,11 +7,13 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -258,12 +260,82 @@ func (s *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, er
 		Msg("Checking if path is in user's filestore")
 
 	if inUserPath {
+		if err := enforceKeyFilestorePath(reqUser, strings.TrimPrefix(req.URL.Path, userPath)); err != nil {
+			logger.Debug().Err(err).Msg("Path is outside the key's project folder, denying access")
+			return false, nil
+		}
 		logger.Debug().Msg("Path is in user's filestore, allowing access")
 		return true, nil
 	}
 
 	logger.Debug().Msg("No access rules matched, denying access")
 	return false, nil
+}
+
+// errFilestoreOutsideKeyProject refuses a project-scoped key a path of its
+// owner's filestore outside its project's folder.
+var errFilestoreOutsideKeyProject = errors.New("access denied: this key may only use its project's filestore folder")
+
+// keyFilestoreProjectFolders are the folders of its owner's filestore a key
+// bound to a project may use, or nil for the whole namespace:
+//
+//   - projects/<project id>: the layout Helix uses for project data;
+//   - engagements/<project id>: TEMPORARY compatibility allowance for PTaaS
+//     lanes, which write receipts, findings, notes, run metadata and
+//     collected evidence there with their session keys. Remove it once
+//     those lanes move to projects/<id>/ (tracked in helixml/helix#3611).
+//
+// The user filestore is keyed by owner, not by project, so without this a
+// key minted for one project (a spec task's or a sandbox's) reads and writes
+// the files its owner keeps for every other project. Keys with no project
+// (personal, org-scoped) keep the whole namespace. App folders (apps/<id>/)
+// are authorized separately, against the app.
+func keyFilestoreProjectFolders(user *types.User) []string {
+	if user == nil || user.ProjectID == "" {
+		return nil
+	}
+	return []string{
+		path.Join("projects", user.ProjectID),
+		path.Join("engagements", user.ProjectID),
+	}
+}
+
+// enforceKeyFilestorePath checks a path relative to the caller's filestore
+// namespace against keyFilestoreProjectFolders. The path is cleaned first,
+// so "..", repeated slashes and backslashes cannot leave the folder, and a
+// folder matches on a whole path segment ("projects/<id>-x" is not inside
+// "projects/<id>").
+func enforceKeyFilestorePath(user *types.User, relPath string) error {
+	folders := keyFilestoreProjectFolders(user)
+	if folders == nil {
+		return nil
+	}
+	cleaned, err := filestore.CleanRelativePath(relPath)
+	if err != nil {
+		return err
+	}
+	cleaned = filepath.ToSlash(cleaned)
+	for _, folder := range folders {
+		if cleaned == folder || strings.HasPrefix(cleaned, folder+"/") {
+			return nil
+		}
+	}
+	return errFilestoreOutsideKeyProject
+}
+
+// keyFilestorePathRefusal answers enforceKeyFilestorePath for the JSON
+// filestore handlers.
+func keyFilestorePathRefusal(req *http.Request, relPaths ...string) error {
+	user := getRequestUser(req)
+	for _, relPath := range relPaths {
+		if err := enforceKeyFilestorePath(user, relPath); err != nil {
+			if errors.Is(err, errFilestoreOutsideKeyProject) {
+				return system.NewHTTPError403(err.Error())
+			}
+			return system.NewHTTPError400(err.Error())
+		}
+	}
+	return nil
 }
 
 // Helper function to extract app path from a viewer URL

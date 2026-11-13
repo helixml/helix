@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -204,6 +205,12 @@ func enforceKeySessionScope(user *types.User, session *types.Session) error {
 	if user == nil {
 		return nil
 	}
+	if user.TaskConfined {
+		if user.SessionID != "" && session.ID == user.SessionID {
+			return nil
+		}
+		return enforceKeyTaskScope(user, session.Metadata.SpecTaskID)
+	}
 	if user.ProjectID == "" {
 		if user.SessionID != "" && session.ID != user.SessionID {
 			return fmt.Errorf("%w: key is scoped to session %s, request targets %s", errSessionScopedKey, user.SessionID, session.ID)
@@ -223,6 +230,93 @@ func enforceKeySessionScope(user *types.User, session *types.Session) error {
 	return fmt.Errorf("%w: key is scoped to project %s, session %s is outside it", errProjectScopedKey, user.ProjectID, session.ID)
 }
 
+// errTaskConfinedKey is returned when a task-confined key reaches outside
+// its spec task. Such a caller is outside the object's tenant as far as the
+// key is concerned (isOutsideTenant): it gets 404, as for an unknown id.
+var errTaskConfinedKey = errors.New("credential is confined to another spec task")
+
+// enforceKeyTaskScope confines a task-confined key to its own spec task.
+//
+// A spec task created with confine_agent_key gets session keys carrying
+// ApiKey.TaskConfined (services.GetOrCreateSessionAPIKey). The project scope
+// alone lets such a key reach every task and session of its project; that is
+// too wide when the project runs lanes that must not reach each other (a
+// finder lane must not message or pre-create its verifier's work). specTaskID
+// is the task the request targets, "" for none. A confined key without a task
+// of its own reaches nothing (fail closed).
+func enforceKeyTaskScope(user *types.User, specTaskID string) error {
+	if user == nil || !user.TaskConfined {
+		return nil
+	}
+	if user.SpecTaskID != "" && specTaskID == user.SpecTaskID {
+		return nil
+	}
+	return fmt.Errorf("%w: key is confined to spec task %s, request targets %q", errTaskConfinedKey, user.SpecTaskID, specTaskID)
+}
+
+// errTaskConfinedKeyCreate refuses spec task creation to a task-confined key.
+var errTaskConfinedKeyCreate = errors.New("a task-confined key cannot create spec tasks")
+
+// denyTaskCreationToConfinedKey refuses every spec task creation path (from a
+// prompt, clone, quick-create, project spec apply) to a task-confined key: a
+// lane that could create tasks could pre-create the work of the lane meant to
+// check it.
+func denyTaskCreationToConfinedKey(user *types.User) error {
+	if user != nil && user.TaskConfined {
+		return errTaskConfinedKeyCreate
+	}
+	return nil
+}
+
+// errTaskConfinedKeyProject refuses project mutations to a task-confined key.
+var errTaskConfinedKeyProject = errors.New("a task-confined key cannot change its project")
+
+// denyProjectMutationToConfinedKey refuses changing the project itself
+// (settings, repositories, secrets, web service, move, delete) to a
+// task-confined key. Writing project files, artifacts and git stays allowed.
+func denyProjectMutationToConfinedKey(user *types.User) error {
+	if user != nil && user.TaskConfined {
+		return errTaskConfinedKeyProject
+	}
+	return nil
+}
+
+// errTaskConfinedKeyOrg refuses the helix-org surface to a task-confined key.
+var errTaskConfinedKeyOrg = errors.New("a task-confined key cannot use helix-org")
+
+// denyHelixOrgToConfinedKey refuses the org graph (bots, chat, activations,
+// topics, processors, settings, Slack, the org MCP) to a task-confined key:
+// an org Bot acts on its own authority across the organization, so reaching
+// one would carry the key past its task.
+func denyHelixOrgToConfinedKey(user *types.User) error {
+	if user != nil && user.TaskConfined {
+		return errTaskConfinedKeyOrg
+	}
+	return nil
+}
+
+// authorizeUserToSpecTask checks access to a spec task through its project;
+// a task-confined key reaches only its own task.
+func (apiServer *HelixAPIServer) authorizeUserToSpecTask(ctx context.Context, user *types.User, specTask *types.SpecTask, action types.Action) error {
+	if err := enforceKeyTaskScope(user, specTask.ID); err != nil {
+		return err
+	}
+	return apiServer.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, action)
+}
+
+// scopeSpecTaskFiltersToKey confines a task listing to the caller's own task
+// when it holds a task-confined key.
+func scopeSpecTaskFiltersToKey(user *types.User, filters *types.SpecTaskFilters) {
+	if user == nil || !user.TaskConfined {
+		return
+	}
+	filters.ID = user.SpecTaskID
+	if filters.ID == "" {
+		filters.FilterProjectIDs = true
+		filters.ProjectIDs = nil
+	}
+}
+
 // enforceKeyAppScope confines a project-scoped credential to the apps its
 // project uses: the project's configured apps and the app of the session the
 // key was minted for. Global apps stay readable, as they are for everyone.
@@ -231,6 +325,13 @@ func (apiServer *HelixAPIServer) enforceKeyAppScope(ctx context.Context, user *t
 		return nil
 	}
 	readOnly := action == types.ActionGet || action == types.ActionList || action == types.ActionUseAction
+	// The project's agents (and their triggers) serve every task of the
+	// project: changing them is a project change.
+	if !readOnly {
+		if err := denyProjectMutationToConfinedKey(user); err != nil {
+			return err
+		}
+	}
 	if app.OrganizationID == "" && app.Global && readOnly {
 		return nil
 	}
@@ -369,7 +470,7 @@ var errNotProjectOwner = errors.New("user is not the owner of the project")
 func isOutsideTenant(err error) bool {
 	return errors.Is(err, store.ErrNotFound) || errors.Is(err, orgstore.ErrKeyOrgScope) ||
 		errors.Is(err, errProjectScopedKey) || errors.Is(err, errNotProjectOwner) ||
-		errors.Is(err, errNotRepositoryOwner)
+		errors.Is(err, errNotRepositoryOwner) || errors.Is(err, errTaskConfinedKey)
 }
 
 // writeSpecTaskAuthzError answers a failed project authorization for a spec
@@ -382,6 +483,16 @@ func writeSpecTaskAuthzError(w http.ResponseWriter, err error) {
 	}
 	log.Debug().Err(err).Msg("spec task access refused")
 	http.Error(w, "not authorized to access this task", http.StatusForbidden)
+}
+
+// specTaskAuthzHTTPError is writeSpecTaskAuthzError for handlers that
+// return a *system.HTTPError.
+func specTaskAuthzHTTPError(err error) *system.HTTPError {
+	if isOutsideTenant(err) {
+		return system.NewHTTPError404("task not found")
+	}
+	log.Debug().Err(err).Msg("spec task access refused")
+	return system.NewHTTPError403("not authorized to access this task")
 }
 
 // errNotRepositoryOwner refuses a personal (org-less) repository to anyone but
