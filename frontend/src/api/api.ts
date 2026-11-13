@@ -2459,14 +2459,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitHub = "github",
+  KindEmail = "email",
+  KindGitLab = "gitlab",
+  KindLocal = "local",
   KindHelixEvents = "helix_events",
+  KindSlack = "slack",
+  KindGitHub = "github",
   KindWebhook = "webhook",
   KindCron = "cron",
-  KindSlack = "slack",
-  KindGitLab = "gitlab",
-  KindEmail = "email",
-  KindLocal = "local",
 }
 
 export interface TransportResolvedActivation {
@@ -3087,6 +3087,7 @@ export enum TypesAttentionEventType {
   AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
+  AttentionEventProjectSecretUndecryptable = "project_secret_undecryptable",
 }
 
 export interface TypesAttentionEventUpdateRequest {
@@ -7037,6 +7038,13 @@ export interface TypesSecret {
    * behaviour and dev stays the primary path.
    */
   scope?: TypesSecretScope;
+  /**
+   * Undecryptable is set by the project secrets list when the stored value
+   * cannot be decrypted with the current HELIX_ENCRYPTION_KEY (it was
+   * written under an earlier key). Such a secret is never injected; it must
+   * be re-entered.
+   */
+  undecryptable?: boolean;
   updated?: string;
   value?: number[];
 }
@@ -17869,7 +17877,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.
+     * @description One entry per distinct VCS provider present among the project's external repos, with the acting user, the configured repository account, and per-repo access status. Backs the project board connection lozenge.
      *
      * @tags Projects
      * @name GetProjectVcsConnections

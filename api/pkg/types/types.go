@@ -2879,6 +2879,21 @@ type Secret struct {
 	// Defaults to "dev" so pre-existing secrets keep their original (dev-only)
 	// behaviour and dev stays the primary path.
 	Scope SecretScope `json:"scope,omitempty" yaml:"scope,omitempty" gorm:"type:varchar(16);default:'dev';index"`
+	// Undecryptable is set by the project secrets list when the stored value
+	// cannot be decrypted with the current HELIX_ENCRYPTION_KEY (it was
+	// written under an earlier key). Such a secret is never injected; it must
+	// be re-entered.
+	Undecryptable bool `json:"undecryptable,omitempty" yaml:"-" gorm:"-"`
+}
+
+// ProjectSecretEnv is the decrypted, scope-filtered view of a project's
+// secrets prepared for injection into a container.
+type ProjectSecretEnv struct {
+	// Env holds `KEY=value` strings.
+	Env []string
+	// Undecryptable names secrets that apply to the target but could not be
+	// decrypted with the current encryption key, and were therefore skipped.
+	Undecryptable []string
 }
 
 // LicenseKey represents a license key in the database

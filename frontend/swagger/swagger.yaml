@@ -3799,24 +3799,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - github
+    - email
+    - gitlab
+    - local
     - helix_events
+    - slack
+    - github
     - webhook
     - cron
-    - slack
-    - gitlab
-    - email
-    - local
     type: string
     x-enum-varnames:
-    - KindGitHub
+    - KindEmail
+    - KindGitLab
+    - KindLocal
     - KindHelixEvents
+    - KindSlack
+    - KindGitHub
     - KindWebhook
     - KindCron
-    - KindSlack
-    - KindGitLab
-    - KindEmail
-    - KindLocal
   transport.ResolvedActivation:
     properties:
       address:
@@ -4812,6 +4812,7 @@ definitions:
     - org_message
     - ci_passed
     - ci_failed
+    - project_secret_undecryptable
     type: string
     x-enum-varnames:
     - AttentionEventSpecsPushed
@@ -4824,6 +4825,7 @@ definitions:
     - AttentionEventOrgMessage
     - AttentionEventCIPassed
     - AttentionEventCIFailed
+    - AttentionEventProjectSecretUndecryptable
   types.AttentionEventUpdateRequest:
     properties:
       acknowledge:
@@ -11033,6 +11035,13 @@ definitions:
           Scope controls which environment a project secret is injected into.
           Defaults to "dev" so pre-existing secrets keep their original (dev-only)
           behaviour and dev stays the primary path.
+      undecryptable:
+        description: |-
+          Undecryptable is set by the project secrets list when the stored value
+          cannot be decrypted with the current HELIX_ENCRYPTION_KEY (it was
+          written under an earlier key). Such a secret is never injected; it must
+          be re-entered.
+        type: boolean
       updated:
         type: string
       value:
@@ -26381,8 +26390,8 @@ paths:
       consumes:
       - application/json
       description: One entry per distinct VCS provider present among the project's
-        external repos, with the acting user, the account pushes are attributed to,
-        and per-repo verified access. Backs the project board connection lozenge.
+        external repos, with the acting user, the configured repository account, and
+        per-repo access status. Backs the project board connection lozenge.
       operationId: getProjectVCSConnections
       parameters:
       - description: Project ID

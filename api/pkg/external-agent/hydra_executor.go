@@ -27,10 +27,20 @@ type QuotaManager interface {
 	LimitReached(ctx context.Context, req *types.QuotaLimitReachedRequest) (*types.QuotaLimitReachedResponse, error)
 }
 
-// ProjectSecretsGetter returns project secrets as `KEY=value` env-var strings.
-// Wired to HelixAPIServer.GetProjectSecretsAsEnvVars at startup so HydraExecutor
-// can inject them on every container start without each caller remembering.
-type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
+// ProjectSecretsGetter returns a project's dev-scoped secrets as `KEY=value`
+// env-var strings plus the names it could not decrypt. Wired to
+// HelixAPIServer.GetProjectSecretsAsEnvVars at startup so HydraExecutor can
+// inject them on every container start without each caller remembering.
+type ProjectSecretsGetter func(ctx context.Context, projectID string) (types.ProjectSecretEnv, error)
+
+// UndecryptableSecretsReporter tells a desktop's owner that it started
+// without the named project secrets because they cannot be decrypted.
+type UndecryptableSecretsReporter func(ctx context.Context, agent *types.DesktopAgent, names []string)
+
+// UndecryptableProjectSecretsEnv names the project secrets a desktop was
+// started without because they could not be decrypted, so the agent can tell
+// "undecryptable, ask the user to re-enter it" from "never set".
+const UndecryptableProjectSecretsEnv = "HELIX_UNDECRYPTABLE_PROJECT_SECRETS"
 
 // agentBinaryCacheDir is the sandbox-host directory holding admin-pinned agent
 // binaries. Shared by trusted non-Bot containers on the host and keyed by
@@ -81,6 +91,9 @@ type HydraExecutor struct {
 	// Callback to fetch project secrets, set via SetProjectSecretsGetter
 	// after HelixAPIServer is constructed (mirrors SetQuotaManager wiring).
 	getProjectSecrets ProjectSecretsGetter
+	// reportUndecryptableSecrets, when set, surfaces skipped undecryptable
+	// project secrets to the task owner.
+	reportUndecryptableSecrets UndecryptableSecretsReporter
 
 	// sandboxMeter opens/closes the sandbox row that bills and quota-checks
 	// each desktop. Set via SetSandboxMeter after the sandbox controller is
@@ -161,6 +174,10 @@ func (h *HydraExecutor) SetSandboxMeter(meter SandboxMeter) {
 
 func (h *HydraExecutor) SetProjectSecretsGetter(getter ProjectSecretsGetter) {
 	h.getProjectSecrets = getter
+}
+
+func (h *HydraExecutor) SetUndecryptableSecretsReporter(reporter UndecryptableSecretsReporter) {
+	h.reportUndecryptableSecrets = reporter
 }
 
 // getOrCreateSessionLock returns a per-session mutex, creating one if needed.
@@ -930,6 +947,15 @@ func appendProjectSecrets(env, secrets []string) []string {
 	return env
 }
 
+// injectProjectSecrets appends the project's secrets to agent.Env.
+//
+// A secret that cannot be decrypted (written under an earlier
+// HELIX_ENCRYPTION_KEY) does not fail an ordinary start: project secrets apply
+// to every task in the project, so one stale value would otherwise brick all of
+// them, including tasks that never use it. Instead the desktop is told which
+// secrets are missing (UndecryptableProjectSecretsEnv) and the owner is
+// notified. An org bot instance that was explicitly granted the secret still
+// fails, as it does for a granted secret that was deleted.
 func (h *HydraExecutor) injectProjectSecrets(ctx context.Context, agent *types.DesktopAgent) error {
 	if h.getProjectSecrets == nil || agent.ProjectID == "" {
 		return nil
@@ -945,35 +971,58 @@ func (h *HydraExecutor) injectProjectSecrets(ctx context.Context, agent *types.D
 		log.Warn().Err(err).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Failed to load project secrets, continuing without them")
 		return nil
 	}
+	env := projectSecrets.Env
 	if agent.RestrictProjectSecrets {
-		if projectSecrets, err = selectProjectSecrets(projectSecrets, agent.ProjectSecretNames); err != nil {
+		if env, err = selectProjectSecrets(projectSecrets, agent.ProjectSecretNames); err != nil {
 			return err
 		}
+	} else if len(projectSecrets.Undecryptable) > 0 {
+		log.Error().
+			Strs("secret_names", projectSecrets.Undecryptable).
+			Str("project_id", agent.ProjectID).
+			Str("session_id", agent.SessionID).
+			Str("spec_task_id", agent.SpecTaskID).
+			Msg("Starting desktop without project secrets that cannot be decrypted; they must be re-entered")
+		agent.Env = append(agent.Env, UndecryptableProjectSecretsEnv+"="+strings.Join(projectSecrets.Undecryptable, ","))
+		if h.reportUndecryptableSecrets != nil {
+			h.reportUndecryptableSecrets(ctx, agent, projectSecrets.Undecryptable)
+		}
 	}
-	if len(projectSecrets) == 0 {
+	if len(env) == 0 {
 		return nil
 	}
 	before := len(agent.Env)
-	agent.Env = appendProjectSecrets(agent.Env, projectSecrets)
+	agent.Env = appendProjectSecrets(agent.Env, env)
 	log.Info().Int("secret_count", len(agent.Env)-before).Str("project_id", agent.ProjectID).Str("session_id", agent.SessionID).Msg("Injected project secrets into desktop env")
 	return nil
 }
 
 // selectProjectSecrets keeps the named `KEY=value` secrets. A granted secret
-// that no longer exists fails the start rather than silently running without it.
-func selectProjectSecrets(secrets, names []string) ([]string, error) {
+// that no longer exists or cannot be decrypted fails the start rather than
+// silently running without it.
+func selectProjectSecrets(secrets types.ProjectSecretEnv, names []string) ([]string, error) {
 	selected := make([]string, 0, len(names))
-	var missing []string
+	var missing, undecryptable []string
 	for _, name := range names {
-		i := slices.IndexFunc(secrets, func(secret string) bool { return strings.HasPrefix(secret, name+"=") })
-		if i < 0 {
+		i := slices.IndexFunc(secrets.Env, func(secret string) bool { return strings.HasPrefix(secret, name+"=") })
+		switch {
+		case i >= 0:
+			selected = append(selected, secrets.Env[i])
+		case slices.Contains(secrets.Undecryptable, name):
+			undecryptable = append(undecryptable, name)
+		default:
 			missing = append(missing, name)
-			continue
 		}
-		selected = append(selected, secrets[i])
+	}
+	var problems []string
+	if len(undecryptable) > 0 {
+		problems = append(problems, "cannot be decrypted with the current encryption key, re-enter them in project settings: "+strings.Join(undecryptable, ", "))
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("granted project secrets are unavailable: %s", strings.Join(missing, ", "))
+		problems = append(problems, "unavailable: "+strings.Join(missing, ", "))
+	}
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("granted project secrets %s", strings.Join(problems, "; "))
 	}
 	return selected, nil
 }
