@@ -53,8 +53,7 @@ if [ "${1:-} ${2:-}" = "compose pull" ] && [ "${3:-}" = "${TERM_ON_PULL_SERVICE:
 fi
 if [ "${1:-} ${2:-}" = "compose up" ] && [ -n "${FAIL_UP_ONCE:-}" ] && [ ! -e "$FAIL_UP_ONCE" ]; then
   : > "$FAIL_UP_ONCE"
-  # A dangling symlink makes the restore's write fail even as root.
-  [ "${BREAK_ENV_ON_UP_FAILURE:-false}" = "true" ] && ln -sfn /nonexistent-deploy-test-dir/.env .env
+  [ "${BREAK_ENV_ON_UP_FAILURE:-false}" = "true" ] && : > "$FAIL_UP_ONCE.restore"
   exit 1
 fi
 if [ "${1:-}" = "pull" ] && [ "${FAIL_PULL:-false}" = "true" ]; then
@@ -85,6 +84,10 @@ EOF
 
 cat > "$work/bin/sudo" <<'EOF'
 #!/bin/bash
+# BREAK_ENV_ON_UP_FAILURE: once compose up has failed, restoring .env fails.
+if [ "${1:-} ${2:-} ${4:-}" = "cp -p .env" ] && [ -e "${FAIL_UP_ONCE:-/nonexistent}.restore" ]; then
+  exit 1
+fi
 exec "$@"
 EOF
 
@@ -325,7 +328,7 @@ reset_calls
 if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true FAIL_UP_ONCE="$work/up-failed" BREAK_ENV_ON_UP_FAILURE=true 2>&1); then
   fail "failed rollback did not fail the deploy"
 fi
-rm "$work/up-failed" "$stack/.env"
+rm "$work/up-failed" "$work/up-failed.restore"
 grep -q 'ROLLBACK FAILED' <<<"$out" || fail "failed rollback not reported"
 [ "$(compose_calls | grep -c '^compose up')" = 1 ] || fail "failed rollback reconverged against half-restored config"
 kept=$(sed -n 's/^controlplane: previous docker-compose.yaml and .env kept in //p' <<<"$out")
