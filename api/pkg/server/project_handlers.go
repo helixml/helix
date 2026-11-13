@@ -1213,7 +1213,9 @@ func (s *HelixAPIServer) setProjectPrimaryRepository(_ http.ResponseWriter, r *h
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	// Choosing the primary repository changes the project: a read grant is
+	// not enough.
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -2101,6 +2103,13 @@ func (s *HelixAPIServer) getProjectGuidelinesHistory(_ http.ResponseWriter, r *h
 	return history, nil
 }
 
+// canMoveProject: only a personal project's owner may move it into an
+// organization, and only with a credential whose scope reaches it (a key
+// scoped to another project or to an organization does not).
+func canMoveProject(user *types.User, project *types.Project) bool {
+	return callerOwns(user, project.UserID, project.OrganizationID) && enforceKeyProjectScope(user, project.ID) == nil
+}
+
 // moveProjectPreview godoc
 // @Summary Preview moving a project to an organization
 // @Description Check for naming conflicts before moving a project to an organization
@@ -2135,7 +2144,7 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 	}
 
 	// Check user owns the project
-	if project.UserID != user.ID && !user.Admin {
+	if !user.Admin && !canMoveProject(user, project) {
 		return nil, system.NewHTTPError403("you must be the project owner to move it")
 	}
 
@@ -2291,7 +2300,7 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 	}
 
 	// Check user owns the project
-	if project.UserID != user.ID && !user.Admin {
+	if !user.Admin && !canMoveProject(user, project) {
 		return nil, system.NewHTTPError403("you must be the project owner to move it")
 	}
 

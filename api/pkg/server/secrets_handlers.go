@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -51,8 +52,11 @@ func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]
 		query.OwnerType = types.OwnerTypeOrg
 		query.Owner = org.ID
 	} else {
-		// Personal secrets are outside any project's scope.
+		// Personal secrets are outside any project's or organization's scope.
 		if err := enforceKeyProjectScope(user, ""); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+		if err := orgstore.EnforceKeyOrgScope(user, ""); err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
 		query.OwnerType = types.OwnerTypeUser
@@ -196,7 +200,7 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 	// a project they can no longer update.
 	// A project-scoped key never reaches a personal secret: enforceKeyProjectScope
 	// refuses it, as it refuses every resource outside the key's project.
-	authorized := existing.Owner == user.ID && existing.ProjectID == "" && enforceKeyProjectScope(user, "") == nil
+	authorized := callerOwns(user, existing.Owner, "") && existing.ProjectID == "" && enforceKeyProjectScope(user, "") == nil
 	if existing.ProjectID != "" {
 		project, projectErr := s.Store.GetProject(ctx, existing.ProjectID)
 		if projectErr != nil {
@@ -306,7 +310,7 @@ func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*
 		if err := s.authorizeUserToProjectByID(ctx, user, existing.ProjectID, types.ActionDelete); err == nil {
 			authorized = true
 		}
-	} else if existing.Owner == user.ID && enforceKeyProjectScope(user, "") == nil {
+	} else if callerOwns(user, existing.Owner, "") && enforceKeyProjectScope(user, "") == nil {
 		authorized = true
 	}
 	if !authorized {

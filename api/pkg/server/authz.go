@@ -82,7 +82,7 @@ func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *t
 		// This is the old style app logic, where the app is owned by a user and optionally made global
 
 		// If the user is the owner of the app, they can access it
-		if user.ID == app.Owner {
+		if callerOwns(user, app.Owner, "") {
 			return nil
 		}
 
@@ -283,6 +283,15 @@ func (apiServer *HelixAPIServer) enforceKeyRepositoryScope(ctx context.Context, 
 	return fmt.Errorf("%w: key is scoped to project %s, repository %s is not attached to it", errProjectScopedKey, user.ProjectID, repository.ID)
 }
 
+// callerOwns reports whether user owns a resource (ownerID) of organization
+// orgID ("" for none) and holds a credential whose organization scope
+// reaches it. Every owner shortcut goes through it: an org-scoped key
+// (orgstore.EnforceKeyOrgScope) must not carry its owner's ownership into
+// their other organizations or onto their personal resources.
+func callerOwns(user *types.User, ownerID, orgID string) bool {
+	return user != nil && user.ID != "" && ownerID == user.ID && orgstore.EnforceKeyOrgScope(user, orgID) == nil
+}
+
 // isAgentScopedKey reports whether the caller authenticated with a key minted
 // for a project or a session, as handed to sandbox agents.
 func isAgentScopedKey(user *types.User) bool {
@@ -316,7 +325,7 @@ func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, use
 		// This is the old style project logic, where the project is owned by a user and optionally made global
 
 		// If the user is the owner of the project, they can access it
-		if user.ID == project.UserID {
+		if callerOwns(user, project.UserID, "") {
 			return nil
 		}
 
@@ -407,7 +416,7 @@ func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, 
 
 	// If the organization ID is not set, only the owner can access
 	if repository.OrganizationID == "" {
-		if user.ID == repository.OwnerID {
+		if callerOwns(user, repository.OwnerID, "") {
 			return nil
 		}
 		return errNotRepositoryOwner
@@ -479,7 +488,7 @@ func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, use
 		// This is the old style project logic, where the project is owned by a user and optionally made global
 
 		// If the user is the owner of the project, they can access it
-		if user.ID == session.Owner {
+		if callerOwns(user, session.Owner, "") {
 			return nil
 		}
 

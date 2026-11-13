@@ -111,7 +111,7 @@ func (apiServer *HelixAPIServer) authorizeExternalAgentSync(next http.HandlerFun
 			return
 		}
 		session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-		if err != nil || session.Owner != user.ID {
+		if err != nil || !ownsSessionInKeyScope(user, session) {
 			http.Error(res, "forbidden", http.StatusForbidden)
 			return
 		}
