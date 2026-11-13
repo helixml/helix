@@ -533,6 +533,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	// Startup script lives at .helix/startup.sh in the primary repository
 	if primaryRepo.LocalPath != "" {
 		// Keep the startup script locally even when best-effort upstream publication fails.
+		var startupCommit string
 		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
 			r.Context(),
 			primaryRepo,
@@ -542,15 +543,20 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 				FailOnPushError: false,
 			},
 			func() error {
-				return s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
+				var initErr error
+				startupCommit, initErr = s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
 					primaryRepo.LocalPath,
 					created.Name,
 					req.StartupScript,
 					user.FullName,
 					user.Email,
 				)
+				return initErr
 			},
 		)
+		if writeErr == nil {
+			writeErr = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, startupCommit)
+		}
 		if writeErr != nil {
 			log.Warn().
 				Err(writeErr).
@@ -858,6 +864,7 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
 			var changed bool
+			var startupCommit string
 			writeErr := s.gitRepositoryService.WithExternalRepoWrite(
 				r.Context(),
 				primaryRepo,
@@ -868,7 +875,7 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 				},
 				func() error {
 					var saveErr error
-					changed, saveErr = s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(
+					startupCommit, changed, saveErr = s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(
 						primaryRepo.LocalPath,
 						*req.StartupScript,
 						user.FullName,
@@ -886,6 +893,11 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 					return nil
 				},
 			)
+			if writeErr == nil {
+				// A person saving the script vouches for the helix-specs
+				// commit it now lives in, even when the text was unchanged.
+				writeErr = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, startupCommit)
+			}
 			if writeErr != nil {
 				log.Error().
 					Err(writeErr).
@@ -3100,7 +3112,11 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				// Repo not yet cloned — trigger async clone; write startup script after clone succeeds.
 				log.Info().Str("repo_id", primaryRepo.ID).Msg("Triggering async clone to initialize startup script in helix-specs")
 				s.gitRepositoryService.CloneRepositoryAsync(primaryRepo, func(localPath string) {
-					if _, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail); err != nil {
+					commitSHA, _, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail)
+					if err == nil {
+						err = s.trustStartupScriptWrite(context.Background(), user, primaryRepo.ID, commitSHA)
+					}
+					if err != nil {
 						log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs after clone")
 					} else {
 						log.Info().Str("repo_id", primaryRepo.ID).Msg("Startup script written to helix-specs after async clone")
@@ -3108,7 +3124,11 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				})
 			} else {
 				// Repo already cloned — write startup script synchronously.
-				if _, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail); err != nil {
+				commitSHA, _, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail)
+				if err == nil {
+					err = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, commitSHA)
+				}
+				if err != nil {
 					log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs")
 				}
 			}

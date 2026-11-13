@@ -54,6 +54,9 @@ type BranchRestriction struct {
 	IsAgentKey      bool     // True if this is a session-scoped agent key
 	AllowedBranches []string // The branches the agent can push to
 	ErrorMessage    string   // Set if the agent is not allowed to push at all
+	// HumanPusher is set for a person's key (types.ApiKey.IsAgentBound is
+	// false). Only such a push moves the repository's trusted startup commit.
+	HumanPusher bool
 }
 
 // setNoCacheHeaders sets HTTP headers to prevent caching of git protocol responses.
@@ -781,6 +784,10 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
+	if _, specsPushed := pushedBranchesMap[SpecsBranchName]; specsPushed && restriction != nil && restriction.HumanPusher {
+		s.trustStartupCommit(r.Context(), repoID, branchesAfter[SpecsBranchName])
+	}
+
 	// Fire the project-web-service auto-deploy hook (if installed) for
 	// every push that touched the repo's default branch. Detached so a
 	// slow deploy never blocks the git client's response.
@@ -1033,6 +1040,20 @@ func (s *GitHTTPServer) rollbackBranchRefs(repoPath string, previousHashes map[s
 	}
 }
 
+// trustStartupCommit records a human-pushed helix-specs tip as the commit
+// sandboxes run .helix/startup.sh from. The push has already been accepted, so
+// a failure only leaves the previous trusted commit in place.
+func (s *GitHTTPServer) trustStartupCommit(ctx context.Context, repoID, sha string) {
+	if sha == "" {
+		return
+	}
+	if err := s.store.SetGitRepositoryTrustedStartupSHA(ctx, repoID, sha); err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("sha", sha).Msg("Failed to record trusted startup commit; sandboxes keep running the previous one")
+		return
+	}
+	log.Info().Str("repo_id", repoID).Str("sha", sha).Msg("Recorded trusted startup commit from a human push")
+}
+
 // recordPushError persists a structured PushError on the spec task after a
 // user-initiated external push failed and its refs were rolled back. This is the
 // signal the board/agent reads instead of silently reporting success. Best-effort:
@@ -1083,9 +1104,9 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 		return nil, err
 	}
 
-	// Check if this is an agent API key (has spec_task_id)
+	// Only spec-task keys are branch-restricted.
 	if apiKeyRecord.SpecTaskID == "" {
-		return nil, nil // Not an agent key, no restrictions
+		return &BranchRestriction{HumanPusher: !apiKeyRecord.IsAgentBound()}, nil
 	}
 
 	// Get the spec task to find allowed branches
