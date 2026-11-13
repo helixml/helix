@@ -152,3 +152,16 @@ func TestBeforeLaunchFlushesBeforeAborting(t *testing.T) {
 	require.True(t, rec.Flushed)
 	require.Contains(t, rec.Body.String(), "renderer-cmd-prefix")
 }
+
+// A web page (such as one the crawler loaded) always sends Origin on a
+// websocket; go-rod's client never does.
+func TestHandlerRefusesRequestsWithOrigin(t *testing.T) {
+	for _, token := range []string{"", "s3cret"} {
+		req := launchRequest(string(clientLauncher().JSON()), token)
+		req.Header.Set("Origin", "http://attacker.example")
+		rec := httptest.NewRecorder()
+		testHandler(testPolicy(token)).ServeHTTP(rec, req)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Contains(t, rec.Body.String(), "web pages are not accepted")
+	}
+}

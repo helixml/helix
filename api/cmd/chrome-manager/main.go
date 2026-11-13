@@ -173,6 +173,13 @@ func (p *policy) handler(m *launcher.Manager, logger *log.Logger) http.Handler {
 			m.ServeHTTP(w, r)
 			return
 		}
+		// go-rod's client sends no Origin; a browser page (including one the
+		// crawler loaded) always does, so refuse those outright.
+		if r.Header.Get("Origin") != "" {
+			logger.Printf("refused launch from %s: request carries an Origin header", r.RemoteAddr)
+			refuse(w, "launch requests from web pages are not accepted")
+			return
+		}
 		if !p.authorized(r) {
 			logger.Printf("refused launch from %s: missing or wrong %s", r.RemoteAddr, TokenHeader)
 			refuse(w, "missing or wrong "+TokenHeader)
@@ -192,6 +199,7 @@ func (p *policy) handler(m *launcher.Manager, logger *log.Logger) http.Handler {
 			return
 		}
 		r.Header.Set(string(launcher.HeaderName), string(l.JSON()))
+		r.Header.Del(TokenHeader)
 		// The Manager proxies this request to the browser's own DevTools
 		// server, which only accepts an IP or localhost Host header; clients
 		// reach the manager by service name (http://chrome:7317).

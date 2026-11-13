@@ -2064,9 +2064,9 @@ EOF
         RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
         PGVECTOR_PASSWORD=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | sed 's/^PGVECTOR_PASSWORD=//' || generate_password)
         HELIX_ENCRYPTION_KEY=$(grep '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" | sed 's/^HELIX_ENCRYPTION_KEY=//' || generate_encryption_key)
-        CHROME_LAUNCHER_TOKEN=$(grep '^CHROME_LAUNCHER_TOKEN=' "$ENV_FILE" | sed 's/^CHROME_LAUNCHER_TOKEN=//')
+        CHROME_LAUNCHER_TOKEN=$(grep '^CHROME_LAUNCHER_TOKEN=' "$ENV_FILE" | sed 's/^CHROME_LAUNCHER_TOKEN=//' || true)
         [ -n "$CHROME_LAUNCHER_TOKEN" ] || CHROME_LAUNCHER_TOKEN=$(generate_password)
-        REGULAR_AUTH_JWT_SECRET=$(grep '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" | sed 's/^REGULAR_AUTH_JWT_SECRET=//')
+        REGULAR_AUTH_JWT_SECRET=$(grep '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" | sed 's/^REGULAR_AUTH_JWT_SECRET=//' || true)
         case "$REGULAR_AUTH_JWT_SECRET" in
             ""|helix-default-jwt-secret|helix-default-secret-change-in-production)
                 REGULAR_AUTH_JWT_SECRET=$(generate_encryption_key) ;;

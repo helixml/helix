@@ -2741,6 +2741,7 @@ depends_on:
   - default
   - manifest-controlplane
   - manifest-sandbox
+  - manifest-chrome
 
 trigger:
   ref:
