@@ -47,7 +47,7 @@ steps:
     image: node:23-alpine
     commands:
       - cd frontend
-      - yarn test --maxWorkers=2 --minWorkers=1
+      - yarn test --maxWorkers=4 --minWorkers=1
     depends_on: [frontend-install]
 
   - name: build-frontend
@@ -1432,13 +1432,13 @@ name: build-sandbox-amd64
 
 depends_on:
   - default
+  - zed-e2e-amd64
 
 platform:
   os: linux
   arch: amd64
 
-# Runs on main + tags only. Other branches run the source-build and Zed e2e
-# steps in zed-e2e-amd64, which does not wait for `default`.
+# Runs on main + tags only, once zed-e2e-amd64 has passed.
 trigger:
   event:
     - push
@@ -1457,322 +1457,36 @@ volumes:
       path: /var/cache/drone/sandbox-build
 
 steps:
-  # Step 1: Clone external repositories (pinned commits from sandbox-versions.txt)
-  # Pinned for reproducibility - update sandbox-versions.txt when upgrading deps
-  # Optional: CI warns if pinned version is behind upstream HEAD
-  #
-  - name: clone-dependencies
+  - name: clone-zed-source
     image: alpine/git:latest
     commands:
-      - mkdir -p /drone/src/external /drone/src/cache
-      # Read pinned versions
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_VERSION}"
-        echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
-      # Warn if pinned versions are stale (informational only, doesn't fail)
-      - |
-        . /drone/src/sandbox-versions.txt
-        ZED_HEAD=$$(git ls-remote https://github.com/helixml/zed.git HEAD | cut -f1)
-        if [ "$${ZED_COMMIT}" != "$${ZED_HEAD}" ]; then
-          echo "⚠️  ZED_COMMIT is behind upstream HEAD ($${ZED_HEAD:0:12})"
-        fi
-      # Always clone Zed source fresh at the pinned commit.
-      # BuildKit handles caching of cargo deps and build artifacts.
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Cloning Zed at commit $${ZED_COMMIT}..."
-        cd /
-        git init /drone/src/external/zed-source
-        git -C /drone/src/external/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-        git -C /drone/src/external/zed-source checkout FETCH_HEAD
-        echo "✓ Zed source at $$(git -C /drone/src/external/zed-source rev-parse HEAD)"
-      - echo "=== Dependency versions ==="
-      - echo "Zed:" && cat /drone/src/zed-commit.txt
-      - '. /drone/src/sandbox-versions.txt && echo "Qwen Code: $${QWEN_VERSION}"'
-    volumes:
-      - name: sandbox-build-cache
-        path: /drone/src/cache
+      - sh scripts/clone-zed-source.sh
 
-  # Step 2: Install the pinned, bundled Qwen Code npm release.
   - name: build-qwen-code
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Installing Qwen Code $${QWEN_VERSION}..."
-        mkdir -p qwen-code-build
-        docker build \
-          --build-arg QWEN_VERSION=$${QWEN_VERSION} \
-          --output type=local,dest=qwen-code-build \
-          -f Dockerfile.qwen-build \
-          .
-
-        test "$$(cat qwen-code-build/version)" = "$${QWEN_VERSION}"
-        echo "Qwen Code install complete"
-        ls -la qwen-code-build/
+      - sh scripts/build-qwen-code.sh
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-    depends_on:
-      - clone-dependencies
 
-  # Step 3: Build Zed binary
-  # Builds Zed using the full Dockerfile.zed-build with BuildKit cache mounts.
-  # No shared volumes, no flock — BuildKit handles caching and concurrency.
   - name: build-zed
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - |
-        ZED_SOURCE="/drone/src/external/zed-source"
-
-        if [ ! -f "$${ZED_SOURCE}/Cargo.toml" ]; then
-          echo "ERROR: Zed source not found at $${ZED_SOURCE}"
-          exit 1
-        fi
-
-        ZED_SHA=$$(git -C "$${ZED_SOURCE}" rev-parse HEAD)
-        if [ -z "$${ZED_SHA}" ]; then
-          echo "ERROR: Could not determine Zed source commit"
-          exit 1
-        fi
-
-        # Check binary cache (keyed by full commit hash)
-        CACHE_DIR="/drone/src/cache/zed-bin-$${ZED_SHA}"
-        if [ -f "$${CACHE_DIR}/zed" ]; then
-          echo "✓ Using cached Zed binary for $${ZED_SHA}"
-          mkdir -p zed-build
-          cp "$${CACHE_DIR}/zed" zed-build/zed
-          cp "$${CACHE_DIR}/app-icon.png" zed-build/app-icon.png
-          chmod +x zed-build/zed
-        else
-          echo "Building Zed from source commit: $${ZED_SHA}"
-          mkdir -p zed-build
-          docker build \
-            --build-arg BUILD_TYPE=release \
-            --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
-            --output type=local,dest=zed-build \
-            -f Dockerfile.zed-build \
-            "$${ZED_SOURCE}"
-
-          cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
-          chmod +x zed-build/zed
-
-          # Cache the binary for future builds with same commit. The cache
-          # volume is shared by concurrent builds and the zed file marks a
-          # hit, so publish it last via an atomic rename.
-          mkdir -p "$${CACHE_DIR}"
-          cp zed-build/app-icon.png "$${CACHE_DIR}/app-icon.png.${DRONE_BUILD_NUMBER}"
-          mv "$${CACHE_DIR}/app-icon.png.${DRONE_BUILD_NUMBER}" "$${CACHE_DIR}/app-icon.png"
-          cp zed-build/zed "$${CACHE_DIR}/zed.${DRONE_BUILD_NUMBER}"
-          mv "$${CACHE_DIR}/zed.${DRONE_BUILD_NUMBER}" "$${CACHE_DIR}/zed"
-          echo "✓ Cached Zed binary at $${CACHE_DIR}"
-        fi
-        ls -la zed-build/
+      - sh scripts/build-zed-binary.sh cache
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
       - name: sandbox-build-cache
         path: /drone/src/cache
     depends_on:
-      - clone-dependencies
+      - clone-zed-source
 
-  # Step 3b: Build the Zed WebSocket E2E runtime image.
-  # Multi-stage build: a Go test server compiled against the current helix
-  # source, plus the pre-built Zed binary. Split out from the test runs below
-  # so the headless smoke (every push) and the full suite (main + tags) share
-  # one image build instead of repeating it.
-  - name: zed-e2e-image
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-    commands:
-      - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-        ZED_SOURCE="/drone/src/external/zed-source"
-
-        # Verify Zed binary exists from build-zed step
-        if [ ! -f "zed-build/zed" ]; then
-          echo "ERROR: Zed binary not found - build-zed step must run first"
-          exit 1
-        fi
-
-        # Use the Zed e2e-test dir as Docker context — only external inputs
-        # are the pre-built zed binary and Helix Go source (for test server build)
-        E2E_DIR="$${ZED_SOURCE}/crates/external_websocket_sync/e2e-test"
-
-        cp zed-build/zed "$${E2E_DIR}/zed-binary"
-        cp /drone/src/go.mod "$${E2E_DIR}/helix-go.mod"
-        cp /drone/src/go.sum "$${E2E_DIR}/helix-go.sum"
-        cp -r /drone/src/api "$${E2E_DIR}/helix-api"
-        cp -r /drone/src/helix-org "$${E2E_DIR}/helix-org"
-
-        # Sync kodit version from helix into the E2E test server's go.mod.
-        # The E2E test server has its own go.mod that may pin an older kodit;
-        # go mod tidy in the Docker build will update go.sum automatically.
-        KODIT_VERSION=$$(grep 'github.com/helixml/kodit' /drone/src/go.mod | awk '{print $$2}')
-        if [ -n "$${KODIT_VERSION}" ]; then
-          sed -i "s|github.com/helixml/kodit v[^ ]*|github.com/helixml/kodit $${KODIT_VERSION}|" \
-            "$${E2E_DIR}/helix-ws-test-server/go.mod"
-          echo "Synced kodit to $${KODIT_VERSION} in E2E test server go.mod"
-        fi
-
-        # Verify helix-api has expected structure (not nested from stale cp -r)
-        if [ ! -d "$${E2E_DIR}/helix-api/pkg" ]; then
-          echo "ERROR: helix-api structure is wrong — expected helix-api/pkg/ at top level"
-          echo "Contents of helix-api/:"
-          ls -la "$${E2E_DIR}/helix-api/" || true
-          exit 1
-        fi
-
-        echo "Building E2E runtime image (multi-stage: Go builder + runtime)..."
-        docker build -t zed-ws-e2e:$${ZED_COMMIT} \
-          -f "$${E2E_DIR}/Dockerfile.ci" \
-          "$${E2E_DIR}"
-
-        echo "Built zed-ws-e2e:$${ZED_COMMIT}"
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-    depends_on:
-      - build-zed
-
-  # Step 3c: Headless Zed smoke test — runs on EVERY push, including PRs.
-  #
-  # `zed --headless` is the display-less agent backend. Nothing in Helix
-  # launches it yet, so without a CI gate it can rot silently between manual
-  # runs; a grep-level drift check catches deletion, not breakage.
-  #
-  # E2E_SMOKE=1 runs one phase: the agent reads magic-number.txt and echoes the
-  # value. That single turn covers WebSocket sync, worktree setup, an agent tool
-  # call, streaming and interaction completion — with no display server. The
-  # value is not in the prompt, so only a real tool call produces it.
-  #
-  # The E2E server provides a deterministic OpenAI-compatible model which
-  # forces the native agent through read_file and validates the tool result.
-  # This keeps the gate independent of external model availability.
-  - name: zed-e2e-headless-smoke
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-    commands:
-      - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-
-        echo "Running deterministic headless Zed smoke test..."
-        docker run --rm \
-          -e E2E_AGENTS="zed-agent" \
-          -e E2E_HEADLESS=1 \
-          -e E2E_SMOKE=1 \
-          -e TEST_TIMEOUT=300 \
-          zed-ws-e2e:$${ZED_COMMIT}
-
-        echo "Headless Zed smoke test passed"
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-    depends_on:
-      - zed-e2e-image
-
-  # Step 3d: Plan lifecycle integration — deterministic, credential-free,
-  # and headless. Turn one publishes a plan; turn two publishes no plan and
-  # must emit/persist an empty snapshot instead of retaining stale steps.
-  - name: zed-e2e-headless-plan
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-    commands:
-      - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-
-        echo "Running headless Zed plan lifecycle test..."
-        docker run --rm \
-          -e E2E_AGENTS="plan-test-agent" \
-          -e E2E_HEADLESS=1 \
-          -e E2E_PLAN=1 \
-          -e TEST_TIMEOUT=180 \
-          zed-ws-e2e:$${ZED_COMMIT}
-
-        echo "Headless Zed plan lifecycle test passed"
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-    depends_on:
-      - zed-e2e-image
-
-  # Step 3e: Blocking protocol correctness lane. The scripted ACP agent runs
-  # all 17 lifecycle phases without model or provider variability.
-  - name: zed-e2e-protocol-lifecycle
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-    commands:
-      - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-
-        echo "Running deterministic ACP lifecycle test (all 17 phases)..."
-        docker run --rm \
-          -e E2E_AGENTS="lifecycle-test-agent" \
-          -e TEST_TIMEOUT=600 \
-          zed-ws-e2e:$${ZED_COMMIT}
-
-        echo "Deterministic ACP lifecycle test passed"
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-    depends_on:
-      - zed-e2e-image
-
-  # Step 3f: Live compatibility lane against claude-agent-acp@latest as
-  # resolved at run start. This remains separate from protocol correctness.
-  - name: zed-e2e-live-claude-latest
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-      ANTHROPIC_API_KEY:
-        from_secret: anthropic_api_key
-    commands:
-      - |
-        ZED_COMMIT=$$(cat /drone/src/zed-commit.txt | head -c 12)
-
-        echo "Running live compatibility test: claude-agent-acp@latest (all phases)..."
-        docker run --rm \
-          -e ANTHROPIC_API_KEY \
-          -e E2E_AGENTS="claude" \
-          -e TEST_TIMEOUT=600 \
-          zed-ws-e2e:$${ZED_COMMIT}
-
-        echo "Live claude-agent-acp@latest compatibility test passed"
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-    depends_on:
-      - zed-e2e-image
-    # Full suite (many real LLM calls) runs on main + tags only, not on PRs.
-    # The headless smoke above covers PRs.
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
-
-  # Step 4: Build and push desktop images to registry
+  # Build and push desktop images to registry
   - name: build-desktops
     image: docker:cli
     environment:
@@ -1818,14 +1532,8 @@ steps:
     depends_on:
       - build-qwen-code
       - build-zed
-    # Desktop image build pushes to the registry — main + tags only.
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
 
-  # Step 5: Build sandbox image
+  # Build sandbox image
   - name: build-sandbox
     image: docker:cli
     environment:
@@ -1853,14 +1561,8 @@ steps:
         path: /var/run/docker.sock
     depends_on:
       - build-desktops
-    # Depends on build-desktops' image refs — main + tags only.
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
 
-  # Step 6: Push to registry (gated on E2E test passing)
+  # Push to registry
   - name: push-sandbox
     image: docker:cli
     environment:
@@ -1894,14 +1596,6 @@ steps:
         path: /var/run/docker.sock
     depends_on:
       - build-sandbox
-      - zed-e2e-protocol-lifecycle
-      - zed-e2e-live-claude-latest
-    # Publishing step — main + tags only.
-    when:
-      ref:
-        include:
-          - refs/heads/main
-          - refs/tags/*
 
 ---
 # ====================================================================
@@ -1927,9 +1621,7 @@ platform:
 trigger:
   event:
     - push
-  ref:
-    exclude:
-      - refs/heads/main
+    - tag
 
 volumes:
   - name: dockersocket
@@ -1940,137 +1632,28 @@ volumes:
       path: /var/cache/drone/sandbox-build
 
 steps:
-  # Step 1: Clone external repositories (pinned commits from sandbox-versions.txt)
-  # Pinned for reproducibility - update sandbox-versions.txt when upgrading deps
-  # Optional: CI warns if pinned version is behind upstream HEAD
-  #
-  - name: clone-dependencies
+  - name: clone-zed-source
     image: alpine/git:latest
     commands:
-      - mkdir -p /drone/src/external /drone/src/cache
-      # Read pinned versions
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_VERSION}"
-        echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
-      # Warn if pinned versions are stale (informational only, doesn't fail)
-      - |
-        . /drone/src/sandbox-versions.txt
-        ZED_HEAD=$$(git ls-remote https://github.com/helixml/zed.git HEAD | cut -f1)
-        if [ "$${ZED_COMMIT}" != "$${ZED_HEAD}" ]; then
-          echo "⚠️  ZED_COMMIT is behind upstream HEAD ($${ZED_HEAD:0:12})"
-        fi
-      # Always clone Zed source fresh at the pinned commit.
-      # BuildKit handles caching of cargo deps and build artifacts.
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Cloning Zed at commit $${ZED_COMMIT}..."
-        cd /
-        git init /drone/src/external/zed-source
-        git -C /drone/src/external/zed-source fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-        git -C /drone/src/external/zed-source checkout FETCH_HEAD
-        echo "✓ Zed source at $$(git -C /drone/src/external/zed-source rev-parse HEAD)"
-      - echo "=== Dependency versions ==="
-      - echo "Zed:" && cat /drone/src/zed-commit.txt
-      - '. /drone/src/sandbox-versions.txt && echo "Qwen Code: $${QWEN_VERSION}"'
-    volumes:
-      - name: sandbox-build-cache
-        path: /drone/src/cache
+      - sh scripts/clone-zed-source.sh
 
-  # Step 2: Install the pinned, bundled Qwen Code npm release.
-  - name: build-qwen-code
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-    commands:
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Installing Qwen Code $${QWEN_VERSION}..."
-        mkdir -p qwen-code-build
-        docker build \
-          --build-arg QWEN_VERSION=$${QWEN_VERSION} \
-          --output type=local,dest=qwen-code-build \
-          -f Dockerfile.qwen-build \
-          .
-
-        test "$$(cat qwen-code-build/version)" = "$${QWEN_VERSION}"
-        echo "Qwen Code install complete"
-        ls -la qwen-code-build/
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-    depends_on:
-      - clone-dependencies
-
-  # Step 3: Build Zed binary
-  # Builds Zed using the full Dockerfile.zed-build with BuildKit cache mounts.
-  # No shared volumes, no flock — BuildKit handles caching and concurrency.
   - name: build-zed
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - |
-        ZED_SOURCE="/drone/src/external/zed-source"
-
-        if [ ! -f "$${ZED_SOURCE}/Cargo.toml" ]; then
-          echo "ERROR: Zed source not found at $${ZED_SOURCE}"
-          exit 1
-        fi
-
-        ZED_SHA=$$(git -C "$${ZED_SOURCE}" rev-parse HEAD)
-        if [ -z "$${ZED_SHA}" ]; then
-          echo "ERROR: Could not determine Zed source commit"
-          exit 1
-        fi
-
-        # Check binary cache (keyed by full commit hash)
-        CACHE_DIR="/drone/src/cache/zed-bin-$${ZED_SHA}"
-        if [ -f "$${CACHE_DIR}/zed" ]; then
-          echo "✓ Using cached Zed binary for $${ZED_SHA}"
-          mkdir -p zed-build
-          cp "$${CACHE_DIR}/zed" zed-build/zed
-          cp "$${CACHE_DIR}/app-icon.png" zed-build/app-icon.png
-          chmod +x zed-build/zed
-        else
-          echo "Building Zed from source commit: $${ZED_SHA}"
-          mkdir -p zed-build
-          docker build \
-            --build-arg BUILD_TYPE=release \
-            --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
-            --output type=local,dest=zed-build \
-            -f Dockerfile.zed-build \
-            "$${ZED_SOURCE}"
-
-          cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
-          chmod +x zed-build/zed
-
-          # Cache the binary for future builds with same commit. The cache
-          # volume is shared by concurrent builds and the zed file marks a
-          # hit, so publish it last via an atomic rename.
-          mkdir -p "$${CACHE_DIR}"
-          cp zed-build/app-icon.png "$${CACHE_DIR}/app-icon.png.${DRONE_BUILD_NUMBER}"
-          mv "$${CACHE_DIR}/app-icon.png.${DRONE_BUILD_NUMBER}" "$${CACHE_DIR}/app-icon.png"
-          cp zed-build/zed "$${CACHE_DIR}/zed.${DRONE_BUILD_NUMBER}"
-          mv "$${CACHE_DIR}/zed.${DRONE_BUILD_NUMBER}" "$${CACHE_DIR}/zed"
-          echo "✓ Cached Zed binary at $${CACHE_DIR}"
-        fi
-        ls -la zed-build/
+      - sh scripts/build-zed-binary.sh cache
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
       - name: sandbox-build-cache
         path: /drone/src/cache
     depends_on:
-      - clone-dependencies
+      - clone-zed-source
 
-  # Step 3b: Build the Zed WebSocket E2E runtime image.
+  # Build the Zed WebSocket E2E runtime image.
   # Multi-stage build: a Go test server compiled against the current helix
-  # source, plus the pre-built Zed binary. Split out from the test runs below
-  # so the headless smoke (every push) and the full suite (main + tags) share
-  # one image build instead of repeating it.
+  # source, plus the pre-built Zed binary. The e2e lanes below share it.
   - name: zed-e2e-image
     image: docker:cli
     environment:
@@ -2127,7 +1710,7 @@ steps:
     depends_on:
       - build-zed
 
-  # Step 3c: Headless Zed smoke test — runs on EVERY push, including PRs.
+  # Headless Zed smoke test — runs on EVERY push, including PRs.
   #
   # `zed --headless` is the display-less agent backend. Nothing in Helix
   # launches it yet, so without a CI gate it can rot silently between manual
@@ -2159,12 +1742,10 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
     depends_on:
       - zed-e2e-image
 
-  # Step 3d: Plan lifecycle integration — deterministic, credential-free,
+  # Plan lifecycle integration — deterministic, credential-free,
   # and headless. Turn one publishes a plan; turn two publishes no plan and
   # must emit/persist an empty snapshot instead of retaining stale steps.
   - name: zed-e2e-headless-plan
@@ -2185,12 +1766,10 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
     depends_on:
       - zed-e2e-image
 
-  # Step 3e: Blocking protocol correctness lane. The scripted ACP agent runs
+  # Blocking protocol correctness lane. The scripted ACP agent runs
   # all 17 lifecycle phases without model or provider variability.
   - name: zed-e2e-protocol-lifecycle
     image: docker:cli
@@ -2208,10 +1787,36 @@ steps:
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
     depends_on:
       - zed-e2e-image
+
+  # Live compatibility lane against claude-agent-acp@latest as
+  # resolved at run start. This remains separate from protocol correctness.
+  - name: zed-e2e-live-claude-latest
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      ANTHROPIC_API_KEY:
+        from_secret: anthropic_api_key
+    commands:
+      - |
+        echo "Running live compatibility test: claude-agent-acp@latest (all phases)..."
+        docker run --rm \
+          -e ANTHROPIC_API_KEY \
+          -e E2E_AGENTS="claude" \
+          -e TEST_TIMEOUT=600 \
+          zed-ws-e2e:build-${DRONE_BUILD_NUMBER}
+
+        echo "Live claude-agent-acp@latest compatibility test passed"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - zed-e2e-image
+    # Real Anthropic calls: release builds only.
+    when:
+      event:
+        - tag
 
   - name: zed-e2e-image-cleanup
     image: docker:cli
@@ -2232,6 +1837,7 @@ steps:
       - zed-e2e-headless-smoke
       - zed-e2e-headless-plan
       - zed-e2e-protocol-lifecycle
+      - zed-e2e-live-claude-latest
     when:
       status:
         - success
@@ -2247,7 +1853,7 @@ steps:
 # - DinD volume paths also use /Volumes/Big/drone-cache/
 # - --provenance=false on all docker builds
 # - --build-arg CUDA_BASE_IMAGE=ubuntu:25.10 for ubuntu-helix (no CUDA on ARM)
-# - Skips zed-e2e-test (add later)
+# - Zed e2e runs once, in zed-e2e-amd64
 # ====================================================================
 kind: pipeline
 type: docker
@@ -2276,123 +1882,36 @@ volumes:
       path: /var/lib/docker/volumes/helix-sandbox-build-cache/_data
 
 steps:
-  # Step 1: Clone external repositories (same as amd64)
-  - name: clone-dependencies
+  - name: clone-zed-source
     image: alpine/git:latest
     commands:
-      - mkdir -p /drone/src/external /drone/src/cache
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Pinned versions: ZED=$${ZED_COMMIT} QWEN=$${QWEN_VERSION}"
-        echo "$${ZED_COMMIT}" > /drone/src/zed-commit.txt
-      - |
-        . /drone/src/sandbox-versions.txt
-        ZED_HEAD=$$(git ls-remote https://github.com/helixml/zed.git HEAD | cut -f1)
-        if [ "$${ZED_COMMIT}" != "$${ZED_HEAD}" ]; then
-          echo "⚠️  ZED_COMMIT is behind upstream HEAD ($${ZED_HEAD:0:12})"
-        fi
-      # Clone external sources into this build's workspace.
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Cloning Zed at commit $${ZED_COMMIT}..."
-        mkdir -p /drone/src/external/zed-source
-        cd /drone/src/external/zed-source
-        git init -q .
-        git fetch --depth 1 https://github.com/helixml/zed.git $${ZED_COMMIT}
-        git checkout FETCH_HEAD
-        echo "✓ Zed source at $$(git rev-parse HEAD)"
-      - echo "=== Dependency versions ==="
-      - echo "Zed:" && cat /drone/src/zed-commit.txt
-      - '. /drone/src/sandbox-versions.txt && echo "Qwen Code: $${QWEN_VERSION}"'
-    volumes:
-      - name: sandbox-build-cache
-        path: /drone/src/cache
+      - sh scripts/clone-zed-source.sh
 
-  # Step 2: Install the pinned, bundled Qwen Code npm release.
   - name: build-qwen-code
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - |
-        . /drone/src/sandbox-versions.txt
-        echo "Installing Qwen Code $${QWEN_VERSION}..."
-        mkdir -p qwen-code-build
-        docker build \
-          --provenance=false \
-          --build-arg QWEN_VERSION=$${QWEN_VERSION} \
-          --output type=local,dest=qwen-code-build \
-          -f Dockerfile.qwen-build \
-          .
-
-        test "$$(cat qwen-code-build/version)" = "$${QWEN_VERSION}"
-        echo "Qwen Code install complete"
-        ls -la qwen-code-build/
+      - sh scripts/build-qwen-code.sh
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-    depends_on:
-      - clone-dependencies
 
-  # Step 3: Build Zed binary (DinD with macOS Docker Desktop paths)
-  # Builds Zed using the full Dockerfile.zed-build with BuildKit cache mounts.
   - name: build-zed
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - |
-        ZED_SOURCE="/drone/src/external/zed-source"
-
-        if [ ! -f "$${ZED_SOURCE}/Cargo.toml" ]; then
-          echo "ERROR: Zed source not found at $${ZED_SOURCE}"
-          exit 1
-        fi
-
-        ZED_SHA=$$(git -C "$${ZED_SOURCE}" rev-parse HEAD)
-        if [ -z "$${ZED_SHA}" ]; then
-          echo "ERROR: Could not determine Zed source commit"
-          exit 1
-        fi
-
-        CACHE_DIR="/drone/src/cache/zed-bin-$${ZED_SHA}"
-        if [ -f "$${CACHE_DIR}/zed" ]; then
-          echo "✓ Using cached Zed binary for $${ZED_SHA}"
-          mkdir -p zed-build
-          cp "$${CACHE_DIR}/zed" zed-build/zed
-          cp "$${CACHE_DIR}/app-icon.png" zed-build/app-icon.png
-          chmod +x zed-build/zed
-        else
-          echo "Building Zed from source commit: $${ZED_SHA}"
-          mkdir -p zed-build
-          docker build \
-            --provenance=false \
-            --build-arg BUILD_TYPE=release \
-            --build-arg ZED_COMMIT_SHA=$${ZED_SHA} \
-            --output type=local,dest=zed-build \
-            -f Dockerfile.zed-build \
-            "$${ZED_SOURCE}"
-
-          cp "$${ZED_SOURCE}/crates/zed/resources/app-icon.png" zed-build/app-icon.png
-          chmod +x zed-build/zed
-
-          mkdir -p "$${CACHE_DIR}"
-          cp zed-build/zed "$${CACHE_DIR}/zed"
-          cp zed-build/app-icon.png "$${CACHE_DIR}/app-icon.png"
-          echo "✓ Cached Zed binary at $${CACHE_DIR}"
-        fi
-        ls -la zed-build/
+      - sh scripts/build-zed-binary.sh cache
     volumes:
       - name: dockersocket
         path: /var/run/docker.sock
       - name: sandbox-build-cache
         path: /drone/src/cache
     depends_on:
-      - clone-dependencies
+      - clone-zed-source
 
-  # Step 4: Build and push desktop images (arm64, with CUDA_BASE_IMAGE override)
+  # Build and push desktop images (arm64, with CUDA_BASE_IMAGE override)
   - name: build-desktops
     image: docker:cli
     environment:
@@ -2438,7 +1957,7 @@ steps:
       - build-qwen-code
       - build-zed
 
-  # Step 5: Build sandbox image (arm64)
+  # Build sandbox image (arm64)
   - name: build-sandbox
     image: docker:cli
     environment:
@@ -2465,7 +1984,7 @@ steps:
     depends_on:
       - build-desktops
 
-  # Step 6: Push to registry (arm64)
+  # Push to registry (arm64)
   - name: push-sandbox
     image: docker:cli
     environment:
