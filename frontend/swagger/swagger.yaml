@@ -11180,12 +11180,6 @@ definitions:
       require_active_subscription:
         description: Require an active subscription before allowing to use the product
         type: boolean
-      rudderstack_data_plane_url:
-        type: string
-      rudderstack_write_key:
-        type: string
-      sentry_dsn_frontend:
-        type: string
       server_url:
         description: |-
           ServerURL is the operator-configured public origin for this helix

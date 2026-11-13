@@ -45832,15 +45832,6 @@
                         "description": "Require an active subscription before allowing to use the product",
                         "type": "boolean"
                     },
-                    "rudderstack_data_plane_url": {
-                        "type": "string"
-                    },
-                    "rudderstack_write_key": {
-                        "type": "string"
-                    },
-                    "sentry_dsn_frontend": {
-                        "type": "string"
-                    },
                     "server_url": {
                         "description": "ServerURL is the operator-configured public origin for this helix\ninstance (env SERVER_URL → WebServer.URL). Empty when not\nconfigured; the frontend then falls back to\n`window.location.origin`. The github-stream New Stream dialog\nuses this to surface a webhook URL that's actually reachable by\nGitHub — `window.location.origin` is wrong whenever the user is\nhitting the app via localhost / a dev port that GitHub can't\nreach.",
                         "type": "string"

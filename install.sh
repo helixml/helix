@@ -2297,8 +2297,6 @@ EOF
 
 ## Analytics
 # GOOGLE_ANALYTICS_FRONTEND=
-# SENTRY_DSN_FRONTEND=
-# SENTRY_DSN_API=
 
 ## Notifications
 # EMAIL_SMTP_HOST=smtp.example.com
