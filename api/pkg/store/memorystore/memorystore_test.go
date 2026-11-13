@@ -143,7 +143,7 @@ func TestGetLatestActivationPromptHistoryEntryIncludesCancelled(t *testing.T) {
 	}
 }
 
-func TestRecoverProviderPromptForConfigChangeOnlyClaimsLatestUncancelledFailure(t *testing.T) {
+func TestRecoverFailedPromptOnlyClaimsLatestUncancelledFailure(t *testing.T) {
 	ctx := context.Background()
 	memory := New()
 	now := time.Now()
@@ -174,7 +174,7 @@ func TestRecoverProviderPromptForConfigChangeOnlyClaimsLatestUncancelledFailure(
 	}); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err := memory.RecoverProviderPromptForConfigChange(ctx, "session-1", "old-prompt", "old-error")
+	claimed, err := memory.RecoverFailedPrompt(ctx, "session-1", "old-prompt", "old-error")
 	if err != nil || claimed {
 		t.Fatalf("old failure with newer success: claimed=%v err=%v", claimed, err)
 	}
@@ -190,7 +190,7 @@ func TestRecoverProviderPromptForConfigChangeOnlyClaimsLatestUncancelledFailure(
 	}); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err = memory.RecoverProviderPromptForConfigChange(ctx, "session-1", "cancelled-prompt", "cancelled-error")
+	claimed, err = memory.RecoverFailedPrompt(ctx, "session-1", "cancelled-prompt", "cancelled-error")
 	if err != nil || claimed {
 		t.Fatalf("cancelled failure: claimed=%v err=%v", claimed, err)
 	}
@@ -203,7 +203,7 @@ func TestRecoverProviderPromptForConfigChangeOnlyClaimsLatestUncancelledFailure(
 	}); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err = memory.RecoverProviderPromptForConfigChange(ctx, "session-1", "eligible-prompt", "eligible-error")
+	claimed, err = memory.RecoverFailedPrompt(ctx, "session-1", "eligible-prompt", "eligible-error")
 	if err != nil || !claimed {
 		t.Fatalf("eligible failure: claimed=%v err=%v", claimed, err)
 	}

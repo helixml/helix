@@ -868,7 +868,7 @@ func (m *MemoryStore) RecoverProviderPrompt(_ context.Context, sessionID, prompt
 	return true, nil
 }
 
-func (m *MemoryStore) RecoverProviderPromptForConfigChange(_ context.Context, sessionID, promptID, interactionID string) (bool, error) {
+func (m *MemoryStore) RecoverFailedPrompt(_ context.Context, sessionID, promptID, interactionID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	session := m.sessions[sessionID]

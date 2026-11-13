@@ -483,7 +483,7 @@ func (s *AutoWakeColdStartSuite) TestSettlesPartialTurnWhenStoppedAgentContainer
 	}, nil)
 	s.executor.EXPECT().HasRunningContainer(gomock.Any(), stuck.SessionID).Return(false)
 	s.store.EXPECT().MarkStaleInteractionErrorIfWaiting(
-		gomock.Any(), stuck.ID, 7, stuck.Updated, "External agent stopped before completing the turn",
+		gomock.Any(), stuck.ID, 7, stuck.Updated, externalAgentStoppedTurnError,
 	).Return(true, nil)
 
 	s.server.maybeAutoWake(context.Background(), stuck)

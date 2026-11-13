@@ -861,6 +861,102 @@ func TestInProcSpawnerClient_FailedQueuedDeliveryNudgesRetry(t *testing.T) {
 	require.Len(t, entries, 1)
 }
 
+func TestInProcSpawnerClient_InterruptedQueuedDeliveryRetriesOnce(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/interrupted"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_interrupted_delivery", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry interrupted activation", Status: "sent",
+	}))
+	oldInteraction, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_interrupted_delivery", SessionID: session.ID, PromptID: promptID,
+		State: types.InteractionStateError, Error: externalAgentStoppedTurnError, ResponseMessage: "partial output",
+	})
+	require.NoError(t, err)
+
+	delivery, err := client.SendMessage(ctx, session.ID, "retry interrupted activation", deliveryID, true)
+	require.NoError(t, err)
+	require.Equal(t, oldInteraction.ID, delivery.PreviousInteractionID)
+	require.Empty(t, delivery.InteractionID)
+	preserved, err := store.GetInteraction(ctx, oldInteraction.ID)
+	require.NoError(t, err)
+	require.Equal(t, "partial output", preserved.ResponseMessage)
+
+	require.Eventually(t, func() bool {
+		retry, getErr := store.GetLatestInteractionByPromptID(ctx, promptID)
+		return getErr == nil && retry != nil && retry.ID != oldInteraction.ID
+	}, time.Second, 10*time.Millisecond)
+	retry, err := store.GetLatestInteractionByPromptID(ctx, promptID)
+	require.NoError(t, err)
+	retry.State = types.InteractionStateComplete
+	retry.ResponseMessage = "recovered"
+	_, err = store.UpdateInteraction(ctx, retry)
+	require.NoError(t, err)
+	require.NoError(t, store.MarkPromptAsSent(ctx, promptID))
+	out, err := client.GetDeliveryOutput(ctx, delivery)
+	require.NoError(t, err)
+	require.Equal(t, retry.ID, out.InteractionID)
+	require.Equal(t, string(types.InteractionStateComplete), out.Status)
+	require.Equal(t, "recovered", out.Output)
+
+	replayed, err := client.SendMessage(ctx, session.ID, "retry interrupted activation", deliveryID, false)
+	require.NoError(t, err)
+	require.True(t, replayed.Completed)
+	require.Equal(t, retry.ID, replayed.InteractionID)
+	interactions, _, err := store.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID, GenerationID: -1})
+	require.NoError(t, err)
+	require.Len(t, interactions, 2)
+}
+
+func TestInProcSpawnerClient_PendingInterruptedDeliveryRecoversAfterRestart(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/interrupted-restart"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_interrupted_restart", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "resume pending retry", Status: "pending",
+	}))
+	oldInteraction, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_interrupted_restart", SessionID: session.ID, PromptID: promptID,
+		State: types.InteractionStateError, Error: externalAgentStoppedTurnError,
+	})
+	require.NoError(t, err)
+
+	delivery, err := client.SendMessage(ctx, session.ID, "resume pending retry", deliveryID, false)
+	require.NoError(t, err)
+	require.Equal(t, oldInteraction.ID, delivery.PreviousInteractionID)
+	out, err := client.GetDeliveryOutput(ctx, delivery)
+	require.NoError(t, err)
+	require.NotEqual(t, oldInteraction.ID, out.InteractionID)
+}
+
+func TestInProcSpawnerClient_OtherDeliveryErrorRemainsTerminal(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/explicit-stop"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_explicit_stop", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "do not retry", Status: "sent",
+	}))
+	interaction, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_explicit_stop", SessionID: session.ID, PromptID: promptID,
+		State: types.InteractionStateError, Error: "external agent session stopped",
+	})
+	require.NoError(t, err)
+
+	delivery, err := client.SendMessage(ctx, session.ID, "do not retry", deliveryID, false)
+	require.NoError(t, err)
+	require.Equal(t, interaction.ID, delivery.InteractionID)
+	require.Empty(t, delivery.PreviousInteractionID)
+	entry, err := store.GetPromptHistoryEntry(ctx, promptID)
+	require.NoError(t, err)
+	require.Equal(t, "sent", entry.Status)
+}
+
 // TestInProcProjectService_GetAppConfig_RoundTrips seeds an app row and
 // asserts GetAppConfig returns its embedded AppConfig verbatim.
 // Validates the JSON shape Helix's handler emits matches what the

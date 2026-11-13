@@ -56,3 +56,18 @@ func TestActivationDeliveryOutputUsesLatestPromptAttempt(t *testing.T) {
 	require.Equal(t, string(types.InteractionStateComplete), output.Status)
 	require.Equal(t, "retry output", output.Output)
 }
+
+func TestActivationDeliveryOutputWaitsPastRecoveredAttempt(t *testing.T) {
+	_, store, client, _, ctx := newInProcTestSetup(t)
+	_, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_activation_recovered", SessionID: "ses_activation", PromptID: "pmt_activation",
+		State: types.InteractionStateError, Error: externalAgentStoppedTurnError,
+	})
+	require.NoError(t, err)
+
+	output, err := client.GetDeliveryOutput(ctx, runtimehelix.DeliveryResult{
+		SessionID: "ses_activation", PromptID: "pmt_activation", PreviousInteractionID: "int_activation_recovered",
+	})
+	require.NoError(t, err)
+	require.Empty(t, output.InteractionID)
+}
