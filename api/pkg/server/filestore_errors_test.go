@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"cloud.google.com/go/storage"
@@ -19,8 +21,8 @@ func TestFilestoreHTTPErrorHidesStorageDetails(t *testing.T) {
 	fsStore := filestore.NewFileSystemStorage(root, "http://example.test/files", "secret")
 
 	_, statErr := fsStore.Get(context.Background(), "dev/users/u1/%2e%2e%2fmissing")
-	require.Error(t, statErr)
-	require.Contains(t, statErr.Error(), root, "precondition: the raw error names the storage root")
+	require.ErrorIs(t, statErr, filestore.ErrNotFound)
+	require.NotContains(t, statErr.Error(), root)
 
 	_, escapeErr := fsStore.Get(context.Background(), "../../etc/passwd")
 	require.Error(t, escapeErr)
@@ -55,12 +57,46 @@ func TestFilestoreHTTPErrorHidesStorageDetails(t *testing.T) {
 func TestWithFilestoreErrorsAnswersThroughTheWrapper(t *testing.T) {
 	root := t.TempDir()
 	fsStore := filestore.NewFileSystemStorage(root, "http://example.test/files", "secret")
-	handler := system.DefaultWrapper(withFilestoreErrors(func(_ http.ResponseWriter, r *http.Request) (filestore.Item, error) {
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "dev/users/u1/docs"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "dev/users/u1/docs/a.txt"), []byte("a"), 0o644))
+	locked := filepath.Join(root, "dev/users/u1/locked")
+	require.NoError(t, os.MkdirAll(locked, 0o755))
+	require.NoError(t, os.Chmod(locked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	get := system.DefaultWrapper(withFilestoreErrors(func(_ http.ResponseWriter, r *http.Request) (filestore.Item, error) {
 		return fsStore.Get(r.Context(), "dev/users/u1/"+r.URL.Query().Get("path"))
 	}))
+	list := system.DefaultWrapper(withFilestoreErrors(func(_ http.ResponseWriter, r *http.Request) ([]filestore.Item, error) {
+		return fsStore.List(r.Context(), "dev/users/u1/"+r.URL.Query().Get("path"))
+	}))
 
-	rec := httptest.NewRecorder()
-	handler(rec, httptest.NewRequest(http.MethodGet, "/api/v1/filestore/get?path=nope", nil))
-	require.Equal(t, http.StatusNotFound, rec.Code)
-	require.Equal(t, "file not found\n", rec.Body.String())
+	tests := []struct {
+		name      string
+		handler   http.HandlerFunc
+		path      string
+		status    int
+		body      string
+		needsPerm bool
+	}{
+		{name: "get existing file", handler: get, path: "docs/a.txt", status: http.StatusOK},
+		{name: "get missing file", handler: get, path: "nope", status: http.StatusNotFound, body: "file not found\n"},
+		{name: "get under unreadable folder", handler: get, path: "locked/a.txt", status: http.StatusInternalServerError, body: "filestore operation failed\n", needsPerm: true},
+		{name: "list missing folder", handler: list, path: "missing", status: http.StatusOK, body: "[]\n"},
+		{name: "list unreadable folder", handler: list, path: "locked", status: http.StatusInternalServerError, body: "filestore operation failed\n", needsPerm: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.needsPerm && os.Geteuid() == 0 {
+				t.Skip("running as root: permission bits are not enforced")
+			}
+			rec := httptest.NewRecorder()
+			tc.handler(rec, httptest.NewRequest(http.MethodGet, "/api/v1/filestore/x?path="+tc.path, nil))
+			require.Equal(t, tc.status, rec.Code)
+			if tc.body != "" {
+				require.Equal(t, tc.body, rec.Body.String())
+			}
+			require.NotContains(t, rec.Body.String(), root)
+		})
+	}
 }
