@@ -157,8 +157,15 @@ func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterR
 			Str("clone_url", RedactURLCredentials(params.CloneURL)).
 			Str("remote_url", RedactURLCredentials(source.RemoteURL())).
 			Int64("kodit_repo_id", source.ID()).
-			Msg("Kodit returned a source registered for a different repository; refusing to adopt it")
-		return 0, false, ErrKoditSourceOwnedElsewhere
+			Msg("Kodit matched a source registered for a different repository by upstream URL; registering this repository on its own")
+		if params.UpstreamURL == "" {
+			return 0, false, ErrKoditSourceOwnedElsewhere
+		}
+		// Without an upstream URL Kodit keys the source on the clone URL,
+		// which is unique to this repository.
+		own := *params
+		own.UpstreamURL = ""
+		return s.RegisterRepository(ctx, &own)
 	}
 
 	log.Info().Str("clone_url", RedactURLCredentials(params.CloneURL)).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
@@ -169,17 +176,27 @@ func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterR
 // same upstream for a different Helix repository.
 var ErrKoditSourceOwnedElsewhere = errors.New("this upstream is already indexed for another repository")
 
-// sameKoditCloneSource reports whether two clone URLs name the same host and
-// path, ignoring credentials (each registration embeds its own key).
+// sameKoditCloneSource reports whether two clone URLs name the same source.
+// Only the path is compared: for Helix git URLs it is /git/<repository id>,
+// which is unique per repository, while the scheme, host and embedded key may
+// change between registrations (KODIT_GIT_URL, key rotation). file:// URLs
+// (knowledge directories) compare by path too.
 func sameKoditCloneSource(a, b string) bool {
 	ua, errA := url.Parse(a)
 	ub, errB := url.Parse(b)
-	if errA != nil || errB != nil || ua.Host == "" {
+	if errA != nil || errB != nil || koditSchemeFamily(ua.Scheme) != koditSchemeFamily(ub.Scheme) {
 		return false
 	}
-	return strings.EqualFold(ua.Scheme, ub.Scheme) &&
-		strings.EqualFold(ua.Host, ub.Host) &&
-		strings.TrimSuffix(ua.Path, "/") == strings.TrimSuffix(ub.Path, "/")
+	pa, pb := strings.TrimSuffix(ua.Path, "/"), strings.TrimSuffix(ub.Path, "/")
+	return pa != "" && pa == pb
+}
+
+func koditSchemeFamily(scheme string) string {
+	scheme = strings.ToLower(scheme)
+	if scheme == "https" {
+		return "http"
+	}
+	return scheme
 }
 
 // GetRepositoryEnrichments fetches enrichments for a repository from Kodit,

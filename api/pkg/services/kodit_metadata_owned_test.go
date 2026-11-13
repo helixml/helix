@@ -32,6 +32,10 @@ func TestSameKoditCloneSource(t *testing.T) {
 	assert.False(t, sameKoditCloneSource("https://github.com/acme/private", own), "an upstream URL")
 	assert.False(t, sameKoditCloneSource("", own))
 	assert.False(t, sameKoditCloneSource("::", own))
+	assert.True(t, sameKoditCloneSource("https://helix.example/git/repo_1", own), "KODIT_GIT_URL changed host and scheme family")
+	assert.True(t, sameKoditCloneSource("file:///data/knowledge/k1", "file:///data/knowledge/k1"), "knowledge directory re-registration")
+	assert.False(t, sameKoditCloneSource("file:///data/knowledge/k2", "file:///data/knowledge/k1"))
+	assert.False(t, sameKoditCloneSource("file:///git/repo_1", own), "scheme must match")
 }
 
 func TestUpdateRepository_CannotRepointKoditIndex(t *testing.T) {
