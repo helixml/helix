@@ -229,6 +229,7 @@ func (b *KoditMCPBackend) handlerForSession(ctx context.Context, sessionID strin
 	if err != nil {
 		return nil, err
 	}
+	handler = koditScopeGuard(scope.repoIDs, handler)
 
 	now := time.Now()
 	b.handlersMu.Lock()
