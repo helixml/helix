@@ -985,7 +985,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 			Int("canonical_hostnames", len(vhostCfg.CanonicalHostnames)).
 			Msg("vhost middleware enabled (project web services + preview tokens)")
 	}
-	var handler http.Handler = NewVHostMiddleware(vhostCfg, apiServer, cleanWebSearchBasePath(apiServer.router))
+	// Security headers go on the application router only, not around the
+	// vhost proxy: customer web services and previews set their own.
+	appHandler := securityHeadersMiddleware(apiServer.Cfg.WebServer.URL, apiServer.Cfg.WebServer.HSTSMaxAge, cleanWebSearchBasePath(apiServer.router))
+	var handler http.Handler = NewVHostMiddleware(vhostCfg, apiServer, appHandler)
 
 	// Request audit trail: one durable record per request, wrapped around the
 	// vhost proxy so customer traffic that never reaches the mux is audited
@@ -1899,7 +1902,7 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 	} else {
 		log.Info().Msgf("serving static UI files from %s", frontendURL)
 		fileSystem := http.Dir(frontendURL)
-		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem, spa.ShellPolicy{FrameAncestors: apiServer.Cfg.WebServer.FrameAncestors}))
 	}
 }
 

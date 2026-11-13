@@ -1095,6 +1095,18 @@ type WebServer struct {
 
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 
+	// HSTSMaxAge is the Strict-Transport-Security max-age sent on responses
+	// for the SERVER_URL host when SERVER_URL is https. It covers that host
+	// only (no includeSubDomains). Zero disables the header.
+	HSTSMaxAge time.Duration `envconfig:"HELIX_HSTS_MAX_AGE" default:"8760h" description:"Strict-Transport-Security max-age for the SERVER_URL host when it is https. 0 disables."`
+
+	// FrameAncestors restricts which origins may frame the web UI, as a CSP
+	// frame-ancestors source list (e.g. "'self'" or "'self' https://portal.example.com").
+	// Empty leaves framing unrestricted, which Helix Desktop and portals that
+	// frame the whole UI rely on. /embed/* pages are always frameable: they
+	// exist to be embedded.
+	FrameAncestors string `envconfig:"HELIX_FRAME_ANCESTORS" description:"CSP frame-ancestors source list for the web UI (e.g. \"'self'\"). Empty allows any origin to frame it. /embed/* pages are always frameable."`
+
 	// DevSubdomain enables subdomain-based virtual hosting for dev container ports.
 	// Format: "dev.helix.example.com" (full domain) or "dev" (uses SERVER_URL domain).
 	// When enabled, requests to p{port}-{session_id}.dev.domain.com are proxied to the session's port.
