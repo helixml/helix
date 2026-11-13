@@ -162,8 +162,10 @@ steps:
         - push
     depends_on: [build-chrome-image]
 
-  # Fails when the image's Chromium is more than 2 majors behind stable.
-  - name: chrome-freshness
+  # The image carries the Chromium pinned in chrome-version.env, and the pin
+  # is within 2 majors of the stable major recorded with it. No network, so
+  # it only changes with the code; the smoke-test cron checks live stable.
+  - name: chrome-version-check
     image: docker:cli
     volumes:
       - name: dockersocket
@@ -279,6 +281,22 @@ steps:
       event:
         - push
     depends_on: [run-migrations, chrome]
+
+  # Helix for Mac's VM start script (postgres pin before compose up). The
+  # for-mac app itself only builds on macOS; this package is plain Go.
+  - name: for-mac-stackscript-test
+    image: golang:1.25-bookworm
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    commands:
+      - cd for-mac && go test -count=1 ./stackscript
+    when:
+      event:
+        - push
+    depends_on: []
 
   - name: unit-test-nocgo
     image: golang:1.25-alpine
@@ -980,7 +998,7 @@ steps:
       status:
         - success
         - failure
-    depends_on: [unit-test, api-integration-test, api-authz-matrix, chrome-freshness, chrome-image-scan]
+    depends_on: [unit-test, api-integration-test, api-authz-matrix, chrome-version-check, chrome-image-scan]
 
 services:
   - name: postgres
@@ -1062,6 +1080,9 @@ steps:
           -f Dockerfile.chrome \
           -t registry.helixml.tech/helix/chrome:$${VERSION}-linux-amd64 \
           .
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1 \
+          image --no-progress --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 \
+          registry.helixml.tech/helix/chrome:$${VERSION}-linux-amd64
         echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
         scripts/publish-image.sh \
           registry.helixml.tech/helix/controlplane:$${VERSION}-linux-amd64 \
@@ -1123,6 +1144,9 @@ steps:
           -f Dockerfile.chrome \
           -t registry.helixml.tech/helix/chrome:$${VERSION}-linux-arm64 \
           .
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1 \
+          image --no-progress --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 \
+          registry.helixml.tech/helix/chrome:$${VERSION}-linux-arm64
         scripts/publish-image.sh \
           registry.helixml.tech/helix/controlplane:$${VERSION}-linux-arm64 \
           registry.helixml.tech/helix/chrome:$${VERSION}-linux-arm64
@@ -1214,6 +1238,17 @@ steps:
         path: /integration-test
     depends_on: [build-chrome-image]
 
+  # Live check against today's Chrome stable: fails when the pinned Chromium
+  # is more than 2 majors behind, i.e. chrome-version.env is due a bump.
+  - name: chrome-freshness
+    image: docker:cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      - "scripts/check-chromium-freshness.sh --online helix-chrome-ci:${DRONE_BUILD_NUMBER}"
+    depends_on: [build-chrome-image]
+
   - name: smoke-test-saas
     image: golang:1.25-alpine
     volumes:
@@ -1246,6 +1281,7 @@ steps:
     when:
       status:
         - failure
+    depends_on: [smoke-test-saas, chrome-freshness]
 
   - name: cleanup-chrome-image
     image: docker:cli
@@ -1259,7 +1295,7 @@ steps:
       status:
         - success
         - failure
-    depends_on: [smoke-test-saas]
+    depends_on: [smoke-test-saas, chrome-freshness]
 
 volumes:
   - name: integration-test

@@ -43,6 +43,13 @@ chrome:
     tag: ""
   # Extra environment variables for the Chrome container (in addition to global.extraEnv)
   extraEnv: []
+  networkPolicy:
+    # Only the controlplane pods may reach the browser manager on :7317; it
+    # launches a browser for any client that can connect. Needs a CNI that
+    # enforces NetworkPolicy (most do; kindnet and flannel alone do not).
+    enabled: true
+    # Further allowed sources, as NetworkPolicy "from" peers.
+    extraFrom: []
 
 controlplane:
   # Wait for PostgreSQL to be ready before starting the controlplane.

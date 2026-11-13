@@ -1,50 +1,57 @@
-# Crawler browser: go-rod's launcher manager (rod-manager) in front of a
-# current Chromium. Same contract as ghcr.io/go-rod/rod: the manager listens
-# on :7317 and the API connects with launcher.NewManaged
-# (RAG_CRAWLER_LAUNCHER_URL). rod-manager is built from the go-rod version in
-# go.mod, so the manager and the API's launcher client always match.
+# Crawler browser: a go-rod launcher manager in front of a current Chromium.
+# Same contract as ghcr.io/go-rod/rod: the manager listens on :7317 and the
+# API connects with launcher.NewManaged (RAG_CRAWLER_LAUNCHER_URL).
 #
 #   docker build -f Dockerfile.chrome -t helix-chrome .
 #
-# Chromium comes from Debian trixie (chromium-headless-shell), which Debian
-# security tracks on the current stable major; a rebuild picks up the latest.
-# The build fails below the floor in chrome-version.env, and CI runs
-# scripts/check-chromium-freshness.sh against the result.
+# The manager (api/cmd/chrome-manager) is built against the go-rod version in
+# go.mod, so it always matches the API's launcher client, and only launches
+# the bundled Chromium with the flags the crawler uses. Chromium is Debian
+# trixie's chromium-headless-shell, pinned with the Debian snapshot in
+# chrome-version.env; scripts/check-chromium-freshness.sh says when to bump.
 
-FROM golang:1.27 AS manager
+# golang:1.27
+FROM golang@sha256:ec47ea3725fea0cc88f6de94919aef19f40f12fc1ec0e2d1b3426dbf15ecca04 AS manager
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" \
-      -o /out/rod-manager github.com/go-rod/rod/lib/launcher/rod-manager
+COPY api/cmd/chrome-manager/main.go api/cmd/chrome-manager/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/chrome-manager ./api/cmd/chrome-manager
 
-FROM debian:trixie-slim
+# debian:trixie-slim
+FROM debian@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      chromium-headless-shell \
+COPY chrome-version.env /etc/helix/chrome-version.env
+RUN . /etc/helix/chrome-version.env \
+ && rm -f /etc/apt/sources.list.d/debian.sources \
+ && printf '%s\n' \
+      "Types: deb" \
+      "URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}" \
+      "Suites: trixie trixie-updates" \
+      "Components: main" \
+      "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" \
+      "" \
+      "Types: deb" \
+      "URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}" \
+      "Suites: trixie-security" \
+      "Components: main" \
+      "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" \
+      > /etc/apt/sources.list.d/snapshot.sources \
+ && apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=5 update \
+ && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+      "chromium-headless-shell=${CHROMIUM_VERSION}" \
       ca-certificates \
       dumb-init \
       fonts-liberation \
       fonts-noto-cjk \
       fonts-noto-color-emoji \
       tzdata \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && /usr/lib/chromium/chromium-headless-shell --version
 
-COPY chrome-version.env /etc/helix/chrome-version.env
-RUN . /etc/helix/chrome-version.env \
- && major=$(/usr/lib/chromium/chromium-headless-shell --version | sed -E 's/^[^0-9]*([0-9]+)\..*/\1/') \
- && echo "Chromium major ${major} (floor ${CHROMIUM_MIN_MAJOR})" \
- && [ "${major}" -ge "${CHROMIUM_MIN_MAJOR}" ]
+COPY --from=manager /out/chrome-manager /usr/local/bin/chrome-manager
 
-COPY --from=manager /out/rod-manager /usr/local/bin/rod-manager
-
-# rod-manager only launches browser binaries under $HOME/.cache/rod/browser.
-# The link is root-owned so the manager cannot replace it or fall back to
-# downloading go-rod's bundled Chromium.
+# go-rod passes --no-sandbox when it detects a container.
 RUN useradd --system --uid 10001 --create-home --home-dir /home/rod rod \
- && mkdir -p /home/rod/.cache/rod/browser/chromium \
- && ln -s /usr/lib/chromium/chromium-headless-shell /home/rod/.cache/rod/browser/chromium/chrome \
- && chown -R root:root /home/rod/.cache \
  && touch /.dockerenv
 
 ENV HOME=/home/rod
@@ -53,4 +60,4 @@ WORKDIR /home/rod
 EXPOSE 7317
 
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["rod-manager", "-rod", "bin=/home/rod/.cache/rod/browser/chromium/chrome"]
+CMD ["chrome-manager", "-bin", "/usr/lib/chromium/chromium-headless-shell"]

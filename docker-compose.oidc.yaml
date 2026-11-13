@@ -75,7 +75,7 @@ services:
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke
     ports:
-      - 7317:7317
+      - 127.0.0.1:7317:7317
   frontend:
     ports:
       - 8081:${FRONTEND_INTERNAL_PORT:-8081}

@@ -1,5 +1,12 @@
 # Upgrade Guide
 
+## Crawler browser image
+
+The crawler browser moves from `ghcr.io/go-rod/rod:v0.116.2` to `ghcr.io/helixml/chrome`, built with each release and tagged with the chart `appVersion`.
+
+- **Mirrored or private registries.** If your values override only `chrome.image.repository` (for example to a mirror of `ghcr.io/go-rod/rod`), the chart now renders `<your repository>:<appVersion>`, which your mirror probably does not have. Mirror `ghcr.io/helixml/chrome` at the release tag, or set `chrome.image.tag` as well.
+- **NetworkPolicy.** The chart adds a NetworkPolicy, `chrome.networkPolicy.enabled` (default `true`), that only admits the controlplane pods to the chrome pod on port 7317. Add other sources with `chrome.networkPolicy.extraFrom`.
+
 ## JWT signing key
 
 Applies to the first release that no longer has a built-in `REGULAR_AUTH_JWT_SECRET` default (any install method: Helm, `install.sh`, docker compose).
