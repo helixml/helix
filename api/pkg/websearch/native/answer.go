@@ -22,7 +22,7 @@ func (p *Provider) Answer(ctx context.Context, req *websearch.AnswerRequest) (*w
 func (p *Provider) StreamAnswer(ctx context.Context, req *websearch.AnswerRequest, emit func(websearch.AnswerEvent) error) error {
 	role := "assistant"
 	onDelta := func(d string) error {
-		ev := websearch.AnswerEvent{Choices: []websearch.AnswerChoice{{Delta: websearch.AnswerDelta{Role: role, Content: d}}}}
+		ev := websearch.AnswerEvent{Choices: []websearch.StreamChoice{{Delta: websearch.StreamDelta{Role: role, Content: d}}}}
 		role = ""
 		return emit(ev)
 	}

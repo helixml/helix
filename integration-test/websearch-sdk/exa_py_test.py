@@ -4,6 +4,7 @@ Usage: HELIX_URL=http://localhost:8080 HELIX_API_KEY=... python exa_py_test.py
 """
 import os
 import sys
+from urllib.parse import urlparse
 
 from exa_py import Exa
 
@@ -36,7 +37,7 @@ c = exa.get_contents(["https://go.dev/doc/tutorial/generics"], text={"max_charac
 check("get_contents by url", len(c.results) == 1 and len(c.results[0].text) <= 200)
 
 s = exa.find_similar("https://go.dev/doc/tutorial/generics", num_results=3, exclude_source_domain=True)
-check("find_similar", len(s.results) > 0 and all("go.dev" not in x.url for x in s.results))
+check("find_similar", len(s.results) > 0 and all(urlparse(x.url).hostname != "go.dev" for x in s.results))
 
 a = exa.answer("In which Go version were generics introduced?")
 check("answer", "1.18" in str(a.answer), str(a.answer)[:80])

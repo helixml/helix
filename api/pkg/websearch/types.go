@@ -358,7 +358,7 @@ type ContentsCost struct {
 type SearchResponse struct {
 	RequestID          string        `json:"requestId"`
 	Results            []Result      `json:"results"`
-	ResolvedSearchType string        `json:"resolvedSearchType,omitempty"`
+	ResolvedSearchType string        `json:"resolvedSearchType"`
 	SearchTime         float64       `json:"searchTime"`
 	Warnings           []Warning     `json:"warnings,omitempty"`
 	Notices            []Notice      `json:"notices,omitempty"`
@@ -444,15 +444,20 @@ type AnswerResponse struct {
 
 // SearchEvent is one SSE chunk of a streamed /search (outputSchema + stream).
 type SearchEvent struct {
-	Type        string        `json:"type"` // text-delta | grounding | results | done | error
-	Delta       string        `json:"delta,omitempty"`
-	Grounding   []Grounding   `json:"grounding,omitempty"`
-	Results     []Result      `json:"results,omitempty"`
-	Warnings    []Warning     `json:"warnings,omitempty"`
-	Output      *SearchOutput `json:"output,omitempty"`
-	SearchTime  float64       `json:"searchTime,omitempty"`
-	CostDollars *CostDollars  `json:"costDollars,omitempty"`
-	Error       *EventError   `json:"error,omitempty"`
+	RequestID   string         `json:"requestId,omitempty"`
+	Type        string         `json:"type"` // text-delta | grounding | results | stream-reset | done | error
+	Delta       *string        `json:"delta,omitempty"` // set on text-delta, even when empty
+	Choices     []StreamChoice `json:"choices,omitempty"`
+	Grounding   []Grounding    `json:"grounding,omitempty"`
+	Citations   []Citation     `json:"citations,omitempty"`
+	Results     []Result       `json:"results,omitempty"`
+	Warnings    []Warning      `json:"warnings,omitempty"`
+	Notices     []Notice       `json:"notices,omitempty"`
+	StreamReset bool           `json:"streamReset,omitempty"`
+	Output      *SearchOutput  `json:"output,omitempty"`
+	SearchTime  float64        `json:"searchTime,omitempty"`
+	CostDollars *CostDollars   `json:"costDollars,omitempty"`
+	Error       *EventError    `json:"error,omitempty"`
 }
 
 // Search event types.
@@ -460,6 +465,7 @@ const (
 	SearchEventTextDelta = "text-delta"
 	SearchEventGrounding = "grounding"
 	SearchEventResults   = "results"
+	SearchEventReset     = "stream-reset"
 	SearchEventDone      = "done"
 	SearchEventError     = "error"
 )
@@ -471,7 +477,7 @@ type EventError struct {
 // AnswerEvent is one SSE chunk of a streamed /answer: a text delta in
 // OpenAI chat-chunk shape, the citations, or the final cost.
 type AnswerEvent struct {
-	Choices     []AnswerChoice `json:"choices,omitempty"`
+	Choices     []StreamChoice `json:"choices,omitempty"`
 	Citations   []Result       `json:"citations,omitempty"`
 	CostDollars *CostDollars   `json:"costDollars,omitempty"`
 	RequestID   string         `json:"requestId,omitempty"`
@@ -496,13 +502,13 @@ type AnswerErrorDetail struct {
 	Message string `json:"message"`
 }
 
-type AnswerChoice struct {
+type StreamChoice struct {
 	Index        int         `json:"index"`
-	Delta        AnswerDelta `json:"delta"`
+	Delta        StreamDelta `json:"delta"`
 	FinishReason *string     `json:"finish_reason"`
 }
 
-type AnswerDelta struct {
+type StreamDelta struct {
 	Role    string `json:"role,omitempty"`
 	Content string `json:"content"`
 }

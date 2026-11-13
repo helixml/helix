@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
+	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/websearch"
 )
@@ -123,7 +124,7 @@ func (s *WebSearchHandlersSuite) TestContractViolationIs400() {
 func (s *WebSearchHandlersSuite) TestStreamSearchSSE() {
 	s.provider.EXPECT().StreamSearch(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ *websearch.SearchRequest, emit func(websearch.SearchEvent) error) error {
-			s.Require().NoError(emit(websearch.SearchEvent{Type: websearch.SearchEventTextDelta, Delta: "Hi"}))
+			s.Require().NoError(emit(websearch.SearchEvent{Type: websearch.SearchEventTextDelta, Delta: ptr.To("Hi")}))
 			return emit(websearch.SearchEvent{Type: websearch.SearchEventDone})
 		})
 
@@ -131,24 +132,26 @@ func (s *WebSearchHandlersSuite) TestStreamSearchSSE() {
 
 	s.Equal(http.StatusOK, rec.Code)
 	s.Equal("text/event-stream", rec.Header().Get("Content-Type"))
-	s.NotEmpty(rec.Header().Get("x-request-id"))
-	s.Equal(`data: {"type":"text-delta","delta":"Hi"}`+"\n\n"+
-		`data: {"type":"done"}`+"\n\n"+
+	id := rec.Header().Get("x-request-id")
+	s.NotEmpty(id)
+	s.Equal(`data: {"requestId":"`+id+`","type":"text-delta","delta":"Hi"}`+"\n\n"+
+		`data: {"requestId":"`+id+`","type":"done"}`+"\n\n"+
 		"data: [DONE]\n\n", rec.Body.String())
 }
 
 func (s *WebSearchHandlersSuite) TestStreamSearchErrorAfterStart() {
 	s.provider.EXPECT().StreamSearch(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ *websearch.SearchRequest, emit func(websearch.SearchEvent) error) error {
-			s.Require().NoError(emit(websearch.SearchEvent{Type: websearch.SearchEventTextDelta, Delta: "Hi"}))
+			s.Require().NoError(emit(websearch.SearchEvent{Type: websearch.SearchEventTextDelta, Delta: ptr.To("Hi")}))
 			return errors.New("llm went away")
 		})
 
 	rec := s.post("/api/v1/websearch/search", `{"query":"q","stream":true,"outputSchema":{"type":"text"}}`)
 
 	s.Equal(http.StatusOK, rec.Code)
-	s.Equal(`data: {"type":"text-delta","delta":"Hi"}`+"\n\n"+
-		`data: {"type":"error","error":{"message":"llm went away"}}`+"\n\n"+
+	id := rec.Header().Get("x-request-id")
+	s.Equal(`data: {"requestId":"`+id+`","type":"text-delta","delta":"Hi"}`+"\n\n"+
+		`data: {"requestId":"`+id+`","type":"error","error":{"message":"llm went away"}}`+"\n\n"+
 		"data: [DONE]\n\n", rec.Body.String())
 }
 
@@ -175,7 +178,7 @@ func (s *WebSearchHandlersSuite) TestStreamWithoutOutputSchemaIsJSON() {
 func (s *WebSearchHandlersSuite) TestStreamAnswerSSE() {
 	s.provider.EXPECT().StreamAnswer(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ *websearch.AnswerRequest, emit func(websearch.AnswerEvent) error) error {
-			return emit(websearch.AnswerEvent{Choices: []websearch.AnswerChoice{{Delta: websearch.AnswerDelta{Content: "42"}}}})
+			return emit(websearch.AnswerEvent{Choices: []websearch.StreamChoice{{Delta: websearch.StreamDelta{Content: "42"}}}})
 		})
 
 	rec := s.post("/api/v1/websearch/answer", `{"query":"q","stream":true}`)
@@ -189,7 +192,7 @@ func (s *WebSearchHandlersSuite) TestStreamAnswerSSE() {
 func (s *WebSearchHandlersSuite) TestStreamAnswerErrorAfterStart() {
 	s.provider.EXPECT().StreamAnswer(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ *websearch.AnswerRequest, emit func(websearch.AnswerEvent) error) error {
-			s.Require().NoError(emit(websearch.AnswerEvent{Choices: []websearch.AnswerChoice{{Delta: websearch.AnswerDelta{Content: "4"}}}}))
+			s.Require().NoError(emit(websearch.AnswerEvent{Choices: []websearch.StreamChoice{{Delta: websearch.StreamDelta{Content: "4"}}}}))
 			return &websearch.Error{Status: http.StatusServiceUnavailable, Tag: websearch.TagUpstreamError, Message: "searxng down"}
 		})
 

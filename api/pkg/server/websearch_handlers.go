@@ -61,10 +61,11 @@ func (s *HelixAPIServer) webSearchSearch(rw http.ResponseWriter, r *http.Request
 	if req.Stream && len(req.OutputSchema) > 0 {
 		stream := newSSEStream(rw)
 		err := s.webSearch.StreamSearch(call.ctx, req, func(ev websearch.SearchEvent) error {
+			ev.RequestID = call.requestID
 			return stream.send(ev)
 		})
 		stream.finish(call, err, func(e *websearch.Error) any {
-			return websearch.SearchEvent{Type: websearch.SearchEventError, Error: &websearch.EventError{Message: e.Message}}
+			return websearch.SearchEvent{RequestID: call.requestID, Type: websearch.SearchEventError, Error: &websearch.EventError{Message: e.Message}}
 		})
 		return
 	}

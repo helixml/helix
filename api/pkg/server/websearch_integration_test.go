@@ -486,7 +486,8 @@ func (s *WebSearchIntegrationSuite) TestStreamSearch() {
 		case websearch.SearchEventResults:
 			s.Len(ev.Results, 4)
 		case websearch.SearchEventTextDelta:
-			text.WriteString(ev.Delta)
+			s.Require().NotNil(ev.Delta, "text-delta must carry delta")
+			text.WriteString(*ev.Delta)
 		case websearch.SearchEventDone:
 			done = ev
 		}

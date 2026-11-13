@@ -55,7 +55,8 @@ func (p *Provider) StreamSearch(ctx context.Context, req *websearch.SearchReques
 	}
 	if synthesis != nil {
 		onDelta := func(d string) error {
-			return emit(websearch.SearchEvent{Type: websearch.SearchEventTextDelta, Delta: d})
+			return emit(websearch.SearchEvent{Type: websearch.SearchEventTextDelta, Delta: &d,
+				Choices: []websearch.StreamChoice{{Delta: websearch.StreamDelta{Content: d}}}})
 		}
 		if resp.Output, err = p.opts.Synthesizer.Synthesize(ctx, synthesis, onDelta); err != nil {
 			return err

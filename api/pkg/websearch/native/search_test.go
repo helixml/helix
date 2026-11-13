@@ -362,7 +362,7 @@ func TestStreamSearch(t *testing.T) {
 	assert.Equal(t, "https://a.com/", events[0].Results[0].URL)
 	require.Len(t, events[0].Warnings, 1, "Exa carries warnings on the results event")
 	assert.Equal(t, "startCrawlDate", events[0].Warnings[0].Path)
-	assert.Equal(t, "a", events[1].Delta)
+	assert.Equal(t, "a", *events[1].Delta)
 	assert.Equal(t, out.Grounding, events[3].Grounding)
 	done := events[4]
 	assert.Equal(t, out, done.Output)
