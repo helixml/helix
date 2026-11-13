@@ -65,23 +65,35 @@ main() {
     esac
   }
 
-  # Once the snapshot is taken, every non-zero exit lands here.
+  # Once the snapshot is taken, every non-zero exit lands here, including a
+  # HUP/TERM/INT/PIPE from a dropped SSH session (see the signal traps below).
   on_exit() {
     local status=$?
     if [ "$applying" = "true" ] && [ "$status" -ne 0 ]; then
-      rollback
+      if ! rollback; then
+        echo "controlplane: previous docker-compose.yaml and .env kept in $tmp" >&2
+        exit 43
+      fi
     fi
     rm -r "$tmp"
     exit "$status"
   }
 
+  # Returns non-zero when the host could not be put back; the files are then
+  # left as they are rather than reconverged against a half-restored config.
   rollback() {
     set +e
+    trap '' HUP TERM INT PIPE
     echo "controlplane: deploy failed after the snapshot - rolling back to ${old_version:-<none>}"
-    sudo cp -p "$tmp/compose.prev" docker-compose.yaml &&
-      sudo cp -p "$tmp/env.prev" .env &&
-      echo "controlplane: restored the previous docker-compose.yaml and .env"
-    sudo docker compose up -d --no-deps "${restore[@]}"
+    if ! { sudo cp -p "$tmp/compose.prev" docker-compose.yaml && sudo cp -p "$tmp/env.prev" .env; }; then
+      echo "controlplane: ROLLBACK FAILED - could not restore docker-compose.yaml/.env; services left untouched (snapshot $SNAP)" >&2
+      return 1
+    fi
+    echo "controlplane: restored the previous docker-compose.yaml and .env"
+    if ! sudo docker compose up -d --no-deps "${restore[@]}"; then
+      echo "controlplane: ROLLBACK FAILED - previous services did not start (snapshot $SNAP)" >&2
+      return 1
+    fi
     echo "DB snapshot for manual restore if a migration was incompatible: $SNAP"
   }
 
@@ -92,6 +104,10 @@ main() {
   tmp=$(mktemp -d)
   applying=false
   trap on_exit EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 141' PIPE
+  trap 'exit 143' TERM
   printf '%s' "$REPO_COMPOSE_B64" | base64 -d > "$tmp/docker-compose.yaml"
 
   local override=()

@@ -47,8 +47,13 @@ fi
 if [ "${1:-} ${2:-}" = "compose pull" ] && [ "${3:-}" = "${FAIL_PULL_SERVICE:-}" ]; then
   exit 1
 fi
+if [ "${1:-} ${2:-}" = "compose pull" ] && [ "${3:-}" = "${TERM_ON_PULL_SERVICE:-}" ]; then
+  kill -TERM "$PPID"
+  exit 0
+fi
 if [ "${1:-} ${2:-}" = "compose up" ] && [ -n "${FAIL_UP_ONCE:-}" ] && [ ! -e "$FAIL_UP_ONCE" ]; then
   : > "$FAIL_UP_ONCE"
+  [ "${LOCK_ENV_ON_UP_FAILURE:-false}" = "true" ] && chmod 400 .env
   exit 1
 fi
 if [ "${1:-}" = "pull" ] && [ "${FAIL_PULL:-false}" = "true" ]; then
@@ -301,6 +306,31 @@ if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true
 fi
 rm "$work/up-failed"
 assert_rolled_back "compose up failure"
+
+# A dropped SSH session (TERM/HUP) mid-deploy still rolls back.
+setup_stack "$work/old-compose.yaml"
+cp -p "$stack/.env" "$work/env.before"
+reset_calls
+if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true TERM_ON_PULL_SERVICE=chrome 2>&1); then
+  fail "TERM mid-deploy did not fail the deploy"
+fi
+[ "$(compose_calls | grep -c '^compose up')" = 1 ] || fail "TERM: new services were started"
+assert_rolled_back "TERM mid-deploy"
+
+# A rollback that cannot restore the files says so, starts nothing, and keeps the backups.
+setup_stack "$work/old-compose.yaml"
+cp -p "$stack/.env" "$work/env.before"
+reset_calls
+if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true FAIL_UP_ONCE="$work/up-failed" LOCK_ENV_ON_UP_FAILURE=true 2>&1); then
+  fail "failed rollback did not fail the deploy"
+fi
+rm "$work/up-failed"
+chmod 600 "$stack/.env"
+grep -q 'ROLLBACK FAILED' <<<"$out" || fail "failed rollback not reported"
+[ "$(compose_calls | grep -c '^compose up')" = 1 ] || fail "failed rollback reconverged against half-restored config"
+kept=$(sed -n 's/^controlplane: previous docker-compose.yaml and .env kept in //p' <<<"$out")
+[ -n "$kept" ] && cmp -s "$kept/env.prev" "$work/env.before" || fail "failed rollback did not keep the .env backup"
+rm -r "$kept"
 
 # Database services are never created without RECREATE_POSTGRES, by name ...
 sed '/^  vectorchord-kodit:$/,$d' "$work/old-compose.yaml" > "$work/no-kodit-compose.yaml"
