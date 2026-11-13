@@ -168,48 +168,146 @@ func scopesOverlap(a, b types.SecretScope) bool {
 	return a == types.SecretScopeBoth || b == types.SecretScopeBoth || a == b
 }
 
+// encryptionAtRestIntroduced is when secret encryption at rest was written
+// (59aa0de79e). No Helix build could encrypt a secret before it, so a row last
+// written earlier holds plaintext whatever it looks like.
+var encryptionAtRestIntroduced = time.Date(2025, 12, 22, 19, 12, 48, 0, time.UTC)
+
+const (
+	encryptLegacySecretsMarker    = "encrypt_legacy_plaintext_secrets"
+	encryptLegacySecretsBatchSize = 500
+)
+
 // encryptLegacyPlaintextSecrets encrypts secret values stored before secrets
-// were encrypted at rest (59aa0de79e, December 2025). Nothing backfilled those
-// rows, and every write path has encrypted since, so a value that is not an
-// AES-GCM envelope can only be legacy plaintext. A value that is an envelope
-// but does not decrypt was written under another key and is left alone: it
-// is reported as undecryptable where it is read. A legacy plaintext value
-// that happens to look like an envelope is treated the same way and must be
-// re-entered. Idempotent: encrypted rows are envelopes and are skipped.
-func (s *PostgresStore) encryptLegacyPlaintextSecrets(ctx context.Context) error {
+// were encrypted at rest. Nothing backfilled those rows. It runs once: a
+// migration_scripts row records completion. A row is encrypted only when it
+// provably holds plaintext:
+//
+//   - it does not decrypt under the current key, and
+//   - it is not base64 of at least nonce plus tag (no key could have written
+//     it), or it was last written before encryptionAtRestIntroduced.
+//
+// A row that fails to decrypt and was written later may be ciphertext under
+// an earlier key (London has such rows), so it is left alone and reported as
+// undecryptable where it is read. Encrypting it would wrap the old ciphertext,
+// which would then decrypt to that ciphertext and be used as the value.
+//
+// If rows exist and none decrypts under the current key, the key is probably
+// wrong, and encrypting under it would lock the plaintext away from the right
+// key. The migration then changes nothing, logs an error, and runs again on
+// the next start. A database whose every secret predates encryption is
+// indistinguishable from that and is handled the same way: its plaintext
+// rows stay unreadable until one secret is written under the current key,
+// after which the next start migrates the rest.
+func (s *PostgresStore) encryptLegacyPlaintextSecrets(ctx context.Context, batchSize int) error {
 	if !s.gdb.Migrator().HasTable(&types.Secret{}) {
 		return nil
 	}
-	var rows []types.Secret
-	if err := s.gdb.WithContext(ctx).Select("id", "value").
-		Where("value IS NOT NULL AND length(value) > 0").Find(&rows).Error; err != nil {
-		return fmt.Errorf("list secrets to encrypt: %w", err)
+	var marker MigrationScript
+	err := s.gdb.WithContext(ctx).Where("name = ?", encryptLegacySecretsMarker).Limit(1).Find(&marker).Error
+	if err != nil {
+		return fmt.Errorf("read secrets encryption marker: %w", err)
 	}
-	var legacy []types.Secret
-	for _, row := range rows {
-		if !crypto.IsAES256GCMEnvelope(string(row.Value)) {
-			legacy = append(legacy, row)
-		}
-	}
-	if len(legacy) == 0 {
+	if marker.HasRun {
 		return nil
 	}
 	key, err := crypto.GetEncryptionKey()
 	if err != nil {
 		return fmt.Errorf("get encryption key: %w", err)
 	}
-	for _, row := range legacy {
+
+	var total, decryptable int
+	var plaintextIDs []string
+	err = s.eachSecretBatch(ctx, batchSize, func(rows []types.Secret) error {
+		for _, row := range rows {
+			total++
+			switch {
+			case secretDecrypts(row, key):
+				decryptable++
+			case secretIsLegacyPlaintext(row):
+				plaintextIDs = append(plaintextIDs, row.ID)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if total > 0 && decryptable == 0 {
+		log.Error().Int("secrets", total).
+			Msg("No stored secret decrypts with the current HELIX_ENCRYPTION_KEY; not encrypting legacy plaintext secrets, since the key may be wrong. Will retry on next start.")
+		return nil
+	}
+
+	if len(plaintextIDs) > 0 {
+		log.Info().Int("count", len(plaintextIDs)).Msg("Encrypting secrets stored before encryption at rest")
+	}
+	for start := 0; start < len(plaintextIDs); start += batchSize {
+		ids := plaintextIDs[start:min(start+batchSize, len(plaintextIDs))]
+		if err := s.encryptLegacySecretBatch(ctx, ids, key); err != nil {
+			return err
+		}
+	}
+
+	if err := s.gdb.WithContext(ctx).Save(&MigrationScript{Name: encryptLegacySecretsMarker, HasRun: true}).Error; err != nil {
+		return fmt.Errorf("record secrets encryption marker: %w", err)
+	}
+	return nil
+}
+
+// eachSecretBatch calls fn with the id, value and updated time of every
+// secret with a value, batchSize rows at a time in id order.
+func (s *PostgresStore) eachSecretBatch(ctx context.Context, batchSize int, fn func([]types.Secret) error) error {
+	for after := ""; ; {
+		var rows []types.Secret
+		err := s.gdb.WithContext(ctx).Select("id", "value", "updated").
+			Where("id > ? AND value IS NOT NULL AND length(value) > 0", after).
+			Order("id").Limit(batchSize).Find(&rows).Error
+		if err != nil {
+			return fmt.Errorf("list secrets: %w", err)
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		if err := fn(rows); err != nil {
+			return err
+		}
+		after = rows[len(rows)-1].ID
+	}
+}
+
+// encryptLegacySecretBatch re-reads ids and encrypts those still holding
+// legacy plaintext. Matching on the old value skips a row rewritten since.
+func (s *PostgresStore) encryptLegacySecretBatch(ctx context.Context, ids []string, key []byte) error {
+	var rows []types.Secret
+	if err := s.gdb.WithContext(ctx).Select("id", "value", "updated").Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return fmt.Errorf("load secrets to encrypt: %w", err)
+	}
+	for _, row := range rows {
+		if len(row.Value) == 0 || secretDecrypts(row, key) || !secretIsLegacyPlaintext(row) {
+			continue
+		}
 		encrypted, err := crypto.EncryptAES256GCM(row.Value, key)
 		if err != nil {
 			return fmt.Errorf("encrypt secret %s: %w", row.ID, err)
 		}
-		// Matching on the old value skips a row rewritten since it was read.
 		if err := s.gdb.WithContext(ctx).Model(&types.Secret{}).
 			Where("id = ? AND value = ?", row.ID, row.Value).
 			Update("value", []byte(encrypted)).Error; err != nil {
 			return fmt.Errorf("encrypt secret %s: %w", row.ID, err)
 		}
 	}
-	log.Info().Int("count", len(legacy)).Msg("Encrypted secrets stored before encryption at rest")
 	return nil
+}
+
+func secretDecrypts(row types.Secret, key []byte) bool {
+	_, err := crypto.DecryptAES256GCM(string(row.Value), key)
+	return err == nil
+}
+
+// secretIsLegacyPlaintext reports whether a row that does not decrypt under
+// the current key provably holds plaintext rather than another key's
+// ciphertext.
+func secretIsLegacyPlaintext(row types.Secret) bool {
+	return !crypto.IsAES256GCMEnvelope(string(row.Value)) || row.Updated.Before(encryptionAtRestIntroduced)
 }

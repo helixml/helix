@@ -419,7 +419,7 @@ func (s *PostgresStore) runMigrations() error {
 		}
 	}
 
-	if err := s.encryptLegacyPlaintextSecrets(context.Background()); err != nil {
+	if err := s.encryptLegacyPlaintextSecrets(context.Background(), encryptLegacySecretsBatchSize); err != nil {
 		return err
 	}
 
