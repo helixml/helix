@@ -199,6 +199,10 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateSpecTaskName(strings.TrimSpace(req.Name)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if req.AppID != "" || req.CodeAgentOverrides != nil {
 		http.Error(w, "app_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
 		return
@@ -355,7 +359,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to get task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -710,7 +714,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to approve specs in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, existingTask.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -926,7 +930,7 @@ func (s *HelixAPIServer) getTaskSpecs(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to get specs in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -987,7 +991,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 
 	// Authorize user to get progress in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -1216,7 +1220,7 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to start planning in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -1371,6 +1375,16 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateSpecTaskName(strings.TrimSpace(updateReq.Name)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if updateReq.UserShortTitle != nil {
+		if err := types.ValidateSpecTaskName(*updateReq.UserShortTitle); err != nil {
+			http.Error(w, "user_short_title: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 
 	// Get existing task
 	task, err := s.Store.GetSpecTask(ctx, taskID)
@@ -1388,7 +1402,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 
 	// Authorize user to update task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -1627,7 +1641,7 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 
 	// Authorize user to delete task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -1715,7 +1729,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 
 	// Authorize user to archive task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {

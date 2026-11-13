@@ -5566,8 +5566,8 @@ func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string,
 		task, taskErr := apiServer.Controller.Options.Store.GetSpecTask(ctx, taskID)
 		if taskErr != nil {
 			log.Warn().Err(taskErr).Str("spec_task_id", taskID).Msg("Failed to load task for thread title sync")
-		} else if task.JustDoItMode && task.UserShortTitle == "" && task.Name != newTitle {
-			task.Name = newTitle
+		} else if title := types.TruncateSpecTaskName(newTitle); task.JustDoItMode && task.UserShortTitle == "" && task.Name != title {
+			task.Name = title
 			task.UpdatedAt = time.Now()
 			if taskErr := apiServer.Controller.Options.Store.UpdateSpecTask(ctx, task); taskErr != nil {
 				log.Warn().Err(taskErr).Str("spec_task_id", taskID).Msg("Failed to update just-do-it task name from thread title")

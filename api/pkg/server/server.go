@@ -185,7 +185,13 @@ type HelixAPIServer struct {
 	oauthManager              *oauth.Manager
 	sessionManager            *auth.SessionManager
 	// passwordResetSends tracks reset emails being sent after their response.
-	passwordResetSends       sync.WaitGroup
+	passwordResetSends sync.WaitGroup
+	// loginThrottle refuses password sign-ins after repeated failures. Nil
+	// disables it.
+	loginThrottle *loginThrottle
+	// loginTrustedProxies are the proxies whose X-Forwarded-For identifies
+	// the client for loginThrottle (HELIX_LOGIN_TRUSTED_PROXIES).
+	loginTrustedProxies      []*net.IPNet
 	fileServerHandler        http.Handler
 	cache                    *ristretto.Cache[string, string]
 	avatarsBucket            *blob.Bucket
@@ -439,6 +445,10 @@ func NewServer(
 	if err != nil {
 		return nil, err
 	}
+	loginTrustedProxies, err := parseTrustedProxies(cfg.Auth.LoginTrustedProxies)
+	if err != nil {
+		return nil, fmt.Errorf("HELIX_LOGIN_TRUSTED_PROXIES: %w", err)
+	}
 
 	apiServer := &HelixAPIServer{
 		Cfg:                        cfg,
@@ -507,6 +517,8 @@ func NewServer(
 		// Durable request audit trail (incident forensics). Nil when disabled.
 		requestAudit:           requestAuditRecorder,
 		requestAuditMiddleware: newRequestAuditMiddleware(requestAuditRecorder, requestAuditOpts),
+		loginThrottle:          newLoginThrottle(),
+		loginTrustedProxies:    loginTrustedProxies,
 
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,
@@ -985,7 +997,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 			Int("canonical_hostnames", len(vhostCfg.CanonicalHostnames)).
 			Msg("vhost middleware enabled (project web services + preview tokens)")
 	}
-	var handler http.Handler = NewVHostMiddleware(vhostCfg, apiServer, cleanWebSearchBasePath(apiServer.router))
+	// Security headers go on the application router only, not around the
+	// vhost proxy: customer web services and previews set their own.
+	appHandler := securityHeadersMiddleware(apiServer.Cfg.WebServer.URL, apiServer.Cfg.WebServer.HSTSMaxAge, cleanWebSearchBasePath(apiServer.router))
+	var handler http.Handler = NewVHostMiddleware(vhostCfg, apiServer, appHandler)
 
 	// Request audit trail: one durable record per request, wrapped around the
 	// vhost proxy so customer traffic that never reaches the mux is audited
@@ -1123,12 +1138,12 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// e.g. /sessions/123 becomes /users/456/sessions/123
 	// so - the point is, the auth is done by injecting the user id based on the token
 	authRouter.HandleFunc("/filestore/config", system.DefaultWrapper(apiServer.filestoreConfig)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(apiServer.filestoreList)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(apiServer.filestoreGet)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/filestore/folder", system.DefaultWrapper(apiServer.filestoreCreateFolder)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/filestore/upload", system.DefaultWrapper(apiServer.filestoreUpload)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(apiServer.filestoreRename)).Methods(http.MethodPut)
-	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(apiServer.filestoreDelete)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreList))).Methods(http.MethodGet)
+	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreGet))).Methods(http.MethodGet)
+	authRouter.HandleFunc("/filestore/folder", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreCreateFolder))).Methods(http.MethodPost)
+	authRouter.HandleFunc("/filestore/upload", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreUpload))).Methods(http.MethodPost)
+	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreRename))).Methods(http.MethodPut)
+	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreDelete))).Methods(http.MethodDelete)
 	// Authentication is done within the handler itself based on API path
 	subRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(APIPrefix+"/filestore/viewer/", http.HandlerFunc(apiServer.filestoreViewerHandler)))
 
@@ -1900,7 +1915,7 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 	} else {
 		log.Info().Msgf("serving static UI files from %s", frontendURL)
 		fileSystem := http.Dir(frontendURL)
-		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem, spa.ShellPolicy{FrameAncestors: apiServer.Cfg.WebServer.FrameAncestors}))
 	}
 }
 

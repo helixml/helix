@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"strings"
 
+	"cloud.google.com/go/storage"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/inferencerouter"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
@@ -72,4 +75,34 @@ func isModelResolutionError(err error) bool {
 	}
 	var apiErr *openai.APIError
 	return errors.As(err, &apiErr) && apiErr.HTTPStatusCode == http.StatusNotFound
+}
+
+// withFilestoreErrors maps the errors a filestore handler returns to client
+// answers that do not describe the server's storage: a missing file is a 404
+// and a refused path a 400, both with a fixed message; any other storage
+// failure is a generic 500, logged here. Errors the handler already shaped
+// (*system.HTTPError) pass through.
+func withFilestoreErrors[T any](handler func(http.ResponseWriter, *http.Request) (T, error)) func(http.ResponseWriter, *http.Request) (T, error) {
+	return func(w http.ResponseWriter, r *http.Request) (T, error) {
+		result, err := handler(w, r)
+		return result, filestoreHTTPError(err)
+	}
+}
+
+func filestoreHTTPError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var httpErr *system.HTTPError
+	switch {
+	case errors.As(err, &httpErr):
+		return err
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, storage.ErrObjectNotExist):
+		return system.NewHTTPError404("file not found")
+	case errors.Is(err, filestore.ErrInvalidPath):
+		return system.NewHTTPError400("invalid path")
+	default:
+		log.Error().Err(err).Msg("filestore operation failed")
+		return system.NewHTTPError500("filestore operation failed")
+	}
 }

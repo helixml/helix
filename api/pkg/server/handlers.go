@@ -229,7 +229,7 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
-			return nil, fmt.Errorf("invalid app path format: %s", err)
+			return nil, system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -270,7 +270,7 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
-			return filestore.Item{}, fmt.Errorf("invalid app path format: %s", err)
+			return filestore.Item{}, system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -316,7 +316,7 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 	if controller.IsAppPath(request.Path) {
 		appID, err := controller.ExtractAppID(request.Path)
 		if err != nil {
-			return filestore.Item{}, fmt.Errorf("invalid app path format: %s", err)
+			return filestore.Item{}, system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -362,23 +362,23 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 
 	// Don't allow moving between user space and app space
 	if fromAppPath != toAppPath {
-		return filestore.Item{}, fmt.Errorf("cannot rename files between different scopes (user/app)")
+		return filestore.Item{}, system.NewHTTPError400("cannot rename files between different scopes (user/app)")
 	}
 
 	// For app paths, ensure it's the same app
 	if fromAppPath && toAppPath {
 		fromAppID, err := controller.ExtractAppID(path)
 		if err != nil {
-			return filestore.Item{}, fmt.Errorf("invalid source app path: %s", err)
+			return filestore.Item{}, system.NewHTTPError400("invalid source app path")
 		}
 
 		toAppID, err := controller.ExtractAppID(newPath)
 		if err != nil {
-			return filestore.Item{}, fmt.Errorf("invalid destination app path: %s", err)
+			return filestore.Item{}, system.NewHTTPError400("invalid destination app path")
 		}
 
 		if fromAppID != toAppID {
-			return filestore.Item{}, fmt.Errorf("cannot rename files between different apps")
+			return filestore.Item{}, system.NewHTTPError400("cannot rename files between different apps")
 		}
 	}
 
@@ -414,7 +414,7 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
-			return "", fmt.Errorf("invalid app path format: %s", err)
+			return "", system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -460,7 +460,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
 			log.Error().Err(err).Str("path", path).Msg("invalid app path format")
-			return false, fmt.Errorf("invalid app path format: %s", err)
+			return false, system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -477,30 +477,30 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		// Parse and handle file upload
 		err = req.ParseMultipartForm(10 << 20)
 		if err != nil {
-			return false, err
+			return false, system.NewHTTPError400("invalid multipart upload")
 		}
 
 		if len(req.MultipartForm.File["files"]) == 0 {
-			return false, fmt.Errorf("no files to upload")
+			return false, system.NewHTTPError400("no files to upload")
 		}
 
 		files := req.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
-				return false, fmt.Errorf("unable to open file")
+				return false, system.NewHTTPError400("unable to open uploaded file")
 			}
 			defer file.Close()
 
 			destination, err := filestoreAppUploadDestination(path, appID, fileHeader.Filename)
 			if err != nil {
-				return false, fmt.Errorf("invalid upload path: %w", err)
+				return false, system.NewHTTPError400("invalid upload path: " + err.Error())
 			}
 
 			// Use the app-specific upload method
 			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, destination, file)
 			if err != nil {
-				return false, fmt.Errorf("unable to upload file: %s", err.Error())
+				return false, fmt.Errorf("unable to upload file: %w", err)
 			}
 		}
 
@@ -510,29 +510,29 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 	// Regular user path handling
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
-		return false, err
+		return false, system.NewHTTPError400("invalid multipart upload")
 	}
 
 	if len(req.MultipartForm.File["files"]) == 0 {
-		return false, fmt.Errorf("no files to upload")
+		return false, system.NewHTTPError400("no files to upload")
 	}
 
 	files := req.MultipartForm.File["files"]
 	for _, fileHeader := range files {
 		file, err := fileHeader.Open()
 		if err != nil {
-			return false, fmt.Errorf("unable to open file")
+			return false, system.NewHTTPError400("unable to open uploaded file")
 		}
 		defer file.Close()
 
 		destination, err := filestoreUploadDestination(path, fileHeader.Filename)
 		if err != nil {
-			return false, fmt.Errorf("invalid upload path: %w", err)
+			return false, system.NewHTTPError400("invalid upload path: " + err.Error())
 		}
 
 		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), destination, file)
 		if err != nil {
-			return false, fmt.Errorf("unable to upload file: %s", err.Error())
+			return false, fmt.Errorf("unable to upload file: %w", err)
 		}
 	}
 
