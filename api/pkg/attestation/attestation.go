@@ -80,6 +80,9 @@ type Subject struct {
 	ProjectID      string
 	OrganizationID string
 	Owner          string
+	// KeyConfined: the minting key is confined to its spec task
+	// (ApiKey.TaskConfined), not just to its project.
+	KeyConfined bool
 }
 
 type tokenClaims struct {
@@ -91,6 +94,8 @@ type tokenClaims struct {
 	SandboxID      string `json:"sandbox_id,omitempty"`
 	ProjectID      string `json:"project_id"`
 	OrganizationID string `json:"organization_id,omitempty"`
+	// KeyConfined is always present, so a verifier reads an explicit false.
+	KeyConfined bool `json:"key_confined"`
 }
 
 // Signer mints and verifies attestations with one derived key.
@@ -149,6 +154,7 @@ func (s *Signer) Mint(subject Subject, audience, nonce string) (string, *types.I
 		SandboxID:      subject.SandboxID,
 		ProjectID:      subject.ProjectID,
 		OrganizationID: subject.OrganizationID,
+		KeyConfined:    subject.KeyConfined,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	token.Header["kid"] = keyID
@@ -200,6 +206,7 @@ func (c *tokenClaims) public() *types.IdentityAttestationClaims {
 		SandboxID:      c.SandboxID,
 		ProjectID:      c.ProjectID,
 		OrganizationID: c.OrganizationID,
+		KeyConfined:    c.KeyConfined,
 		Owner:          c.Subject,
 		Audience:       c.Audience[0],
 		Nonce:          c.Nonce,

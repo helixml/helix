@@ -284,6 +284,7 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 
 		SandboxResourceOverrides: sandboxResources,
 		SandboxRuntime:           sandboxRuntime,
+		ConfineAgentKey:          in.ConfineAgentKey,
 	}
 	task.InitAutoApprovePullRequests(nil, project, hiringUserID)
 	taskNumber, err := s.tasks.IncrementGlobalTaskNumber(ctx)

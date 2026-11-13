@@ -478,6 +478,9 @@ type CreateTaskRequest struct {
 	SandboxResourceOverrides *SandboxResourceOverrides `json:"sandbox_resource_overrides,omitempty"`
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty"`
 	SandboxDisplay           *SandboxDisplay           `json:"sandbox_display,omitempty"`
+	// ConfineAgentKey confines the API keys minted for this task's sessions
+	// to the task itself (see SpecTask.ConfineAgentKey). Fixed at creation.
+	ConfineAgentKey bool `json:"confine_agent_key,omitempty"`
 
 	// CredentialOwnerID optionally names the user whose Claude subscription should
 	// authenticate this task's agent, for orchestrators dispatching work on a
@@ -563,6 +566,13 @@ type SpecTask struct {
 	SandboxRuntime           SandboxRuntime            `json:"sandbox_runtime,omitempty" gorm:"size:64"`
 	// SandboxDisplay is the desktop resolution; nil means 1080p.
 	SandboxDisplay *SandboxDisplay `json:"sandbox_display,omitempty" gorm:"type:jsonb;serializer:json"`
+	// ConfineAgentKey confines every API key minted for this task's sessions
+	// to this task: its sessions and the task itself, not the project's other
+	// tasks and sessions, and it may not create tasks. Project files, git,
+	// repositories, artifacts and the LLM proxy stay reachable as for any
+	// project-scoped key. Set at creation and never changed, so a key cannot
+	// outlive the confinement it was minted under.
+	ConfineAgentKey bool `json:"confine_agent_key" gorm:"not null;default:false"`
 
 	// Git repository attachments: REMOVED - now inherited from parent Project
 	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
@@ -799,6 +809,8 @@ type SpecGeneration struct {
 
 // SpecTaskFilters for filtering spec tasks in queries
 type SpecTaskFilters struct {
+	// ID limits the list to one task: a task-confined key lists only its own.
+	ID                 string           `json:"id,omitempty"`
 	ProjectID          string           `json:"project_id,omitempty"`
 	Status             SpecTaskStatus   `json:"status,omitempty"`
 	ExcludeStatuses    []SpecTaskStatus `json:"exclude_statuses,omitempty"`
@@ -850,6 +862,8 @@ type SpecTaskUpdateRequest struct {
 	AssigneeID              *string          `json:"assignee_id,omitempty"`                       // Pointer to allow clearing (set to empty string to unassign)
 	AgentTools              *[]string        `json:"agent_tools,omitempty"`                       // Extra Helix MCP tools for this task, on top of the project's
 	Archived                *bool            `json:"archived,omitempty" swaggerignore:"true"`     // Rejected: archiving goes through PATCH /spec-tasks/{taskId}/archive
+	// Rejected when it differs from the task's: fixed at creation.
+	ConfineAgentKey *bool `json:"confine_agent_key,omitempty" swaggerignore:"true"`
 }
 
 // SpecTaskExecutionConfigUpdateRequest replaces exactly one of the task's
@@ -1076,6 +1090,9 @@ type CloneTaskRequest struct {
 	TargetProjectIDs []string                     `json:"target_project_ids"`
 	CreateProjects   []CloneTaskCreateProjectSpec `json:"create_projects,omitempty"` // Create new projects for repos
 	AutoStart        bool                         `json:"auto_start"`                // Auto-start cloned tasks
+	// ConfineAgentKey confines the clones' agent keys to their own task
+	// (SpecTask.ConfineAgentKey). A clone of a confined task is always confined.
+	ConfineAgentKey bool `json:"confine_agent_key,omitempty"`
 }
 
 type CloneTaskCreateProjectSpec struct {

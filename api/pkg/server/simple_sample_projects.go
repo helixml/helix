@@ -853,6 +853,9 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	if user == nil {
 		return nil, system.NewHTTPError401("unauthorized")
 	}
+	if err := denyTaskCreationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 
 	var req types.ForkSimpleProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

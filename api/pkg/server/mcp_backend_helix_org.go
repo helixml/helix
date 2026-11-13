@@ -57,6 +57,10 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		http.Error(w, "session-scoped API key required for helix-org MCP access", http.StatusForbidden)
 		return
 	}
+	if err := denyHelixOrgToConfinedKey(user); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	session, err := b.apiServer.Store.GetSession(r.Context(), user.SessionID)
 	if err != nil || session == nil || session.Owner != user.ID || session.OrganizationID == "" || session.Metadata.OrgWorkerID == "" || user.OrganizationID != session.OrganizationID {
 		http.Error(w, "session is not authorized for helix-org MCP access", http.StatusForbidden)

@@ -14,6 +14,9 @@ import (
 type ListArtifactsQuery struct {
 	ProjectID      string
 	OrganizationID string
+	// SpecTaskID limits the list to artifacts created by that task's
+	// task-confined key (Artifact.SpecTaskID).
+	SpecTaskID string
 }
 
 func (s *PostgresStore) CreateArtifact(ctx context.Context, artifact *types.Artifact, version *types.ArtifactVersion) error {
@@ -72,6 +75,9 @@ func (s *PostgresStore) ListArtifacts(ctx context.Context, query *ListArtifactsQ
 	}
 	if query.OrganizationID != "" {
 		db = db.Where("organization_id = ?", query.OrganizationID)
+	}
+	if query.SpecTaskID != "" {
+		db = db.Where("spec_task_id = ?", query.SpecTaskID)
 	}
 	if err := db.Order("updated_at DESC").Find(&artifacts).Error; err != nil {
 		return nil, fmt.Errorf("list artifacts: %w", err)

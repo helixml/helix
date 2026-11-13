@@ -71,11 +71,14 @@ func checkZedEventInstance(w http.ResponseWriter, specTask *types.SpecTask, inst
 }
 
 // authorizeUserToZedSpecTask checks access to a spec task: through its
-// project, or for a legacy task without one, by being its creator with a
+// project (authorizeUserToSpecTask), or for a legacy task without one, by being its creator with a
 // credential that is not confined to some project.
 func (s *HelixAPIServer) authorizeUserToZedSpecTask(ctx context.Context, user *types.User, specTask *types.SpecTask, action types.Action) error {
 	if specTask.ProjectID != "" {
-		return s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, action)
+		return s.authorizeUserToSpecTask(ctx, user, specTask, action)
+	}
+	if err := enforceKeyTaskScope(user, specTask.ID); err != nil {
+		return err
 	}
 	if err := enforceKeyProjectScope(user, ""); err != nil {
 		return err
@@ -387,9 +390,9 @@ func (s *HelixAPIServer) listZedThreads(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err = s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet)
+	err = s.authorizeUserToSpecTask(ctx, user, specTask, types.ActionGet)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
