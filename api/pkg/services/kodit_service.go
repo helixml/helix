@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"image/jpeg"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -147,8 +148,55 @@ func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterR
 		return 0, false, fmt.Errorf("kodit returned zero source ID for clone URL (is_new=%v, status=%s)", isNew, source.Status())
 	}
 
+	// Kodit dedupes registrations by upstream URL, so an existing source may
+	// have been registered for a different Helix repository (another tenant
+	// importing the same upstream). Only adopt one cloned from this exact
+	// Helix repository.
+	if !isNew && !sameKoditCloneSource(source.RemoteURL(), params.CloneURL) {
+		log.Warn().
+			Str("clone_url", RedactURLCredentials(params.CloneURL)).
+			Str("remote_url", RedactURLCredentials(source.RemoteURL())).
+			Int64("kodit_repo_id", source.ID()).
+			Msg("Kodit matched a source registered for a different repository by upstream URL; registering this repository on its own")
+		if params.UpstreamURL == "" {
+			return 0, false, ErrKoditSourceOwnedElsewhere
+		}
+		// Without an upstream URL Kodit keys the source on the clone URL,
+		// which is unique to this repository.
+		own := *params
+		own.UpstreamURL = ""
+		return s.RegisterRepository(ctx, &own)
+	}
+
 	log.Info().Str("clone_url", RedactURLCredentials(params.CloneURL)).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
 	return source.ID(), isNew, nil
+}
+
+// ErrKoditSourceOwnedElsewhere is returned when Kodit already indexes the
+// same upstream for a different Helix repository.
+var ErrKoditSourceOwnedElsewhere = errors.New("this upstream is already indexed for another repository")
+
+// sameKoditCloneSource reports whether two clone URLs name the same source.
+// Only the path is compared: for Helix git URLs it is /git/<repository id>,
+// which is unique per repository, while the scheme, host and embedded key may
+// change between registrations (KODIT_GIT_URL, key rotation). file:// URLs
+// (knowledge directories) compare by path too.
+func sameKoditCloneSource(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	if errA != nil || errB != nil || koditSchemeFamily(ua.Scheme) != koditSchemeFamily(ub.Scheme) {
+		return false
+	}
+	pa, pb := strings.TrimSuffix(ua.Path, "/"), strings.TrimSuffix(ub.Path, "/")
+	return pa != "" && pa == pb
+}
+
+func koditSchemeFamily(scheme string) string {
+	scheme = strings.ToLower(scheme)
+	if scheme == "https" {
+		return "http"
+	}
+	return scheme
 }
 
 // GetRepositoryEnrichments fetches enrichments for a repository from Kodit,
