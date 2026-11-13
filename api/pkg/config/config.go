@@ -763,6 +763,15 @@ type Auth struct {
 	// for the Helix Desktop app. When set, GET /api/v1/auth/desktop-callback?token=<secret>
 	// creates an admin session and redirects to /.
 	DesktopAutoLoginSecret string `envconfig:"DESKTOP_AUTO_LOGIN_SECRET"`
+
+	// LoginTrustedProxies lists the proxies (CIDRs) in front of the API whose
+	// X-Forwarded-For hops are believed when counting failed password
+	// sign-ins per client. Behind Cloudflare, include Cloudflare's published
+	// ranges as well as your own proxy, so the walk reaches the visitor.
+	// With none configured, a public TCP peer is the client and a private or
+	// loopback peer (an unlisted proxy) gets no per-client count, so users
+	// behind one proxy never share a bucket.
+	LoginTrustedProxies []string `envconfig:"HELIX_LOGIN_TRUSTED_PROXIES" description:"Comma-separated CIDRs of proxies whose X-Forwarded-For is trusted when throttling failed password sign-ins per client."`
 }
 
 type Regular struct {
@@ -1094,6 +1103,21 @@ type WebServer struct {
 	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID that requests on the UNIX socket run as. If unset, they run as the fixed 'socket' identity. The socket is created mode 0660, so clients must run as the API server's user or group."`
 
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
+
+	// HSTSMaxAge is the Strict-Transport-Security max-age sent on responses
+	// for the SERVER_URL host when SERVER_URL is https. It covers that host
+	// only (no includeSubDomains). Zero disables the header.
+	// The default is a day so a self-hosted install that also serves plain
+	// HTTP on the same host is not locked out for long; a dedicated hosted
+	// domain should set a year (8760h).
+	HSTSMaxAge time.Duration `envconfig:"HELIX_HSTS_MAX_AGE" default:"24h" description:"Strict-Transport-Security max-age for the SERVER_URL host when it is https. 0 disables. Hosted deployments should set 8760h."`
+
+	// FrameAncestors restricts which origins may frame the web UI, as a CSP
+	// frame-ancestors source list (e.g. "'self'" or "'self' https://portal.example.com").
+	// Empty leaves framing unrestricted, which Helix Desktop and portals that
+	// frame the whole UI rely on. /embed/* pages are always frameable: they
+	// exist to be embedded.
+	FrameAncestors string `envconfig:"HELIX_FRAME_ANCESTORS" description:"CSP frame-ancestors source list for the web UI (e.g. \"'self'\"). Empty allows any origin to frame it. /embed/* pages are always frameable."`
 
 	// DevSubdomain enables subdomain-based virtual hosting for dev container ports.
 	// Format: "dev.helix.example.com" (full domain) or "dev" (uses SERVER_URL domain).

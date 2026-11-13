@@ -147,7 +147,7 @@ type requestAuditOptions struct {
 func newRequestAuditOptions(cfg config.AuditLog, fingerprintKey []byte) (requestAuditOptions, error) {
 	proxies, err := parseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {
-		return requestAuditOptions{}, err
+		return requestAuditOptions{}, fmt.Errorf("HELIX_AUDIT_LOG_TRUSTED_PROXIES: %w", err)
 	}
 	return requestAuditOptions{
 		skipRunnerReads: cfg.SkipRunnerReads,
@@ -168,7 +168,7 @@ func parseTrustedProxies(entries []string) ([]*net.IPNet, error) {
 		}
 		_, network, err := net.ParseCIDR(entry)
 		if err != nil {
-			return nil, fmt.Errorf("invalid HELIX_AUDIT_LOG_TRUSTED_PROXIES entry %q: %w", entry, err)
+			return nil, fmt.Errorf("invalid trusted proxy CIDR %q: %w", entry, err)
 		}
 		proxies = append(proxies, network)
 	}
@@ -426,12 +426,36 @@ func (m *requestAuditMiddleware) clientIP(r *http.Request, remoteIP string) stri
 			return ip.String()
 		}
 	}
-	for _, candidate := range strings.Split(r.Header.Get("X-Forwarded-For"), ",") {
-		if ip := net.ParseIP(strings.TrimSpace(candidate)); ip != nil {
-			return ip.String()
-		}
+	if ip := forwardedClientIP(r.Header.Values("X-Forwarded-For"), m.opts.trustedProxies); ip != nil {
+		return ip.String()
 	}
 	return ""
+}
+
+// forwardedClientIP reads the client from X-Forwarded-For as sent to a trusted
+// peer. Each proxy appends the address it received the request from, so only
+// the right-hand end of the list is written by infrastructure: the client
+// controls everything it sent itself. Walking from the right, the first
+// address outside the trusted networks is the client. When every hop is
+// trusted the request is internal and the leftmost address is returned.
+// Unparseable entries end the walk: the chain cannot be followed past them.
+func forwardedClientIP(headerValues []string, trusted []*net.IPNet) net.IP {
+	var hops []string
+	for _, value := range headerValues {
+		hops = append(hops, strings.Split(value, ",")...)
+	}
+	var leftmostTrusted net.IP
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(hops[i]))
+		if ip == nil {
+			return nil
+		}
+		if !ipInNetworks(ip, trusted) {
+			return ip
+		}
+		leftmostTrusted = ip
+	}
+	return leftmostTrusted
 }
 
 func ipInNetworks(ip net.IP, networks []*net.IPNet) bool {

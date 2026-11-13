@@ -8,6 +8,7 @@ import (
 
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -336,7 +337,7 @@ func SpecTitleFromRequirements(content string) string {
 			line = strings.TrimPrefix(line, "Requirements")
 			line = strings.TrimSpace(line)
 			if line != "" {
-				return line
+				return types.TruncateSpecTaskName(line)
 			}
 		}
 	}

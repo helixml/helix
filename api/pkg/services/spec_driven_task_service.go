@@ -267,6 +267,9 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 
 	// An explicit name wins; otherwise derive one from the prompt.
 	taskName := strings.TrimSpace(req.Name)
+	if err := types.ValidateSpecTaskName(taskName); err != nil {
+		return nil, err
+	}
 	if taskName == "" {
 		taskName = GenerateTaskNameFromPrompt(req.Prompt)
 	}

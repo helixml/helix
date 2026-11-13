@@ -2,6 +2,7 @@ package filestore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -58,6 +59,11 @@ type FileStore interface {
 	CopyFile(ctx context.Context, from string, to string) error
 }
 
+// ErrInvalidPath marks a path the filestore refuses: one that escapes the
+// caller's scope or cannot be resolved. It is the caller's input error, not a
+// storage fault.
+var ErrInvalidPath = errors.New("invalid path")
+
 // CleanRelativePath normalizes a logical filestore path and rejects paths
 // that would escape the caller's user or app scope when joined to its root.
 // A leading separator denotes the root of that scope, not the host filesystem.
@@ -66,7 +72,7 @@ func CleanRelativePath(rawPath string) (string, error) {
 	normalized = strings.TrimLeft(normalized, "/")
 	cleaned := path.Clean(normalized)
 	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", fmt.Errorf("path escapes filestore scope: %s", rawPath)
+		return "", fmt.Errorf("%w: path escapes filestore scope: %s", ErrInvalidPath, rawPath)
 	}
 	return filepath.FromSlash(cleaned), nil
 }

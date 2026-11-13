@@ -1026,7 +1026,13 @@ func (s *HelixAPIServer) loadAuthorizedSandbox(rw http.ResponseWriter, r *http.R
 		return nil, errors.New("org mismatch")
 	}
 	if _, err := s.authorizeOrgMember(r.Context(), user, sb.OrganizationID); err != nil {
-		http.Error(rw, "forbidden", http.StatusForbidden)
+		// Outside the org, a real sandbox answers like an unknown one.
+		if isOutsideTenant(err) {
+			http.Error(rw, "sandbox not found", http.StatusNotFound)
+		} else {
+			log.Error().Err(err).Msg("error checking org membership for sandbox")
+			http.Error(rw, "could not check org membership", http.StatusInternalServerError)
+		}
 		return nil, err
 	}
 	return sb, nil

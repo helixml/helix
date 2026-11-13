@@ -355,6 +355,9 @@ func (s *SpecTasks) Update(ctx context.Context, orgID string, workerID orgchart.
 		if strings.TrimSpace(*in.Name) == "" {
 			return runtime.SpecTaskView{}, errors.New("name cannot be empty")
 		}
+		if err := types.ValidateSpecTaskName(strings.TrimSpace(*in.Name)); err != nil {
+			return runtime.SpecTaskView{}, err
+		}
 		task.Name = strings.TrimSpace(*in.Name)
 	}
 	if in.Description != nil {
