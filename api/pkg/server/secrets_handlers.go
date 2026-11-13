@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -51,8 +52,11 @@ func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]
 		query.OwnerType = types.OwnerTypeOrg
 		query.Owner = org.ID
 	} else {
-		// Personal secrets are outside any project's scope.
+		// Personal secrets are outside any project's or organization's scope.
 		if err := enforceKeyProjectScope(user, ""); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+		if err := orgstore.EnforceKeyOrgScope(user, ""); err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
 		query.OwnerType = types.OwnerTypeUser
@@ -64,20 +68,18 @@ func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Remove the value from the secrets
-	for idx, secret := range secrets {
-		secret.Value = nil
-		secrets[idx] = secret
+	if err := s.redactSecrets(secrets); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
 	}
-
 	return secrets, nil
 }
 
-// redactProjectSecrets clears every value before a list response, first
-// flagging the ones the current encryption key cannot decrypt so the UI can
-// ask for them to be re-entered. Project secrets are always stored encrypted,
-// so a decryption failure means the key changed since the value was written.
-func (s *HelixAPIServer) redactProjectSecrets(secrets []*types.Secret) error {
+// redactSecrets clears every value before a list response, first flagging
+// the ones the current encryption key cannot decrypt so the UI can ask for
+// them to be re-entered. Secrets are stored encrypted (legacy plaintext rows
+// are encrypted at startup), so a decryption failure means the key changed
+// since the value was written.
+func (s *HelixAPIServer) redactSecrets(secrets []*types.Secret) error {
 	encryptionKey, err := s.getEncryptionKey()
 	if err != nil {
 		return fmt.Errorf("failed to get encryption key: %w", err)
@@ -196,7 +198,7 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 	// a project they can no longer update.
 	// A project-scoped key never reaches a personal secret: enforceKeyProjectScope
 	// refuses it, as it refuses every resource outside the key's project.
-	authorized := existing.Owner == user.ID && existing.ProjectID == "" && enforceKeyProjectScope(user, "") == nil
+	authorized := callerOwns(user, existing.Owner, "") && existing.ProjectID == "" && enforceKeyProjectScope(user, "") == nil
 	if existing.ProjectID != "" {
 		project, projectErr := s.Store.GetProject(ctx, existing.ProjectID)
 		if projectErr != nil {
@@ -306,7 +308,7 @@ func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*
 		if err := s.authorizeUserToProjectByID(ctx, user, existing.ProjectID, types.ActionDelete); err == nil {
 			authorized = true
 		}
-	} else if existing.Owner == user.ID && enforceKeyProjectScope(user, "") == nil {
+	} else if callerOwns(user, existing.Owner, "") && enforceKeyProjectScope(user, "") == nil {
 		authorized = true
 	}
 	if !authorized {
@@ -384,7 +386,7 @@ func (s *HelixAPIServer) listProjectSecrets(_ http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
-	if err := s.redactProjectSecrets(secrets); err != nil {
+	if err := s.redactSecrets(secrets); err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 	return secrets, nil

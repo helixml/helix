@@ -40602,7 +40602,7 @@
                     ]
                 },
                 "undecryptable": {
-                    "description": "Undecryptable is set by the project secrets list when the stored value\ncannot be decrypted with the current HELIX_ENCRYPTION_KEY (it was\nwritten under an earlier key). Such a secret is never injected; it must\nbe re-entered.",
+                    "description": "Undecryptable is set by the secrets lists when the stored value cannot\nbe decrypted with the current HELIX_ENCRYPTION_KEY (it was written under\nan earlier key). Such a secret is never injected or substituted; it must\nbe re-entered.",
                     "type": "boolean"
                 },
                 "updated": {
