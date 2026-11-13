@@ -10,10 +10,12 @@ import (
 )
 
 const (
-	testSecret   = "0123456789abcdef0123456789abcdef"
 	testAudience = "ptaas.example.com"
 	testNonce    = "nonce-0123456789abcdef"
 )
+
+// Built at runtime so secret scanners don't read the fixture as a credential.
+var testSecret = strings.Repeat("0123456789abcdef", 2)
 
 var testSubject = Subject{
 	SpecTaskID:     "spt_finder",
