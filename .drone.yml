@@ -242,18 +242,17 @@ steps:
     environment:
       # Reduce log noise in CI - suppress trace/debug logs that bloat output
       LOG_LEVEL: "warn"
-      # Disabled until tested with togetherai
       DISABLE_AGENT_TESTS: "true"
       # Skip migrations - already run by run-migrations step
       HELIX_SKIP_AUTOMIGRATE: "1"
       GEMINI_API_KEY:
         from_secret: GEMINI_API_KEY
       OPENAI_API_KEY:
-        from_secret: openai_tools
-      TOGETHER_API_KEY:
-        from_secret: openai_api_key
-      TOGETHER_BASE_URL:
-        from_secret: openai_base_url
+        from_secret: bunker_api_key
+      OPENAI_BASE_URL:
+        from_secret: bunker_base_url
+      INFERENCE_PROVIDER: openai
+      TOOLS_MODEL: glm-5.3-flash
       # TODO: reenable
       # CI_ADO_TOKEN:
       #   from_secret: ci_ado_token
@@ -279,7 +278,7 @@ steps:
       # First arg "600" sets the script's wall-clock timeout — it parses
       # the first numeric arg. Without it the script defaults to 300s,
       # which is shorter than the inner `-timeout 8m` and kills the
-      # suite during pkg/tools (real TogetherAI calls take ~280s).
+      # suite during slower inference-backed tests.
       - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v
     when:
       event:
@@ -334,10 +333,6 @@ steps:
         from_secret: bunker_api_key
       OPENAI_BASE_URL:
         from_secret: bunker_base_url
-      TOGETHER_API_KEY:
-        from_secret: openai_api_key
-      TOGETHER_BASE_URL:
-        from_secret: openai_base_url
       # Database config (running in a sidecar)
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
