@@ -293,6 +293,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.ProjectAuditLog{},   // Audit trail for project activity
 		&types.OrgAuditLog{},       // Audit trail for Helix org activity
 		&types.RequestAuditEvent{}, // Audit trail for API requests (incident forensics)
+		&types.IdentityAttestationRedemption{},
 		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},

@@ -37,6 +37,10 @@ const (
 	AuditEventProjectDeleted           AuditEventType = "project_deleted"            // Project was deleted
 	AuditEventProjectSettingsUpdated   AuditEventType = "project_settings_updated"   // Project settings were modified
 	AuditEventProjectGuidelinesUpdated AuditEventType = "project_guidelines_updated" // Project guidelines were modified
+
+	// AuditEventIdentityAttestationMinted and AuditEventIdentityAttestationVerified record identity attestations.
+	AuditEventIdentityAttestationMinted   AuditEventType = "identity_attestation_minted"   // A session key obtained an identity attestation
+	AuditEventIdentityAttestationVerified AuditEventType = "identity_attestation_verified" // A verifier redeemed an identity attestation
 )
 
 // AuditMetadata contains additional context for audit log entries
@@ -61,9 +65,9 @@ type AuditMetadata struct {
 	ExternalTaskURL string `json:"external_task_url,omitempty"`
 
 	// Spec versioning - capture spec state at time of event
-	SpecVersion           int    `json:"spec_version,omitempty"`            // Version number of spec at time of event
-	RequirementsSpecHash  string `json:"requirements_spec_hash,omitempty"`  // Hash of requirements spec content
-	TechnicalDesignHash   string `json:"technical_design_hash,omitempty"`   // Hash of technical design content
+	SpecVersion            int    `json:"spec_version,omitempty"`             // Version number of spec at time of event
+	RequirementsSpecHash   string `json:"requirements_spec_hash,omitempty"`   // Hash of requirements spec content
+	TechnicalDesignHash    string `json:"technical_design_hash,omitempty"`    // Hash of technical design content
 	ImplementationPlanHash string `json:"implementation_plan_hash,omitempty"` // Hash of implementation plan content
 
 	// Design review tracking
@@ -74,6 +78,11 @@ type AuditMetadata struct {
 	ClonedFromID        string `json:"cloned_from_id,omitempty"`         // Source task ID if this was cloned
 	ClonedFromProjectID string `json:"cloned_from_project_id,omitempty"` // Source project ID if cloned from another project
 	CloneGroupID        string `json:"clone_group_id,omitempty"`         // Group ID linking related cloned tasks
+
+	// Identity attestation tracking
+	AttestationJTI      string `json:"attestation_jti,omitempty"`
+	AttestationAudience string `json:"attestation_audience,omitempty"`
+	SandboxID           string `json:"sandbox_id,omitempty"`
 }
 
 // ProjectAuditLog represents an audit trail entry for a project

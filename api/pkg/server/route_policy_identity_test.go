@@ -58,5 +58,7 @@ func init() {
 		"DELETE /api/v1/secrets/{id}":                     object("authorizeUserToProjectByID"),
 		"POST /api/v1/auth/password-update":               user(),
 		"POST /api/v1/auth/update":                        user(),
+		"POST /api/v1/identity/attestations":              object("authorizeUserToProject"),
+		"POST /api/v1/identity/attestations/verify":       object("authorizeUserToProject"),
 	})
 }

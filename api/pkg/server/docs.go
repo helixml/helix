@@ -8531,6 +8531,108 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/identity/attestations": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a short-lived token stating which spec task, session or sandbox the caller's key belongs to, for one audience and nonce. Only the session or sandbox key of a desktop in a project may call it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identity"
+                ],
+                "summary": "Mint an identity attestation",
+                "parameters": [
+                    {
+                        "description": "Audience and nonce",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/identity/attestations/verify": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Redeems an attestation once. The caller must be a user or an org-scoped API key that may read the attested project; session, project and app keys are refused. Every invalid, expired, foreign or replayed token gets the same 404.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identity"
+                ],
+                "summary": "Verify an identity attestation",
+                "parameters": [
+                    {
+                        "description": "Token, audience and nonce",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationVerifyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationClaims"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/interactions/{interaction_id}/questions/{request_id}/cancel": {
             "post": {
                 "security": [
@@ -32330,12 +32432,16 @@ const docTemplate = `{
                 "project_created",
                 "project_deleted",
                 "project_settings_updated",
-                "project_guidelines_updated"
+                "project_guidelines_updated",
+                "identity_attestation_minted",
+                "identity_attestation_verified"
             ],
             "x-enum-comments": {
                 "AuditEventAgentPrompt": "Prompt sent from Helix UI to agent",
                 "AuditEventAgentStarted": "Agent session started",
                 "AuditEventGitPush": "Git push detected",
+                "AuditEventIdentityAttestationMinted": "A session key obtained an identity attestation",
+                "AuditEventIdentityAttestationVerified": "A verifier redeemed an identity attestation",
                 "AuditEventPRCreated": "Pull request created",
                 "AuditEventPRMerged": "Pull request merged",
                 "AuditEventProjectCreated": "Project was created",
@@ -32369,12 +32475,21 @@ const docTemplate = `{
                 "AuditEventProjectCreated",
                 "AuditEventProjectDeleted",
                 "AuditEventProjectSettingsUpdated",
-                "AuditEventProjectGuidelinesUpdated"
+                "AuditEventProjectGuidelinesUpdated",
+                "AuditEventIdentityAttestationMinted",
+                "AuditEventIdentityAttestationVerified"
             ]
         },
         "types.AuditMetadata": {
             "type": "object",
             "properties": {
+                "attestation_audience": {
+                    "type": "string"
+                },
+                "attestation_jti": {
+                    "description": "Identity attestation tracking",
+                    "type": "string"
+                },
                 "branch_name": {
                     "type": "string"
                 },
@@ -32425,6 +32540,9 @@ const docTemplate = `{
                 },
                 "requirements_spec_hash": {
                     "description": "Hash of requirements spec content",
+                    "type": "string"
+                },
+                "sandbox_id": {
                     "type": "string"
                 },
                 "session_id": {
@@ -35602,6 +35720,90 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.IdentityAttestationClaims": {
+            "type": "object",
+            "properties": {
+                "aud": {
+                    "type": "string"
+                },
+                "exp": {
+                    "type": "string"
+                },
+                "iat": {
+                    "type": "string"
+                },
+                "jti": {
+                    "type": "string"
+                },
+                "nonce": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.IdentityAttestationError": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.IdentityAttestationRequest": {
+            "type": "object",
+            "properties": {
+                "audience": {
+                    "description": "Audience names the verifier the token is for, e.g. \"ptaas.example.com\".",
+                    "type": "string"
+                },
+                "nonce": {
+                    "description": "Nonce is the verifier's challenge (16–128 characters).",
+                    "type": "string"
+                }
+            }
+        },
+        "types.IdentityAttestationResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.IdentityAttestationVerifyRequest": {
+            "type": "object",
+            "properties": {
+                "audience": {
+                    "type": "string"
+                },
+                "nonce": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
                 }
             }
         },
