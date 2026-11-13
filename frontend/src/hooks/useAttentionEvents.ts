@@ -33,6 +33,7 @@ export type AttentionEventType =
   | 'ci_passed'
   | 'ci_failed'
   | 'org_message'
+  | 'project_secret_undecryptable'
 
 export function useAttentionEvents(enabled: boolean = true, filterMine: boolean = false) {
   const api = useApi()
