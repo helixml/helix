@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
@@ -851,6 +852,10 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	}
 }
 
+// loggedInvalidOpenCodePins records the invalid pins already logged, so a
+// stale setting is reported once per process rather than once per session.
+var loggedInvalidOpenCodePins sync.Map
+
 // applyOpenCodeVersionOverride attaches the admin-pinned opencode release to
 // the config so the container installs it instead of the build baked into the
 // desktop image. A blank setting (the default) leaves OpenCodeBinary nil and
@@ -879,7 +884,9 @@ func (apiServer *HelixAPIServer) applyOpenCodeVersionOverride(ctx context.Contex
 		return
 	}
 	if err := opencode.ValidateVersion(version); err != nil {
-		log.Error().Err(err).Str("opencode_version", version).Msg("applyOpenCodeVersionOverride: ignoring invalid opencode pin; using the bundled build")
+		if _, logged := loggedInvalidOpenCodePins.LoadOrStore(version, struct{}{}); !logged {
+			log.Error().Err(err).Str("opencode_version", version).Msg("applyOpenCodeVersionOverride: ignoring invalid opencode pin; using the bundled build")
+		}
 		return
 	}
 
