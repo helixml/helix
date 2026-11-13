@@ -165,6 +165,9 @@ type SystemSettingsResponse struct {
 	// can show the floor without hardcoding it.
 	OpenCodeVersion        string `json:"opencode_version"`
 	OpenCodeBundledVersion string `json:"opencode_bundled_version"`
+	// OpenCodeVersionError is set when the stored pin fails validation;
+	// sessions then ignore it and run the bundled build.
+	OpenCodeVersionError string `json:"opencode_version_error,omitempty"`
 
 	OnboardingHelixModelProvider string `json:"onboarding_helix_model_provider"`
 	OnboardingHelixModel         string `json:"onboarding_helix_model"`

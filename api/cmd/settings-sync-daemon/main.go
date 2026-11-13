@@ -494,13 +494,20 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// Resolve the binary first: with an admin-pinned version this may
 		// download and verify a release, and if that fails we must not emit an
 		// agent_servers entry at all. Returning nil leaves the session without
-		// an opencode agent and the daemon retries on the next poll, which is
-		// the same deferral the claude_code branch uses while it waits for
-		// credentials. Falling back to the bundled binary would silently
-		// undo the admin's rollout.
-		command, err := d.resolveOpenCodeCommand()
+		// an opencode agent and the daemon retries on the next poll. Falling
+		// back to the bundled binary would silently undo the admin's rollout,
+		// so the failure is reported to the session's waiting turn instead.
+		openCode, err := d.resolveOpenCodeRuntime()
+		if err == nil {
+			err = migrateLegacyOpenCodeState(openCode.version)
+		}
 		if err != nil {
 			log.Printf("ERROR: opencode agent server cannot be registered: %v", err)
+			if !errors.Is(err, errOpenCodeInstallBackoff) {
+				if reportErr := d.reportAgentStartupError(fmt.Errorf("opencode agent unavailable: %w", err)); reportErr != nil {
+					log.Printf("Failed to report opencode startup error: %v", reportErr)
+				}
+			}
 			return nil
 		}
 
@@ -517,18 +524,19 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			// Per-session config dir so opencode's plugin bootstrap cannot
 			// collide with anything else under ~/.config.
 			"XDG_CONFIG_HOME": OpenCodeConfigHome,
-			// Session state under the workspace so it survives a restart.
-			"XDG_DATA_HOME": OpenCodeDataHome,
+			// Session state under the workspace so it survives a restart,
+			// keyed by release so versions never share a database.
+			"XDG_DATA_HOME": openCode.dataHome(),
 		}
 
-		log.Printf("Using opencode runtime: command=%s, model=%s, base_url=%s",
-			command, d.codeAgentConfig.Model, baseURL)
+		log.Printf("Using opencode runtime: command=%s, version=%s, model=%s, base_url=%s",
+			openCode.command, openCode.version, d.codeAgentConfig.Model, baseURL)
 
 		return map[string]interface{}{
 			"opencode": map[string]interface{}{
 				"name":    "opencode",
 				"type":    "custom",
-				"command": command,
+				"command": openCode.command,
 				"args":    []string{"acp"},
 				"env":     env,
 			},

@@ -645,11 +645,11 @@ func (c *inProcHelixClient) DeleteProjectSecret(ctx context.Context, projectID, 
 // map. Dev scope matches the desktop container's environment — the bot
 // reads exactly what it would have had injected at boot.
 func (c *inProcHelixClient) ListProjectSecrets(ctx context.Context, projectID string) (map[string]string, error) {
-	envVars, err := c.server.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
+	secrets, err := c.server.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
 	if err != nil {
 		return nil, err
 	}
-	return parseEnvVarsToMap(envVars), nil
+	return parseEnvVarsToMap(secrets.Env), nil
 }
 
 func (c *inProcHelixClient) ListProjectSecretRecords(ctx context.Context, projectID string) ([]types.Secret, error) {

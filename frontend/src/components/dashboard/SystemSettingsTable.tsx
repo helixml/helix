@@ -23,6 +23,7 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -1130,16 +1131,27 @@ const SystemSettingsTable: FC = () => {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      label={settings?.opencode_version ? 'Pinned' : 'Bundled'}
-                      color={settings?.opencode_version ? 'primary' : 'default'}
-                      size="small"
-                    />
+                    {settings?.opencode_version_error ? (
+                      <Tooltip title="Sessions ignore this pin and run the bundled build">
+                        <Chip label="Ignored" color="warning" size="small" />
+                      </Tooltip>
+                    ) : (
+                      <Chip
+                        label={settings?.opencode_version ? 'Pinned' : 'Bundled'}
+                        color={settings?.opencode_version ? 'primary' : 'default'}
+                        size="small"
+                      />
+                    )}
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontFamily="monospace">
                       {settings?.opencode_version || settings?.opencode_bundled_version || '—'}
                     </Typography>
+                    {settings?.opencode_version_error && (
+                      <Typography variant="caption" color="warning.main" display="block">
+                        {settings.opencode_version_error}
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Box display="flex" gap={1} alignItems="center">
