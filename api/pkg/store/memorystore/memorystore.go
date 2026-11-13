@@ -361,6 +361,7 @@ func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.In
 	if existing, ok := m.interactions[interaction.ID]; ok {
 		cp.PendingQuestion = existing.PendingQuestion
 		cp.QuestionHistory = existing.QuestionHistory
+		cp.Provenance = existing.Provenance
 	}
 	m.interactions[interaction.ID] = &cp
 	cb := m.OnInteractionUpdated

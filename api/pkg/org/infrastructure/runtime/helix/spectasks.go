@@ -41,9 +41,10 @@ type SpecTaskWorkflow interface {
 	// RequestChanges delivers the reviewer's comment to the task's agent
 	// (the same revision-instruction the REST design-review path sends), so
 	// the comment isn't dropped on the MCP path. userID is the actor to
-	// attribute / notify (the Worker's hiring user).
-	RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string) error
-	SendAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, userID string) (string, error)
+	// attribute / notify (the Worker's hiring user). provenance records the
+	// Bot that caused the turn.
+	RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string, provenance types.TurnProvenance) error
+	SendAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, userID string, provenance types.TurnProvenance) (string, error)
 	StartAgent(ctx context.Context, task *types.SpecTask, userID string) error
 	StopAgent(ctx context.Context, task *types.SpecTask) error
 	// CompleteTask marks the task done, which stops its desktop.
@@ -435,7 +436,8 @@ func (s *SpecTasks) SendAgentMessage(ctx context.Context, orgID string, workerID
 	if task.PlanningSessionID == "" {
 		return runtime.SpecTaskMessageView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
 	}
-	promptID, err := s.workflow.SendAgentMessage(ctx, task, message, in.Interrupt, hiringUserID)
+	promptID, err := s.workflow.SendAgentMessage(ctx, task, message, in.Interrupt, hiringUserID,
+		types.OrgBotSystemTurn(types.SystemTurnOrgBotSpecTaskMessage, string(workerID)))
 	if err != nil {
 		return runtime.SpecTaskMessageView{}, fmt.Errorf("send spec task agent message: %w", err)
 	}
@@ -652,7 +654,8 @@ func (s *SpecTasks) RequestChanges(ctx context.Context, orgID string, workerID o
 	// connected session) must not fail the transition: the status change is
 	// already persisted and the agent picks the feedback up on reconnect,
 	// matching the REST handler's best-effort semantics.
-	if derr := s.workflow.RequestChanges(ctx, task, comment, hiringUserID); derr != nil {
+	if derr := s.workflow.RequestChanges(ctx, task, comment, hiringUserID,
+		types.OrgBotSystemTurn(types.SystemTurnRevisionRequested, string(workerID))); derr != nil {
 		// Best-effort: swallow, mirroring the REST path which logs and
 		// continues. The transition above is the authoritative state.
 		_ = derr

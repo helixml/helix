@@ -668,7 +668,7 @@ func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing
 		checkoutCommand = command
 		return nil
 	}
-	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, message string, _ bool, _ string) error {
+	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, message string, _ bool, _ string, _ types.TurnProvenance) error {
 		approvalPrompt = message
 		return nil
 	}
@@ -739,7 +739,7 @@ func TestSpecDrivenTaskService_ApproveSpecsDoesNotCheckoutExistingBranch(t *test
 		execCalls++
 		return nil
 	}
-	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string) error {
+	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string, _ types.TurnProvenance) error {
 		return nil
 	}
 
@@ -796,7 +796,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 	// enqueuer is wired up so we can prove it is NOT called when the
 	// transition loses the race.
 	sendCalls := 0
-	sender := func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string) error {
+	sender := func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string, _ types.TurnProvenance) error {
 		sendCalls++
 		return nil
 	}

@@ -987,7 +987,7 @@ type Store interface {
 	// Prompt history methods (for cross-device sync)
 	CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error
 	CreatePromptHistoryEntryIfAbsent(ctx context.Context, entry *types.PromptHistoryEntry) (bool, error)
-	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
+	SyncPromptHistory(ctx context.Context, userID string, provenance types.TurnProvenance, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
 	ListPromptHistory(ctx context.Context, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
 	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
 	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)

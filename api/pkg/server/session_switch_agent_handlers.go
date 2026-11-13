@@ -258,7 +258,7 @@ func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
 		// Same thread, same agent, same container. interrupt=false defers
 		// behind an in-flight planning turn instead of interleaving two
 		// prompts on one ACP thread.
-		return apiServer.enqueueSpecTaskAgentMessage(ctx, task, prompt, false, "")
+		return apiServer.enqueueSpecTaskAgentMessage(ctx, task, prompt, false, "", types.SystemTurn(types.SystemTurnImplementationPrompt))
 	}
 
 	live := apiServer.hasRunningAgentContainer(ctx, session.ID)
@@ -511,6 +511,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		State:           types.InteractionStateComplete,
 		PromptMessage:   transitionLabel,
 		ResponseMessage: transcript,
+		Provenance:      types.SystemTurn(types.SystemTurnAgentSwitched),
 	}
 	seedInteraction, err = apiServer.Store.CreateInteraction(ctx, seedInteraction)
 	if err != nil {
@@ -565,6 +566,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 			State:                   types.InteractionStateWaiting,
 			PromptMessage:           handoffPrompt,
 			CodeAgentConfigSnapshot: configSnapshot,
+			Provenance:              types.SystemTurn(types.SystemTurnAgentSwitchHandoff),
 		}
 		createdHandoff, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction)
 		if err != nil {

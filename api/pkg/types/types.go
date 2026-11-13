@@ -140,6 +140,11 @@ type Interaction struct {
 	// relying on an in-memory map that doesn't survive API restarts. See
 	// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
 	PromptID string `json:"prompt_id,omitempty" gorm:"index"`
+
+	// Provenance records who caused this turn's prompt. Server-set at
+	// creation and never updated; rows from before it existed read as
+	// origin "unknown".
+	Provenance TurnProvenance `json:"provenance" gorm:"type:jsonb"`
 }
 
 type InteractionCodeAgentConfigSnapshot struct {

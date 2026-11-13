@@ -383,6 +383,7 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 		User:           user,
 		InteractionID:  interactionID,
 		PromptMessage:  types.MessageContent{Parts: []any{promptMessage}},
+		Provenance:     types.SystemTurn(types.SystemTurnCrispMessage),
 		HistoryLimit:   -1, // Do not include any interactions
 	})
 	if err != nil {

@@ -1173,7 +1173,7 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	if params.DeliveryID != "" {
 		req.InteractionID = activationDeliveryID(system.InteractionPrefix, params.DeliveryID)
 	}
-	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID)
+	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID, types.SystemTurn(types.SystemTurnOrgActivation))
 	if err != nil {
 		return runtimehelix.DeliveryResult{}, fmt.Errorf("start external agent session: %w", err)
 	}
@@ -1270,12 +1270,13 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			}
 		}
 		entry = &types.PromptHistoryEntry{
-			ID:        promptID,
-			UserID:    session.Owner,
-			ProjectID: session.ProjectID,
-			SessionID: sessionID,
-			Content:   prompt,
-			Status:    "reserved",
+			ID:         promptID,
+			UserID:     session.Owner,
+			ProjectID:  session.ProjectID,
+			SessionID:  sessionID,
+			Content:    prompt,
+			Status:     "reserved",
+			Provenance: types.SystemTurn(types.SystemTurnOrgActivation),
 		}
 		created, err := c.server.Store.CreatePromptHistoryEntryIfAbsent(ctx, entry)
 		if err != nil {
@@ -1342,7 +1343,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		}
 	}
 	body := SessionMessageRequest{Content: prompt}
-	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", body, map[string]string{"id": sessionID})
+	r, err := c.newRequest(withSystemTurn(ctx, types.SystemTurn(types.SystemTurnOrgActivation)), http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", body, map[string]string{"id": sessionID})
 	if err != nil {
 		return runtimehelix.DeliveryResult{}, err
 	}

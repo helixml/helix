@@ -186,6 +186,7 @@ func runSingleQuestion(
 		Session:        session,
 		User:           user,
 		PromptMessage:  types.MessageContent{Parts: []any{question.Question}},
+		Provenance:     types.SystemTurn(types.SystemTurnEvaluationQuestion),
 		HistoryLimit:   -1,
 	})
 

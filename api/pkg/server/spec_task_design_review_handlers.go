@@ -657,7 +657,12 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		// interrupt=true: reviewer-driven feedback should preempt any in-flight agent turn,
 		// matching the comment-queue semantic.
 		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
-		err = s.enqueueSpecTaskAgentMessage(ctx, specTask, message, true, user.ID)
+		provenance, provErr := types.SystemTurnTriggeredBy(types.SystemTurnRevisionRequested, user)
+		if provErr != nil {
+			http.Error(w, provErr.Error(), http.StatusForbidden)
+			return
+		}
+		err = s.enqueueSpecTaskAgentMessage(ctx, specTask, message, true, user.ID, provenance)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -1518,7 +1523,8 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	if specTask.PlanningSessionID == "" {
 		return fmt.Errorf("cannot send comment to agent: spec task %s has no planning session", specTask.ID)
 	}
-	promptID, err := s.persistQueuedPrompt(ctx, specTask.PlanningSessionID, promptText, true, comment.CommentedBy, specTask.ID)
+	promptID, err := s.persistQueuedPrompt(ctx, specTask.PlanningSessionID, promptText, true, comment.CommentedBy, specTask.ID,
+		types.SystemTurn(types.SystemTurnDesignReviewComment))
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -2008,10 +2014,10 @@ func (s *HelixAPIServer) backfillCommentLinkageForPrompt(ctx context.Context, pr
 // planning session. Delivery is async (the poller dispatches when idle, or
 // cancels-then-sends for interrupt=true) — this is the single sender path that
 // replaces the old immediate direct dispatch.
-func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error {
+func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string, provenance types.TurnProvenance) error {
 	if task.PlanningSessionID == "" {
 		return fmt.Errorf("cannot enqueue message: spec task %s has no planning session", task.ID)
 	}
-	_, err := s.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, notifyUserID, task.ID)
+	_, err := s.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, notifyUserID, task.ID, provenance)
 	return err
 }

@@ -106,6 +106,7 @@ type fakeSpecTaskWorkflow struct {
 	stopCalls           []string
 	restartCalls        []string
 	completeCalls       []string
+	lastProvenance      types.TurnProvenance
 }
 
 func (f *fakeSpecTaskWorkflow) ApproveSpecs(_ context.Context, task *types.SpecTask) error {
@@ -120,14 +121,16 @@ func (f *fakeSpecTaskWorkflow) EnsurePullRequests(_ context.Context, task *types
 	task.RepoPullRequests = []types.RepoPR{{RepositoryName: "helix", PRURL: "https://example/pr/1", PRState: "open"}}
 	return nil
 }
-func (f *fakeSpecTaskWorkflow) RequestChanges(_ context.Context, task *types.SpecTask, comment, userID string) error {
+func (f *fakeSpecTaskWorkflow) RequestChanges(_ context.Context, task *types.SpecTask, comment, userID string, provenance types.TurnProvenance) error {
 	f.requestChangesCalls = append(f.requestChangesCalls, task.ID)
+	f.lastProvenance = provenance
 	f.lastComment = comment
 	f.lastRequestUserID = userID
 	return nil
 }
-func (f *fakeSpecTaskWorkflow) SendAgentMessage(_ context.Context, task *types.SpecTask, message string, interrupt bool, userID string) (string, error) {
+func (f *fakeSpecTaskWorkflow) SendAgentMessage(_ context.Context, task *types.SpecTask, message string, interrupt bool, userID string, provenance types.TurnProvenance) (string, error) {
 	f.sendCalls = append(f.sendCalls, task.ID)
+	f.lastProvenance = provenance
 	f.lastMessage = message
 	f.lastInterrupt = interrupt
 	f.lastRequestUserID = userID
@@ -459,6 +462,10 @@ func TestSpecTasks_SendAgentMessageDelegates(t *testing.T) {
 	if len(wf.sendCalls) != 1 || wf.lastMessage != "status?" || !wf.lastInterrupt || wf.lastRequestUserID != "user_hiring" {
 		t.Errorf("send calls/message/interrupt/user = %v/%q/%v/%q", wf.sendCalls, wf.lastMessage, wf.lastInterrupt, wf.lastRequestUserID)
 	}
+	want := types.OrgBotSystemTurn(types.SystemTurnOrgBotSpecTaskMessage, "w-alice")
+	if wf.lastProvenance != want {
+		t.Errorf("provenance = %+v, want %+v", wf.lastProvenance, want)
+	}
 }
 
 func TestSpecTasks_ListAgentMessagesReturnsLatestChronologically(t *testing.T) {
@@ -574,6 +581,9 @@ func TestSpecTasks_RequestChangesDeliversComment(t *testing.T) {
 	}
 	if len(wf.requestChangesCalls) != 1 || wf.lastComment != "tighten scope" {
 		t.Errorf("workflow RequestChanges calls=%v comment=%q, want 1 call with the comment", wf.requestChangesCalls, wf.lastComment)
+	}
+	if want := types.OrgBotSystemTurn(types.SystemTurnRevisionRequested, "w-alice"); wf.lastProvenance != want {
+		t.Errorf("provenance = %+v, want %+v", wf.lastProvenance, want)
 	}
 	if wf.lastRequestUserID != "user_hiring" {
 		t.Errorf("actor = %q, want user_hiring", wf.lastRequestUserID)

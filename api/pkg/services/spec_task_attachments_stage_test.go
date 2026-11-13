@@ -14,6 +14,7 @@ type stageEnqueue struct {
 	message      string
 	interrupt    bool
 	notifyUserID string
+	provenance   types.TurnProvenance
 }
 
 // newStageService builds a SpecDrivenTaskService wired to the suite's real git repo and
@@ -27,8 +28,8 @@ func (s *GitIntegrationSuite) newStageService(captured *[]stageEnqueue) *SpecDri
 	svc.ReadAttachmentBlob = func(_ context.Context, path string) ([]byte, error) {
 		return []byte("fake-bytes-for-" + path), nil
 	}
-	svc.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, message string, interrupt bool, notifyUserID string) error {
-		*captured = append(*captured, stageEnqueue{message: message, interrupt: interrupt, notifyUserID: notifyUserID})
+	svc.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, message string, interrupt bool, notifyUserID string, provenance types.TurnProvenance) error {
+		*captured = append(*captured, stageEnqueue{message: message, interrupt: interrupt, notifyUserID: notifyUserID, provenance: provenance})
 		return nil
 	}
 	return svc
@@ -95,6 +96,7 @@ func (s *GitIntegrationSuite) TestStageUploadedAttachments_RacingUploadAfterPlan
 	require.Len(enqueued, 1, "agent must be notified about the late attachment")
 	require.False(enqueued[0].interrupt, "note must not interrupt in-flight work")
 	require.Equal("test-user", enqueued[0].notifyUserID)
+	require.Equal(types.SystemTurn(types.SystemTurnAttachmentAdded), enqueued[0].provenance)
 	require.Contains(enqueued[0].message, "design/tasks/000123_racing-task/attachments/screenshot.png")
 }
 

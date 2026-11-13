@@ -699,6 +699,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt:  "", // Don't override agent's system prompt
 		PromptMessage: fullMessage,
 		State:         types.InteractionStateWaiting,
+		Provenance:    types.SystemTurn(types.SystemTurnPlanningPrompt),
 	}
 
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create initial interaction")
@@ -1125,6 +1126,7 @@ Follow these guidelines when making changes:
 		SystemPrompt:  "", // Don't override agent's system prompt
 		PromptMessage: promptWithBranch,
 		State:         types.InteractionStateWaiting,
+		Provenance:    types.SystemTurn(types.SystemTurnImplementationPrompt),
 	}
 
 	_, err = s.store.CreateInteraction(ctx, interaction)
@@ -1628,7 +1630,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				message := BuildRevisionInstructionPrompt(t, comments)
 				// interrupt=true: revision instruction is reviewer-driven feedback delivered via the
 				// task-state machine — same semantic as a comment, should preempt in-flight work.
-				err := s.EnqueueMessageToAgent(context.Background(), t, message, true, "")
+				err := s.EnqueueMessageToAgent(context.Background(), t, message, true, "", types.SystemTurn(types.SystemTurnRevisionRequested))
 				if err != nil {
 					log.Error().
 						Err(err).

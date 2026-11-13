@@ -115,7 +115,7 @@ func (s *SpecDrivenTaskService) StageUploadedAttachments(ctx context.Context, ta
 	// agent has already been told.
 	if len(newlyArrived) > 0 && task.PlanningSessionID != "" && s.EnqueueMessageToAgent != nil {
 		note := buildAttachmentAddedNote(newlyArrived, GetTaskDirName(task))
-		if err := s.EnqueueMessageToAgent(ctx, task, note, false, task.CreatedBy); err != nil {
+		if err := s.EnqueueMessageToAgent(ctx, task, note, false, task.CreatedBy, types.SystemTurn(types.SystemTurnAttachmentAdded)); err != nil {
 			return fmt.Errorf("enqueue attachment-added note: %w", err)
 		}
 	}

@@ -691,7 +691,7 @@ func (s *AgentInstructionService) SendApprovalInstructionMessage(
 	// kickoff begins a new phase and should respect the queue (defer until idle).
 	// userID is carried as notifyUserID so the response streams to the same user
 	// as before.
-	if err := s.enqueuer(ctx, task, message, false, userID); err != nil {
+	if err := s.enqueuer(ctx, task, message, false, userID, types.SystemTurn(types.SystemTurnImplementationPrompt)); err != nil {
 		return fmt.Errorf("failed to enqueue approval instruction to agent: %w", err)
 	}
 

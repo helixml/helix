@@ -31,7 +31,7 @@ type SpecTaskCreator interface {
 
 // ExternalAgentStarter creates external agent (Zed) sessions. Implemented by the API server.
 type ExternalAgentStarter interface {
-	StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error)
+	StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string, provenance types.TurnProvenance) (*types.Session, error)
 }
 
 // SpecTaskCreatorProvider resolves the spec task creator when a job actually fires.
@@ -582,6 +582,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Session:        session,
 		User:           user,
 		PromptMessage:  types.MessageContent{Parts: []any{promptText}},
+		Provenance:     types.SystemTurn(types.SystemTurnCronTrigger),
 	})
 	if err != nil {
 		log.Error().
@@ -713,7 +714,7 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 				Content: types.MessageContent{Parts: []any{promptText}},
 			},
 		},
-	}, userID)
+	}, userID, types.SystemTurn(types.SystemTurnCronTrigger))
 	if err != nil {
 		log.Error().Err(err).Str("app_id", a.ID).Msg("failed to start external agent cron session")
 		return fail(err)

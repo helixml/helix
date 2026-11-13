@@ -189,6 +189,7 @@ func (a *AzureDevOps) processEvent(ctx context.Context, triggerConfig *types.Tri
 		Session:        session,
 		User:           user,
 		PromptMessage:  types.MessageContent{Parts: []any{input}},
+		Provenance:     types.SystemTurn(types.SystemTurnAzureDevOpsEvent),
 	})
 	if err != nil {
 		log.Warn().

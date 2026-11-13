@@ -780,7 +780,7 @@ type mockExternalAgentStarter struct {
 	startFunc func(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error)
 }
 
-func (m *mockExternalAgentStarter) StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error) {
+func (m *mockExternalAgentStarter) StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string, _ types.TurnProvenance) (*types.Session, error) {
 	return m.startFunc(ctx, req, userID)
 }
 
