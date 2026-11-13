@@ -46,6 +46,25 @@ func prepareRootlessPersistentDataMount(path string) error {
 	return nil
 }
 
+// prepareAgentCacheMount makes the shared agent-binary cache writable by the
+// desktop user. The settings-sync daemon runs as that user and installs
+// admin-pinned agent releases here; Docker would otherwise auto-create the
+// source as root:root 0755 and every install would fail.
+func prepareAgentCacheMount(path string) error {
+	if path != filepath.Clean(path) || !filepath.IsAbs(path) || path == string(filepath.Separator) {
+		return fmt.Errorf("agent cache mount source must be a canonical absolute non-root path")
+	}
+	fd, _, err := openOrCreateDirNoFollow(path)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+	if err := unix.Fchown(fd, instanceUID, instanceUID); err != nil {
+		return err
+	}
+	return unix.Fchmod(fd, 0o755)
+}
+
 func openOrCreateDirNoFollow(path string) (fd int, leafCreated bool, err error) {
 	fd, err = unix.Open(string(filepath.Separator), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
