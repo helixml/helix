@@ -300,7 +300,7 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 				return
 			}
 			transitioned, err := apiServer.Store.MarkStaleInteractionErrorIfWaiting(
-				ctx, stuck.ID, stuck.GenerationID, stuck.Updated, "External agent stopped before completing the turn",
+				ctx, stuck.ID, stuck.GenerationID, stuck.Updated, externalAgentStoppedTurnError,
 			)
 			if err != nil {
 				log.Warn().Err(err).Str("interaction_id", stuck.ID).

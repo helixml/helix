@@ -48,7 +48,7 @@ func (apiServer *HelixAPIServer) adminCreateServiceAccount(_ http.ResponseWriter
 
 	var body AdminCreateServiceAccountRequest
 	if err := jsoniter.NewDecoder(req.Body).Decode(&body); err != nil {
-		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 	if strings.TrimSpace(body.OrganizationName) == "" {
 		return nil, system.NewHTTPError400("organization_name is required")

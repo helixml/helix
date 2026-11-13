@@ -9,6 +9,7 @@ require (
 	code.gitea.io/gitea v1.25.5
 	github.com/Eyevinn/mp4ff v0.50.0
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
+	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/anthropics/anthropic-sdk-go v1.12.0
 	github.com/avast/retry-go/v4 v4.5.1
 	github.com/bnema/wayland-virtual-input-go v0.2.0
@@ -44,7 +45,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/helixml/kodit v1.3.8
+	github.com/helixml/kodit v1.4.0
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/jfrog/froggit-go v1.20.1
 	github.com/joho/godotenv v1.5.1
@@ -54,6 +55,7 @@ require (
 	github.com/mark3labs/mcp-go v0.47.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
+	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/nats-io/nats-server/v2 v2.10.14
@@ -98,6 +100,7 @@ require (
 )
 
 require (
+	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/go-openapi/swag/conv v0.25.5 // indirect
 	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
 	github.com/go-openapi/swag/jsonutils v0.25.5 // indirect
@@ -105,6 +108,7 @@ require (
 	github.com/go-openapi/swag/stringutils v0.25.5 // indirect
 	github.com/go-openapi/swag/typeutils v0.25.5 // indirect
 	github.com/go-openapi/swag/yamlutils v0.25.5 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/mod v0.35.0 // indirect
 )
@@ -244,7 +248,6 @@ require (
 	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
-	github.com/PuerkitoBio/goquery v1.10.3 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/antchfx/htmlquery v1.3.0 // indirect
 	github.com/antchfx/xmlquery v1.3.17 // indirect

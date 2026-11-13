@@ -45,19 +45,18 @@ func (suite *ActionTestSuite) SetupTest() {
 
 	var apiClient openai.Client
 
-	if cfg.Providers.TogetherAI.APIKey != "" {
+	if cfg.Providers.OpenAI.APIKey != "" {
 		apiClient = openai.New(
-			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL,
+			cfg.Providers.OpenAI.APIKey,
+			cfg.Providers.OpenAI.BaseURL,
 			cfg.Stripe.BillingEnabled,
 		)
-		// gpt-oss-20b became unreliable on TogetherAI (sustained 503s in May 2026
-		// CI runs even after credit/account issues were resolved); 120b sibling
-		// is healthy. Bump again if this one starts 503ing.
-		cfg.Tools.Model = "openai/gpt-oss-120b"
 	} else {
 		apiClient = openai.NewMockClient(suite.ctrl)
 	}
+	// API tool tests serve their APIs from local listeners; the default
+	// (blocked) policy is covered by TestAPIToolsRejectInternalDestinations.
+	cfg.Tools.AllowPrivateNetworks = true
 
 	strategy, err := NewChainStrategy(&cfg, suite.store, apiClient)
 	suite.NoError(err)

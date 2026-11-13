@@ -11,6 +11,7 @@ import (
 
 	assetapp "github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/domain/asset"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 )
 
@@ -378,6 +379,9 @@ func (a *apiHandler) linkAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("bot_id is required"))
 		return
 	}
+	if !a.authorizeBotEdit(w, r, orgID, orgchart.NodeID(strings.TrimSpace(req.BotID)), "asset links") {
+		return
+	}
 	link, err := a.deps.Assets.Link(r.Context(), orgID, r.PathValue("id"), req.BotID)
 	if err != nil {
 		writeError(w, assetErrorStatus(err), err)
@@ -403,6 +407,9 @@ func (a *apiHandler) unlinkAsset(w http.ResponseWriter, r *http.Request) {
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !a.authorizeBotEdit(w, r, orgID, orgchart.NodeID(r.PathValue("bot_id")), "asset links") {
 		return
 	}
 	if err := a.deps.Assets.Unlink(r.Context(), orgID, r.PathValue("id"), r.PathValue("bot_id")); err != nil {

@@ -13,6 +13,8 @@ services:
       - .env
     environment:
       - KEYCLOAK_ENABLED=false
+      # Shared secret for the crawler browser (chrome service); set CHROME_LAUNCHER_TOKEN in .env.
+      - RAG_CRAWLER_LAUNCHER_TOKEN=${CHROME_LAUNCHER_TOKEN:-}
       - OIDC_ENABLED=true
       - OIDC_URL=http://proxy:8080
       - OIDC_CLIENT_ID=client-credentials-mock-client
@@ -52,7 +54,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
   postgres:
-    image: postgres:12.13-alpine
+    image: ${HELIX_POSTGRES_IMAGE:-postgres:17-alpine}
     restart: always
     ports:
       - 5432:5432
@@ -65,12 +67,20 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
       - POSTGRES_DATABASES=keycloak
   chrome:
-    image: ghcr.io/go-rod/rod:v0.115.0
+    # Built locally from Dockerfile.chrome; `docker compose build chrome`
+    # refreshes Chromium. HELIX_CHROME_IMAGE uses a published image instead.
+    image: ${HELIX_CHROME_IMAGE:-helix-chrome:dev}
+    build:
+      context: .
+      dockerfile: Dockerfile.chrome
     restart: always
+    environment:
+      # Launches need this secret; unset, any client on the network can launch a browser.
+      - CHROME_LAUNCHER_TOKEN=${CHROME_LAUNCHER_TOKEN:-}
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke
     ports:
-      - 7317:7317
+      - 127.0.0.1:7317:7317
   frontend:
     ports:
       - 8081:${FRONTEND_INTERNAL_PORT:-8081}

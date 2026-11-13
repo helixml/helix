@@ -1,8 +1,6 @@
 package server
 
 import (
-	"archive/tar"
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -22,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -82,7 +81,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 
 	config := types.ServerConfigForFrontend{
-		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled,
+		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled && apiServer.passwordAuthEnabled(),
 		RequireActiveSubscription:              apiServer.Cfg.Stripe.RequireActiveSubscription,
 		AuthProvider:                           apiServer.Cfg.Auth.Provider,
 		FilestorePrefix:                        filestorePrefix,
@@ -146,7 +145,21 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 }
 
 func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
-	return apiServer.getConfig(req.Context())
+	config, err := apiServer.getConfig(req.Context())
+	if err != nil {
+		return config, err
+	}
+	// The exact build and the deployment's identity are for signed-in users
+	// (update banner, licence gate, support debug context); an anonymous
+	// caller only needs what renders the login and registration pages. The
+	// Sentry DSN and RudderStack write key stay: they are browser-side
+	// ingestion keys the SPA needs before sign-in.
+	if !hasUser(getRequestUser(req)) {
+		config.Version = ""
+		config.LatestVersion = ""
+		config.DeploymentID = ""
+	}
+	return config, nil
 }
 
 // status godoc
@@ -168,27 +181,10 @@ func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request
 	}
 
 	// License info moved here from /config so it is not disclosed
-	// unauthenticated. Self-hosted deployments would otherwise leak the
-	// licence org / expiry / seat limits to anyone hitting /api/v1/config.
+	// unauthenticated.
 	if apiServer.pingService != nil {
 		if decoded, err := apiServer.pingService.GetLicenseInfo(ctx); err == nil && decoded != nil {
-			status.License = &types.FrontendLicenseInfo{
-				Valid:        decoded.Valid && !decoded.Expired(),
-				Organization: decoded.Organization,
-				ValidUntil:   decoded.ValidUntil,
-				Features: struct {
-					Users bool `json:"users"`
-				}{
-					Users: decoded.Features.Users,
-				},
-				Limits: struct {
-					Users    int64 `json:"users"`
-					Machines int64 `json:"machines"`
-				}{
-					Users:    decoded.Limits.Users,
-					Machines: decoded.Limits.Machines,
-				},
-			}
+			status.License = frontendLicenseInfo(decoded, isAdmin(user))
 		}
 	}
 
@@ -225,7 +221,7 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	if path == "apps" {
 		isAdmin := apiServer.isAdmin(req)
 		if !isAdmin {
-			return nil, fmt.Errorf("access denied: only administrators can list all apps")
+			return nil, system.NewHTTPError403("access denied: only administrators can list all apps")
 		}
 	}
 
@@ -242,7 +238,7 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 			return nil, err
 		}
 		if !hasAccess {
-			return nil, fmt.Errorf("access denied to app filestore path: %s", path)
+			return nil, system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 
 		// Extract the relative path within the app
@@ -283,7 +279,7 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 			return filestore.Item{}, err
 		}
 		if !hasAccess {
-			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", path)
+			return filestore.Item{}, system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 
 		// Extract the relative path within the app
@@ -313,7 +309,7 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 		Path string `json:"path"`
 	}
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
-		return filestore.Item{}, err
+		return filestore.Item{}, jsonDecodeHTTPError(err)
 	}
 
 	// Check if this is an app-scoped path
@@ -329,7 +325,7 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 			return filestore.Item{}, err
 		}
 		if !hasAccess {
-			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", request.Path)
+			return filestore.Item{}, system.NewHTTPError403("access denied to app filestore path: " + request.Path)
 		}
 
 		// Extract the relative path within the app
@@ -393,7 +389,7 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 			return filestore.Item{}, err
 		}
 		if !hasAccess {
-			return filestore.Item{}, fmt.Errorf("access denied to app filestore path: %s", path)
+			return filestore.Item{}, system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 	}
 
@@ -427,7 +423,7 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 			return "", err
 		}
 		if !hasAccess {
-			return "", fmt.Errorf("access denied to app filestore path: %s", path)
+			return "", system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 
 		// Extract the relative path within the app
@@ -475,7 +471,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		}
 		if !hasAccess {
 			log.Error().Str("path", path).Msg("access denied to app filestore path")
-			return false, fmt.Errorf("access denied to app filestore path: %s", path)
+			return false, system.NewHTTPError403("access denied to app filestore path: " + path)
 		}
 
 		// Parse and handle file upload
@@ -575,183 +571,6 @@ func filestoreAppUploadDestination(requestPath, appID, uploadedFilename string) 
 	relativePath := strings.TrimPrefix(requestPath, appPrefix)
 	relativePath = strings.TrimPrefix(relativePath, "/")
 	return filestoreUploadDestination(relativePath, uploadedFilename)
-}
-
-// in this case the path contains the full /dev/users/XXX/sessions/XXX path
-// so we need to remove the /dev/users/XXX part and then we load the session based on it's ID
-func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	sessionid := vars["sessionid"]
-	filePath := req.URL.Query().Get("path")
-	filename := filepath.Base(filePath)
-
-	log.Debug().
-		Msgf("🔵 download file: %s", filePath)
-
-	err := func() error {
-		filePath, ownerContext, err := apiServer.convertFilestorePath(req.Context(), sessionid, filePath)
-		if err != nil {
-			return err
-		}
-		reader, err := apiServer.Controller.FilestoreDownloadFile(ownerContext, filePath)
-		if err != nil {
-			return err
-		}
-		defer reader.Close()
-
-		// Set the appropriate mime-type headers
-		res.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
-		res.Header().Set("Content-Type", http.DetectContentType([]byte(filename)))
-
-		// Write the file to the http.ResponseWriter
-		_, err = io.Copy(res, reader)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}()
-
-	if err != nil {
-		log.Error().Msgf("error for download file: %s", err.Error())
-		http.Error(res, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (apiServer *HelixAPIServer) runnerSessionDownloadFolder(res http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	sessionid := vars["sessionid"]
-	filePath := req.URL.Query().Get("path")
-	filename := filepath.Base(filePath)
-
-	log.Debug().
-		Msgf("🔵 download folder: %s", filePath)
-
-	err := func() error {
-		filePath, requestContext, err := apiServer.convertFilestorePath(req.Context(), sessionid, filePath)
-		if err != nil {
-			return err
-		}
-		tarStream, err := apiServer.Controller.FilestoreDownloadFolder(requestContext, filePath)
-		if err != nil {
-			return err
-		}
-
-		// Set the appropriate mime-type headers
-		res.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s,tar", filename))
-		res.Header().Set("Content-Type", "application/x-tar")
-
-		// Write the file to the http.ResponseWriter
-		_, err = io.Copy(res, tarStream)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}()
-
-	if err != nil {
-		log.Error().Msgf("error for download file: %s", err.Error())
-		http.Error(res, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-// TODO: this need auth because right now it's an open filestore
-func (apiServer *HelixAPIServer) runnerSessionUploadFiles(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
-	vars := mux.Vars(req)
-	sessionid := vars["sessionid"]
-	filePath := req.URL.Query().Get("path")
-
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, err
-	}
-
-	session, err := apiServer.Store.GetSession(req.Context(), sessionid)
-	if err != nil {
-		return nil, err
-	}
-
-	uploadFolder := filepath.Join(controller.GetSessionFolder(session.ID), filePath)
-
-	ownerContext := types.OwnerContext{
-		Owner:     session.Owner,
-		OwnerType: session.OwnerType,
-	}
-
-	result := []filestore.Item{}
-	files := req.MultipartForm.File["files"]
-
-	for _, fileHeader := range files {
-		// Handle non-tar files as before
-		file, err := fileHeader.Open()
-		if err != nil {
-			return nil, fmt.Errorf("unable to open file")
-		}
-		defer file.Close()
-
-		item, err := apiServer.Controller.FilestoreUploadFile(ownerContext, filepath.Join(uploadFolder, fileHeader.Filename), file)
-		if err != nil {
-			return nil, fmt.Errorf("unable to upload file: %s", err.Error())
-		}
-		result = append(result, item)
-	}
-
-	return result, nil
-}
-
-func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter, req *http.Request) (*filestore.Item, error) {
-	vars := mux.Vars(req)
-	sessionid := vars["sessionid"]
-	filePath := req.URL.Query().Get("path")
-
-	session, err := apiServer.Store.GetSession(req.Context(), sessionid)
-	if err != nil {
-		return nil, err
-	}
-
-	uploadFolder := filepath.Join(controller.GetSessionFolder(session.ID), filePath)
-
-	ownerContext := types.OwnerContext{
-		Owner:     session.Owner,
-		OwnerType: session.OwnerType,
-	}
-
-	tarReader := tar.NewReader(req.Body)
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("error reading tar file: %s", err)
-		}
-
-		if strings.Contains(header.Name, "..") {
-			return nil, fmt.Errorf("invalid tar file: %s", header.Name)
-		}
-
-		if header.Typeflag == tar.TypeReg {
-			buffer := bytes.NewBuffer(nil)
-			if _, err := io.Copy(buffer, tarReader); err != nil {
-				return nil, fmt.Errorf("error reading file inside tar: %s", err)
-			}
-
-			// Create a virtual file from the buffer to upload
-			vFile := bytes.NewReader(buffer.Bytes())
-			_, err := apiServer.Controller.FilestoreUploadFile(ownerContext, filepath.Join(uploadFolder, header.Name), vFile)
-			if err != nil {
-				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
-			}
-		}
-	}
-
-	finalFolder, err := apiServer.Controller.FilestoreGet(ownerContext, uploadFolder)
-	if err != nil {
-		return nil, err
-	}
-
-	return &finalFolder, nil
 }
 
 func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
@@ -903,7 +722,7 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 		return nil, system.NewHTTPError403("only admins can create users")
 	}
 
-	if apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC {
+	if !apiServer.passwordAuthEnabled() {
 		return nil, system.NewHTTPError400(
 			"User creation is managed by your OIDC provider. " +
 				"Create the user in the OIDC provider's admin console; " +
@@ -913,7 +732,7 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 	var request types.AdminCreateUserRequest
 
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
-		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if request.Email == "" {
@@ -936,15 +755,17 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 
 	userID := system.GenerateUserID()
 	newUser := &types.User{
-		ID:           userID,
-		Email:        request.Email,
-		FullName:     request.FullName,
-		Username:     request.Email,
-		Password:     request.Password,
-		Admin:        request.Admin,
-		Type:         types.OwnerTypeUser,
-		AuthProvider: types.AuthProviderRegular,
-		CreatedAt:    time.Now(),
+		ID:       userID,
+		Email:    request.Email,
+		FullName: request.FullName,
+		Username: request.Email,
+		Password: request.Password,
+		Admin:    request.Admin,
+		// An admin creating the account vouches for the address.
+		EmailVerified: true,
+		Type:          types.OwnerTypeUser,
+		AuthProvider:  types.AuthProviderRegular,
+		CreatedAt:     time.Now(),
 	}
 
 	createdUser, err := apiServer.authenticator.CreateUser(ctx, newUser)
@@ -977,6 +798,11 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 		return nil, system.NewHTTPError403("only admins can reset user passwords")
 	}
 
+	if !apiServer.passwordAuthEnabled() {
+		return nil, system.NewHTTPError400(
+			"Passwords are managed by your OIDC provider; Helix passwords cannot be set.")
+	}
+
 	targetUserID := mux.Vars(req)["id"]
 	if targetUserID == "" {
 		return nil, system.NewHTTPError400("user ID is required")
@@ -984,7 +810,7 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 
 	var request types.AdminResetPasswordRequest
 	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
-		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if request.NewPassword == "" {
@@ -1004,6 +830,14 @@ func (apiServer *HelixAPIServer) adminResetPassword(_ http.ResponseWriter, req *
 	err = apiServer.authenticator.UpdatePassword(ctx, targetUserID, request.NewPassword)
 	if err != nil {
 		return nil, system.NewHTTPError400("failed to update password: " + err.Error())
+	}
+
+	// An admin resets a password to lock out whoever held the old one; the
+	// user's existing sessions go with it.
+	if apiServer.sessionManager != nil {
+		if err := apiServer.sessionManager.RevokeUserSessions(ctx, targetUserID, ""); err != nil {
+			return nil, system.NewHTTPError500("password updated but failed to revoke the user's sessions: " + err.Error())
+		}
 	}
 
 	log.Info().
@@ -1175,10 +1009,8 @@ func (apiServer *HelixAPIServer) adminDeleteUser(_ http.ResponseWriter, req *htt
 		return nil, system.NewHTTPError500("failed to get user: " + err.Error())
 	}
 
-	// Delete the user
-	err = apiServer.Store.DeleteUser(ctx, targetUserID)
-	if err != nil {
-		return nil, system.NewHTTPError500("failed to delete user: " + err.Error())
+	if httpErr := apiServer.deleteUserAccount(ctx, targetUser); httpErr != nil {
+		return nil, httpErr
 	}
 
 	log.Info().
@@ -1309,22 +1141,19 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		var objmap map[string]json.RawMessage
 		err = json.Unmarshal(body, &objmap)
 		if err != nil {
-			return "", err
+			return "", jsonDecodeHTTPError(err)
 		}
-		var nameStr string
-		err = json.Unmarshal(objmap["name"], &nameStr)
-		if err != nil {
-			return "", err
+		nameStr, httpErr := requiredJSONStringField(objmap, "name")
+		if httpErr != nil {
+			return "", httpErr
 		}
-		var typeStr string
-		err = json.Unmarshal(objmap["type"], &typeStr)
-		if err != nil {
-			return "", err
+		typeStr, httpErr := requiredJSONStringField(objmap, "type")
+		if httpErr != nil {
+			return "", httpErr
 		}
-		var apiKeyStr string
-		err = json.Unmarshal(objmap["app_id"], &apiKeyStr)
-		if err != nil {
-			return "", err
+		apiKeyStr, httpErr := requiredJSONStringField(objmap, "app_id")
+		if httpErr != nil {
+			return "", httpErr
 		}
 		newAPIKey.Name = nameStr
 		newAPIKey.Type = types.APIKeyType(typeStr)
@@ -1338,6 +1167,28 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 	// them for bots.
 	if isScopedAPIKeyCaller(user) && newAPIKey.Type != types.APIkeytypeApp {
 		return "", system.NewHTTPError403("a scoped API key cannot create API keys; use a personal API key or sign in")
+	}
+	// An app key acts for one agent, so the caller must be allowed to use
+	// that agent (and a project-scoped caller only an agent of its project).
+	if newAPIKey.Type == types.APIkeytypeApp {
+		// A project or session key is handed to an agent for one piece of
+		// work; an app key it minted would outlive that work.
+		if isAgentScopedKey(user) {
+			return "", system.NewHTTPError403("a project- or session-scoped API key cannot create app keys")
+		}
+		if newAPIKey.AppID == nil || newAPIKey.AppID.String == "" {
+			return "", system.NewHTTPError400("app_id is required for an app key")
+		}
+		app, err := apiServer.Store.GetApp(ctx, newAPIKey.AppID.String)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return "", system.NewHTTPError404("app not found")
+			}
+			return "", err
+		}
+		if err := apiServer.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+			return "", system.NewHTTPError404("app not found")
+		}
 	}
 
 	createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, newAPIKey)
@@ -1495,7 +1346,53 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 	apiKey := req.URL.Query().Get("key")
 	key, err := apiServer.Controller.CheckAPIKey(ctx, apiKey)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("api key not found")
+		}
 		return nil, err
 	}
+	// Report only on the caller's own keys. Anyone else's key reads as not
+	// found, so the endpoint cannot be used to validate a key someone found
+	// or to learn whose it is.
+	user := getRequestUser(req)
+	if user == nil || (key.Owner != user.ID && !isAdmin(user)) {
+		return nil, system.NewHTTPError404("api key not found")
+	}
 	return key, nil
+}
+
+// frontendLicenseInfo is the licence block of /api/v1/status. Who holds the
+// licence, when it expires and what it allows is for deployment admins, the
+// same audience as /api/v1/license. Other users only need to learn that the
+// deployment is unlicensed (the SPA locks itself then), so they get no block
+// at all while the licence is valid and {valid:false} when it is not.
+func frontendLicenseInfo(decoded *license.License, admin bool) *types.FrontendLicenseInfo {
+	valid := decoded.Valid && !decoded.Expired()
+	if !admin {
+		if valid {
+			return nil
+		}
+		return &types.FrontendLicenseInfo{Valid: false}
+	}
+	info := &types.FrontendLicenseInfo{Valid: valid}
+	info.Organization = decoded.Organization
+	info.ValidUntil = decoded.ValidUntil
+	info.Features.Users = decoded.Features.Users
+	info.Limits.Users = decoded.Limits.Users
+	info.Limits.Machines = decoded.Limits.Machines
+	return info
+}
+
+// requiredJSONStringField reads a string field from a decoded JSON object,
+// answering 400 with the field's name when it is absent or not a string.
+func requiredJSONStringField(objmap map[string]json.RawMessage, key string) (string, *system.HTTPError) {
+	raw, ok := objmap[key]
+	if !ok {
+		return "", system.NewHTTPError400(key + " is required")
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", system.NewHTTPError400(fmt.Sprintf("Invalid request body: field %q must be a string", key))
+	}
+	return value, nil
 }

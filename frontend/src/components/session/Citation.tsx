@@ -1,10 +1,18 @@
 import React, { useState, useCallback } from 'react';
-import { Box, Button, Container, Tooltip } from '@mui/material';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Container from '@mui/material/Container';
+import Tooltip from '@mui/material/Tooltip';
 import { keyframes } from '@mui/material/styles';
-import { FilterAlt, CheckCircle, Warning, Cancel, FileOpen } from '@mui/icons-material';
+import FilterAlt from '@mui/icons-material/FilterAlt';
+import CheckCircle from '@mui/icons-material/CheckCircle';
+import Warning from '@mui/icons-material/Warning';
+import Cancel from '@mui/icons-material/Cancel';
+import FileOpen from '@mui/icons-material/FileOpen';
 import { useTheme } from '@mui/material/styles'
 import CitationComparisonModal from './CitationComparisonModal';
 import { TypesSessionRAGResult } from '../../api/api';
+import { sanitizeCitationHtml } from '../../utils/sanitizeCitationHtml';
 
 // Reuse the same animations from the Markdown component
 const pulseFade = keyframes`
@@ -417,7 +425,7 @@ const Citation: React.FC<CitationProps> = ({
                                 </Box>
                             }
 
-                            <span dangerouslySetInnerHTML={{ __html: excerpt.snippet }}></span>
+                            <span dangerouslySetInnerHTML={{ __html: sanitizeCitationHtml(excerpt.snippet) }}></span>
 
                             {isImage(excerpt.filename) ? (
                                 null

@@ -1,11 +1,19 @@
 import React, { useState } from "react";
-import { Box, Chip, Menu, MenuItem, Tooltip, Typography } from "@mui/material";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import LinkOffIcon from "@mui/icons-material/LinkOff";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import SettingsIcon from "@mui/icons-material/Settings";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import { useQuery } from "@tanstack/react-query";
+import {
+  BadgeCheck,
+  CircleHelp,
+  ExternalLink,
+  Settings,
+  TriangleAlert,
+  Unlink,
+} from "lucide-react";
 
 import useApi from "../../hooks/useApi";
 import { useSettingsDialog } from "../../contexts/settingsDialog";
@@ -50,8 +58,8 @@ const providerRepoURL = (provider?: string, repo?: string): string | null => {
 
 /**
  * VCSConnectionLozenges renders one lozenge per distinct VCS provider present
- * among the project's external repos, showing which account pushes are
- * attributed to and whether that account can actually reach the repos. Backed by
+ * among the project's external repos, showing the repository sync account and
+ * whether its access was verified. Backed by
  * GET /api/v1/projects/{id}/vcs-connections. Renders nothing when the project
  * has no external repos.
  */
@@ -94,9 +102,12 @@ const VCSConnectionLozenges: React.FC<VCSConnectionLozengesProps> = ({
 
   const chipFor = (conn: TypesVCSConnectionInfo) => {
     const label = providerLabel(conn.provider);
-    const user = conn.pushing_as?.username || "";
-    const inaccessible = (conn.repos || []).filter(
-      (r) => r.verified && !r.has_access,
+    const account = conn.pushing_as?.username || "";
+    const repos = conn.repos || [];
+    const repoNames =
+      repos.map((repo) => repo.repo).join(", ") || "this project";
+    const inaccessible = repos.filter(
+      (repo) => repo.verified && !repo.has_access,
     );
 
     let icon: React.ReactElement;
@@ -106,43 +117,46 @@ const VCSConnectionLozenges: React.FC<VCSConnectionLozengesProps> = ({
 
     switch (conn.state as TypesVCSConnectionState) {
       case "verified":
-        icon = <CheckCircleIcon />;
+        if (
+          repos.length === 0 ||
+          repos.some((repo) => !repo.verified || !repo.has_access)
+        ) {
+          icon = <CircleHelp size={18} />;
+          color = "default";
+          text = account ? `${label} · ${account}` : `${label} · configured`;
+          tooltip = account
+            ? `Repository sync uses ${account}. Access has not been verified for ${repoNames}.`
+            : `Repository credentials are configured. Access has not been verified for ${repoNames}.`;
+          break;
+        }
+        icon = <BadgeCheck size={18} />;
         color = "success";
-        text = user ? `${label} · ${user}` : label;
-        tooltip = `Pushing as ${user || "your connected account"} — access verified for ${
-          (conn.repos || []).map((r) => r.repo).join(", ") || "this project"
-        }`;
+        text = account ? `${label} · ${account}` : label;
+        tooltip = account
+          ? `Repository connection ${account} has verified access to ${repoNames}.`
+          : `Repository access verified for ${repoNames}.`;
         break;
       case "needs_attention":
-        icon = <WarningAmberIcon />;
+        icon = <TriangleAlert size={18} />;
         color = "warning";
-        text = user
-          ? `${user} · no access`
-          : `${label} · needs attention`;
+        text = `${label} · needs attention`;
         tooltip = inaccessible.length
-          ? `${user || "Your account"} can't access ${inaccessible
-              .map((r) => r.repo)
-              .join(", ")}. Switch to an account with access.`
-          : `${label} connection needs attention.`;
+          ? `Repository connection${account ? ` ${account}` : ""} can't access ${inaccessible
+              .map((repo) => repo.repo)
+              .join(", ")}. Reconnect it or choose credentials with access.`
+          : `${label} repository connection needs attention.`;
         break;
       case "disconnected":
       default:
-        icon = <LinkOffIcon />;
+        icon = <Unlink size={18} />;
         color = "default";
         text = `Connect ${label}`;
-        tooltip = `No ${label} account connected for this project's repos.`;
+        tooltip = `No ${label} repository credentials are configured for this project.`;
         break;
     }
 
-    // Surface acting-as vs pushing-as when they differ (attribution clarity).
-    const actingName = conn.acting_user?.name;
     const missing = conn.missing_scopes || [];
-    const detail = [
-      actingName && user && `acting as ${actingName} · pushing as ${user}`,
-      missing.length > 0 && `missing scopes: ${missing.join(", ")}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const detail = missing.length > 0 && `missing scopes: ${missing.join(", ")}`;
 
     return (
       <Tooltip
@@ -167,7 +181,7 @@ const VCSConnectionLozenges: React.FC<VCSConnectionLozengesProps> = ({
           label={text}
           color={color}
           size="small"
-          variant={conn.state === "disconnected" ? "outlined" : "filled"}
+          variant={color === "default" ? "outlined" : "filled"}
           onClick={(e) => openMenu(e, conn)}
           sx={{ fontSize: "0.75rem", cursor: "pointer", maxWidth: 320 }}
         />
@@ -189,7 +203,7 @@ const VCSConnectionLozenges: React.FC<VCSConnectionLozengesProps> = ({
             openDialog("connected-services");
           }}
         >
-          <SettingsIcon sx={{ mr: 1, fontSize: 20 }} />
+          <Settings size={20} style={{ marginRight: 8 }} />
           {active?.state === "disconnected"
             ? "Connect account…"
             : "Switch / reconnect / disconnect…"}
@@ -201,7 +215,7 @@ const VCSConnectionLozenges: React.FC<VCSConnectionLozengesProps> = ({
               window.open(activeRepoURL, "_blank", "noopener");
             }}
           >
-            <OpenInNewIcon sx={{ mr: 1, fontSize: 20 }} />
+            <ExternalLink size={20} style={{ marginRight: 8 }} />
             View on {providerLabel(active?.provider)}
           </MenuItem>
         )}

@@ -670,10 +670,12 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		// json.Marshal, not fmt.Sprintf: the id is arbitrary row data and %q
 		// produces Go-quoted, not JSON-escaped, strings (control characters
 		// would break the ::jsonb cast and 500 the query).
-		matchJSON, err := json.Marshal(specTaskPRMatchJSON{
+		// The probe is a one-element array: RepoPullRequests is a JSONB
+		// array, and an array only contains an object nested in an array.
+		matchJSON, err := json.Marshal([]specTaskPRMatchJSON{{
 			RepositoryID: filters.PRMatch.RepositoryID,
 			PRNumber:     filters.PRMatch.PRNumber,
-		})
+		}})
 		if err != nil {
 			return nil, fmt.Errorf("marshal PR match filter: %w", err)
 		}

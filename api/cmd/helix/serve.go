@@ -3,10 +3,14 @@ package helix
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"time"
 
 	// Register file driver
 	"gocloud.dev/blob/fileblob"
@@ -17,12 +21,14 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	"github.com/helixml/helix/api/pkg/crypto"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -30,7 +36,6 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
-	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -39,6 +44,7 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
+	"github.com/helixml/helix/api/pkg/websearch/setup"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -283,7 +289,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("runner token is required")
 	}
 
-	notifier, err := notification.New(&cfg.Notifications, postgresStore)
+	notifier, err := notification.New(&cfg.Notifications, postgresStore,
+		netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks})
 	if err != nil {
 		return fmt.Errorf("failed to create notifier: %v", err)
 	}
@@ -291,7 +298,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// HelixAuthenticator handles user management for all auth modes.
 	// For OIDC mode, the actual authentication is handled by oidcClient in the server,
 	// while HelixAuthenticator handles API key lookups and user database operations.
-	authenticator, err := auth.NewHelixAuthenticator(cfg, postgresStore, cfg.Auth.Regular.JWTSecret, notifier)
+	crypto.WarnIfDefaultEncryptionKey()
+
+	jwtSecret, err := auth.ResolveJWTSecret(ctx, postgresStore, cfg.Auth.Regular.JWTSecret)
+	if err != nil {
+		return fmt.Errorf("failed to resolve JWT secret: %v", err)
+	}
+	authenticator, err := auth.NewHelixAuthenticator(cfg, postgresStore, jwtSecret, notifier)
 	if err != nil {
 		return fmt.Errorf("failed to create helix authenticator: %v", err)
 	}
@@ -360,6 +373,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		"Helix System",
 		"system@helix.ml",
 	)
+	gitRepositoryService.SetOutboundPolicy(netguard.Policy{AllowPrivate: cfg.GitProviders.AllowPrivateNetworks})
 
 	// Initialize kodit once here so that the kodit RAG provider and the API server
 	// share a single kodit instance (and therefore a single embedding model / worker pool).
@@ -377,9 +391,20 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to create browser pool: %w", err)
 	}
 
-	searchProvider := searxng.NewSearXNG(&searxng.Config{
-		BaseURL: cfg.Search.SearXNGBaseURL,
+	webSearch, err := setup.NewProvider(cfg.WebSearch, cfg.Stripe, setup.Deps{
+		Store:     postgresStore,
+		Providers: providerManager,
+		Documents: extractor,
+		Browser:   browserPool,
 	})
+	if err != nil {
+		return err
+	}
+	if webSearch.EgressProxy != nil {
+		if err := serveEgressProxy(ctx, cfg.WebSearch.BrowserProxyListenAddr, webSearch.EgressProxy); err != nil {
+			return err
+		}
+	}
 
 	controllerOptions := controller.Options{
 		Config:                cfg,
@@ -393,8 +418,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Notifier:              notifier,
 		ProviderManager:       providerManager,
 		ModelInfoProvider:     dynamicInfoProvider,
-		Browser:               browserPool,
-		SearchProvider:        searchProvider,
+		WebSearch:             webSearch.Provider,
 		GitRepositoryService:  gitRepositoryService,
 	}
 
@@ -484,6 +508,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		anthropicProxy,
 		gitRepositoryService,
 		koditInit,
+		webSearch.Provider,
 	)
 	if err != nil {
 		return err
@@ -506,5 +531,28 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}()
 
 	<-ctx.Done()
+	return nil
+}
+
+// serveEgressProxy serves the web search egress proxy that headless Chrome's
+// page fetches go through, until ctx is cancelled.
+func serveEgressProxy(ctx context.Context, addr string, proxy http.Handler) error {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("web search egress proxy: listen on %s: %w", addr, err)
+	}
+	srv := &http.Server{Handler: proxy, ReadHeaderTimeout: 30 * time.Second}
+	go func() {
+		<-ctx.Done()
+		if err := srv.Close(); err != nil {
+			log.Error().Err(err).Msg("failed to close web search egress proxy")
+		}
+	}()
+	go func() {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error().Err(err).Msg("web search egress proxy stopped")
+		}
+	}()
+	log.Info().Str("addr", addr).Msg("web search egress proxy listening")
 	return nil
 }

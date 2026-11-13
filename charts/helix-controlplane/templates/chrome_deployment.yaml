@@ -16,9 +16,15 @@ spec:
       {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
+      {{- $checksum := include "helix-controlplane.chrome-launcher-checksum" . }}
+      {{- if or .Values.podAnnotations $checksum }}
       annotations:
+        {{- with $checksum }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       labels:
         app.kubernetes.io/component: chrome
@@ -37,21 +43,20 @@ spec:
         - name: chrome
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.chrome.image.repository | default "ghcr.io/go-rod/rod" }}:{{ .Values.chrome.image.tag | default "v0.115.0" }}"
+          image: "{{ .Values.chrome.image.repository | default "ghcr.io/helixml/chrome" }}:{{ .Values.chrome.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
               containerPort: 7317
               protocol: TCP
-          {{- if or .Values.global.extraEnv .Values.chrome.extraEnv }}
           env:
+            {{- include "helix-controlplane.chrome-launcher-env" (dict "name" "CHROME_LAUNCHER_TOKEN" "root" .) | nindent 12 }}
             {{- with .Values.global.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
             {{- with .Values.chrome.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

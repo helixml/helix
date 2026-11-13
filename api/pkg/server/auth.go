@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	authpkg "github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -40,7 +42,57 @@ func userResponse(user *types.User, token string) types.UserResponse {
 		Admin:               user.Admin,
 		OnboardingCompleted: user.OnboardingCompleted,
 		Waitlisted:          user.Waitlisted,
+		EmailVerified:       user.EmailVerified,
 		AlphaFeatures:       []string(user.AlphaFeatures),
+	}
+}
+
+// passwordAuthEnabled reports whether Helix-managed passwords may be used to
+// sign in or to set, reset or change a password. Only the regular provider
+// owns credentials: under OIDC the identity provider does, and the SSO email
+// domain allow list and waitlist are enforced on SSO sign-in alone, so any
+// password path would sidestep them. Unknown providers allow neither mode.
+func (s *HelixAPIServer) passwordAuthEnabled() bool {
+	return s.Cfg.Auth.Provider == types.AuthProviderRegular
+}
+
+// oidcAuthEnabled reports whether the OIDC login and callback flows may run.
+func (s *HelixAPIServer) oidcAuthEnabled() bool {
+	return s.Cfg.Auth.Provider == types.AuthProviderOIDC && s.oidcClient != nil
+}
+
+// refusePasswordAuth writes a 403 and returns true when password flows are
+// disabled for the configured provider.
+func (s *HelixAPIServer) refusePasswordAuth(w http.ResponseWriter) bool {
+	if s.passwordAuthEnabled() {
+		return false
+	}
+	http.Error(w, "Password authentication is disabled: sign in with SSO", http.StatusForbidden)
+	return true
+}
+
+// isDelegatedAPIKey reports whether a key type is handed to someone other
+// than its owner: embed keys are given to visitors of an embedded page, bot
+// instance keys to org bot sandboxes that serve other people, and app keys
+// to the users of an app.
+func isDelegatedAPIKey(keyType types.APIKeyType) bool {
+	switch keyType {
+	case types.APIkeytypeEmbed, types.APIkeytypeBotInstance, types.APIkeytypeApp:
+		return true
+	}
+	return false
+}
+
+// delegatedKeyUserResponse is what /auth/user returns for a delegated key:
+// the owner's ID, which callers use to address the owner, and none of the
+// owner's profile (email, name, admin flag, commit identity). Onboarding is
+// reported complete so the frontend never redirects the visitor into the
+// owner's account flows.
+func delegatedKeyUserResponse(user *types.User) types.UserResponse {
+	return types.UserResponse{
+		ID:                  user.ID,
+		OnboardingCompleted: true,
+		DefaultPRFooter:     services.DefaultPRFooterTemplate,
 	}
 }
 
@@ -207,6 +259,13 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Registration is disabled", http.StatusForbidden)
 		return
 	}
+	// With OIDC, accounts are created on first SSO sign-in, which is where the
+	// email-domain allow list and the waitlist are enforced. A password signup
+	// would skip both and produce an active, unverified account.
+	if !s.passwordAuthEnabled() {
+		http.Error(w, "Registration is disabled: sign in with SSO", http.StatusForbidden)
+		return
+	}
 
 	ctx := r.Context()
 
@@ -231,6 +290,10 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Password and password confirmation do not match", http.StatusBadRequest)
 		return
 	}
+
+	// One canonical form for the address everywhere it is matched
+	// (accounts, invitations).
+	registerRequest.Email = store.NormalizeEmail(registerRequest.Email)
 
 	existingUser, err := s.Store.GetUser(ctx, &store.GetUserQuery{
 		Email: registerRequest.Email,
@@ -264,23 +327,17 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-accept any pending org invitations for this email. Best-effort —
-	// a failure here shouldn't prevent the user from signing in; they can
-	// be re-invited from the org page. If any invitations were accepted,
-	// the user is effectively onboarded (they have an org and don't need
-	// to walk through the create-an-org wizard) AND has implicit vouching
-	// from an org owner, so we also bypass the waitlist — otherwise an
-	// invited collaborator would be invited only to sit in a queue.
-	consumed, invErr := s.Store.ConsumePendingInvitations(ctx, createdUser)
-	if invErr != nil {
-		log.Warn().Err(invErr).Str("user_id", createdUser.ID).Msg("failed to consume pending invitations")
-	} else if len(consumed) > 0 {
-		log.Info().Str("user_id", createdUser.ID).Int("count", len(consumed)).Msg("auto-accepted org invitations on registration")
-		createdUser.OnboardingCompleted = true
-		createdUser.OnboardingCompletedAt = time.Now()
-		createdUser.Waitlisted = false
-		if _, err := s.Store.UpdateUser(ctx, createdUser); err != nil {
-			log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to mark invited user as onboarded")
+	// Accept the organization invitation from the invite link, if any.
+	// Password sign-up does not prove ownership of the email address, so
+	// pending invitations are never accepted by email alone (anyone could
+	// register an invited address and take the invited role). The proof is
+	// the invitation's secret token, sent only to that address; the ID
+	// alone is visible to org members and is not enough. Best-effort — a
+	// failure here shouldn't prevent the user from signing in; they can
+	// accept from the link later.
+	if registerRequest.InvitationID != "" {
+		if _, err := s.acceptInvitation(ctx, createdUser, registerRequest.InvitationID, registerRequest.InvitationToken); err != nil {
+			log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to accept invitation on registration")
 		}
 	}
 
@@ -289,19 +346,74 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		s.adminAlerter.SendWaitlistSignupAlert(createdUser)
 	}
 
-	token, err := s.authenticator.GenerateUserToken(ctx, createdUser)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to generate user token")
-		http.Error(w, "Failed to generate user token: "+err.Error(), http.StatusInternalServerError)
+	// Sign the new account in the way a password login does.
+	if !s.startRegularSession(w, r, createdUser) {
 		return
 	}
+	writeResponse(w, userResponse(createdUser, ""), http.StatusOK)
+}
 
-	cookieManager := NewCookieManager(s.Cfg)
-	cookieManager.Set(w, accessTokenCookie, token)
-	cookieManager.Set(w, refreshTokenCookie, token)
+// startRegularSession signs user in with a server-side session and its
+// cookies, as a password login does, and reports whether it did. Password
+// sign-ups and resets used to set a bare JWT cookie instead: that cookie
+// bypassed the CSRF check, which only knew the session cookie, and could not
+// be revoked by logout or by a later password change.
+func (s *HelixAPIServer) startRegularSession(w http.ResponseWriter, r *http.Request, user *types.User) bool {
+	if s.sessionManager == nil {
+		log.Error().Msg("session manager is not configured")
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return false
+	}
+	_, err := s.sessionManager.CreateSession(r.Context(), w, r, user.ID, types.AuthProviderRegular, "", "", "", time.Time{})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create session")
+		http.Error(w, "Failed to create session: "+err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	return true
+}
 
-	response := userResponse(createdUser, token)
-	writeResponse(w, response, http.StatusOK)
+// adoptLegacyJWTCookie moves a browser that is still signed in with a legacy
+// JWT cookie (set by sign-up and reset before they issued sessions) onto a
+// server-side session: the session cookies are set and the JWT cookies
+// cleared. The JWT itself stays accepted until it expires but is never
+// renewed, so nobody is signed out and no new JWT cookie is issued.
+func (s *HelixAPIServer) adoptLegacyJWTCookie(w http.ResponseWriter, r *http.Request, user *types.User) {
+	if s.sessionManager == nil || user == nil || user.ID == "" || !s.passwordAuthEnabled() {
+		return
+	}
+	if _, err := s.sessionManager.CreateSession(r.Context(), w, r, user.ID, types.AuthProviderRegular, "", "", "", time.Time{}); err != nil {
+		log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to move legacy JWT cookie to a session")
+		return
+	}
+	NewCookieManager(s.Cfg).DeleteAllCookies(w)
+	log.Info().Str("user_id", user.ID).Msg("Moved legacy JWT cookie to a server-side session")
+}
+
+// refuseScopedKeyAccountChange writes a 403 and returns true when the caller
+// authenticated with a scoped API key. Such a key (org, project, session, app
+// or embed; minted for sandboxes and agents) grants less than the account it
+// belongs to, so it must not be able to change that account's password or
+// profile and then sign in as its owner with everything the scope withheld.
+func refuseScopedKeyAccountChange(w http.ResponseWriter, user *types.User) bool {
+	if !isScopedAPIKeyCaller(user) {
+		return false
+	}
+	http.Error(w, "a scoped API key cannot change the account; use a personal API key or sign in", http.StatusForbidden)
+	return true
+}
+
+// currentSessionID returns the ID of the session cookie that authenticated r,
+// or "" when it was authenticated some other way.
+func (s *HelixAPIServer) currentSessionID(r *http.Request) string {
+	if s.sessionManager == nil {
+		return ""
+	}
+	session, err := s.sessionManager.GetSessionFromRequest(r.Context(), r)
+	if err != nil || session == nil {
+		return ""
+	}
+	return session.ID
 }
 
 // accountUpdate godoc
@@ -322,6 +434,9 @@ func (s *HelixAPIServer) accountUpdate(w http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	if user == nil || user.ID == "" {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if refuseScopedKeyAccountChange(w, user) {
 		return
 	}
 
@@ -412,6 +527,9 @@ func (s *HelixAPIServer) passwordReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		return
 	}
+	if s.refusePasswordAuth(w) {
+		return
+	}
 
 	var passwordResetRequest types.PasswordResetRequest
 	if err := json.NewDecoder(r.Body).Decode(&passwordResetRequest); err != nil {
@@ -428,23 +546,34 @@ func (s *HelixAPIServer) passwordReset(w http.ResponseWriter, r *http.Request) {
 	user, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{
 		Email: passwordResetRequest.Email,
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Error().Err(err).Msg("Failed to get user")
 		http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if user == nil {
-		log.Error().Str("email", passwordResetRequest.Email).Msg("User not found")
-		http.Error(w, "User not found", http.StatusUnauthorized)
+		// Answer as for a known address: this endpoint is unauthenticated,
+		// and a different answer would tell anyone which addresses have an
+		// account. The mail simply is not sent.
+		log.Debug().Msg("password reset requested for an unknown email")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	err = s.authenticator.RequestPasswordReset(r.Context(), user.Email)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to request password reset")
-		http.Error(w, "Failed to request password reset: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// The mail is sent after the response, and a delivery failure is logged
+	// rather than reported: the answer is the same whatever happened, so it
+	// says nothing about the address. Detached from the request so a client
+	// going away does not cancel the send.
+	email, userID := user.Email, user.ID
+	s.passwordResetSends.Add(1)
+	go func() {
+		defer s.passwordResetSends.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.authenticator.RequestPasswordReset(ctx, email); err != nil {
+			log.Error().Err(err).Str("user_id", userID).Msg("Failed to send password reset email")
+		}
+	}()
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -458,6 +587,9 @@ func (s *HelixAPIServer) passwordReset(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/auth/password-reset-complete [post]
 func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
+		return
+	}
+	if s.refusePasswordAuth(w) {
 		return
 	}
 
@@ -480,34 +612,36 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	err := s.authenticator.PasswordResetComplete(ctx, passwordResetCompleteRequest.AccessToken, passwordResetCompleteRequest.NewPassword)
+	user, err := s.authenticator.PasswordResetComplete(ctx, passwordResetCompleteRequest.AccessToken, passwordResetCompleteRequest.NewPassword)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to complete password reset")
 		http.Error(w, "Failed to complete password reset: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	user, err := s.authenticator.ValidateUserToken(ctx, passwordResetCompleteRequest.AccessToken)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to validate user token")
-		http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
+	// A reset is how an account is recovered from whoever holds the old
+	// password, so every session that password opened is closed, and any
+	// legacy JWT cookie this browser holds goes with them.
+	NewCookieManager(s.Cfg).DeleteAllCookies(w)
+	if s.sessionManager != nil {
+		if err := s.sessionManager.RevokeUserSessions(ctx, user.ID, ""); err != nil {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to revoke sessions after password reset")
+			http.Error(w, "Password changed, but failed to sign out existing sessions: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// The password is changed, but an inactive account does not get a session.
+	if accessErr := user.AccountAccessError(); accessErr != nil {
+		http.Error(w, accessErr.Error(), http.StatusForbidden)
 		return
 	}
 
-	// Generate new token as well
-	token, err := s.authenticator.GenerateUserToken(ctx, user)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to generate user token")
-		http.Error(w, "Failed to generate user token: "+err.Error(), http.StatusInternalServerError)
+	// The reset token is not a session; sign in as a password login does.
+	if !s.startRegularSession(w, r, user) {
 		return
 	}
-
-	cookieManager := NewCookieManager(s.Cfg)
-	cookieManager.Set(w, accessTokenCookie, token)
-	cookieManager.Set(w, refreshTokenCookie, token)
-
-	response := userResponse(user, token)
-	writeResponse(w, response, http.StatusOK)
+	writeResponse(w, userResponse(user, ""), http.StatusOK)
 }
 
 // passwordUpdate godoc
@@ -522,12 +656,18 @@ func (s *HelixAPIServer) passwordUpdate(w http.ResponseWriter, r *http.Request) 
 	if r.Method == http.MethodOptions {
 		return
 	}
+	if s.refusePasswordAuth(w) {
+		return
+	}
 
 	ctx := r.Context()
 
 	user := getRequestUser(r)
 	if user == nil || user.ID == "" {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if refuseScopedKeyAccountChange(w, user) {
 		return
 	}
 
@@ -548,6 +688,17 @@ func (s *HelixAPIServer) passwordUpdate(w http.ResponseWriter, r *http.Request) 
 		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to update password")
 		http.Error(w, "Failed to update password: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// A new password signs out every other session: the browser that set it
+	// keeps its own, anything else (a stolen cookie, a shared machine) has
+	// to present the new password.
+	if s.sessionManager != nil {
+		if err := s.sessionManager.RevokeUserSessions(ctx, user.ID, s.currentSessionID(r)); err != nil {
+			log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to revoke other sessions after password update")
+			http.Error(w, "Password changed, but failed to sign out other sessions: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -608,29 +759,34 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if loginRequest.Email != "" && loginRequest.Password != "" {
+		if s.refusePasswordAuth(w) {
+			return
+		}
+		// An unknown address and a wrong password get the same answer, so
+		// the login form cannot be used to find out which addresses have an
+		// account.
+		const invalidCredentials = "Invalid email or password"
 		user, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{
 			Email: loginRequest.Email,
 		})
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				log.Error().Str("email", loginRequest.Email).Msg("User not found")
-				http.Error(w, "User with this email does not exist", http.StatusUnauthorized)
-				return
-			}
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			log.Error().Err(err).Msg("Failed to get user")
 			http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		if user == nil {
-			log.Error().Str("email", loginRequest.Email).Msg("User not found")
-			http.Error(w, "User not found", http.StatusUnauthorized)
+			// Spend the bcrypt work a real attempt would, so the response
+			// time does not say whether the address has an account.
+			_ = s.authenticator.ValidatePassword(r.Context(), authpkg.PasswordTimingDecoy(), loginRequest.Password)
+			log.Debug().Msg("login attempt for an unknown email")
+			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
 		}
 
 		err = s.authenticator.ValidatePassword(r.Context(), user, loginRequest.Password)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to validate password")
-			http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+			log.Debug().Err(err).Str("user_id", user.ID).Msg("Failed to validate password")
+			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
 		}
 
@@ -659,8 +815,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	// OIDC - only available if not using regular auth
-	if s.Cfg.Auth.Provider != types.AuthProviderRegular {
+	if s.oidcAuthEnabled() {
 		redirectURL := s.oidcClient.GetAuthURL(state, nonce)
 		if redirectURL == "" {
 			log.Error().Msg("empty redirect URL")
@@ -693,7 +848,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 // @Param state query string true "The state from the OIDC provider"
 // @Router /api/v1/auth/callback [get]
 func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
-	if s.Cfg.Auth.Provider == types.AuthProviderRegular {
+	if !s.oidcAuthEnabled() {
 		http.Error(w, "OIDC not turned on", http.StatusBadRequest)
 		return
 	}
@@ -728,7 +883,6 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 			Err(err).
 			Str("provider_url", s.Cfg.Auth.OIDC.URL).
 			Str("callback_url", fmt.Sprintf("%s/api/v1/auth/callback", s.Cfg.WebServer.URL)).
-			Str("auth_code", code).
 			Msg("Failed to exchange token")
 		http.Error(w, "Failed to exchange token: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -764,6 +918,11 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	// Get or create user from OIDC claims via ValidateUserToken
 	// This handles user lookup/creation in the database
 	user, err := s.oidcClient.ValidateUserToken(ctx, oauth2Token.AccessToken)
+	if errors.Is(err, authpkg.ErrOIDCEmailCollision) {
+		log.Warn().Err(err).Msg("OIDC sign-in refused")
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to validate user token and get/create user")
 		http.Error(w, "Failed to get user info: "+err.Error(), http.StatusInternalServerError)
@@ -822,11 +981,20 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 
 	// Bearer / API key / access_token query param. Same reason as in
 	// authenticated() above — this endpoint isn't behind extractMiddleware,
-	// so we resolve the token ourselves to support embed pages.
+	// so we resolve the token ourselves to support embed pages. A credential
+	// the browser sends by itself (the legacy access_token cookie) is left to
+	// the cookie paths below, which move it onto a session.
 	if s.authMiddleware != nil {
-		if token := getRequestToken(r); token != "" {
+		if token, source := getRequestTokenWithSource(r); token != "" && source != "cookie" {
 			user, err := s.authMiddleware.getUserFromToken(ctx, token)
 			if err == nil && hasUser(user) {
+				// A desktop key outside a project is held by code in the
+				// container, not by its owner: like a delegated key it gets
+				// the owner's id only.
+				if isDelegatedAPIKey(user.APIKeyType) || s.authMiddleware.confinedDesktopKey(ctx, user) != nil {
+					writeResponse(w, delegatedKeyUserResponse(user), http.StatusOK)
+					return
+				}
 				dbUser, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: user.ID})
 				if err == nil && dbUser != nil {
 					response := userResponse(dbUser, "")
@@ -879,6 +1047,8 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.adoptLegacyJWTCookie(w, r, user)
+		accessToken = ""
 
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
@@ -891,31 +1061,34 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Uses ValidateUserToken which properly computes admin status from ADMIN_USER_IDS
+		refreshToken, _ := cm.Get(r, refreshTokenCookie)
+		var tokenExpiry time.Time
 		user, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
 		if err != nil {
 			log.Debug().Err(err).Msg("Failed to validate access token in /user, attempting refresh")
 
 			// Try to refresh the token if we have a refresh token
-			refreshToken, refreshErr := cm.Get(r, refreshTokenCookie)
-			if refreshErr == nil && refreshToken != "" && !looksLikeHelixJWT(refreshToken) {
+			if refreshToken != "" && !looksLikeHelixJWT(refreshToken) {
 				newToken, refreshErr := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 				if refreshErr == nil && newToken.AccessToken != "" {
-					// Update cookies with new tokens
-					cm.Set(w, accessTokenCookie, newToken.AccessToken)
-					if newToken.RefreshToken != "" {
-						cm.Set(w, refreshTokenCookie, newToken.RefreshToken)
-					}
-
 					// Retry validation with new token
 					user, err = s.oidcClient.ValidateUserToken(ctx, newToken.AccessToken)
 					if err == nil {
 						log.Debug().Msg("Token refreshed and validated successfully in /user")
-						accessToken = newToken.AccessToken // Update for response
+						accessToken = newToken.AccessToken
+						if newToken.RefreshToken != "" {
+							refreshToken = newToken.RefreshToken
+						}
+						tokenExpiry = newToken.Expiry
 					}
 				}
 			}
 
 			// If still failing after refresh attempt, return error
+			if errors.Is(err, authpkg.ErrOIDCEmailCollision) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to validate user token after refresh attempt")
 				errStr := strings.ToLower(err.Error())
@@ -927,10 +1100,30 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// The browser signed in before sessions existed: move it onto one,
+		// as the callback does, so its state-changing requests carry the CSRF
+		// cookie. The IdP tokens live in the session from here on.
+		s.adoptLegacyOIDCCookies(w, r, user, accessToken, refreshToken, tokenExpiry)
+		accessToken = ""
 	}
 
 	response := userResponse(user, accessToken)
 	writeResponse(w, response, http.StatusOK)
+}
+
+// adoptLegacyOIDCCookies moves a browser holding pre-session OIDC token
+// cookies onto a server-side session (as the OIDC callback creates) and
+// clears the legacy cookies.
+func (s *HelixAPIServer) adoptLegacyOIDCCookies(w http.ResponseWriter, r *http.Request, user *types.User, accessToken, refreshToken string, expiry time.Time) {
+	if s.sessionManager == nil || user == nil || user.ID == "" || !s.oidcAuthEnabled() {
+		return
+	}
+	if _, err := s.sessionManager.CreateSession(r.Context(), w, r, user.ID, types.AuthProviderOIDC, accessToken, refreshToken, "", expiry); err != nil {
+		log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to move legacy OIDC cookies to a session")
+		return
+	}
+	NewCookieManager(s.Cfg).DeleteAllCookies(w)
+	log.Info().Str("user_id", user.ID).Msg("Moved legacy OIDC cookies to a server-side session")
 }
 
 // session godoc
@@ -1068,9 +1261,11 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 	// Bearer / API key / access_token query param. This endpoint lives on
 	// the insecureRouter (no extractMiddleware), so we have to validate
 	// the token ourselves. Lets embed pages authenticate via
-	// ?access_token=... in the URL when no session cookie is present.
+	// ?access_token=... in the URL when no session cookie is present. The
+	// legacy access_token cookie is not taken here: the cookie path below
+	// moves it onto a session.
 	if s.authMiddleware != nil {
-		if token := getRequestToken(r); token != "" {
+		if token, source := getRequestTokenWithSource(r); token != "" && source != "cookie" {
 			user, err := s.authMiddleware.getUserFromToken(ctx, token)
 			if err == nil && hasUser(user) {
 				writeResponse(w, types.AuthenticatedResponse{
@@ -1086,6 +1281,9 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		session, err := s.sessionManager.GetSessionFromRequest(ctx, r)
 		if err != nil {
 			log.Debug().Err(err).Msg("BFF session lookup failed in authenticated endpoint")
+			if authpkg.IsSessionDiscarded(err) {
+				s.sessionManager.ClearSessionCookie(w)
+			}
 		}
 		if session != nil {
 			log.Debug().
@@ -1113,9 +1311,13 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var user *types.User
 	switch s.Cfg.Auth.Provider {
 	case types.AuthProviderRegular:
-		_, err = s.authenticator.ValidateUserToken(ctx, accessToken)
+		user, err = s.authenticator.ValidateUserToken(ctx, accessToken)
+		if err == nil {
+			s.adoptLegacyJWTCookie(w, r, user)
+		}
 	default:
 		// OIDC-based auth - first check for stale Helix JWTs
 		// This can happen when AUTH_PROVIDER was changed from "regular" to "oidc"
@@ -1128,7 +1330,11 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 			}, http.StatusOK)
 			return
 		}
-		_, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
+		user, err = s.oidcClient.ValidateUserToken(ctx, accessToken)
+		if err == nil {
+			refreshToken, _ := cm.Get(r, refreshTokenCookie)
+			s.adoptLegacyOIDCCookies(w, r, user, accessToken, refreshToken, time.Time{})
+		}
 	}
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to validate access token, attempting refresh")
@@ -1139,28 +1345,26 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 			// Attempt to refresh the access token
 			switch s.Cfg.Auth.Provider {
 			case types.AuthProviderRegular:
-				// For regular auth, refresh token is the same as access token (JWT)
-				user, validateErr := s.authenticator.ValidateUserToken(ctx, refreshToken)
-				if validateErr == nil {
-					newToken, genErr := s.authenticator.GenerateUserToken(ctx, user)
-					if genErr == nil {
-						cm.Set(w, accessTokenCookie, newToken)
-						cm.Set(w, refreshTokenCookie, newToken)
-						log.Debug().Msg("Token refreshed successfully during authenticated check")
-						writeResponse(w, types.AuthenticatedResponse{
-							Authenticated: true,
-						}, http.StatusOK)
-						return
-					}
-				}
+				// A legacy JWT is accepted until it expires but never
+				// renewed (the refresh cookie holds the same JWT): a valid
+				// one was moved to a session above, an expired one is a
+				// sign-in.
 			default:
-				// OIDC - use the refresh token to get new access token
+				// OIDC - use the refresh token to get new access token, and
+				// move the browser onto a session rather than renewing the
+				// legacy cookies.
 				newToken, refreshErr := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 				if refreshErr == nil && newToken.AccessToken != "" {
-					cm.Set(w, accessTokenCookie, newToken.AccessToken)
-					if newToken.RefreshToken != "" {
-						cm.Set(w, refreshTokenCookie, newToken.RefreshToken)
+					refreshed, validateErr := s.oidcClient.ValidateUserToken(ctx, newToken.AccessToken)
+					if validateErr != nil {
+						log.Debug().Err(validateErr).Msg("Refreshed token did not validate during authenticated check")
+						break
 					}
+					newRefresh := refreshToken
+					if newToken.RefreshToken != "" {
+						newRefresh = newToken.RefreshToken
+					}
+					s.adoptLegacyOIDCCookies(w, r, refreshed, newToken.AccessToken, newRefresh, newToken.Expiry)
 					log.Debug().Msg("Token refreshed successfully during authenticated check")
 					writeResponse(w, types.AuthenticatedResponse{
 						Authenticated: true,
@@ -1216,23 +1420,18 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 
 	switch s.Cfg.Auth.Provider {
 	case types.AuthProviderRegular:
-
+		// Legacy JWT cookies are not renewed: a still-valid one moves the
+		// browser onto a server-side session instead, an expired one means
+		// signing in again.
 		user, err := s.authenticator.ValidateUserToken(ctx, refreshToken)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to validate user token")
-			http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
+			log.Debug().Err(err).Msg("Legacy refresh token is no longer valid")
+			http.Error(w, "Session expired: please log in again", http.StatusUnauthorized)
 			return
 		}
-
-		token, err := s.authenticator.GenerateUserToken(ctx, user)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to generate user token")
-			http.Error(w, "Failed to generate user token: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		newAccessToken = token
-		newRefreshToken = token
+		s.adoptLegacyJWTCookie(w, r, user)
+		w.WriteHeader(http.StatusNoContent)
+		return
 	default:
 		// OIDC-based auth (keycloak, oidc, or any future OIDC provider)
 		// First check for stale Helix JWTs - this can happen when AUTH_PROVIDER
@@ -1261,16 +1460,19 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // desktopCallback handles automatic admin login for the Helix Desktop app.
-// It validates a shared secret, creates or finds a local admin user, establishes
-// a BFF session, and redirects to the root URL. The iframe in the Desktop app
+// It validates a shared secret, signs in the desktop account (see
+// desktopIdentity; created on first use), establishes a BFF session, and
+// redirects to the root URL. The iframe in the Desktop app
 // navigates here first so the user is transparently logged in.
 //
 // GET /api/v1/auth/desktop-callback?token=<DESKTOP_AUTO_LOGIN_SECRET>
 func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// The desktop admin is a regular-provider account with a regular session;
+	// under any other provider it would be a sign-in that skips the IdP.
 	secret := s.Cfg.Auth.DesktopAutoLoginSecret
-	if secret == "" {
+	if secret == "" || !s.passwordAuthEnabled() {
 		http.Error(w, "Desktop auto-login is not configured", http.StatusNotFound)
 		return
 	}
@@ -1287,10 +1489,9 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Find or create the desktop admin user.
-	// The email defaults to a local placeholder but can be overridden by the
-	// desktop app if a license key contains the licensee's email.
-	desktopEmail := "admin@helix-desktop.local"
+	// The desktop admin's email defaults to a local placeholder; the desktop
+	// app passes the licensee's email when a license key carries one.
+	desktopEmail := defaultDesktopEmail
 	if emailParam := r.URL.Query().Get("email"); emailParam != "" {
 		desktopEmail = emailParam
 	}
@@ -1299,50 +1500,15 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 		displayName = "Desktop Admin"
 	}
 
-	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: desktopEmail})
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		log.Error().Err(err).Msg("Failed to look up desktop admin user")
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+	user, err := s.desktopIdentity(ctx, desktopEmail, displayName)
+	if errors.Is(err, errNotDesktopIdentity) {
+		http.Error(w, "Desktop auto-login can only sign in the desktop account", http.StatusForbidden)
 		return
 	}
-
-	if user == nil {
-		// Create the desktop admin user
-		userID := system.GenerateUserID()
-		newUser := &types.User{
-			ID:           userID,
-			Email:        desktopEmail,
-			FullName:     displayName,
-			Username:     desktopEmail,
-			Admin:        true,
-			Type:         types.OwnerTypeUser,
-			AuthProvider: types.AuthProviderRegular,
-			CreatedAt:    time.Now(),
-		}
-
-		user, err = s.authenticator.CreateUser(ctx, newUser)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to create desktop admin user")
-			http.Error(w, "Failed to create user", http.StatusInternalServerError)
-			return
-		}
-		log.Info().Str("user_id", user.ID).Str("name", displayName).Msg("Created desktop admin user")
-	}
-
-	// Update the display name if it changed (e.g., macOS user renamed)
-	needsUpdate := false
-	if !user.Admin {
-		user.Admin = true
-		needsUpdate = true
-	}
-	if user.FullName != displayName {
-		user.FullName = displayName
-		needsUpdate = true
-	}
-	if needsUpdate {
-		if _, err := s.Store.UpdateUser(ctx, user); err != nil {
-			log.Warn().Err(err).Msg("Failed to update desktop user")
-		}
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to resolve desktop admin user")
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
 	}
 
 	// Create a long-lived BFF session — sets HttpOnly cookies on the response.
@@ -1359,4 +1525,119 @@ func (s *HelixAPIServer) desktopCallback(w http.ResponseWriter, r *http.Request)
 
 	// Redirect to the root — the HttpOnly session cookie is already set.
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+const defaultDesktopEmail = "admin@helix-desktop.local"
+
+var errNotDesktopIdentity = errors.New("account is not the desktop identity")
+
+// desktopIdentity returns the single account Helix Desktop auto-login signs
+// in as, creating it on first use. The shared secret authorizes signing in as
+// that account only: an email naming any other existing account is refused,
+// and no other account is ever promoted to admin.
+//
+// Accounts created by the desktop flow before the DesktopIdentity marker
+// existed are adopted once, while no account carries the marker: an admin
+// with the requested email that has no password, uses regular auth and has
+// its email as username, which is how the desktop flow created them.
+func (s *HelixAPIServer) desktopIdentity(ctx context.Context, email, displayName string) (*types.User, error) {
+	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{DesktopIdentity: true})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, fmt.Errorf("look up desktop identity: %w", err)
+	}
+
+	if user == nil {
+		existing, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: email})
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("look up desktop email: %w", err)
+		}
+		if existing != nil {
+			if !isLegacyDesktopAccount(existing) {
+				log.Warn().Str("user_id", existing.ID).Msg("desktop auto-login refused: email belongs to another account")
+				return nil, errNotDesktopIdentity
+			}
+			existing.DesktopIdentity = true
+			if _, err := s.Store.UpdateUser(ctx, existing); err != nil {
+				return nil, fmt.Errorf("mark desktop identity: %w", err)
+			}
+			log.Info().Str("user_id", existing.ID).Msg("Adopted existing desktop admin account as the desktop identity")
+			user = existing
+		} else {
+			created, err := s.authenticator.CreateUser(ctx, &types.User{
+				ID:              system.GenerateUserID(),
+				Email:           email,
+				FullName:        displayName,
+				Username:        email,
+				Admin:           true,
+				DesktopIdentity: true,
+				Type:            types.OwnerTypeUser,
+				AuthProvider:    types.AuthProviderRegular,
+				CreatedAt:       time.Now(),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create desktop admin user: %w", err)
+			}
+			log.Info().Str("user_id", created.ID).Str("name", displayName).Msg("Created desktop admin user")
+			return created, nil
+		}
+	}
+
+	// Keep the desktop account's details current: the macOS user may be
+	// renamed, or a license key may add the licensee's email. The email is
+	// only changed to one no other account uses.
+	needsUpdate := false
+	if !user.Admin {
+		user.Admin = true
+		needsUpdate = true
+	}
+	if user.FullName != displayName {
+		user.FullName = displayName
+		needsUpdate = true
+	}
+	if !strings.EqualFold(user.Email, email) {
+		if s.desktopEmailAvailable(ctx, email) {
+			user.Email = email
+			user.Username = email
+			needsUpdate = true
+		}
+	}
+	if needsUpdate {
+		if _, err := s.Store.UpdateUser(ctx, user); err != nil {
+			log.Warn().Err(err).Msg("Failed to update desktop user")
+		}
+	}
+	return user, nil
+}
+
+// isLegacyDesktopAccount reports whether u looks like an account the desktop
+// flow created before accounts were marked: an admin on regular auth that
+// has no password (so cannot otherwise be signed in to).
+func isLegacyDesktopAccount(u *types.User) bool {
+	return u.Admin && u.Type == types.OwnerTypeUser && u.AuthProvider == types.AuthProviderRegular &&
+		len(u.PasswordHash) == 0 && !u.Deactivated && !u.DeletedAt.Valid &&
+		// The desktop flow set the username to the email; accounts created
+		// elsewhere (admin API, OIDC, bots) do not match all of the above.
+		u.Username == u.Email
+}
+
+// desktopEmailAvailable reports whether the desktop account may take email:
+// no other account uses it and no organization invitation is pending for it
+// (an invitation is addressed to whoever owns that mailbox, not to the
+// holder of the desktop secret).
+func (s *HelixAPIServer) desktopEmailAvailable(ctx context.Context, email string) bool {
+	other, err := s.Store.GetUser(ctx, &store.GetUserQuery{Email: email})
+	switch {
+	case err == nil:
+		log.Warn().Str("user_id", other.ID).Msg("desktop email belongs to another account; keeping the desktop account's email")
+		return false
+	case !errors.Is(err, store.ErrNotFound):
+		log.Warn().Err(err).Msg("Failed to check desktop email availability")
+		return false
+	}
+	pending, err := s.Store.ListOrganizationInvitations(ctx, &store.ListOrganizationInvitationsQuery{Email: email})
+	if err != nil || len(pending) > 0 {
+		log.Warn().Err(err).Int("pending_invitations", len(pending)).Msg("desktop email has pending invitations; keeping the desktop account's email")
+		return false
+	}
+	return true
 }

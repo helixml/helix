@@ -256,8 +256,8 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Invalid API key", http.StatusUnauthorized)
 			return
 		}
-		if user.Waitlisted {
-			http.Error(w, "Account is waiting for approval", http.StatusForbidden)
+		if err := user.AccountAccessError(); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		if !s.keyTypeAllowsGit(r, keyRecord) {
@@ -316,6 +316,11 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	if err != nil {
 		return nil, nil, fmt.Errorf("user not found: %w", err)
 	}
+	// Carry the key's scope so repository authorization can confine a
+	// project-scoped key to its project, as the API auth middleware does.
+	user.ProjectID = apiKeyRecord.ProjectID
+	user.SpecTaskID = apiKeyRecord.SpecTaskID
+	user.SessionID = apiKeyRecord.SessionID
 
 	return user, apiKeyRecord, nil
 }
@@ -326,7 +331,19 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 //   - A bot instance key may only clone and fetch its own project's
 //     repositories: its sandbox reads untrusted input, and the repository is
 //     operator-authored, so pushing and every other repository are denied.
+//   - A key bound to a sandbox outside any project has no repositories of
+//     its own, so it would otherwise reach every repository of its owner.
+//   - So has a session key for a session outside any project (a plain chat's
+//     desktop): its desktop clones only a project's repositories. A helix-org
+//     worker's session key is the exception: the worker registers and
+//     attaches its organization's repositories as its hiring user.
 func (s *GitHTTPServer) keyTypeAllowsGit(r *http.Request, key *types.ApiKey) bool {
+	if key.ProjectID == "" && system.IsSandboxID(key.SessionID) {
+		return false
+	}
+	if s.isConfinedSessionKey(r.Context(), key) {
+		return false
+	}
 	switch key.Type {
 	case types.APIkeytypeEmbed:
 		return false
@@ -335,6 +352,26 @@ func (s *GitHTTPServer) keyTypeAllowsGit(r *http.Request, key *types.ApiKey) boo
 	default:
 		return true
 	}
+}
+
+// isConfinedSessionKey reports whether key is an ordinary API key bound to a
+// session with no project, other than a helix-org worker's. It fails closed:
+// a key whose session cannot be loaded is confined.
+func (s *GitHTTPServer) isConfinedSessionKey(ctx context.Context, key *types.ApiKey) bool {
+	if key.ProjectID != "" || key.SessionID == "" || system.IsSandboxID(key.SessionID) {
+		return false
+	}
+	if key.AppID != nil && key.AppID.Valid && key.AppID.String != "" {
+		return false
+	}
+	if key.Type != types.APIkeytypeAPI && key.Type != "" {
+		return false
+	}
+	session, err := s.store.GetSession(ctx, key.SessionID)
+	if err != nil || session == nil {
+		return true
+	}
+	return session.Metadata.OrgWorkerID == ""
 }
 
 func (s *GitHTTPServer) botInstanceGitAllows(r *http.Request, key *types.ApiKey) bool {
@@ -524,7 +561,7 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			defer lock.Unlock()
-			log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
+			log.Info().Str("repo_id", repoID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before serving pull")
 			syncCtx, cancel := context.WithTimeout(r.Context(), uploadPackSyncTimeout)
 			defer cancel()
 			if err := s.gitRepoService.SyncAllBranches(syncCtx, repoID, true); err != nil {
@@ -620,7 +657,11 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	apiKey := s.extractAPIKey(r)
 	restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey, repoID)
 	if err != nil {
+		// Without the key record we cannot tell whether this is a restricted
+		// agent key, so refuse rather than push unrestricted.
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
+		http.Error(w, "Push denied: could not resolve push permissions; try again", http.StatusServiceUnavailable)
+		return
 	}
 	if restriction != nil && restriction.IsAgentKey && restriction.ErrorMessage != "" {
 		log.Error().Str("repo_id", repoID).Str("error", restriction.ErrorMessage).Msg("Agent push denied")
@@ -648,7 +689,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// This keeps mirrored branches current; SyncAllBranches deliberately excludes
 	// the local-authoritative helix-specs branch.
 	if repo != nil && repo.ExternalURL != "" && !planningOnlyPush {
-		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
+		log.Info().Str("repo_id", repoID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before accepting push")
 		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
 			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
 			http.Error(w, "Conflict: "+err.Error(), http.StatusConflict)
@@ -1091,8 +1132,9 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 		return false
 	}
 
-	// Repository owner can always read the repository
-	if user.ID == repo.OwnerID {
+	// Repository owner can always read the repository, unless their key is
+	// confined to a project: then authorizeFn decides.
+	if user.ID == repo.OwnerID && user.ProjectID == "" {
 		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: user is repo owner, allowing")
 		return true
 	}
@@ -1119,8 +1161,9 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 		return false
 	}
 
-	// Repository owner can always write to the repository
-	if user.ID == repo.OwnerID {
+	// Repository owner can always write to the repository, unless their key
+	// is confined to a project: then authorizeFn decides.
+	if user.ID == repo.OwnerID && user.ProjectID == "" {
 		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasWriteAccess: user is repo owner, allowing")
 		return true
 	}
@@ -1146,6 +1189,11 @@ func (s *GitHTTPServer) handleCloneInfo(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
 
+	if !s.hasReadAccess(r.Context(), s.getUser(r), repoID) {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
 	cloneURL := s.GetCloneURL(repoID)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1155,6 +1203,11 @@ func (s *GitHTTPServer) handleCloneInfo(w http.ResponseWriter, r *http.Request) 
 func (s *GitHTTPServer) handleRepositoryStatus(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
+
+	if !s.hasReadAccess(r.Context(), s.getUser(r), repoID) {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
 
 	repoPath, repo, err := s.getRepoPath(r.Context(), repoID)
 	if err != nil {
@@ -1250,17 +1303,20 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				continue
 			}
 
-			// Autonomous runs have nobody to click Accept. On an internal repo
-			// there is also no PR path (CreatePullRequest rejects a repo with no
-			// ExternalURL), so without this the branch is never merged by any
-			// route: it just accumulates commits, diverges from main, and
-			// eventually cannot even fast-forward. That is how a fortnight of
-			// chris-outreach memory ended up stranded across five branches.
-			if isAutonomousRun(task.Type) && !repo.IsExternal {
+			// Autonomous runs have nobody to click Accept. When the repo has no
+			// pull-request path in play, the branch would otherwise never be
+			// merged by any route: it just accumulates commits, diverges from
+			// main, and eventually cannot even fast-forward. That is how a
+			// fortnight of chris-outreach memory ended up stranded across five
+			// branches. Helix-hosted repos DO have pull requests now — but only
+			// through a proposal a human approves, so when the task has one in
+			// flight (tracked PR or outstanding proposal) the PR flow owns the
+			// merge and the auto-merge must stay out of the way. The repo passed
+			// on is not necessarily the project default: a bot contributing to a
+			// shared internal repo pushes there while the default repo is
+			// external.
+			if isAutonomousRun(task.Type) && !repo.IsExternal && len(task.RepoPullRequests) == 0 && !s.taskHasOutstandingProposal(ctx, task.ID) {
 				s.wg.Add(1)
-				// Pass the repo that was pushed to. It is not necessarily the
-				// project default — a bot contributing to a shared internal repo
-				// pushes there while the project's default repo is external.
 				go func(taskID string, pushedRepo *types.GitRepository) {
 					defer s.wg.Done()
 					s.tryAutoMergeBotRun(context.Background(), taskID, pushedRepo)
@@ -1452,6 +1508,20 @@ func isAutonomousRun(taskType string) bool {
 	default:
 		return false
 	}
+}
+
+// taskHasOutstandingProposal reports whether the task is waiting on (or has
+// opened) a pull request through the proposal flow, in which case the PR owns
+// the merge and the autonomous fast-forward must not shortcut it.
+func (s *GitHTTPServer) taskHasOutstandingProposal(ctx context.Context, taskID string) bool {
+	if s.prProposals == nil {
+		return false
+	}
+	outstanding, err := s.prProposals.HasOutstanding(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	return outstanding
 }
 
 // tryAutoMergeBotRun fast-forward merges an autonomous bot run's feature branch

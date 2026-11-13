@@ -72,7 +72,7 @@ func (apiServer *HelixAPIServer) createDynamicModelInfo(rw http.ResponseWriter, 
 	err := json.NewDecoder(r.Body).Decode(&modelInfo)
 	if err != nil {
 		log.Error().Err(err).Msg("error decoding createDynamicModelInfo request body")
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -203,7 +203,7 @@ func (apiServer *HelixAPIServer) updateDynamicModelInfo(rw http.ResponseWriter, 
 	err := json.NewDecoder(r.Body).Decode(&modelInfoUpdates)
 	if err != nil {
 		log.Error().Err(err).Msg("error decoding updateDynamicModelInfo request body")
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 

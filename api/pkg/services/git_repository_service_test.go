@@ -53,6 +53,10 @@ func (f *fakeStore) GetGitRepository(_ context.Context, _ string) (*types.GitRep
 	return f.repo, nil
 }
 
+func (f *fakeStore) DeleteGitPullRequestsForRepository(_ context.Context, _ string) error {
+	return nil
+}
+
 func (f *fakeStore) DeleteGitRepository(_ context.Context, _ string) error {
 	f.deleted = true
 	return nil
@@ -88,7 +92,7 @@ func (f *fakeKodit) DeleteRepository(_ context.Context, id int64) error {
 func (f *fakeKodit) GetRepositoryEnrichments(_ context.Context, _ int64, _, _ string) ([]enrichment.Enrichment, error) {
 	return nil, f.err
 }
-func (f *fakeKodit) GetEnrichment(_ context.Context, _ string) (enrichment.Enrichment, error) {
+func (f *fakeKodit) GetRepositoryEnrichment(_ context.Context, _ int64, _ string) (enrichment.Enrichment, error) {
 	return enrichment.Enrichment{}, f.err
 }
 func (f *fakeKodit) GetRepositoryCommits(_ context.Context, _ int64, _ int) ([]repository.Commit, error) {

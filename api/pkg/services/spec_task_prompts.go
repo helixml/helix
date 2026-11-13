@@ -395,10 +395,10 @@ You are scoped to this project. You cannot reach tasks in any other project.
 // for injection into spec task prompts. Returns empty string when both lists are empty.
 //
 // projectRepos: repos cloned locally (from store.ListGitRepositories by ProjectID)
-// koditOrgRepos: org repos with KoditIndexing=true (from store.ListGitRepositories by OrgID, pre-filtered)
+// koditRepos: indexed repos the task's agent can reach through the Kodit MCP server
 // primaryRepoID: the project's DefaultRepoID (to mark primary)
-func BuildRepositorySection(projectRepos []*types.GitRepository, koditOrgRepos []*types.GitRepository, primaryRepoID string) string {
-	if len(projectRepos) == 0 && len(koditOrgRepos) == 0 {
+func BuildRepositorySection(projectRepos []*types.GitRepository, koditRepos []*types.GitRepository, primaryRepoID string) string {
+	if len(projectRepos) == 0 && len(koditRepos) == 0 {
 		return ""
 	}
 
@@ -427,8 +427,8 @@ func BuildRepositorySection(projectRepos []*types.GitRepository, koditOrgRepos [
 	}
 
 	// Kodit repositories (read-only via Kodit MCP)
-	var koditRepos []*types.GitRepository
-	for _, repo := range koditOrgRepos {
+	var remoteKoditRepos []*types.GitRepository
+	for _, repo := range koditRepos {
 		if localRepoIDs[repo.ID] {
 			continue
 		}
@@ -436,13 +436,13 @@ func BuildRepositorySection(projectRepos []*types.GitRepository, koditOrgRepos [
 		if koditID <= 0 {
 			continue
 		}
-		koditRepos = append(koditRepos, repo)
+		remoteKoditRepos = append(remoteKoditRepos, repo)
 	}
 
-	if len(koditRepos) > 0 {
+	if len(remoteKoditRepos) > 0 {
 		b.WriteString("### Kodit Repositories (Read-Only via Kodit MCP)\n")
 		b.WriteString("These are accessible read-only through the Kodit MCP tools (semantic_search, keyword_search, grep, list_files, read_file).\n")
-		for _, repo := range koditRepos {
+		for _, repo := range remoteKoditRepos {
 			koditID := extractKoditRepoIDFromMetadata(repo.Metadata)
 			b.WriteString(fmt.Sprintf("- `%s` (Kodit repo ID: %d)\n", repo.Name, koditID))
 		}

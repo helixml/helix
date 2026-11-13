@@ -353,3 +353,33 @@ func (suite *AccessGrantTestSuite) TestDeleteAccessGrant() {
 	err = suite.db.DeleteAccessGrant(suite.ctx, "")
 	suite.Error(err)
 }
+
+func (suite *AccessGrantTestSuite) TestDeleteOrganizationRemovesAccessGrants() {
+	orgID := system.GenerateOrganizationID()
+	_, err := suite.db.CreateOrganization(suite.ctx, &types.Organization{
+		ID:    orgID,
+		Name:  "Grant Cleanup " + orgID,
+		Owner: "test-user",
+	})
+	suite.Require().NoError(err)
+	role, err := suite.db.CreateRole(suite.ctx, &types.Role{
+		ID:             system.GenerateUUID(),
+		OrganizationID: orgID,
+		Name:           "grant-cleanup",
+	})
+	suite.Require().NoError(err)
+	grant, err := suite.db.CreateAccessGrant(suite.ctx, &types.AccessGrant{
+		OrganizationID: orgID,
+		ResourceID:     "prj_grant_cleanup",
+		UserID:         "user-grant-cleanup",
+	}, []*types.Role{role})
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.db.DeleteOrganization(suite.ctx, orgID))
+
+	var grants, bindings int64
+	suite.Require().NoError(suite.db.gdb.Model(&types.AccessGrant{}).Where("organization_id = ?", orgID).Count(&grants).Error)
+	suite.Require().NoError(suite.db.gdb.Model(&types.AccessGrantRoleBinding{}).Where("access_grant_id = ?", grant.ID).Count(&bindings).Error)
+	suite.Zero(grants)
+	suite.Zero(bindings)
+}

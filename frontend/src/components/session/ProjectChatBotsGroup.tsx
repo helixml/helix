@@ -7,7 +7,6 @@ import MenuItem from '@mui/material/MenuItem'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import {
-  Bot,
   ChevronDown,
   ChevronRight,
   EllipsisVertical,
@@ -49,6 +48,7 @@ import {
 } from './ProjectChatSidebar.logic'
 import type { SidebarBot, SidebarItem, SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
 import { useSidebarItemPagination, windowSidebarItems } from './useSidebarItemPagination'
+import BotPortrait from '../helix-org/BotPortrait'
 
 export const botGroupId = (botId: string): string => `bot:${botId}`
 
@@ -429,7 +429,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             }}
           />
         </Tooltip>
-        <Bot size={14} style={{ flexShrink: 0, opacity: 0.8 }} />
+        <BotPortrait portraitIndex={bot.portraitIndex} size={22} sx={{ filter: 'grayscale(1)' }} />
         <Typography
           component="span"
           sx={{

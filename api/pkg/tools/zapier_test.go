@@ -23,7 +23,7 @@ func (suite *ActionTestSuite) TestAction_GetLastEmail() {
 		Config: types.ToolConfig{
 			Zapier: &types.ToolZapierConfig{
 				APIKey:        suite.zapierAPIKey,
-				Model:         "mistralai/Mixtral-8x7B-Instruct-v0.1",
+				Model:         suite.strategy.cfg.Tools.Model,
 				MaxIterations: 3,
 			},
 		},

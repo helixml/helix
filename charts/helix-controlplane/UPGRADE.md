@@ -1,5 +1,27 @@
 # Upgrade Guide
 
+## Crawler browser image
+
+The crawler browser moves from `ghcr.io/go-rod/rod:v0.116.2` to `ghcr.io/helixml/chrome`, built with each release and tagged with the chart `appVersion`.
+
+- **Mirrored or private registries.** If your values override only `chrome.image.repository` (for example to a mirror of `ghcr.io/go-rod/rod`), the chart now renders `<your repository>:<appVersion>`, which your mirror probably does not have. Mirror `ghcr.io/helixml/chrome` at the release tag, or set `chrome.image.tag` as well.
+- **Launch token.** The controlplane now authenticates to the browser manager with a shared secret (`RAG_CRAWLER_LAUNCHER_TOKEN` / `CHROME_LAUNCHER_TOKEN`). The chart generates it into the `<release>-chrome-launcher` Secret and reads it back on upgrade. If you render with `helm template` or a GitOps tool, `lookup` cannot see the cluster and a new value is generated on every render (both pods roll together, so nothing breaks, but they restart each sync): set `chrome.launcherToken` or `chrome.launcherTokenExistingSecret` instead.
+- **NetworkPolicy.** The chart adds a NetworkPolicy, `chrome.networkPolicy.enabled` (default `true`), that only admits the controlplane pods to the chrome pod on port 7317. Add other sources with `chrome.networkPolicy.extraFrom`.
+
+## JWT signing key
+
+Applies to the first release that no longer has a built-in `REGULAR_AUTH_JWT_SECRET` default (any install method: Helm, `install.sh`, docker compose).
+
+- **One-time sign-out.** Unless you already set `REGULAR_AUTH_JWT_SECRET`, sessions and password-reset links issued before the upgrade stop working and users sign in again. Rolling back to an earlier release signs everyone out again, because the earlier release uses its built-in key. Reset links issued by earlier releases also stop working; request a new one.
+- **Where the key lives.** With `REGULAR_AUTH_JWT_SECRET` unset, the API generates a random key on first boot and stores it in `system_settings.jwt_signing_secret`, shared by all replicas. Database backups therefore contain the key: anyone holding a backup can mint sessions for that deployment. To keep it out of the database, set `controlplane.regularAuthJWTSecret` / `controlplane.regularAuthJWTSecretExistingSecret` (Helm) or `REGULAR_AUTH_JWT_SECRET` (compose `.env`). `install.sh` now writes one into `.env`.
+- **`DATABASE_AUTO_MIGRATE=false`.** Add the column before upgrading (it is additive and ignored by earlier releases):
+
+  ```sql
+  ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS jwt_signing_secret text;
+  ```
+
+- **Password-reset links** are now valid for one hour and for one use only, and stop working after any password change.
+
 ## Upgrading to 2.11.0-rc2
 
 `helm upgrade` removes the orphaned Bitnami `postgresql` StatefulSet left behind by earlier releases. No data risk. To reclaim storage, manually delete the orphaned PVC after upgrade:

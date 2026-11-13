@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- The crawler browser now uses `ghcr.io/helixml/chrome`, tagged with the chart `appVersion`: go-rod's launcher manager with a current Chromium from Debian, running as a non-root user. It replaces `ghcr.io/go-rod/rod:v0.116.2`, whose Chromium dated from 2024. Set `chrome.image.repository`/`chrome.image.tag` to keep a different image.
+
+### Added
+- The controlplane sends a shared launch token to the crawler browser, which refuses launches without it. The chart generates it (Secret `<release>-chrome-launcher`) unless `chrome.launcherToken` or `chrome.launcherTokenExistingSecret` is set. See [UPGRADE.md](UPGRADE.md#crawler-browser-image).
+- `chrome.networkPolicy` (enabled by default): only the controlplane pods may reach the chrome pod on port 7317. See [UPGRADE.md](UPGRADE.md#crawler-browser-image).
+- Optional `controlplane.regularAuthJWTSecret` (or `controlplane.regularAuthJWTSecretExistingSecret` + `controlplane.regularAuthJWTSecretExistingSecretKey`, default key `jwt-secret`) sets `REGULAR_AUTH_JWT_SECRET`, the signing key for login sessions and password-reset links. When neither is set the chart sets nothing and the API generates a random key on first boot and stores it in its database. See [UPGRADE.md](UPGRADE.md#jwt-signing-key).
+- Install notes warn when `controlplane.encryptionKey` / `controlplane.encryptionKeyExistingSecret` are unset.
+
 ## [2.11.0-rc2]
 
 ### Fixed

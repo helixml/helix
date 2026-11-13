@@ -19,6 +19,35 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// defaultEncryptionKeyMaterial is the value the key is derived from when
+// HELIX_ENCRYPTION_KEY is unset. It is public, so data encrypted under it is
+// only obfuscated. It is kept so existing installs can still decrypt their
+// data; see WarnIfDefaultEncryptionKey.
+const defaultEncryptionKeyMaterial = "helix-default-encryption-key"
+
+// UsingDefaultEncryptionKey reports whether secrets at rest are encrypted with
+// the publicly known default key: HELIX_ENCRYPTION_KEY is unset or set to the
+// default's source string.
+func UsingDefaultEncryptionKey() bool {
+	key := os.Getenv("HELIX_ENCRYPTION_KEY")
+	return key == "" || key == defaultEncryptionKeyMaterial
+}
+
+// WarnIfDefaultEncryptionKey logs a prominent error at startup when secrets at
+// rest use the publicly known default key. The key is not switched
+// automatically: data already encrypted under the default would become
+// unreadable.
+func WarnIfDefaultEncryptionKey() {
+	if !UsingDefaultEncryptionKey() {
+		return
+	}
+	log.Error().Msg("HELIX_ENCRYPTION_KEY is not set: stored credentials (provider API keys, git tokens, " +
+		"SSH keys, OAuth and subscription credentials) are encrypted with a publicly known default key, " +
+		"so anyone with a copy of the database can decrypt them. Set HELIX_ENCRYPTION_KEY to the output of " +
+		"`openssl rand -hex 32` on new installs. Existing installs must re-enter or re-encrypt stored " +
+		"credentials after changing it, because data encrypted with the old key cannot be read with the new one.")
+}
+
 // GetEncryptionKey retrieves the encryption key from the HELIX_ENCRYPTION_KEY environment variable.
 // If not set, returns a default key with a warning (not recommended for production).
 func GetEncryptionKey() ([]byte, error) {
@@ -36,7 +65,7 @@ func GetEncryptionKey() ([]byte, error) {
 
 	// Fallback: use SHA-256 of a default value (not recommended for production)
 	log.Warn().Msg("HELIX_ENCRYPTION_KEY not set, using default encryption key (INSECURE)")
-	hash := sha256.Sum256([]byte("helix-default-encryption-key"))
+	hash := sha256.Sum256([]byte(defaultEncryptionKeyMaterial))
 	return hash[:], nil
 }
 

@@ -94,6 +94,9 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	// 2. Load server config and set up database connection
 	cfg, err := config.LoadServerConfig()
 	require.NoError(t, err, "Failed to load server config")
+	// The mock GitHub API is a local listener; tools refuse private
+	// destinations unless explicitly allowed.
+	cfg.Tools.AllowPrivateNetworks = true
 
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
@@ -222,8 +225,8 @@ paths:
 				{
 					ID:       "test-assistant",
 					Name:     "Test Assistant",
-					Provider: "togetherai",
-					Model:    "openai/gpt-oss-120b",
+					Provider: cfg.Inference.Provider,
+					Model:    cfg.Tools.Model,
 					APIs:     []types.AssistantAPI{githubTool},
 				},
 			},
@@ -336,7 +339,7 @@ paths:
 
 		// Create a simple chat completion request without any OpenAI tool specifications
 		chatCompletionRequest := oai.ChatCompletionRequest{
-			Model:  "openai/gpt-oss-120b",
+			Model:  cfg.Tools.Model,
 			Stream: true,
 			Messages: []oai.ChatCompletionMessage{
 				{
@@ -357,7 +360,7 @@ paths:
 		// Setup chat completion options with app ID
 		opts := &controller.ChatCompletionOptions{
 			AppID:       createdApp.ID, // This is critical - setting the app ID explicitly
-			Provider:    "togetherai",
+			Provider:    cfg.Inference.Provider,
 			OAuthTokens: map[string]string{}, // Will be populated internally by evalAndAddOAuthTokens
 		}
 

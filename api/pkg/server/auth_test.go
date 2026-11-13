@@ -78,6 +78,22 @@ func (suite *AuthSuite) createTestRequest(method, path string, body []byte) *htt
 	return req.WithContext(suite.authCtx)
 }
 
+// assertMovedToSession checks that the response set a session cookie and
+// cleared the legacy token cookies instead of renewing them.
+func (suite *AuthSuite) assertMovedToSession(rec *httptest.ResponseRecorder) {
+	cookies := map[string]*http.Cookie{}
+	for _, c := range rec.Result().Cookies() {
+		cookies[c.Name] = c
+	}
+	suite.Require().Contains(cookies, auth.SessionCookieName)
+	suite.NotEmpty(cookies[auth.SessionCookieName].Value)
+	for _, name := range []string{"access_token", "refresh_token"} {
+		suite.Require().Contains(cookies, name, "legacy cookie cleared")
+		suite.Empty(cookies[name].Value)
+		suite.Less(cookies[name].MaxAge, 0)
+	}
+}
+
 func (suite *AuthSuite) addCookie(req *http.Request, name, value string) {
 	req.AddCookie(&http.Cookie{Name: name, Value: value})
 }
@@ -525,6 +541,15 @@ func (suite *AuthSuite) TestUser() {
 			setupMocks: func() {
 				user := suite.createMockUser()
 				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(user, nil)
+				// A pre-session browser is moved onto a session holding its
+				// IdP tokens, as the callback would have created.
+				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, session *types.UserSession) (*types.UserSession, error) {
+						suite.Equal(user.ID, session.UserID)
+						suite.Equal(types.AuthProviderOIDC, session.AuthProvider)
+						suite.Equal(testAccessToken, session.OIDCAccessToken)
+						return session, nil
+					})
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -532,6 +557,8 @@ func (suite *AuthSuite) TestUser() {
 				err := json.NewDecoder(rec.Body).Decode(&response)
 				suite.NoError(err)
 				suite.Equal(testEmail, response.Email)
+				suite.Empty(response.Token)
+				suite.assertMovedToSession(rec)
 			},
 		},
 		{
@@ -825,6 +852,12 @@ func (suite *AuthSuite) TestAuthenticated() {
 				suite.oidcClient.EXPECT().
 					ValidateUserToken(gomock.Any(), "valid-token").
 					Return(&types.User{ID: "user123"}, nil)
+				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, session *types.UserSession) (*types.UserSession, error) {
+						suite.Equal("user123", session.UserID)
+						suite.Equal(types.AuthProviderOIDC, session.AuthProvider)
+						return session, nil
+					})
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -832,6 +865,7 @@ func (suite *AuthSuite) TestAuthenticated() {
 				err := json.NewDecoder(rec.Body).Decode(&response)
 				suite.NoError(err)
 				suite.True(response.Authenticated)
+				suite.assertMovedToSession(rec)
 			},
 		},
 		{

@@ -88,6 +88,79 @@ func TestDirectAPIAuthRejectsWaitlistedUser(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, response.Code)
 }
 
+// The OpenAI/Anthropic-compatible routes are wrapped by auth() alone; a
+// request without a credential must not reach them as an empty user.
+func TestDirectAPIAuthRejectsAnonymousRequest(t *testing.T) {
+	for _, path := range []string{"/v1/messages", "/v1/models", "/v1/responses", "/v1/chat/completions"} {
+		t.Run(path, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			auth := newAuthMiddleware(nil, nil, store.NewMockStore(ctrl), authMiddlewareConfig{}, nil, nil)
+			request := httptest.NewRequest(http.MethodPost, path, nil)
+			response := httptest.NewRecorder()
+			reached := false
+
+			auth.auth(func(w http.ResponseWriter, _ *http.Request) {
+				reached = true
+				w.WriteHeader(http.StatusNoContent)
+			})(response, request)
+
+			assert.Equal(t, http.StatusUnauthorized, response.Code)
+			assert.False(t, reached, "handler must not run without a credential")
+		})
+	}
+}
+
+// The browser model picker reads /v1/models with only the BFF session
+// cookie. The cookie authenticates safe methods; a cookie-only POST (no CSRF
+// check on these routes) does not.
+func TestDirectAPIAuthAcceptsSessionCookieForSafeMethods(t *testing.T) {
+	for _, tc := range []struct {
+		method     string
+		wantStatus int
+	}{
+		{http.MethodGet, http.StatusNoContent},
+		{http.MethodPost, http.StatusUnauthorized},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			user := &types.User{ID: "user-123"}
+			if tc.method == http.MethodGet {
+				mockStore.EXPECT().GetUserSession(gomock.Any(), "session-123").Return(&types.UserSession{
+					ID: "session-123", UserID: user.ID, ExpiresAt: time.Now().Add(time.Hour), LastUsedAt: time.Now(),
+				}, nil)
+				mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(user, nil).AnyTimes()
+			}
+			auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{adminUserIDs: []string{"nobody"}}, nil,
+				authpkg.NewSessionManager(mockStore, nil, nil))
+			auth.lastSeenCache.Store(user.ID, time.Now())
+			request := httptest.NewRequest(tc.method, "/v1/models", nil)
+			request.AddCookie(&http.Cookie{Name: authpkg.SessionCookieName, Value: "session-123"})
+			response := httptest.NewRecorder()
+
+			auth.auth(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})(response, request)
+
+			assert.Equal(t, tc.wantStatus, response.Code)
+		})
+	}
+}
+
+// A CORS preflight carries no credential; the handler answers it.
+func TestDirectAPIAuthPassesPreflightToHandler(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	auth := newAuthMiddleware(nil, nil, store.NewMockStore(ctrl), authMiddlewareConfig{}, nil, nil)
+	request := httptest.NewRequest(http.MethodOptions, "/v1/chat/completions", nil)
+	response := httptest.NewRecorder()
+
+	auth.auth(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})(response, request)
+
+	assert.Equal(t, http.StatusNoContent, response.Code)
+}
+
 func TestExtractMiddlewareRejectsWaitlistedPersonalAPIKey(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)

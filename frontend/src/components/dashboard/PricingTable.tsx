@@ -1,22 +1,20 @@
 import React, { FC, useState, useMemo } from "react";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Paper,
-    Typography,
-    Box,
-    CircularProgress,
-    Tooltip,
-    TextField,
-    Chip,
-    Avatar,
-    ToggleButton,
-    ToggleButtonGroup,
-} from "@mui/material";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Paper from "@mui/material/Paper";
+import Typography from "@mui/material/Typography";
+import Box from "@mui/material/Box";
+import CircularProgress from "@mui/material/CircularProgress";
+import Tooltip from "@mui/material/Tooltip";
+import TextField from "@mui/material/TextField";
+import Chip from "@mui/material/Chip";
+import Avatar from "@mui/material/Avatar";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import { TypesOpenAIModel, TypesProviderEndpoint, TypesDynamicModelInfo } from "../../api/api";
 import { useListProviders } from "../../services/providersService";
 import { useListModelInfos } from "../../services/modelInfoService";

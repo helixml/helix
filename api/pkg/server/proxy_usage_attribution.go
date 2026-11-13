@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -20,7 +21,9 @@ func (s *HelixAPIServer) resolveProxyUsageAttribution(ctx context.Context, user 
 		SessionID: defaultSessionID,
 		AppID:     user.AppID,
 	}
-	if user.SessionID == "" {
+	// A sandbox key is bound to the sandbox, not to a chat session, so there
+	// is no session to attribute the call to.
+	if user.SessionID == "" || system.IsSandboxID(user.SessionID) {
 		return attribution, nil
 	}
 

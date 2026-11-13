@@ -14,19 +14,27 @@ import (
 
 // AgentInstructionService sends automated instructions to agent sessions
 type AgentInstructionService struct {
-	store        store.Store
-	enqueuer     SpecTaskMessageEnqueuer
-	koditService KoditServicer
+	store           store.Store
+	enqueuer        SpecTaskMessageEnqueuer
+	koditService    KoditServicer
+	koditRepoLister KoditRepoLister
 }
 
-// NewAgentInstructionService creates a new agent instruction service
-func NewAgentInstructionService(store store.Store, enqueuer SpecTaskMessageEnqueuer, koditService KoditServicer) *AgentInstructionService {
+// NewAgentInstructionService creates a new agent instruction service.
+// koditRepoLister may be nil, in which case prompts list no Kodit repositories.
+func NewAgentInstructionService(store store.Store, enqueuer SpecTaskMessageEnqueuer, koditService KoditServicer, koditRepoLister KoditRepoLister) *AgentInstructionService {
 	return &AgentInstructionService{
-		store:        store,
-		enqueuer:     enqueuer,
-		koditService: koditService,
+		store:           store,
+		enqueuer:        enqueuer,
+		koditService:    koditService,
+		koditRepoLister: koditRepoLister,
 	}
 }
+
+// KoditRepoLister lists the indexed repositories that an agent working in
+// project for userID can reach through the Kodit MCP server, as the MCP
+// backend itself resolves them.
+type KoditRepoLister func(ctx context.Context, project *types.Project, userID string) ([]*types.GitRepository, error)
 
 // GetTaskDirName returns the task directory name, preferring DesignDocPath with fallback to task.ID
 func GetTaskDirName(task *types.SpecTask) string {
@@ -645,10 +653,8 @@ func (s *AgentInstructionService) BuildApprovalInstruction(
 			ProjectID: task.ProjectID,
 		})
 		if err == nil {
+			hasPullRequests = ProjectUsesPullRequests(project, projectRepos)
 			for _, repo := range projectRepos {
-				if repo.ExternalURL != "" {
-					hasPullRequests = true
-				}
 				if repo.Name == primaryRepoName && repo.ExternalURL != "" {
 					screenshotBaseURL = GetRawScreenshotBaseURL(repo, taskDirName)
 				} else if repo.Name != primaryRepoName && repo.ExternalURL != "" {
@@ -744,32 +750,33 @@ func (s *AgentInstructionService) getGuidelinesForTask(ctx context.Context, task
 	return guidelines, project
 }
 
-// buildRepositorySectionForTask fetches project and org repos, then builds the repository section
+// buildRepositorySectionForTask builds the repository section of a task prompt.
 func (s *AgentInstructionService) buildRepositorySectionForTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
+	return repositorySectionForTask(ctx, s.store, s.koditRepoLister, task, project)
+}
+
+// repositorySectionForTask lists the task's project repositories and the
+// Kodit repositories its agent can reach. The Kodit list comes from the same
+// resolution as the Kodit MCP scope, so the prompt never names a repository
+// the agent's key cannot read.
+func repositorySectionForTask(ctx context.Context, st store.Store, koditRepoLister KoditRepoLister, task *types.SpecTask, project *types.Project) string {
 	if task.ProjectID == "" {
 		return ""
 	}
 
-	// Fetch project repos
-	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+	projectRepos, err := st.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		ProjectID: task.ProjectID,
 	})
 	if err != nil {
 		return ""
 	}
 
-	// Fetch Kodit org repos if enabled
-	var koditOrgRepos []*types.GitRepository
-	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
-		orgRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			OrganizationID: project.OrganizationID,
-		})
-		if err == nil {
-			for _, repo := range orgRepos {
-				if repo.KoditIndexing {
-					koditOrgRepos = append(koditOrgRepos, repo)
-				}
-			}
+	var koditRepos []*types.GitRepository
+	if project != nil && project.KoditEnabled && koditRepoLister != nil {
+		koditRepos, err = koditRepoLister(ctx, project, task.CreatedBy)
+		if err != nil {
+			log.Warn().Err(err).Str("spec_task_id", task.ID).Msg("Failed to resolve Kodit repositories for task prompt")
+			koditRepos = nil
 		}
 	}
 
@@ -778,5 +785,5 @@ func (s *AgentInstructionService) buildRepositorySectionForTask(ctx context.Cont
 		primaryRepoID = project.DefaultRepoID
 	}
 
-	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
+	return BuildRepositorySection(projectRepos, koditRepos, primaryRepoID)
 }

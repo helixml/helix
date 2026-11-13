@@ -1,12 +1,14 @@
 package knowledge
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/robfig/cron/v3"
@@ -63,9 +65,18 @@ func Validate(cfg *config.ServerConfig, k *types.AssistantKnowledge) error {
 			}
 		}
 
-		if k.Source.Web.Crawler != nil && k.Source.Web.Crawler.Firecrawl != nil {
-			if k.Source.Web.Crawler.Firecrawl.APIKey == "" {
+		if fc := firecrawlConfig(k); fc != nil {
+			// A source's own api_key is always required: with a custom
+			// api_url the server's FIRECRAWL_API_KEY would otherwise be sent
+			// to that URL. The URL itself is fetched from the API server.
+			if fc.APIKey == "" {
 				return fmt.Errorf("firecrawl api key is required")
+			}
+			if fc.APIURL != "" {
+				policy := netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}
+				if err := policy.ValidateURL(context.Background(), fc.APIURL); err != nil {
+					return fmt.Errorf("firecrawl api_url is not an allowed destination: %w", err)
+				}
 			}
 		}
 
@@ -80,4 +91,11 @@ func Validate(cfg *config.ServerConfig, k *types.AssistantKnowledge) error {
 	}
 
 	return nil
+}
+
+func firecrawlConfig(k *types.AssistantKnowledge) *types.Firecrawl {
+	if k.Source.Web == nil || k.Source.Web.Crawler == nil {
+		return nil
+	}
+	return k.Source.Web.Crawler.Firecrawl
 }

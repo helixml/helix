@@ -35,9 +35,12 @@ var (
 var (
 	ErrNoAPIKeyFound            = errors.New("no API key found")
 	ErrNoUserIDFound            = errors.New("no user ID found")
+	ErrAPIKeyOwnerNotFound      = errors.New("the owner of this API key no longer exists")
 	ErrAppAPIKeyPathNotAllowed  = errors.New("path not allowed for app API keys, use your personal account key from your /account page instead")
 	ErrEmbedKeyNotAllowed       = errors.New("this embed key is scoped to a single task and may not access this resource")
 	ErrBotInstanceKeyNotAllowed = errors.New("this bot instance key is scoped to its own sandbox and may not access this resource")
+	ErrSandboxKeyNotAllowed     = errors.New("this sandbox key is scoped to its own sandbox and may not access this resource")
+	ErrSessionKeyNotAllowed     = errors.New("this session key is scoped to its own session and may not access this resource")
 	// ErrHelixTokenWithOIDC is returned when a Helix-issued JWT is used while OIDC authentication
 	// is configured. This can happen when a user has stale cookies from when the server was using
 	// regular auth. The user needs to clear their cookies and log in again via OIDC.
@@ -64,11 +67,19 @@ type authMiddleware struct {
 	lastSeenCache sync.Map
 }
 
-func rejectWaitlisted(w http.ResponseWriter, user *types.User) bool {
-	if user == nil || !user.Waitlisted {
+// rejectInactiveAccount answers 403 when the authenticated account may not
+// use the API (waitlisted, deactivated or deleted; see
+// types.User.AccountAccessError) and reports whether it did. Every entry point
+// that authenticates a user calls it before serving anything. The only routes
+// such an account still reaches are the insecure /api/v1/auth/* and /config
+// routes, which resolve the caller themselves: that is all the waitlist page
+// needs to show the account's status and log out.
+func rejectInactiveAccount(w http.ResponseWriter, user *types.User) bool {
+	err := user.AccountAccessError()
+	if err == nil {
 		return false
 	}
-	http.Error(w, "Account is waiting for approval", http.StatusForbidden)
+	http.Error(w, err.Error(), http.StatusForbidden)
 	return true
 }
 
@@ -186,14 +197,9 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		return nil, nil
 	}
 
-	if token == auth.cfg.runnerToken {
-		// if the api key is our runner token then we are in runner mode
-		return &types.User{
-			ID:        "runner-system", // Add a system user ID for runner tokens
-			Type:      types.OwnerTypeUser,
-			Token:     token,
-			TokenType: types.TokenTypeRunner,
-		}, nil
+	// The shared runner token or a per-runner token: runner mode.
+	if runner, ok, err := runnerUserFromToken(ctx, auth.store, auth.cfg.runnerToken, token); ok {
+		return runner, err
 	}
 
 	if strings.HasPrefix(token, types.APIKeyPrefix) {
@@ -208,31 +214,23 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			return nil, fmt.Errorf("error getting API key: %w", ErrNoAPIKeyFound)
 		}
 
-		// Try to get user from local database first, fall back to Keycloak if available
-		var user *types.User
-
-		dbUser, err := auth.store.GetUser(ctx, &store.GetUserQuery{ID: apiKey.Owner})
-		if err == nil && dbUser != nil {
-			// User found in local database
-			user = dbUser
-		} else if auth.authenticator != nil {
-			// Fall back to Keycloak
-			user, err = auth.authenticator.GetUserByID(ctx, apiKey.Owner)
-			if err != nil {
-				return nil, fmt.Errorf("error loading user from keycloak: %s", err.Error())
-			}
-		} else {
-			// No local user and no Keycloak - create minimal user from API key owner
-			// TODO: remove???
-			user = &types.User{
-				ID:   apiKey.Owner,
-				Type: apiKey.OwnerType,
-			}
+		// The key acts as its owner, so it carries the owner's account state
+		// (waitlisted, deactivated) into rejectInactiveAccount. Fail closed:
+		// a key whose owner cannot be loaded authenticates nobody.
+		user, err := auth.store.GetUser(ctx, &store.GetUserQuery{ID: apiKey.Owner})
+		if errors.Is(err, store.ErrNotFound) || (err == nil && user == nil) {
+			// Users are soft-deleted, so a deleted owner's row is invisible
+			// here. A key must never outlive its owner.
+			return nil, ErrAPIKeyOwnerNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error loading API key owner: %w", err)
 		}
 
 		user.Token = token
 		user.TokenType = types.TokenTypeAPIKey
 		user.APIKeyType = apiKey.Type
+		user.APIKeyName = apiKey.Name
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
 		// An org-labelled key is scoped to its organization: the bearer acts as
@@ -240,7 +238,10 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		// inherit the owner's global admin — otherwise a global admin's org key
 		// would reach every organization and admin endpoint. dbUser carries the
 		// owner's Admin flag, so it must be cleared here, not just not set.
-		user.Admin = apiKey.OrganizationID == "" && auth.isAdminWithContext(ctx, user.ID)
+		// Keys minted for a project or a session (sandbox agents) are
+		// confined the same way: admin would bypass that confinement.
+		user.Admin = apiKey.OrganizationID == "" && apiKey.ProjectID == "" && apiKey.SessionID == "" &&
+			auth.isAdminWithContext(ctx, user.ID)
 		if apiKey.AppID != nil && apiKey.AppID.Valid {
 			user.AppID = apiKey.AppID.String
 		}
@@ -283,7 +284,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user, err = auth.authenticator.ValidateUserToken(ctx, token)
 	}
 	if err != nil {
-		log.Error().Err(err).Str("token", token).Msg("error validating user token")
+		log.Error().Err(err).Msg("error validating user token")
 		return nil, err
 	}
 
@@ -355,7 +356,7 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		if auth.sessionManager != nil && !namesOwnAPIKey(r) {
 			user, err = auth.getUserFromSession(r.Context(), r)
 			if err == nil && user != nil {
-				if rejectWaitlisted(w, user) {
+				if rejectInactiveAccount(w, user) {
 					return
 				}
 				// Successfully authenticated via session
@@ -365,8 +366,9 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 				return
 			}
 
-			// Session expired - clear the session cookie
-			if errors.Is(err, authpkg.ErrSessionExpired) {
+			// The session is gone (expired, from another auth provider, or its
+			// identity-provider session ended) - clear the cookie
+			if authpkg.IsSessionDiscarded(err) {
 				auth.sessionManager.ClearSessionCookie(w)
 			}
 
@@ -409,7 +411,7 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		if user == nil {
 			user = &types.User{}
 		}
-		if rejectWaitlisted(w, user) {
+		if rejectInactiveAccount(w, user) {
 			return
 		}
 
@@ -443,6 +445,13 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// A desktop key outside any project (a sandbox's, or a session's
+		// with no project) reaches only what its desktop needs. Fail closed.
+		if err := auth.desktopKeyRefusal(user, r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+
 		auth.touchUserLastSeen(user)
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 		next.ServeHTTP(w, r)
@@ -453,7 +462,20 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 
 func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, err := auth.getUserFromToken(r.Context(), getRequestToken(r))
+		// A browser signed in to Helix holds only the BFF session cookie (the
+		// model picker reads /v1/models that way). These routes sit outside
+		// the /api/v1 CSRF middleware, so the cookie is honoured for safe
+		// methods only; a request naming its own API key uses that key.
+		var user *types.User
+		var err error
+		if auth.sessionManager != nil && isSafeMethod(r.Method) && !namesOwnAPIKey(r) {
+			if sessionUser, sessionErr := auth.getUserFromSession(r.Context(), r); sessionErr == nil && sessionUser != nil {
+				user = sessionUser
+			}
+		}
+		if user == nil {
+			user, err = auth.getUserFromToken(r.Context(), getRequestToken(r))
+		}
 		if err != nil {
 			// Check if error is due to server not ready vs invalid token
 			// Return 503 for server errors so frontend doesn't auto-logout during API restart
@@ -475,7 +497,16 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		if user == nil {
 			user = &types.User{}
 		}
-		if rejectWaitlisted(w, user) {
+		if rejectInactiveAccount(w, user) {
+			return
+		}
+		// These routes are mounted outside authRouter, so this is their only
+		// authentication. Without a credential the handlers would run as an
+		// empty user and fall back to the server's own provider keys.
+		// CORS preflights carry no credentials and are answered by the
+		// handlers themselves.
+		if r.Method != http.MethodOptions && !hasUserOrRunner(user) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
@@ -508,11 +539,47 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		// A desktop key outside any project (a sandbox's, or a session's
+		// with no project) reaches only what its desktop needs. Fail closed.
+		if err := auth.desktopKeyRefusal(user, r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+
 		auth.touchUserLastSeen(user)
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 
 		f(w, r)
 	}
+}
+
+// optionalUser puts the caller on the request context when the request carries
+// a valid session or token, and otherwise serves it anonymously. It never
+// refuses a request, so it suits public routes whose response only narrows
+// for anonymous callers; anything that must be authenticated belongs on
+// authRouter instead.
+func (auth *authMiddleware) optionalUser(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := auth.getUserFromSession(r.Context(), r)
+		if err != nil || user == nil {
+			user, err = auth.getUserFromToken(r.Context(), getRequestToken(r))
+		}
+		if err == nil && hasUser(user) && user.AccountAccessError() == nil {
+			r = r.WithContext(setRequestUser(r.Context(), *user))
+		}
+		f(w, r)
+	}
+}
+
+// carriesCookieCredential reports whether the browser could authenticate this
+// request by itself: it holds a session cookie or a legacy access_token cookie.
+func carriesCookieCredential(r *http.Request) bool {
+	for _, name := range []string{authpkg.SessionCookieName, accessTokenCookie.Name} {
+		if c, err := r.Cookie(name); err == nil && c.Value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // csrfExemptPaths are paths that don't require CSRF protection
@@ -544,16 +611,17 @@ func (auth *authMiddleware) csrfMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check if this request was authenticated via session cookie
-		// If using API key or runner token, skip CSRF validation
-		_, err := r.Cookie(authpkg.SessionCookieName)
-		if err != nil {
-			// No session cookie - this is API key or runner token auth, skip CSRF
+		// Only cookie-authenticated requests need a CSRF token: a browser
+		// attaches cookies on its own, while an API key or runner token in a
+		// header was put there by the caller. The legacy access_token cookie
+		// (a Helix JWT, still accepted by getRequestToken) counts as much as
+		// the session cookie: either one signs the request in by itself.
+		if !carriesCookieCredential(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Session cookie exists - validate CSRF token
+		// Cookie credential present - validate CSRF token
 		if !authpkg.ValidateCSRF(r) {
 			log.Warn().
 				Str("path", r.URL.Path).
@@ -565,4 +633,8 @@ func (auth *authMiddleware) csrfMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isSafeMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
 }

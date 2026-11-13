@@ -34,9 +34,11 @@ import SpecTaskReviewPage from './pages/SpecTaskReviewPage'
 import TeamDesktopPage from './pages/TeamDesktopPage'
 import EmbedTaskPage from './pages/EmbedTaskPage'
 import EmbedSessionPage from './pages/EmbedSessionPage'
+import EmbedProjectPage from './pages/EmbedProjectPage'
 import Projects from './pages/Projects'
 import Sandboxes from './pages/Sandboxes'
 import SandboxDetail from './pages/SandboxDetail'
+import OrgWebSearchUsage from './components/websearch/OrgWebSearchUsage'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import GitRepoDetail from './pages/GitRepoDetail'
@@ -205,6 +207,17 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <SandboxDetail />
+  ),
+}, {
+  name: 'org_websearch',
+  path: '/orgs/:org_id/search',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+    title: 'Search',
+  },
+  render: () => (
+    <OrgWebSearchUsage />
   ),
 }, {
   // Backward compat: redirect /apps to /agents
@@ -596,6 +609,15 @@ const routes: IApplicationRoute[] = [
     title: 'Session',
   },
   render: () => <EmbedSessionPage />,
+}, {
+  name: 'embed_project',
+  path: '/embed/project/:projectId',
+  meta: {
+    drawer: false,
+    fullscreen: true,
+    title: 'Project',
+  },
+  render: () => <EmbedProjectPage />,
 }, {
   name: 'login',
   path: '/login',

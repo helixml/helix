@@ -457,7 +457,7 @@ func (apiServer *HelixAPIServer) getSessionSandboxState(rw http.ResponseWriter, 
 
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
-		http.Error(rw, fmt.Sprintf("session not found: %v", err), http.StatusNotFound)
+		writeStoreLookupError(rw, err, "session")
 		return
 	}
 

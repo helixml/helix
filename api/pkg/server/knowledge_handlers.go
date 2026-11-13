@@ -36,6 +36,8 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 	query := &store.ListKnowledgeQuery{
 		AppID: appID,
 	}
+	// Set when the caller may edit the app the listed knowledge belongs to.
+	canEditApp := false
 
 	switch {
 	case appID != "":
@@ -58,6 +60,7 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
+		canEditApp = s.canUpdateApp(ctx, user, app)
 		// No owner filter — app authorization is the gate.
 	case orgID != "":
 		org, err := s.lookupOrg(ctx, orgID)
@@ -73,6 +76,11 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 		query.OwnerType = types.OwnerTypeOrg
 		query.Owner = org.ID
 	default:
+		// The owner's personal knowledge spans every agent they own; a
+		// project-scoped key lists through app_id, which is scope-checked.
+		if user.ProjectID != "" {
+			return nil, system.NewHTTPError403("a project-scoped key must list knowledge by app_id")
+		}
 		query.OwnerType = user.Type
 		query.Owner = user.ID
 	}
@@ -83,6 +91,11 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	for idx, knowledge := range knowledges {
+		// Crawler credentials are visible to the knowledge owner and to
+		// whoever may edit the app; other readers get them masked.
+		if knowledge.Owner != user.ID && !canEditApp {
+			maskKnowledgeSourceCredentials(&knowledge.Source)
+		}
 		knowledge.Progress = s.knowledgeManager.GetStatus(knowledge.ID)
 
 		if knowledge.RefreshEnabled && knowledge.RefreshSchedule != "" {
@@ -116,7 +129,7 @@ func (s *HelixAPIServer) getKnowledge(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != user.ID {
+	if !s.ownsKnowledge(r.Context(), user, existing) {
 		return nil, system.NewHTTPError403("you do not have permission to view this knowledge")
 	}
 
@@ -145,7 +158,7 @@ func (s *HelixAPIServer) listKnowledgeVersions(_ http.ResponseWriter, r *http.Re
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != user.ID {
+	if !s.ownsKnowledge(r.Context(), user, existing) {
 		return nil, system.NewHTTPError403("you do not have permission to delete this knowledge")
 	}
 
@@ -178,7 +191,7 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != user.ID {
+	if !s.ownsKnowledge(r.Context(), user, existing) {
 		return nil, system.NewHTTPError403("you do not have permission to delete this knowledge")
 	}
 
@@ -236,7 +249,7 @@ func (s *HelixAPIServer) refreshKnowledge(_ http.ResponseWriter, r *http.Request
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != user.ID {
+	if !s.ownsKnowledge(r.Context(), user, existing) {
 		return nil, system.NewHTTPError403("you do not have permission to refresh this knowledge")
 	}
 
@@ -278,7 +291,7 @@ func (s *HelixAPIServer) completeKnowledgePreparation(_ http.ResponseWriter, r *
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != user.ID {
+	if !s.ownsKnowledge(r.Context(), user, existing) {
 		return nil, system.NewHTTPError403("you do not have permission to complete preparation for this knowledge")
 	}
 
@@ -320,7 +333,7 @@ func (s *HelixAPIServer) downloadKnowledgeFiles(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if existing.Owner != user.ID {
+	if !s.ownsKnowledge(r.Context(), user, existing) {
 		http.Error(w, "you do not have permission to download this knowledge", http.StatusForbidden)
 		return
 	}
@@ -439,4 +452,24 @@ func (s *HelixAPIServer) addFileToZip(ctx context.Context, zipWriter *zip.Writer
 
 	log.Debug().Str("knowledge_id", knowledgeID).Str("file_name", zipPath).Msg("added file to zip")
 	return nil
+}
+
+// ownsKnowledge reports whether user may manage knowledge by id: only its
+// owner, and a project-scoped key only for knowledge of an agent its project
+// uses (the owner shortcut would otherwise reach every agent's knowledge).
+func (s *HelixAPIServer) ownsKnowledge(ctx context.Context, user *types.User, knowledge *types.Knowledge) bool {
+	if knowledge.Owner != user.ID {
+		return false
+	}
+	if user.ProjectID == "" {
+		return true
+	}
+	if knowledge.AppID == "" {
+		return false
+	}
+	app, err := s.Store.GetApp(ctx, knowledge.AppID)
+	if err != nil {
+		return false
+	}
+	return s.enforceKeyAppScope(ctx, user, app, types.ActionUpdate) == nil
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/crypto"
@@ -148,12 +149,13 @@ func TestSlackOAuthCallbackRedirectsSlackErrorToSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := crypto.EncryptAES256GCM([]byte("org-1|app-1"), key)
+	state, err := encodeSlackOAuthState(key, "org-1", "app-1", "usr_admin", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := &HelixAPIServer{Cfg: &config.ServerConfig{WebServer: config.WebServer{URL: "https://prime.helix.ml/"}}}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/slack/oauth/callback?error=access_denied&state="+url.QueryEscape(state), nil)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_admin"}))
 	rec := httptest.NewRecorder()
 
 	server.slackOAuthCallback(rec, req)
@@ -204,12 +206,13 @@ func TestSlackOAuthCallbackRedirectsMissingCodeToSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := crypto.EncryptAES256GCM([]byte("org-1|app-1"), key)
+	state, err := encodeSlackOAuthState(key, "org-1", "app-1", "usr_admin", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := &HelixAPIServer{Cfg: &config.ServerConfig{}}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/slack/oauth/callback?state="+url.QueryEscape(state), nil)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "usr_admin"}))
 	rec := httptest.NewRecorder()
 
 	server.slackOAuthCallback(rec, req)
@@ -237,5 +240,21 @@ func TestSlackAuthTestErrorClassifiesSlackResponse(t *testing.T) {
 	status, _ = slackAuthTestError(errors.New("connection refused"))
 	if status != http.StatusBadGateway {
 		t.Fatalf("network error status = %d", status)
+	}
+}
+
+func TestSlackOAuthStateExpires(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	issued := time.Unix(1_700_000_000, 0)
+	state, err := encodeSlackOAuthState(key, "org-1", "app-1", "usr_admin", issued)
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, app, user, err := decodeSlackOAuthState(key, state, issued.Add(slackOAuthStateTTL-time.Second))
+	if err != nil || org != "org-1" || app != "app-1" || user != "usr_admin" {
+		t.Fatalf("fresh state: org=%q app=%q user=%q err=%v", org, app, user, err)
+	}
+	if _, _, _, err := decodeSlackOAuthState(key, state, issued.Add(slackOAuthStateTTL+time.Second)); err == nil {
+		t.Fatal("expired state accepted")
 	}
 }

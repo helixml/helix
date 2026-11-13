@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import {
-  DialogContent,
-  DialogActions,
-  Button,
-  Box,
-  Typography,
-  Alert,
-  TextField,
-} from '@mui/material';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
+import TextField from '@mui/material/TextField';
 import { IAppFlatState } from '../../types';
 import { TypesAssistantEmail } from '../../api/api';
 import { styled } from '@mui/material/styles';

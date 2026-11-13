@@ -280,6 +280,11 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 
 	_ = c.store.SetSandboxStatus(ctx, id, types.SandboxStatusStopping, "")
 
+	// Revoke the sandbox's key before any teardown that can fail, so a
+	// container whose stop fails (or whose host is gone) can no longer act
+	// as its owner.
+	c.revokeSandboxAPIToken(ctx, sandbox)
+
 	// Session-backed rows meter a container the external-agent executor
 	// provisioned and registered under the SESSION id. Tearing it down here
 	// with the row id would silently miss, so hand teardown back to the
@@ -289,7 +294,6 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 		if err := c.stopSessionDesktop(ctx, sandbox); err != nil {
 			return err
 		}
-		c.revokeSandboxAPIToken(ctx, sandbox)
 		return c.store.DeleteSandbox(ctx, id)
 	}
 
@@ -327,7 +331,6 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 		}
 	}
 
-	c.revokeSandboxAPIToken(ctx, sandbox)
 	return c.store.DeleteSandbox(ctx, id)
 }
 

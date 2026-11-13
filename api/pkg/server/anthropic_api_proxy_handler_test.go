@@ -46,12 +46,15 @@ func Test_getProviderEndpoint(t *testing.T) {
 						},
 					},
 				}, nil)
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "",
-					Name:  "openai",
-				}).Return(&types.ProviderEndpoint{
-					Name: "openai",
-				}, nil)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "user-1",
+					OwnerType:  types.OwnerTypeUser,
+					WithGlobal: true,
+				}).Return([]*types.ProviderEndpoint{{
+					Name:         "openai",
+					Owner:        "user-1",
+					EndpointType: types.ProviderEndpointTypeUser,
+				}}, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.NoError(t, err)
@@ -134,12 +137,13 @@ func Test_getProviderEndpoint(t *testing.T) {
 						},
 					},
 				}, nil)
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "",
-					ID:    endpointID,
-				}).Return(&types.ProviderEndpoint{
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "user-1",
+					OwnerType:  types.OwnerTypeUser,
+					WithGlobal: true,
+				}).Return([]*types.ProviderEndpoint{{
 					ID: endpointID,
-				}, nil)
+				}}, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.NoError(t, err)
@@ -163,13 +167,15 @@ func Test_getProviderEndpoint(t *testing.T) {
 					UserID:         "user-1",
 					Role:           types.OrganizationRoleMember,
 				}, nil)
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "org-1",
-					Name:  "anthropic",
-				}).Return(&types.ProviderEndpoint{
-					Name:  "anthropic",
-					Owner: "org-1",
-				}, nil)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "org-1",
+					OwnerType:  types.OwnerTypeOrg,
+					WithGlobal: true,
+				}).Return([]*types.ProviderEndpoint{{
+					Name:         "anthropic",
+					Owner:        "org-1",
+					EndpointType: types.ProviderEndpointTypeOrg,
+				}}, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.NoError(t, err)
@@ -193,10 +199,11 @@ func Test_getProviderEndpoint(t *testing.T) {
 				},
 			},
 			setup: func(mockStore *store.MockStore) {
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "",
-					Name:  "anthropic",
-				}).Return(nil, store.ErrNotFound)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "user-1",
+					OwnerType:  types.OwnerTypeUser,
+					WithGlobal: true,
+				}).Return(nil, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.NoError(t, err)
@@ -233,15 +240,42 @@ func Test_getProviderEndpoint(t *testing.T) {
 						},
 					},
 				}, nil)
-				mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
-					Owner: "",
-					Name:  "openai",
-				}).Return(nil, store.ErrNotFound)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "user-1",
+					OwnerType:  types.OwnerTypeUser,
+					WithGlobal: true,
+				}).Return(nil, nil)
 			},
 			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
 				require.Error(t, err)
 				assert.Nil(t, endpoint)
 				assert.Contains(t, err.Error(), `provider "openai" not found`)
+			},
+		},
+		{
+			name: "org request without an org endpoint never falls back to an unscoped lookup",
+			user: &types.User{
+				ID:             "user-1",
+				OrganizationID: "org-1",
+			},
+			cfg: &config.ServerConfig{},
+			setup: func(mockStore *store.MockStore) {
+				mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+					OrganizationID: "org-1",
+					UserID:         "user-1",
+					Role:           types.OrganizationRoleMember,
+				}, nil)
+				mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+					Owner:      "org-1",
+					OwnerType:  types.OwnerTypeOrg,
+					WithGlobal: true,
+				}).Return(nil, nil)
+				// No GetProviderEndpoint expectation: an owner-less lookup
+				// would fail the test via gomock.
+			},
+			assert: func(t *testing.T, endpoint *types.ProviderEndpoint, err error) {
+				require.Error(t, err)
+				assert.Nil(t, endpoint)
 			},
 		},
 	}
@@ -267,6 +301,19 @@ func Test_getProviderEndpoint(t *testing.T) {
 			testCase.assert(t, endpoint, err)
 		})
 	}
+}
+
+func Test_selectScopedProviderEndpoint(t *testing.T) {
+	t.Parallel()
+
+	global := &types.ProviderEndpoint{ID: "pe_global", Name: "anthropic", Owner: "admin", EndpointType: types.ProviderEndpointTypeGlobal}
+	own := &types.ProviderEndpoint{ID: "pe_own", Name: "anthropic", Owner: "org-1", EndpointType: types.ProviderEndpointTypeOrg}
+
+	assert.Same(t, own, selectScopedProviderEndpoint([]*types.ProviderEndpoint{global, own}, "org-1", "anthropic"))
+	assert.Same(t, global, selectScopedProviderEndpoint([]*types.ProviderEndpoint{global}, "org-1", "anthropic"))
+	assert.Same(t, own, selectScopedProviderEndpoint([]*types.ProviderEndpoint{global, own}, "org-1", "pe_own"))
+	assert.Nil(t, selectScopedProviderEndpoint([]*types.ProviderEndpoint{global, own}, "org-1", "pe_other"))
+	assert.Nil(t, selectScopedProviderEndpoint([]*types.ProviderEndpoint{own}, "org-1", "openai"))
 }
 
 func Test_isAnthropicCompatible(t *testing.T) {
@@ -421,6 +468,56 @@ func Test_parseAnthropicRequestModel(t *testing.T) {
 			got, ok := parseAnthropicRequestModel(tt.body)
 			assert.Equal(t, tt.found, ok)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Sessions that carry their project only for confinement (a recurring-task
+// job, a golden build, a project chat with no role) keep the built-in
+// anthropic default when their own agent selects no provider, even when the
+// project has no default agent. Spec-task and exploratory keys still use the
+// project's agent.
+func Test_getProviderEndpoint_ProjectSessionKinds(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		session       *types.Session
+		wantProjectAI bool
+	}{
+		"recurring task job":            {session: &types.Session{ID: "ses_1", ProjectID: "project-1", Metadata: types.SessionMetadata{SessionRole: "job"}}},
+		"project chat with no role":     {session: &types.Session{ID: "ses_1", ProjectID: "project-1"}},
+		"golden build":                  {session: &types.Session{ID: "ses_1", ProjectID: "project-1", Metadata: types.SessionMetadata{ProjectID: "project-1"}}},
+		"exploratory desktop":           {session: &types.Session{ID: "ses_1", ProjectID: "project-1", Metadata: types.SessionMetadata{SessionRole: "exploratory"}}, wantProjectAI: true},
+		"bot instance uses its project": {session: &types.Session{ID: "ses_1", ProjectID: "project-1", Metadata: types.SessionMetadata{SessionRole: types.SessionRoleOrgBotInstance}}, wantProjectAI: true},
+	} {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			mockStore.EXPECT().GetSession(gomock.Any(), "ses_1").Return(tc.session, nil).AnyTimes()
+			want := "anthropic"
+			if tc.wantProjectAI {
+				want = "openai"
+				mockStore.EXPECT().GetProject(gomock.Any(), "project-1").Return(&types.Project{ID: "project-1", DefaultHelixAppID: "app-1"}, nil)
+				mockStore.EXPECT().GetApp(gomock.Any(), "app-1").Return(&types.App{ID: "app-1", Config: types.AppConfig{Helix: types.AppHelixConfig{
+					Assistants: []types.AssistantConfig{{Provider: "openai"}},
+				}}}, nil)
+			}
+			// No GetProject expectation otherwise: the project (which has no
+			// default agent here) must not be consulted.
+			mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+				Owner: "user-1", OwnerType: types.OwnerTypeUser, WithGlobal: true,
+			}).Return([]*types.ProviderEndpoint{
+				{Name: "anthropic", Owner: "user-1", EndpointType: types.ProviderEndpointTypeUser},
+				{Name: "openai", Owner: "user-1", EndpointType: types.ProviderEndpointTypeUser},
+			}, nil)
+
+			server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: mockStore}
+			endpoint, err := server.getProviderEndpoint(context.Background(), &types.User{
+				ID: "user-1", TokenType: types.TokenTypeAPIKey, ProjectID: "project-1", SessionID: "ses_1",
+			})
+			require.NoError(t, err)
+			require.Equal(t, want, endpoint.Name)
 		})
 	}
 }

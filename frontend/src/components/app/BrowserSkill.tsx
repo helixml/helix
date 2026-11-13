@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import {
-  DialogContent,
-  DialogActions,
-  Button,
-  Box,
-  Typography,
-  Switch,
-  FormControlLabel,
-  Alert,
-} from '@mui/material';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Alert from '@mui/material/Alert';
 import { IAppFlatState } from '../../types';
 import { TypesAssistantBrowser } from '../../api/api';
 import { styled } from '@mui/material/styles';
@@ -57,10 +55,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [browserConfig, setBrowserConfig] = useState<TypesAssistantBrowser>({
     enabled: false,
-    markdown_post_processing: false,
     process_output: false,
-    no_browser: false,
-    cache: false,
   });
 
   useEffect(() => {
@@ -69,10 +64,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
     } else {
       setBrowserConfig({
         enabled: false,
-        markdown_post_processing: false,
         process_output: false,
-        no_browser: false,
-        cache: false,
       });
     }
   }, [app.browserTool]);
@@ -111,9 +103,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
       const appCopy = JSON.parse(JSON.stringify(app));
 
       // Enable the browser skill and default options
-      browserConfig.enabled = true;      
-      browserConfig.markdown_post_processing = true;
-      browserConfig.no_browser = browserConfig.no_browser ?? false;
+      browserConfig.enabled = true;
       
       // Update the browser tool configuration
       appCopy.browserTool = browserConfig;
@@ -135,10 +125,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
       // Set browser config as disabled
       appCopy.browserTool = {
         enabled: false,
-        markdown_post_processing: false,
         process_output: false,
-        no_browser: false,
-        cache: false,
       };
       
       // Update the application
@@ -164,10 +151,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
         onExited: () => {
           setBrowserConfig({
             enabled: false,
-            markdown_post_processing: false,
             process_output: false,
-            no_browser: false,
-            cache: false,
           });
           setError(null);
           onClosed?.();
@@ -182,27 +166,6 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
           <DescriptionTypography>
             Enable the browser skill to allow the AI to search and browse the web. This skill allows the AI to visit websites and extract information from them.
           </DescriptionTypography>
-
-          <SectionCard>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={browserConfig.markdown_post_processing}
-                  onChange={(e) => handleChange('markdown_post_processing', e.target.checked)}
-                  color="primary"
-                  disabled={!browserConfig.enabled}
-                />
-              }
-              label={
-                <Typography sx={{ color: '#F8FAFC' }}>
-                  Convert HTML to Markdown
-                </Typography>
-              }
-            />
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              When enabled, the browser will convert HTML content to Markdown format, making it easier for the AI to process and present the information.
-            </Typography>
-          </SectionCard>
 
           <SectionCard>
             <FormControlLabel
@@ -223,49 +186,6 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               {/* This will use small generation model to summarize the web page results. This can greatly reduce the costs, however some information might be lost */}
               When enabled, the browser will use a small generation model to summarize web page results. This can greatly reduce costs, however some information might be lost.
-            </Typography>
-          </SectionCard>
-
-          <SectionCard>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={browserConfig.no_browser}
-                  onChange={(e) => handleChange('no_browser', e.target.checked)}
-                  color="primary"
-                  disabled={!browserConfig.enabled}
-                />
-              }
-              label={
-                <Typography sx={{ color: '#F8FAFC' }}>
-                  No Browser Mode
-                </Typography>
-              }
-            />
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              When enabled, this will not use Chrome browser and will instead use a simple but very fast HTTP client to fetch the text.
-              While this works great for static websites or /llms.txt, this approach does not suit SPA applications.
-            </Typography>
-          </SectionCard>
-
-          <SectionCard>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={browserConfig.cache}
-                  onChange={(e) => handleChange('cache', e.target.checked)}
-                  color="primary"
-                  disabled={!browserConfig.enabled}
-                />
-              }
-              label={
-                <Typography sx={{ color: '#F8FAFC' }}>
-                  Cache Browser Results
-                </Typography>
-              }
-            />
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              When enabled, the browser will cache the results of tool calls to avoid re-fetching the same content. This can improve performance and reduce redundant requests.
             </Typography>
           </SectionCard>
         </Box>

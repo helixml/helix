@@ -19163,19 +19163,7 @@ const docTemplate = `{
         "types.AssistantBrowser": {
             "type": "object",
             "properties": {
-                "cache": {
-                    "description": "If true, the browser will cache the results of the tool call",
-                    "type": "boolean"
-                },
                 "enabled": {
-                    "type": "boolean"
-                },
-                "markdown_post_processing": {
-                    "description": "If true, the browser will return the HTML as markdown",
-                    "type": "boolean"
-                },
-                "no_browser": {
-                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {
@@ -24733,6 +24721,13 @@ const docTemplate = `{
                 "full_name": {
                     "type": "string"
                 },
+                "invitation_id": {
+                    "description": "InvitationID and InvitationToken come from the invite link\n(/login?invitation=<id>&token=<token>). Password sign-up does not\nverify the email address, so only the invitation presented here is\naccepted, and only with its secret token and when it was sent to Email.",
+                    "type": "string"
+                },
+                "invitation_token": {
+                    "type": "string"
+                },
                 "password": {
                     "type": "string"
                 },
@@ -28072,19 +28067,7 @@ const docTemplate = `{
         "types.ToolBrowserConfig": {
             "type": "object",
             "properties": {
-                "cache": {
-                    "description": "If true, the browser will cache the results of the tool call",
-                    "type": "boolean"
-                },
                 "enabled": {
-                    "type": "boolean"
-                },
-                "markdown_post_processing": {
-                    "description": "If true, the browser will return the HTML as markdown",
-                    "type": "boolean"
-                },
-                "no_browser": {
-                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {

@@ -3,7 +3,10 @@ package server
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/gorilla/mux"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -116,4 +119,29 @@ func TestAdminListOrganizationsHandlesOverflowingPage(t *testing.T) {
 	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
 	assert.Empty(t, response.Organizations)
 	assert.Equal(t, 1, response.TotalCount)
+}
+
+// The admin plan endpoint writes only plan_override; the wallet's Stripe
+// subscription columns are left to the Stripe sync paths.
+func TestAdminSetOrgPlanWritesOnlyPlanOverride(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	wallet := &types.Wallet{ID: "wal_1", OrgID: "org_1", StripeSubscriptionID: "sub_1"}
+
+	mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org_1"}).Return(&types.Organization{ID: "org_1"}, nil)
+	mockStore.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(wallet, nil)
+	mockStore.EXPECT().SetWalletPlanOverride(gomock.Any(), "wal_1", types.PlanOverridePro).
+		Return(&types.Wallet{ID: "wal_1", OrgID: "org_1", StripeSubscriptionID: "sub_1", PlanOverride: types.PlanOverridePro}, nil)
+
+	request := httptest.NewRequest("POST", "/api/v1/admin/orgs/org_1/plan", strings.NewReader(`{"plan":"pro"}`))
+	request = mux.SetURLVars(request, map[string]string{"id": "org_1"})
+	request = request.WithContext(setTestRequestUser(request.Context(), &types.User{ID: "admin", Admin: true}))
+	recorder := httptest.NewRecorder()
+	server.adminSetOrgPlan(recorder, request)
+
+	require.Equal(t, 200, recorder.Code)
+	var response types.Wallet
+	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
+	assert.Equal(t, types.PlanOverridePro, response.PlanOverride)
 }

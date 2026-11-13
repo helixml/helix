@@ -72,7 +72,7 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		log.Error().Err(err).Msg("error decoding updateSystemSettings request body")
-		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 

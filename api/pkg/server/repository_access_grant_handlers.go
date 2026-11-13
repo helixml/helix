@@ -17,6 +17,10 @@ import (
 
 // authorizeUserToRepositoryAccessGrants checks if the user can manage access grants for a repository
 func (apiServer *HelixAPIServer) authorizeUserToRepositoryAccessGrants(ctx context.Context, user *types.User, repository *types.GitRepository) error {
+	if err := denyAccessGrantsToScopedKey(user); err != nil {
+		return err
+	}
+
 	// Repository owner always has access
 	if user.ID == repository.OwnerID {
 		return nil
@@ -116,7 +120,7 @@ func (apiServer *HelixAPIServer) createRepositoryAccessGrant(rw http.ResponseWri
 	var req types.CreateAccessGrantRequest
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		writeErrResponse(rw, err, http.StatusBadRequest)
+		writeErrResponse(rw, jsonDecodeHTTPError(err), http.StatusBadRequest)
 		return
 	}
 

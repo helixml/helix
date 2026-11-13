@@ -69,7 +69,10 @@ func (s *GitRepositoryService) SyncBaseBranch(ctx context.Context, repoID, branc
 	defer lock.Unlock()
 
 	// Build authenticated URL for fetch
-	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
+	remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
+	if err != nil {
+		return err
+	}
 
 	// First, fetch the branch to a remote-tracking ref for comparison
 	// Use refs/remotes/origin/<branch> so we can compare before updating local
@@ -397,7 +400,10 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 	defer lock.Unlock()
 
 	// Build authenticated URL for fetch
-	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
+	remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
+	if err != nil {
+		return err
+	}
 
 	refSpec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)
 	if force {
@@ -407,7 +413,7 @@ func (s *GitRepositoryService) PullFromRemote(ctx context.Context, repoID, branc
 	log.Info().
 		Str("repo_id", gitRepo.ID).
 		Str("branch", branchName).
-		Str("external_url", gitRepo.ExternalURL).
+		Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 		Bool("force", force).
 		Msg("Fetching changes from external repository")
 
@@ -455,9 +461,6 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		return fmt.Errorf("external URL is not configured")
 	}
 
-	// Build authenticated URL for fetch
-	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
-
 	// Fetch mirrored branches using a wildcard refspec. The negative refspec is
 	// essential: a force fetch must never replace the local-authoritative
 	// helix-specs branch with an older or missing upstream copy.
@@ -466,14 +469,19 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		refSpec = "+" + refSpec
 	}
 
-	log.Info().
-		Str("repo_id", gitRepo.ID).
-		Str("external_url", gitRepo.ExternalURL).
-		Bool("force", force).
-		Msg("Syncing mirrored branches from external repository")
-
 	err = s.trackUpstreamSync(ctx, gitRepo.ID, func() error {
-		return Fetch(ctx, gitRepo.LocalPath, FetchOptions{
+		remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
+		if err != nil {
+			return err
+		}
+
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
+			Bool("force", force).
+			Msg("Syncing mirrored branches from external repository")
+
+		err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
 			Remote:   remote.URL,
 			Env:      remote.env(),
 			RefSpecs: []string{refSpec, "^refs/heads/" + SpecsBranchName},
@@ -481,9 +489,13 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 			Prune:    false,
 			Timeout:  5 * time.Minute,
 		})
+		if err != nil {
+			return fmt.Errorf("failed to fetch from remote: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to fetch from remote: %w", err)
+		return err
 	}
 
 	// Update the repository's branch list using gitea's git module

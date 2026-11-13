@@ -193,7 +193,7 @@ func (s *HelixAPIServer) updateWebhookEndpoint(w http.ResponseWriter, r *http.Re
 }
 
 // deleteWebhookEndpoint godoc
-// @Summary Disable an organization webhook endpoint
+// @Summary Delete an organization webhook endpoint
 // @Tags organizations
 // @Param id path string true "Organization ID"
 // @Param endpoint_id path string true "Webhook endpoint ID"
@@ -211,8 +211,13 @@ func (s *HelixAPIServer) deleteWebhookEndpoint(w http.ResponseWriter, r *http.Re
 		http.Error(w, "webhook endpoint not found", http.StatusNotFound)
 		return
 	}
-	if err := s.Store.DisableWebhookEndpoint(r.Context(), orgID, endpoint.ID, "deleted by organization owner", getRequestUser(r).ID); err != nil {
-		http.Error(w, "failed to disable webhook endpoint", http.StatusInternalServerError)
+	// Soft delete: the row and its deliveries stay for the record, but the
+	// endpoint and its sub-resources answer 404 from now on.
+	endpoint.Status = types.WebhookEndpointStatusDeleted
+	endpoint.DisabledReason = "deleted by organization owner"
+	endpoint.UpdatedBy = getRequestUser(r).ID
+	if err := s.Store.UpdateWebhookEndpointConfig(r.Context(), endpoint); err != nil {
+		http.Error(w, "failed to delete webhook endpoint", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

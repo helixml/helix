@@ -40,15 +40,15 @@ searxng:
   # Use custom image if needed
   # image:
   #   repository: searxng/searxng
-  #   tag: "2024.1.1"
+  #   tag: "2025.12.7-9d3ec9a2a"
 
 chrome:
   # Enable Chrome for web crawling
   enabled: true
   # Use custom image if needed
   # image:
-  #   repository: ghcr.io/go-rod/rod
-  #   tag: "v0.116.0"
+  #   repository: ghcr.io/helixml/chrome
+  #   tag: ""  # defaults to the chart appVersion
 
 ## Controlplane configuration
 controlplane:

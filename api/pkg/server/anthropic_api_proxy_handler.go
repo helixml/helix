@@ -223,6 +223,30 @@ func parseAnthropicRequestModel(body []byte) (string, bool) {
 // 		Msg("🔢 [TOKEN_COUNT] Request completed")
 // }
 
+// keyDefaultsToProjectAgent reports whether a project key whose own session
+// selects no provider falls back to its project's default agent's provider.
+// Keys minted for a spec task, an exploratory desktop or a bot instance do, and
+// so do project keys with no session. Other project sessions (a recurring-task
+// job, a golden build, a project chat with no role) carry their project for
+// confinement only and keep the built-in default, as before they did.
+func (s *HelixAPIServer) keyDefaultsToProjectAgent(ctx context.Context, user *types.User) bool {
+	if user.ProjectID == "" {
+		return false
+	}
+	if user.SessionID == "" || system.IsSandboxID(user.SessionID) {
+		return true
+	}
+	session, err := s.Store.GetSession(ctx, user.SessionID)
+	if err != nil {
+		return true
+	}
+	switch session.Metadata.SessionRole {
+	case "exploratory", types.SessionRoleOrgBotInstance:
+		return true
+	}
+	return session.Metadata.SpecTaskID != ""
+}
+
 func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.User) (*types.ProviderEndpoint, error) {
 	// Default to "anthropic" provider if not specified
 	// This allows Zed and other Anthropic SDK clients to work without setting X-Provider header
@@ -247,7 +271,7 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 	}
 
 	// Helix agent
-	if user.ProjectID != "" {
+	if s.keyDefaultsToProjectAgent(ctx, user) {
 		project, err := s.Store.GetProject(ctx, user.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("error getting project: %w", err)
@@ -269,48 +293,66 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 		}
 	}
 
+	// Database lookups are always scoped to the caller: org-owned endpoints for
+	// org requests, user-owned endpoints otherwise, plus global endpoints. An
+	// unscoped lookup would resolve another owner's endpoint (and credentials)
+	// by name or ID.
+	ownerID := user.ID
+	ownerType := types.OwnerTypeUser
 	if user.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(ctx, user, user.OrganizationID)
-		if err != nil {
+		if _, err := s.authorizeOrgMember(ctx, user, user.OrganizationID); err != nil {
 			return nil, fmt.Errorf("error authorizing org member: %w", err)
 		}
+		ownerID = user.OrganizationID
+		ownerType = types.OwnerTypeOrg
+	}
 
-		q := &store.GetProviderEndpointsQuery{
-			Owner: user.OrganizationID,
+	if ownerID != "" {
+		endpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+			Owner:      ownerID,
+			OwnerType:  ownerType,
+			WithGlobal: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error listing provider endpoints: %w", err)
 		}
-
-		if strings.HasPrefix(provider, system.ProviderEndpointPrefix) {
-			q.ID = provider
-		} else {
-			q.Name = provider
-		}
-
-		endpoint, err := s.Store.GetProviderEndpoint(ctx, q)
-		if err == nil {
+		if endpoint := selectScopedProviderEndpoint(endpoints, ownerID, provider); endpoint != nil {
 			return endpoint, nil
 		}
-		// Fall through to check built-in providers from config
-	}
-
-	// Try database first for non-org requests
-	q := &store.GetProviderEndpointsQuery{
-		Owner: user.OrganizationID,
-	}
-
-	if strings.HasPrefix(provider, system.ProviderEndpointPrefix) {
-		q.ID = provider
-	} else {
-		q.Name = provider
-	}
-
-	endpoint, err := s.Store.GetProviderEndpoint(ctx, q)
-	if err == nil {
-		return endpoint, nil
 	}
 
 	// Fall back to built-in Anthropic provider from environment variables
 	// This allows ANTHROPIC_API_KEY to work without database configuration
 	return s.getBuiltInProviderEndpoint(ctx, provider)
+}
+
+// selectScopedProviderEndpoint picks the endpoint matching provider (an
+// endpoint ID or a name) from an owner-scoped listing, preferring the owner's
+// own endpoint over a global one with the same name.
+func selectScopedProviderEndpoint(endpoints []*types.ProviderEndpoint, ownerID, provider string) *types.ProviderEndpoint {
+	byID := strings.HasPrefix(provider, system.ProviderEndpointPrefix)
+	var selected *types.ProviderEndpoint
+	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			continue
+		}
+		if byID {
+			if endpoint.ID == provider {
+				return endpoint
+			}
+			continue
+		}
+		if endpoint.Name != provider {
+			continue
+		}
+		if endpoint.Owner == ownerID && endpoint.EndpointType != types.ProviderEndpointTypeGlobal {
+			return endpoint
+		}
+		if selected == nil {
+			selected = endpoint
+		}
+	}
+	return selected
 }
 
 // getBuiltInProviderEndpoint returns a ProviderEndpoint for built-in (env-baked)

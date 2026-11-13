@@ -1,15 +1,13 @@
 import React, { FC, useCallback } from 'react'
-import {
-  TextField,
-  Stack,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Box,
-  Typography,
-  Link,
-} from '@mui/material'
+import TextField from '@mui/material/TextField';
+import Stack from '@mui/material/Stack';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Link from '@mui/material/Link';
 import { TypesExternalRepositoryType } from '../../../api/api'
 
 interface ExternalRepoFormProps {

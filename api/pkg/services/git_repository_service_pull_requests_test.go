@@ -2,12 +2,15 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -53,7 +56,126 @@ func (s *prTestStore) GetOAuthConnection(_ context.Context, id string) (*types.O
 }
 
 func newPRTestService(s *prTestStore) *GitRepositoryService {
-	return &GitRepositoryService{store: s}
+	svc := &GitRepositoryService{store: s}
+	// These tests stand the provider up on a loopback httptest server; the
+	// outbound policy itself is covered by TestProviderAPIClientsApplyOutboundPolicy.
+	svc.SetOutboundPolicy(netguard.Policy{AllowPrivate: true})
+	return svc
+}
+
+func TestUpstreamRemoteForRepoRejectsUnavailableConfiguredCredentials(t *testing.T) {
+	for _, repo := range []*types.GitRepository{
+		{Name: "private-repo", ExternalURL: "https://github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub, OAuthConnectionID: "missing-oauth"},
+		{Name: "private-repo", ExternalURL: "https://github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub, GitProviderConnectionID: "missing-pat"},
+		{Name: "private-repo", ExternalURL: "https://github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub, Username: "partial"},
+		{Name: "private-repo", ExternalURL: "https://bitbucket.org/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeBitbucket, Bitbucket: &types.Bitbucket{Username: "partial"}},
+		{Name: "private-repo", ExternalURL: "https://user:@github.com/acme/private-repo.git", ExternalType: types.ExternalRepositoryTypeGitHub},
+	} {
+		_, err := newPRTestService(&prTestStore{}).upstreamRemoteForRepo(t.Context(), repo)
+		if err == nil {
+			t.Fatalf("expected unavailable connection error for %#v", repo)
+		}
+		if !strings.Contains(err.Error(), "connection for repository 'private-repo' is unavailable") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+}
+
+func TestUpstreamRemoteForRepoPreservesCredentialFallbacks(t *testing.T) {
+	tests := []struct {
+		name     string
+		store    *prTestStore
+		repo     *types.GitRepository
+		username string
+		password string
+	}{
+		{
+			name:  "anonymous public repository",
+			store: &prTestStore{},
+			repo:  &types.GitRepository{Name: "public", ExternalURL: "https://github.com/acme/public.git", ExternalType: types.ExternalRepositoryTypeGitHub},
+		},
+		{
+			name:  "PAT after dangling OAuth pin",
+			store: &prTestStore{},
+			repo: &types.GitRepository{Name: "private", ExternalURL: "https://github.com/acme/private.git", ExternalType: types.ExternalRepositoryTypeGitHub,
+				OAuthConnectionID: "missing", GitHub: &types.GitHub{PersonalAccessToken: "pat"}},
+			username: "x-access-token", password: "pat",
+		},
+		{
+			name:  "Bitbucket saved connection",
+			store: &prTestStore{},
+			repo: &types.GitRepository{Name: "private", ExternalURL: "https://bitbucket.org/acme/private.git", ExternalType: types.ExternalRepositoryTypeBitbucket,
+				GitProviderConnectionID: "saved", Bitbucket: &types.Bitbucket{Username: "user", AppPassword: "app-password"}},
+			username: "user", password: "app-password",
+		},
+		{
+			name:  "legacy embedded credentials",
+			store: &prTestStore{},
+			repo: &types.GitRepository{Name: "private", ExternalURL: "https://legacy:token@github.com/acme/private.git", ExternalType: types.ExternalRepositoryTypeGitHub,
+				OAuthConnectionID: "missing"},
+			username: "legacy", password: "token",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			remote, err := newPRTestService(tt.store).upstreamRemoteForRepo(t.Context(), tt.repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if remote.Username != tt.username || remote.Password != tt.password {
+				t.Fatalf("credentials = %q/%q, want %q/%q", remote.Username, remote.Password, tt.username, tt.password)
+			}
+		})
+	}
+}
+
+func TestRepositoryURLCredentials(t *testing.T) {
+	for _, tt := range []struct {
+		url        string
+		username   string
+		password   string
+		configured bool
+	}{
+		{url: "https://git@github.com/acme/public.git"},
+		{url: "https://user:@github.com/acme/private.git", username: "user", configured: true},
+		{url: "https://:token@github.com/acme/private.git", username: "git", password: "token", configured: true},
+		{url: "https://legacy:token@github.com/acme/private.git", username: "legacy", password: "token", configured: true},
+	} {
+		username, password, configured := RepositoryURLCredentials(&types.GitRepository{ExternalURL: tt.url})
+		if username != tt.username || password != tt.password || configured != tt.configured {
+			t.Fatalf("RepositoryURLCredentials(%q) = %q/%q/%t, want %q/%q/%t", tt.url, username, password, configured, tt.username, tt.password, tt.configured)
+		}
+	}
+}
+
+func TestUpstreamRemoteForRepoPreservesOutboundPolicy(t *testing.T) {
+	service := &GitRepositoryService{store: &prTestStore{}}
+	service.SetOutboundPolicy(netguard.Policy{})
+	remote, err := service.upstreamRemoteForRepo(t.Context(), &types.GitRepository{
+		Name: "blocked", ExternalURL: "http://127.0.0.1/repo.git", ExternalType: types.ExternalRepositoryTypeGitHub,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(remote.blocked, netguard.ErrBlockedDestination) {
+		t.Fatalf("blocked error = %v, want ErrBlockedDestination", remote.blocked)
+	}
+}
+
+func TestUpstreamRemoteForRepoSelfHealsOAuthConnection(t *testing.T) {
+	repo := &types.GitRepository{Name: "private", OwnerID: "owner", ExternalURL: "https://github.com/acme/private.git",
+		ExternalType: types.ExternalRepositoryTypeGitHub, OAuthConnectionID: "deleted"}
+	service := newPRTestService(&prTestStore{oauthConnections: []*types.OAuthConnection{
+		{ID: "replacement", UserID: "owner", AccessToken: "replacement-token", Provider: types.OAuthProvider{Type: types.OAuthProviderTypeGitHub}},
+	}})
+	remote, err := service.upstreamRemoteForRepo(t.Context(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote.Password != "replacement-token" {
+		t.Fatalf("password = %q, want replacement token", remote.Password)
+	}
 }
 
 func TestGetGitHubClient_UserOAuthTakesPrecedence(t *testing.T) {
@@ -429,5 +551,24 @@ func TestValidateUserOAuth_AcceptsCustomGitLabProvider(t *testing.T) {
 
 	if err := newPRTestService(fs).ValidateUserOAuth(context.Background(), repo, "user-x"); err != nil {
 		t.Fatalf("expected custom GitLab provider to match, got: %v", err)
+	}
+}
+
+// External GitHub repos must resolve to the provider client and the owner/repo
+// parsed from the external URL (a self-call here once recursed forever).
+func TestGitHubClientForRepo_ExternalGitHub(t *testing.T) {
+	svc := newPRTestService(&prTestStore{})
+	repo := &types.GitRepository{
+		ExternalURL:  "https://github.com/org/repo",
+		ExternalType: types.ExternalRepositoryTypeGitHub,
+		Password:     "repo-pat",
+	}
+
+	client, owner, name, err := svc.githubClientForRepo(context.Background(), repo, "")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if client == nil || owner != "org" || name != "repo" {
+		t.Fatalf("got client=%v owner=%q repo=%q, want org/repo", client, owner, name)
 	}
 }

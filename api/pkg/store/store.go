@@ -254,6 +254,8 @@ type Store interface {
 	ListOrganizationInvitations(ctx context.Context, query *ListOrganizationInvitationsQuery) ([]*types.OrganizationInvitation, error)
 	DeleteOrganizationInvitation(ctx context.Context, id string) error
 	ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error)
+	ConsumeInvitation(ctx context.Context, user *types.User, invitationID, token string) ([]*types.OrganizationMembership, error)
+	RotateOrganizationInvitationToken(ctx context.Context, id string) (*types.OrganizationInvitation, error)
 
 	CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
 	GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error)
@@ -288,6 +290,8 @@ type Store interface {
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSessionMetadata(ctx context.Context, sessionID string, metadata types.SessionMetadata) error
 	SetSessionProviderRecovery(ctx context.Context, sessionID string, recovery *types.ProviderRecovery) error
+	ClearSessionProviderRecovery(ctx context.Context, sessionID, promptID, interactionID string) (bool, error)
+	RecordSessionAgentConfigApplied(ctx context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error
 	// ClaimSessionAutoRestart atomically records a restart unless another restart
 	// was recorded after before.
 	ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error)
@@ -411,6 +415,12 @@ type Store interface {
 	DeleteRunnerProfile(ctx context.Context, id string) error
 	ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProfile, error)
 
+	// Per-runner tokens
+	CreateRunnerToken(ctx context.Context, t *types.RunnerToken) (*types.RunnerToken, error)
+	GetActiveRunnerTokenByHash(ctx context.Context, tokenHash string) (*types.RunnerToken, error)
+	ListRunnerTokens(ctx context.Context, runnerID string) ([]*types.RunnerToken, error)
+	RevokeRunnerToken(ctx context.Context, id, revokedBy string) (*types.RunnerToken, error)
+
 	// runner-to-profile assignments
 	GetRunnerAssignment(ctx context.Context, runnerID string) (*types.RunnerAssignment, error)
 	SetRunnerAssignment(ctx context.Context, a *types.RunnerAssignment) (*types.RunnerAssignment, error)
@@ -426,7 +436,15 @@ type Store interface {
 	GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error)
 	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
 	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
+	// UpdateUserEmailVerification writes only the email-verification columns
+	// (email_verified and, when oidcSubject is set, oidc_subject), so a
+	// sign-in cannot clobber a concurrent password change with a stale row.
+	UpdateUserEmailVerification(ctx context.Context, id string, verified bool, oidcSubject string) error
+	// MarkUserOnboarded writes only the onboarding columns: onboarding
+	// complete now, and off the waitlist.
+	MarkUserOnboarded(ctx context.Context, id string) error
 	DeleteUser(ctx context.Context, id string) error
+	RevokeUserAPIKeys(ctx context.Context, userID string) error
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error)
 	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
 	CountUsers(ctx context.Context) (int64, error)
@@ -556,6 +574,10 @@ type Store interface {
 	GetUserSessionsByUser(ctx context.Context, userID string) ([]*types.UserSession, error)
 	UpdateUserSession(ctx context.Context, session *types.UserSession) (*types.UserSession, error)
 	DeleteUserSession(ctx context.Context, id string) error
+	// MarkUserSessionOIDCRefreshDead and DeleteUserSessionWithRefreshToken act
+	// only while the session still holds refreshToken, and report whether they did.
+	MarkUserSessionOIDCRefreshDead(ctx context.Context, id, refreshToken string) (bool, error)
+	DeleteUserSessionWithRefreshToken(ctx context.Context, id, refreshToken string) (bool, error)
 	DeleteUserSessionsByUser(ctx context.Context, userID string) error
 	GetUserSessionsNearOIDCExpiry(ctx context.Context, expiresBefore time.Time) ([]*types.UserSession, error)
 	DeleteExpiredUserSessions(ctx context.Context) error
@@ -578,6 +600,10 @@ type Store interface {
 	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 	GetOrgComputeUsage(ctx context.Context, q *GetOrgComputeUsageQuery) (*types.OrgComputeUsage, error)
 
+	CreateWebSearchRequest(ctx context.Context, request *types.WebSearchRequest) error
+	ListWebSearchRequests(ctx context.Context, q *WebSearchRequestsQuery) (*types.WebSearchRequestList, error)
+	GetWebSearchUsage(ctx context.Context, q *WebSearchRequestsQuery) (*types.WebSearchUsage, error)
+
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
 	GetSlackThreadBySpecTaskID(ctx context.Context, appID, specTaskID string) (*types.SlackThread, error)
@@ -598,7 +624,8 @@ type Store interface {
 	GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error)
 	ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*types.Wallet, error)
 	GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error)
-	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	UpdateWalletSubscription(ctx context.Context, walletID string, state types.WalletSubscriptionState) (*types.Wallet, error)
+	SetWalletPlanOverride(ctx context.Context, walletID string, plan string) (*types.Wallet, error)
 	DeleteWallet(ctx context.Context, id string) error
 	UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error)
 
@@ -626,6 +653,10 @@ type Store interface {
 	GetSystemSettings(ctx context.Context) (*types.SystemSettings, error)
 	GetEffectiveSystemSettings(ctx context.Context) (*types.SystemSettings, error)
 	UpdateSystemSettings(ctx context.Context, req *types.SystemSettingsRequest) (*types.SystemSettings, error)
+	// EnsureJWTSigningSecret stores candidate as the JWT signing secret unless
+	// one is already stored, and returns the stored value. Concurrent callers
+	// with different candidates all receive the same, first-written secret.
+	EnsureJWTSigningSecret(ctx context.Context, candidate string) (string, error)
 
 	// model seeding
 	SeedModelsFromEnvironment(ctx context.Context) error
@@ -743,6 +774,14 @@ type Store interface {
 	DeleteGitRepository(ctx context.Context, id string) error
 	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
 	CountGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64, excludeRepoID string) (int64, error)
+	ListGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64) ([]*types.GitRepository, error)
+
+	// Git pull request methods (Helix-hosted repositories)
+	CreateGitPullRequest(ctx context.Context, pr *types.GitPullRequest) error
+	GetGitPullRequest(ctx context.Context, repositoryID string, number int) (*types.GitPullRequest, error)
+	ListGitPullRequests(ctx context.Context, repositoryID, state string) ([]*types.GitPullRequest, error)
+	UpdateGitPullRequest(ctx context.Context, pr *types.GitPullRequest) error
+	DeleteGitPullRequestsForRepository(ctx context.Context, repositoryID string) error
 
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
@@ -857,6 +896,11 @@ type Store interface {
 	CreateOrgAuditLog(ctx context.Context, log *types.OrgAuditLog) error
 	ListOrgAuditLogs(ctx context.Context, filters *types.OrgAuditLogFilters) (*types.OrgAuditLogResponse, error)
 
+	// Request Audit Event methods - append-only forensic record of API requests
+	InsertRequestAuditEvents(ctx context.Context, events []*types.RequestAuditEvent) error
+	ListRequestAuditEvents(ctx context.Context, filters *types.RequestAuditEventFilters) (*types.RequestAuditEventResponse, error)
+	PruneRequestAuditEvents(ctx context.Context, before time.Time, batchSize int) (int64, error)
+
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)
 	GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error)
@@ -947,8 +991,10 @@ type Store interface {
 	GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error)
+	GetLatestActivationPromptHistoryEntry(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error)
+	RecoverFailedPrompt(ctx context.Context, sessionID, promptID, interactionID string) (bool, error)
 	// RevertPromptToPending returns a claimed prompt to the queue after a
 	// busy-defer, without charging the retry budget. See the implementation.
 	RevertPromptToPending(ctx context.Context, promptID string) error
@@ -1035,6 +1081,10 @@ type Store interface {
 	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
 	ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error)
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
+
+	// Web search page cache, shared across organizations (public content).
+	GetWebPage(ctx context.Context, url string) (*types.WebPage, error)
+	UpsertWebPage(ctx context.Context, page *types.WebPage) error
 }
 
 // SecretIntakeStore owns the atomic persistence operations used by secret intake.

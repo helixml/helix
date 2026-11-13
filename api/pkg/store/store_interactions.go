@@ -742,6 +742,9 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 	} else if query.State != "" {
 		q = q.Where("state = ?", query.State)
 	}
+	if query.CompletedSuccessfully {
+		q = q.Where("state = ? AND completed > ? AND error = ''", types.InteractionStateComplete, time.Time{})
+	}
 
 	totalCount := int64(0)
 

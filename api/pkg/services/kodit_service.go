@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"image/jpeg"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -131,24 +132,71 @@ func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterR
 		Pipeline:    params.Pipeline,
 	})
 	if err != nil {
-		return 0, false, fmt.Errorf("failed to register repository: %w", err)
+		return 0, false, fmt.Errorf("failed to register repository: %w", redactURLSecretInError(err, params.CloneURL))
 	}
 
 	if source.ID() == 0 {
 		log.Error().
-			Str("clone_url", params.CloneURL).
+			Str("clone_url", RedactURLCredentials(params.CloneURL)).
 			Bool("is_new", isNew).
-			Str("remote_url", source.RemoteURL()).
+			Str("remote_url", RedactURLCredentials(source.RemoteURL())).
 			Str("status", source.Status().String()).
-			Str("last_error", source.LastError()).
+			Str("last_error", redactURLSecretInError(errors.New(source.LastError()), params.CloneURL).Error()).
 			Bool("is_cloned", source.IsCloned()).
 			Str("cloned_path", source.ClonedPath()).
 			Msg("Kodit Repositories.Add returned zero ID — this indicates a persistence bug in kodit")
 		return 0, false, fmt.Errorf("kodit returned zero source ID for clone URL (is_new=%v, status=%s)", isNew, source.Status())
 	}
 
-	log.Info().Str("clone_url", params.CloneURL).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
+	// Kodit dedupes registrations by upstream URL, so an existing source may
+	// have been registered for a different Helix repository (another tenant
+	// importing the same upstream). Only adopt one cloned from this exact
+	// Helix repository.
+	if !isNew && !sameKoditCloneSource(source.RemoteURL(), params.CloneURL) {
+		log.Warn().
+			Str("clone_url", RedactURLCredentials(params.CloneURL)).
+			Str("remote_url", RedactURLCredentials(source.RemoteURL())).
+			Int64("kodit_repo_id", source.ID()).
+			Msg("Kodit matched a source registered for a different repository by upstream URL; registering this repository on its own")
+		if params.UpstreamURL == "" {
+			return 0, false, ErrKoditSourceOwnedElsewhere
+		}
+		// Without an upstream URL Kodit keys the source on the clone URL,
+		// which is unique to this repository.
+		own := *params
+		own.UpstreamURL = ""
+		return s.RegisterRepository(ctx, &own)
+	}
+
+	log.Info().Str("clone_url", RedactURLCredentials(params.CloneURL)).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
 	return source.ID(), isNew, nil
+}
+
+// ErrKoditSourceOwnedElsewhere is returned when Kodit already indexes the
+// same upstream for a different Helix repository.
+var ErrKoditSourceOwnedElsewhere = errors.New("this upstream is already indexed for another repository")
+
+// sameKoditCloneSource reports whether two clone URLs name the same source.
+// Only the path is compared: for Helix git URLs it is /git/<repository id>,
+// which is unique per repository, while the scheme, host and embedded key may
+// change between registrations (KODIT_GIT_URL, key rotation). file:// URLs
+// (knowledge directories) compare by path too.
+func sameKoditCloneSource(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	if errA != nil || errB != nil || koditSchemeFamily(ua.Scheme) != koditSchemeFamily(ub.Scheme) {
+		return false
+	}
+	pa, pb := strings.TrimSuffix(ua.Path, "/"), strings.TrimSuffix(ub.Path, "/")
+	return pa != "" && pa == pb
+}
+
+func koditSchemeFamily(scheme string) string {
+	scheme = strings.ToLower(scheme)
+	if scheme == "https" {
+		return "http"
+	}
+	return scheme
 }
 
 // GetRepositoryEnrichments fetches enrichments for a repository from Kodit,
@@ -168,6 +216,9 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 	}
 
 	if commitSHA != "" {
+		if err := s.requireRepositoryCommit(ctx, koditRepoID, commitSHA); err != nil {
+			return nil, err
+		}
 		params.CommitSHA = commitSHA
 	} else {
 		// If no commit SHA provided, get enrichments for latest commits of this repo.
@@ -207,8 +258,11 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 	return filtered, nil
 }
 
-// GetEnrichment fetches a single enrichment by ID from Kodit
-func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (enrichment.Enrichment, error) {
+// GetRepositoryEnrichment fetches one enrichment of a repository. Kodit
+// enrichment ids are global across repositories, so the enrichment must be
+// attached to one of this repository's commits; any other id is reported as
+// not found.
+func (s *KoditService) GetRepositoryEnrichment(ctx context.Context, koditRepoID int64, enrichmentID string) (enrichment.Enrichment, error) {
 	if !s.IsEnabled() {
 		return enrichment.Enrichment{}, fmt.Errorf("kodit service not enabled")
 	}
@@ -218,12 +272,52 @@ func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (
 		return enrichment.Enrichment{}, fmt.Errorf("invalid enrichment ID %q: %w", enrichmentID, err)
 	}
 
-	e, err := s.client.Load().Enrichments.Get(ctx, repository.WithID(id))
+	client := s.client.Load()
+	commits, err := client.Commits.Find(ctx, repository.WithRepoID(koditRepoID))
 	if err != nil {
-		return enrichment.Enrichment{}, wrapNotFound(err)
+		return enrichment.Enrichment{}, fmt.Errorf("failed to list commits for repo: %w", err)
+	}
+	shas := make([]string, len(commits))
+	for i, c := range commits {
+		shas[i] = c.SHA()
+	}
+	if len(shas) == 0 {
+		return enrichment.Enrichment{}, fmt.Errorf("%w: enrichment %d", ErrKoditNotFound, id)
 	}
 
-	return e, nil
+	// The commit filter joins enrichment_associations, which has its own id
+	// column, so the id condition names the enrichment table explicitly.
+	found, err := client.Enrichments.Find(ctx,
+		repository.WithCondition("enrichments_v2.id", id),
+		enrichment.WithCommitSHAs(shas),
+		repository.WithLimit(1),
+	)
+	if err != nil {
+		return enrichment.Enrichment{}, fmt.Errorf("failed to fetch enrichment: %w", err)
+	}
+	if len(found) == 0 {
+		return enrichment.Enrichment{}, fmt.Errorf("%w: enrichment %d", ErrKoditNotFound, id)
+	}
+	return found[0], nil
+}
+
+// requireRepositoryCommit reports ErrKoditNotFound unless commitSHA is a
+// commit of the repository. Enrichments and indexed files are keyed by commit
+// SHA alone, so a SHA from another repository would otherwise reach that
+// repository's data.
+func (s *KoditService) requireRepositoryCommit(ctx context.Context, koditRepoID int64, commitSHA string) error {
+	commits, err := s.client.Load().Commits.Find(ctx,
+		repository.WithRepoID(koditRepoID),
+		repository.WithSHA(commitSHA),
+		repository.WithLimit(1),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to look up commit: %w", err)
+	}
+	if len(commits) == 0 {
+		return fmt.Errorf("%w: commit %s is not part of repository %d", ErrKoditNotFound, commitSHA, koditRepoID)
+	}
+	return nil
 }
 
 // GetRepositoryCommits fetches commits for a repository from Kodit
@@ -1023,6 +1117,11 @@ func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, comm
 
 	if commitSHA == "" {
 		return fmt.Errorf("commit SHA is required")
+	}
+	// A rescan deletes every enrichment and file recorded for the SHA, so it
+	// must be one of this repository's commits.
+	if err := s.requireRepositoryCommit(ctx, koditRepoID, commitSHA); err != nil {
+		return err
 	}
 
 	err := s.client.Load().Repositories.Rescan(ctx, &service.RescanParams{

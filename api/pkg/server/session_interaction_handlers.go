@@ -186,7 +186,7 @@ func (s *HelixAPIServer) feedbackInteraction(_ http.ResponseWriter, req *http.Re
 
 	var r types.FeedbackRequest
 	if err := json.NewDecoder(req.Body).Decode(&r); err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode feedback request, error: %s", err))
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if r.Feedback == "" {

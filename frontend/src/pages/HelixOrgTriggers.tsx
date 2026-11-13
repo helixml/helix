@@ -14,6 +14,7 @@ import Typography from '@mui/material/Typography'
 import { EllipsisVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import CardGrid from '../components/widgets/CardGrid'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import useAccount from '../hooks/useAccount'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
 import ViewModeToggle from '../components/widgets/ViewModeToggle'
@@ -64,6 +65,10 @@ const EditTriggerDialog: FC<{
 const HelixOrgTriggers: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
+  const account = useAccount()
+  // Creating, editing and deleting Triggers is limited to org owners and
+  // admins server-side; members only browse.
+  const canManage = account.isOrgAdmin
   const breadcrumbs = useHelixOrgBreadcrumbs()
   const { data = [], isLoading } = useTriggers()
   const create = useCreateTrigger()
@@ -104,15 +109,15 @@ const HelixOrgTriggers: FC = () => {
       <Box sx={{ height: '100%', overflow: 'auto' }}><Container maxWidth="xl" sx={{ py: 3 }}><Stack spacing={2}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Box><Typography variant="h5">Triggers</Typography><Typography variant="body2" color="text.secondary">Events that start your org bots, either immediately or after processing.</Typography></Box>
-          <Button variant="contained" color="secondary" startIcon={<Plus size={18} />} onClick={() => { setFormError(''); setCreateOpen(true) }}>New Trigger</Button>
+          {canManage && <Button variant="contained" color="secondary" startIcon={<Plus size={18} />} onClick={() => { setFormError(''); setCreateOpen(true) }}>New Trigger</Button>}
         </Stack>
         <TextField size="small" placeholder="Search triggers" value={query} onChange={(e) => setQuery(e.target.value)} sx={{ maxWidth: 360 }} />
         <Stack direction="row" justifyContent="flex-end"><ViewModeToggle mode={mode} onChange={setMode} /></Stack>
-        {isLoading ? <LoadingSpinner /> : filtered.length === 0 ? <Box sx={{ py: 6, textAlign: 'center' }}><Typography color="text.secondary">{query ? 'No Triggers match your search.' : 'No Triggers yet.'}</Typography>{!query && <Button variant="contained" color="secondary" startIcon={<Plus size={18} />} onClick={() => { setFormError(''); setCreateOpen(true) }} sx={{ mt: 1 }}>New Trigger</Button>}</Box> : mode === 'table' ? (
-          <SimpleTable authenticated fields={[{ name: 'name', title: 'Name' }, { name: 'kind', title: 'Source' }, { name: 'agents', title: 'Org bots started' }, { name: 'description', title: 'Description' }, { name: 'created', title: 'Created' }]} data={tableData} getActions={(row) => actions(row._data as TriggerDTO)} />
+        {isLoading ? <LoadingSpinner /> : filtered.length === 0 ? <Box sx={{ py: 6, textAlign: 'center' }}><Typography color="text.secondary">{query ? 'No Triggers match your search.' : 'No Triggers yet.'}</Typography>{!query && canManage && <Button variant="contained" color="secondary" startIcon={<Plus size={18} />} onClick={() => { setFormError(''); setCreateOpen(true) }} sx={{ mt: 1 }}>New Trigger</Button>}</Box> : mode === 'table' ? (
+          <SimpleTable authenticated fields={[{ name: 'name', title: 'Name' }, { name: 'kind', title: 'Source' }, { name: 'agents', title: 'Org bots started' }, { name: 'description', title: 'Description' }, { name: 'created', title: 'Created' }]} data={tableData} getActions={canManage ? (row) => actions(row._data as TriggerDTO) : undefined} />
         ) : <CardGrid items={filtered} getKey={(t) => t.id!} renderCard={(trigger) => (
           <Card sx={{ border: '1px solid rgba(0, 0, 0, 0.08)', borderRadius: 1, boxShadow: 'none', height: '100%', '&:hover': { borderColor: 'rgba(0,0,0,0.12)', backgroundColor: 'rgba(0,0,0,0.01)' } }}>
-            <CardContent onClick={() => open(trigger.id)} sx={{ p: 2, '&:last-child': { pb: 2 }, cursor: 'pointer' }}><Stack direction="row" justifyContent="space-between"><Box><Typography fontWeight={600}>{trigger.name}</Typography><Typography variant="caption" color="text.secondary">{kindLabel.get(trigger.kind ?? '') ?? trigger.kind}</Typography></Box>{actions(trigger)}</Stack><Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{trigger.description || 'No description'}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Starts {trigger.attached_workers?.length ?? 0} org bot{(trigger.attached_workers?.length ?? 0) === 1 ? '' : 's'}</Typography></CardContent>
+            <CardContent onClick={() => open(trigger.id)} sx={{ p: 2, '&:last-child': { pb: 2 }, cursor: 'pointer' }}><Stack direction="row" justifyContent="space-between"><Box><Typography fontWeight={600}>{trigger.name}</Typography><Typography variant="caption" color="text.secondary">{kindLabel.get(trigger.kind ?? '') ?? trigger.kind}</Typography></Box>{canManage && actions(trigger)}</Stack><Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{trigger.description || 'No description'}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Starts {trigger.attached_workers?.length ?? 0} org bot{(trigger.attached_workers?.length ?? 0) === 1 ? '' : 's'}</Typography></CardContent>
           </Card>
         )} />}
       </Stack></Container></Box>

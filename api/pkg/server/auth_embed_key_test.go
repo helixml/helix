@@ -6,7 +6,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"go.uber.org/mock/gomock"
+
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -41,7 +45,9 @@ func TestEmbedKeyAllowsItsOwnTaskAndSession(t *testing.T) {
 		{"GET", "/api/v1/spec-tasks/spt_A/execution-config"},
 		{"GET", "/api/v1/spec-tasks/spt_A/zed-threads"},
 		{"GET", "/api/v1/spec-tasks/spt_A/attachments"},
+		{"GET", "/api/v1/spec-tasks/spt_A/pr-proposals"},
 		{"GET", "/api/v1/sessions/ses_A"},
+		{"GET", "/api/v1/sessions/ses_A/execution-config"},
 		{"GET", "/api/v1/sessions/ses_A/interactions"},
 		{"GET", "/api/v1/sessions/ses_A/step-info"},
 		{"GET", "/api/v1/sessions/ses_A/visualization?viz_id=viz_1"},
@@ -66,7 +72,9 @@ func TestEmbedKeyCannotReachAnotherTaskOrSession(t *testing.T) {
 		{"GET", "/api/v1/spec-tasks/spt_B"},
 		{"GET", "/api/v1/spec-tasks/spt_B/execution-config"},
 		{"GET", "/api/v1/spec-tasks/spt_B/attachments"},
+		{"GET", "/api/v1/spec-tasks/spt_B/pr-proposals"},
 		{"GET", "/api/v1/sessions/ses_B"},
+		{"GET", "/api/v1/sessions/ses_B/execution-config"},
 		{"GET", "/api/v1/sessions/ses_B/interactions"},
 		{"GET", "/api/v1/sessions/ses_B/visualization?viz_id=viz_1"},
 		{"POST", "/api/v1/sessions/ses_B/cancel"},
@@ -179,6 +187,12 @@ func TestEmbedKeyCannotMutateOrDriveDesktop(t *testing.T) {
 		{"PATCH", "/api/v1/spec-tasks/spt_A/archive"},
 		{"POST", "/api/v1/spec-tasks/spt_A/start-planning"},
 		{"POST", "/api/v1/spec-tasks/spt_A/clone"},
+		// Approving a proposal grants the agent push rights; that is the
+		// owner's call, on its own task as much as on another.
+		{"POST", "/api/v1/spec-tasks/spt_A/pr-proposals/prp_1/decide"},
+		{"POST", "/api/v1/spec-tasks/spt_B/pr-proposals/prp_1/decide"},
+		{"POST", "/api/v1/spec-tasks/spt_A/pr-proposals"},
+		{"PATCH", "/api/v1/sessions/ses_A/execution-config"},
 		{"DELETE", "/api/v1/sessions/ses_A/stop-external-agent"},
 		{"POST", "/api/v1/sessions/ses_A/resume"},
 		{"GET", "/api/v1/external-agents/ses_A/screenshot"},
@@ -243,6 +257,7 @@ func TestNeuteredEndpointsReturnEmptyNotData(t *testing.T) {
 		{"/api/v1/organizations", "[]"},
 		{"/api/v1/agents?organization_id=", "[]"},
 		{"/api/v1/claude-subscriptions", "[]"},
+		{"/api/v1/codex-subscriptions", "[]"},
 		{"/api/v1/oauth/providers", "[]"},
 		{"/api/v1/projects/prj_x", "{}"},
 		{"/api/v1/projects/prj_x/labels", "[]"},
@@ -267,6 +282,7 @@ func TestNeuteringDoesNotAllowTheRealHandler(t *testing.T) {
 	for _, p := range []string{
 		"/api/v1/spec-tasks", "/api/v1/organizations", "/api/v1/agents",
 		"/api/v1/projects/prj_x", "/api/v1/users/user_other",
+		"/api/v1/codex-subscriptions",
 	} {
 		if embedKeyAllows(u, req("GET", p)) {
 			t.Errorf("SECURITY: %s is allowed through to the real handler", p)
@@ -281,6 +297,8 @@ func TestOwnTaskAndSessionAreNotNeutered(t *testing.T) {
 		"/api/v1/spec-tasks/spt_A",
 		"/api/v1/sessions/ses_A",
 		"/api/v1/sessions/ses_A/interactions",
+		"/api/v1/spec-tasks/spt_A/pr-proposals",
+		"/api/v1/sessions/ses_A/execution-config",
 		// Neutering this one is worse than hiding data: the composer treats a
 		// queued message absent from this list as permanently failed, so an
 		// empty stub silently breaks every send.
@@ -408,6 +426,7 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/api/v1/spec-tasks/spt_A/interactive-embed-model"},
 		{"PATCH", "/api/v1/spec-tasks/spt_A/interactive-embed-model"},
+		{"GET", "/api/v1/sessions/ses_A/operator-access"},
 		{"GET", "/api/v1/external-agents/ses_A/ws/input"},
 		{"GET", "/api/v1/external-agents/ses_A/clipboard"},
 		{"POST", "/api/v1/external-agents/ses_A/clipboard"},
@@ -420,6 +439,7 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/api/v1/spec-tasks/spt_B/interactive-embed-model"},
 		{"PATCH", "/api/v1/spec-tasks/spt_B/interactive-embed-model"},
+		{"GET", "/api/v1/sessions/ses_B/operator-access"},
 		{"GET", "/api/v1/external-agents/ses_B/ws/input"},
 		{"POST", "/api/v1/external-agents/ses_B/clipboard"},
 		{"POST", "/api/v1/sessions/ses_B/resume"},
@@ -434,9 +454,10 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 		}
 	}
 	readOnly := embedUser()
-	if embedKeyAllows(readOnly, req("GET", "/api/v1/spec-tasks/spt_A/interactive-embed-model")) ||
+	if embedKeyAllows(readOnly, req("GET", "/api/v1/sessions/ses_A/operator-access")) ||
+		embedKeyAllows(readOnly, req("GET", "/api/v1/spec-tasks/spt_A/interactive-embed-model")) ||
 		embedKeyAllows(readOnly, req("PATCH", "/api/v1/spec-tasks/spt_A/interactive-embed-model")) {
-		t.Error("SECURITY: read-only embed key reached interactive model endpoint")
+		t.Error("SECURITY: read-only embed key reached an interactive endpoint")
 	}
 	// A session-less key has no desktop to drive.
 	noSession := &types.User{ID: "user_service", APIKeyType: types.APIkeytypeEmbed, SpecTaskID: "spt_A", EmbedInteractive: true}
@@ -460,5 +481,61 @@ func TestDesktopStreamReadOnlyFollowsInteractive(t *testing.T) {
 		if got := desktopStreamIsReadOnly(r); got != c.want {
 			t.Errorf("%s: read-only %v, want %v", name, got, c.want)
 		}
+	}
+}
+
+// Through the real middleware: the PR-proposal panel and the session's
+// execution config reach their handlers for the key's own task and session, the
+// Codex inventory is answered empty without reaching its handler, and every
+// other shape is refused before any handler runs.
+func TestEmbedKeyMiddlewarePRProposalsAndExecutionConfig(t *testing.T) {
+	cases := []struct {
+		name, method, path string
+		wantCode           int
+		wantBody           string
+	}{
+		{"own task proposals", http.MethodGet, "/api/v1/spec-tasks/spt_A/pr-proposals", http.StatusNoContent, ""},
+		{"other task proposals", http.MethodGet, "/api/v1/spec-tasks/spt_B/pr-proposals", http.StatusForbidden, ErrEmbedKeyNotAllowed.Error()},
+		{"decide own task proposal", http.MethodPost, "/api/v1/spec-tasks/spt_A/pr-proposals/prp_1/decide", http.StatusForbidden, ErrEmbedKeyNotAllowed.Error()},
+		{"own session execution config", http.MethodGet, "/api/v1/sessions/ses_A/execution-config", http.StatusNoContent, ""},
+		{"other session execution config", http.MethodGet, "/api/v1/sessions/ses_B/execution-config", http.StatusForbidden, ErrEmbedKeyNotAllowed.Error()},
+		{"update own session execution config", http.MethodPatch, "/api/v1/sessions/ses_A/execution-config", http.StatusForbidden, ErrEmbedKeyNotAllowed.Error()},
+		{"codex subscriptions inventory", http.MethodGet, "/api/v1/codex-subscriptions", http.StatusOK, "[]"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			st := store.NewMockStore(ctrl)
+			owner := &types.User{ID: "user_service"}
+			key := &types.ApiKey{
+				Key: "hl-embed", Owner: owner.ID, OwnerType: types.OwnerTypeUser,
+				Type: types.APIkeytypeEmbed, SpecTaskID: "spt_A", SessionID: "ses_A",
+			}
+			st.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: key.Key}).Return(key, nil)
+			st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: owner.ID}).Return(owner, nil).AnyTimes()
+			st.EXPECT().EnsureUserMeta(gomock.Any(), gomock.Any()).Return(&types.UserMeta{ID: owner.ID}, nil).AnyTimes()
+			auth := newAuthMiddleware(nil, nil, st, authMiddlewareConfig{}, nil, nil)
+			auth.lastSeenCache.Store(owner.ID, time.Now())
+
+			reached := false
+			handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				reached = true
+				w.WriteHeader(http.StatusNoContent)
+			})
+			r := httptest.NewRequest(c.method, c.path, nil)
+			r.Header.Set("Authorization", "Bearer "+key.Key)
+			w := httptest.NewRecorder()
+			auth.extractMiddleware(handler).ServeHTTP(w, r)
+
+			if w.Code != c.wantCode {
+				t.Fatalf("%s %s: status %d, want %d (body %q)", c.method, c.path, w.Code, c.wantCode, w.Body.String())
+			}
+			if reached != (c.wantCode == http.StatusNoContent) {
+				t.Fatalf("%s %s: handler reached = %v", c.method, c.path, reached)
+			}
+			if c.wantBody != "" && !strings.Contains(w.Body.String(), c.wantBody) {
+				t.Fatalf("%s %s: body %q, want %q", c.method, c.path, w.Body.String(), c.wantBody)
+			}
+		})
 	}
 }

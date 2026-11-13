@@ -107,6 +107,99 @@
                 }
             }
         },
+        "/api/v1/admin/audit-events": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin-only forensic read of the request audit trail, newest first. Paginate by passing next_cursor back as cursor.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List request audit events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by user ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by TCP peer IP (no port)",
+                        "name": "remote_ip",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by derived client IP (only populated for trusted proxies)",
+                        "name": "client_ip",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by path prefix",
+                        "name": "path",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by HTTP method",
+                        "name": "method",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by response status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only events created at or after this RFC3339 time",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only events created at or before this RFC3339 time",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Opaque keyset cursor from the previous response's next_cursor",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Also count all matching events (expensive on a large table)",
+                        "name": "include_total",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RequestAuditEventResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/kodit/queue": {
             "get": {
                 "security": [
@@ -791,6 +884,113 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Wallet"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/runner-tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List per-runner tokens (never their secrets), newest first, revoked ones included.",
+                "tags": [
+                    "runner_tokens"
+                ],
+                "summary": "List per-runner tokens",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Only this runner's tokens",
+                        "name": "runner_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.RunnerToken"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mint a token bound to one runner id. The token is returned once and only its hash is stored.",
+                "tags": [
+                    "runner_tokens"
+                ],
+                "summary": "Mint a per-runner token",
+                "parameters": [
+                    {
+                        "description": "Runner id and an optional name",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRunnerTokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRunnerTokenResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/runner-tokens/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke a per-runner token. Requests with it are refused (401) from then on; tunnels it already opened stay up until the host reconnects.",
+                "tags": [
+                    "runner_tokens"
+                ],
+                "summary": "Revoke a per-runner token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Runner token id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunnerToken"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -5641,6 +5841,77 @@
                 }
             }
         },
+        "/api/v1/git/owners": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the acting user's own account plus the GitHub organizations\nor GitLab groups (Developer access or above) they belong to.\nCredentials: the user's OAuth connection for the provider (GitHub\nneeds the repo scope, GitLab api), otherwise their personal access\ntoken connection. Returns 409 connect_required when neither exists.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List accounts a repository can be created under",
+                "parameters": [
+                    {
+                        "enum": [
+                            "github",
+                            "gitlab"
+                        ],
+                        "type": "string",
+                        "description": "Git provider",
+                        "name": "provider",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GitOwner"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.ConnectRequiredError"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories": {
             "get": {
                 "security": [
@@ -5745,6 +6016,81 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/from-template": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a repository under owner using the acting user's own credentials.\nGitHub generates it from the template repository (the template must have\nthe template flag); GitLab imports https://github.com/\u003ctemplate\u003e.git and\nthe call waits for the import to finish. private defaults to true.\nCredentials: the user's OAuth connection for the provider (GitHub needs\nthe repo scope, GitLab api), otherwise their personal access token\nconnection. Returns 409 connect_required when neither exists, and 422\nwith the provider's message when the provider rejects the request\n(for example, the name is already taken).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Create a repository from a template in the user's GitHub/GitLab account",
+                "parameters": [
+                    {
+                        "description": "Repository to create",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRepoFromTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRepoFromTemplateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.ConnectRequiredError"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "504": {
+                        "description": "Gateway Timeout",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -7137,6 +7483,293 @@
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/pulls": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the pull requests of a Helix-hosted repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List Helix pull requests",
+                "operationId": "listGitRepositoryPulls",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "open (default), closed or all",
+                        "name": "state",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.GitPullRequest"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls/{number}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a pull request of a Helix-hosted repository with its changed files and mergeability",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get a Helix pull request",
+                "operationId": "getGitRepositoryPull",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequestDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Edit the title or body of a Helix pull request, or close or reopen it",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Update a Helix pull request",
+                "operationId": "updateGitRepositoryPull",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequestUpdate"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequest"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls/{number}/merge": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Merge a Helix pull request: fast-forward when possible, otherwise a merge commit. 405 when it conflicts.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Merge a Helix pull request",
+                "operationId": "mergeGitRepositoryPull",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Merge options",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequestMergeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequest"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "405": {
+                        "description": "Method Not Allowed",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/pulls/{number}/request-rebase": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends the spec task that owns the pull request an instruction to rebase its head branch onto the base branch",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Ask the agent to rebase a Helix pull request",
+                "operationId": "requestGitRepositoryPullRebase",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitPullRequestDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/push": {
             "post": {
                 "security": [
@@ -7988,13 +8621,57 @@
                 }
             }
         },
+        "/api/v1/invitations/{id}/accept": {
+            "post": {
+                "description": "Accept the invitation from an invite link as the signed-in user. Requires the invitation's secret token from the link, and the account's email must be the invited address. Works for waitlisted accounts (an invitation lifts the waitlist).",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Accept an organization invitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Token from the invite link",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AcceptInvitationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/invitations/{id}/info": {
             "get": {
-                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).",
+                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. Requires the secret token from the invite link.",
                 "tags": [
                     "organizations"
                 ],
                 "summary": "Look up basic info for an invitation by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Secret token from the invite link",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9210,6 +9887,28 @@
                 }
             }
         },
+        "/api/v1/organizations/{id}/invitations/{invitation_id}/link": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Owners only. Generates a new secret token for the invitation and returns its invite link, for sending outside email. Links issued earlier (including the emailed one) stop working.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Issue a new invite link for a pending invitation",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.InvitationLinkResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{id}/members": {
             "get": {
                 "security": [
@@ -9683,7 +10382,7 @@
                 "tags": [
                     "organizations"
                 ],
-                "summary": "Disable an organization webhook endpoint",
+                "summary": "Delete an organization webhook endpoint",
                 "parameters": [
                     {
                         "type": "string",
@@ -10716,6 +11415,158 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.SandboxTerminalSessionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/websearch/requests": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The organization's web search calls, newest first, successful and failed. Any member of the organization may read them.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "List organization web search requests",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "search",
+                            "contents",
+                            "findSimilar",
+                            "answer"
+                        ],
+                        "type": "string",
+                        "description": "Only calls to this endpoint",
+                        "name": "endpoint",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "First day, YYYY-MM-DD (UTC). Defaults to 29 days before to.",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Last day, YYYY-MM-DD (UTC), inclusive. Defaults to today.",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size, at most 200. Defaults to 50.",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Rows to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebSearchRequestList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/websearch/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Web search calls made with the organization's API keys and by its agents, per UTC day and endpoint, per endpoint, and in total. Any member of the organization may read it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Get organization web search usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "First day, YYYY-MM-DD (UTC). Defaults to 29 days before to.",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Last day, YYYY-MM-DD (UTC), inclusive. Defaults to today.",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebSearchUsage"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -18279,7 +19130,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get decrypted Claude credentials for use inside a desktop container.\nOnly accepts runner/session-scoped tokens.",
+                "description": "Get decrypted Claude credentials for use inside a desktop container.\nAccepts the session's own API key or a runner token; otherwise only the subscription's owner.",
                 "produces": [
                     "application/json"
                 ],
@@ -20369,7 +21220,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get the Kanban board settings (WIP limits) for the default project",
+                "description": "Get the Kanban board settings (WIP limits) of a project",
                 "produces": [
                     "application/json"
                 ],
@@ -20377,6 +21228,15 @@
                     "spec-driven-tasks"
                 ],
                 "summary": "Get board settings for spec tasks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -20384,8 +21244,14 @@
                             "$ref": "#/definitions/types.BoardSettings"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -20398,7 +21264,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update the Kanban board settings (WIP limits) for the default project",
+                "description": "Update the Kanban board settings (WIP limits) of a project",
                 "consumes": [
                     "application/json"
                 ],
@@ -20410,6 +21276,13 @@
                 ],
                 "summary": "Update board settings for spec tasks",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query",
+                        "required": true
+                    },
                     {
                         "description": "Board settings",
                         "name": "request",
@@ -20433,8 +21306,14 @@
                             "$ref": "#/definitions/types.APIError"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -23995,6 +24874,234 @@
                 }
             }
         },
+        "/api/v1/websearch/answer": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible answer. With stream=true the response is a text/event-stream of websearch.AnswerEvent ending with \"data: [DONE]\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Answer a question from web search results",
+                "parameters": [
+                    {
+                        "description": "Answer request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.AnswerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.AnswerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/contents": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible contents: text, highlights, summaries and extras for URLs or result ids.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Get page contents",
+                "parameters": [
+                    {
+                        "description": "Contents request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ContentsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ContentsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/findSimilar": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible findSimilar.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Find pages similar to a URL",
+                "parameters": [
+                    {
+                        "description": "Find similar request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.FindSimilarRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.FindSimilarResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/search": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible search. With stream=true and an outputSchema the response is a text/event-stream of websearch.SearchEvent ending with \"data: [DONE]\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Search the web",
+                "parameters": [
+                    {
+                        "description": "Search request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.SearchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.SearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/work-sessions/{sessionId}/zed-thread": {
             "post": {
                 "security": [
@@ -24098,6 +25205,18 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -24231,6 +25350,18 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -24674,6 +25805,10 @@
                         }
                     ]
                 },
+                "can_edit": {
+                    "description": "CanEdit is true when the caller may change this Bot: organization\nowners and platform admins, or a member who may update the Bot's\nagent app. The UI hides edit, delete and re-parent controls when false.",
+                    "type": "boolean"
+                },
                 "code_agent_credential_type": {
                     "$ref": "#/definitions/types.CodeAgentCredentialType"
                 },
@@ -24725,6 +25860,9 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "portrait_index": {
+                    "type": "integer"
                 },
                 "preserve_context": {
                     "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
@@ -29751,24 +30889,24 @@
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "email",
-                "webhook",
-                "local",
-                "slack",
-                "cron",
-                "gitlab",
                 "github",
-                "helix_events"
+                "helix_events",
+                "webhook",
+                "cron",
+                "slack",
+                "gitlab",
+                "email",
+                "local"
             ],
             "x-enum-varnames": [
-                "KindEmail",
-                "KindWebhook",
-                "KindLocal",
-                "KindSlack",
-                "KindCron",
-                "KindGitLab",
                 "KindGitHub",
-                "KindHelixEvents"
+                "KindHelixEvents",
+                "KindWebhook",
+                "KindCron",
+                "KindSlack",
+                "KindGitLab",
+                "KindEmail",
+                "KindLocal"
             ]
         },
         "transport.ResolvedActivation": {
@@ -29839,6 +30977,15 @@
                 "APIkeytypeEmbed",
                 "APIkeytypeBotInstance"
             ]
+        },
+        "types.AcceptInvitationRequest": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "description": "Token is the invitation's secret token from the invite link.",
+                    "type": "string"
+                }
+            }
         },
         "types.AccessGrant": {
             "type": "object",
@@ -30609,19 +31756,7 @@
         "types.AssistantBrowser": {
             "type": "object",
             "properties": {
-                "cache": {
-                    "description": "If true, the browser will cache the results of the tool call",
-                    "type": "boolean"
-                },
                 "enabled": {
-                    "type": "boolean"
-                },
-                "markdown_post_processing": {
-                    "description": "If true, the browser will return the HTML as markdown",
-                    "type": "boolean"
-                },
-                "no_browser": {
-                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {
@@ -31359,6 +32494,10 @@
             "properties": {
                 "enabled": {
                     "type": "boolean"
+                },
+                "webhook_secret": {
+                    "description": "WebhookSecret authenticates deliveries to /api/v1/webhooks/{id}.\nGenerated by the server when the trigger is saved; deliveries without\nit are rejected.",
+                    "type": "string"
                 }
             }
         },
@@ -32338,6 +33477,20 @@
                 }
             }
         },
+        "types.ConnectRequiredError": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "connect_url": {
+                    "type": "string"
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                }
+            }
+        },
         "types.ContainerDiskUsage": {
             "type": "object",
             "properties": {
@@ -32606,6 +33759,96 @@
                     "type": "string"
                 },
                 "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateRepoFromTemplateRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "private": {
+                    "description": "Private defaults to true when omitted.",
+                    "type": "boolean"
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "template": {
+                    "description": "Template is the github.com template repository as \"owner/repo\".",
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateRepoFromTemplateResponse": {
+            "type": "object",
+            "properties": {
+                "clone_url": {
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "html_url": {
+                    "type": "string"
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                }
+            }
+        },
+        "types.CreateRunnerTokenRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "runner_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateRunnerTokenResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "revoked_by": {
+                    "description": "RevokedBy is the user who revoked the token. With CreatedBy and the\ntimestamps, the row is the token's durable audit record; the request\naudit log has the full requests.",
+                    "type": "string"
+                },
+                "runner_id": {
+                    "description": "RunnerID is the host this token may act as. A host registers RevDial\ntunnels as \"hydra-{id}\" and \"sandbox-{id}\" and calls the sandbox and\nrunner routes with the bare id; all of those match (RunnerIDsMatch).",
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "token_prefix": {
                     "type": "string"
                 }
             }
@@ -33716,6 +34959,38 @@
                 }
             }
         },
+        "types.GitOwner": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is the GitHub account id, or the GitLab namespace id.",
+                    "type": "integer"
+                },
+                "kind": {
+                    "$ref": "#/definitions/types.GitOwnerKind"
+                },
+                "login": {
+                    "description": "Login is the owner to pass to CreateRepoFromTemplateRequest.Owner: the\nGitHub login/org name, or the GitLab user path / group full path.",
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitOwnerKind": {
+            "type": "string",
+            "enum": [
+                "user",
+                "org",
+                "group"
+            ],
+            "x-enum-varnames": [
+                "GitOwnerKindUser",
+                "GitOwnerKindOrg",
+                "GitOwnerKindGroup"
+            ]
+        },
         "types.GitProviderConnection": {
             "type": "object",
             "properties": {
@@ -33791,6 +35066,139 @@
                     "$ref": "#/definitions/types.ExternalRepositoryType"
                 },
                 "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitPullRequest": {
+            "type": "object",
+            "properties": {
+                "author_id": {
+                    "type": "string"
+                },
+                "author_login": {
+                    "type": "string"
+                },
+                "base_branch": {
+                    "type": "string"
+                },
+                "base_sha": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "closed_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "head_branch": {
+                    "type": "string"
+                },
+                "head_sha": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "merge_commit_sha": {
+                    "type": "string"
+                },
+                "merged": {
+                    "type": "boolean"
+                },
+                "merged_at": {
+                    "type": "string"
+                },
+                "merged_by": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/types.GitPullRequestState"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitPullRequestDetail": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.InternalPRFile"
+                    }
+                },
+                "html_url": {
+                    "type": "string"
+                },
+                "mergeable": {
+                    "type": "boolean"
+                },
+                "pull_request": {
+                    "$ref": "#/definitions/types.GitPullRequest"
+                },
+                "spec_task_id": {
+                    "description": "The spec task whose work this pull request carries, if any.",
+                    "type": "string"
+                },
+                "spec_task_name": {
+                    "type": "string"
+                },
+                "spec_task_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitPullRequestMergeRequest": {
+            "type": "object",
+            "properties": {
+                "commit_message": {
+                    "type": "string"
+                },
+                "commit_title": {
+                    "type": "string"
+                },
+                "merge_method": {
+                    "description": "merge (the only supported method)",
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitPullRequestState": {
+            "type": "string",
+            "enum": [
+                "open",
+                "closed"
+            ],
+            "x-enum-varnames": [
+                "GitPullRequestStateOpen",
+                "GitPullRequestStateClosed"
+            ]
+        },
+        "types.GitPullRequestUpdate": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "state": {
+                    "description": "open | closed",
+                    "type": "string"
+                },
+                "title": {
                     "type": "string"
                 }
             }
@@ -34507,6 +35915,41 @@
             "type": "object",
             "properties": {
                 "model": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.InternalPRFile": {
+            "type": "object",
+            "properties": {
+                "additions": {
+                    "type": "integer"
+                },
+                "changes": {
+                    "type": "integer"
+                },
+                "deletions": {
+                    "type": "integer"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "patch": {
+                    "type": "string"
+                },
+                "previous_filename": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "added | modified | removed | renamed",
+                    "type": "string"
+                }
+            }
+        },
+        "types.InvitationLinkResponse": {
+            "type": "object",
+            "properties": {
+                "url": {
                     "type": "string"
                 }
             }
@@ -36098,6 +37541,10 @@
                 "email": {
                     "type": "string"
                 },
+                "email_verified": {
+                    "description": "EmailVerified — the existing account has been shown to own the address.\nAdding by email only adds such an account; otherwise it is invited.",
+                    "type": "boolean"
+                },
                 "exists": {
                     "description": "a Helix user account exists with this email",
                     "type": "boolean"
@@ -36673,6 +38120,10 @@
                 "guidelines_version": {
                     "description": "Incremented on each update",
                     "type": "integer"
+                },
+                "helix_repo_pull_requests": {
+                    "description": "HelixRepoPullRequests: agents deliver work on the project's Helix-hosted\nrepositories as pull requests (propose_pull_request, reviewed and merged\non the Helix PR page) instead of Accept landing their branch. External\nrepositories always use pull requests.",
+                    "type": "boolean"
                 },
                 "id": {
                     "type": "string"
@@ -37267,6 +38718,10 @@
                     "description": "Project-specific AI agent guidelines",
                     "type": "string"
                 },
+                "helix_repo_pull_requests": {
+                    "description": "Agents deliver work on Helix-hosted repos as pull requests",
+                    "type": "boolean"
+                },
                 "kodit_enabled": {
                     "description": "Whether Kodit code intelligence is enabled",
                     "type": "boolean"
@@ -37677,6 +39132,32 @@
                 "ProviderEndpointTypeTeam"
             ]
         },
+        "types.ProviderRecovery": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "failed_at": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "next_check_at": {
+                    "type": "string"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                }
+            }
+        },
         "types.PublicInvitationInfo": {
             "type": "object",
             "properties": {
@@ -38022,6 +39503,13 @@
                 "full_name": {
                     "type": "string"
                 },
+                "invitation_id": {
+                    "description": "InvitationID and InvitationToken come from the invite link\n(/login?invitation=\u003cid\u003e\u0026token=\u003ctoken\u003e). Password sign-up does not\nverify the email address, so only the invitation presented here is\naccepted, and only with its secret token and when it was sent to Email.",
+                    "type": "string"
+                },
+                "invitation_token": {
+                    "type": "string"
+                },
                 "password": {
                     "type": "string"
                 },
@@ -38140,6 +39628,124 @@
                 },
                 "private": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.RequestAuditEvent": {
+            "type": "object",
+            "properties": {
+                "api_key_type": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "body_size": {
+                    "type": "integer"
+                },
+                "body_truncated": {
+                    "type": "boolean"
+                },
+                "cf_connecting_ip": {
+                    "type": "string"
+                },
+                "client_ip": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "credential_fingerprint": {
+                    "type": "string"
+                },
+                "credential_source": {
+                    "description": "CredentialSource names where the credential came from (session, bearer,\napi-key, cookie, query, socket). CredentialFingerprint is the first 12\nhex characters of an HMAC-SHA256 of the credential, keyed from the\ndeployment's encryption key - enough to correlate a stolen key with\nrequests without storing the key or allowing an offline brute force.",
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "id": {
+                    "description": "ID is the primary key and half of the keyset pagination cursor.",
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "remote_addr": {
+                    "description": "RemoteAddr is the raw TCP peer as reported by net/http. RemoteIP and\nRemotePort split it so the address is a usable filter (the raw value\nincludes the ephemeral port). ClientIP is filled only when the peer is\ninside HELIX_AUDIT_LOG_TRUSTED_PROXIES; the proxy headers below are\notherwise recorded as the client sent them and are NOT trusted.",
+                    "type": "string"
+                },
+                "remote_ip": {
+                    "type": "string"
+                },
+                "remote_port": {
+                    "type": "integer"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "response_bytes": {
+                    "type": "integer"
+                },
+                "route_template": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "token_type": {
+                    "type": "string"
+                },
+                "user_admin": {
+                    "type": "boolean"
+                },
+                "user_agent": {
+                    "type": "string"
+                },
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "x_forwarded_for": {
+                    "type": "string"
+                },
+                "x_real_ip": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RequestAuditEventResponse": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RequestAuditEvent"
+                    }
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "next_cursor": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -38454,6 +40060,37 @@
                     "type": "string"
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RunnerToken": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "revoked_by": {
+                    "description": "RevokedBy is the user who revoked the token. With CreatedBy and the\ntimestamps, the row is the token's durable audit record; the request\naudit log has the full requests.",
+                    "type": "string"
+                },
+                "runner_id": {
+                    "description": "RunnerID is the host this token may act as. A host registers RevDial\ntunnels as \"hydra-{id}\" and \"sandbox-{id}\" and calls the sandbox and\nrunner routes with the bare id; all of those match (RunnerIDsMatch).",
+                    "type": "string"
+                },
+                "token_prefix": {
                     "type": "string"
                 }
             }
@@ -39945,6 +41582,9 @@
                 "project_id": {
                     "description": "ID of associated Project (for exploratory sessions)",
                     "type": "string"
+                },
+                "provider_recovery": {
+                    "$ref": "#/definitions/types.ProviderRecovery"
                 },
                 "rag_enabled": {
                     "description": "these settings control which features of a session we want to use\neven if we have a Lora file and RAG indexed prepared\nwe might choose to not use them (this will help our eval framework know what works the best)\nwe well as activate RAG - we also get to control some properties, e.g. which distance function to use,\nand what the threshold for a \"good\" answer is",
@@ -42785,19 +44425,7 @@
         "types.ToolBrowserConfig": {
             "type": "object",
             "properties": {
-                "cache": {
-                    "description": "If true, the browser will cache the results of the tool call",
-                    "type": "boolean"
-                },
                 "enabled": {
-                    "type": "boolean"
-                },
-                "markdown_post_processing": {
-                    "description": "If true, the browser will return the HTML as markdown",
-                    "type": "boolean"
-                },
-                "no_browser": {
-                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {
@@ -43677,8 +45305,16 @@
                 "deleted_at": {
                     "$ref": "#/definitions/gorm.DeletedAt"
                 },
+                "desktop_identity": {
+                    "description": "DesktopIdentity marks the single account that Helix Desktop's\nauto-login (DESKTOP_AUTO_LOGIN_SECRET) signs in as. The desktop flow\nnever signs in as, or promotes, any other account.",
+                    "type": "boolean"
+                },
                 "email": {
                     "type": "string"
+                },
+                "email_verified": {
+                    "description": "EmailVerified records that the account's owner has been shown to control\nEmail: the identity provider asserted email_verified, an admin created the\naccount, or the owner used a link sent to the address (invitation,\npassword reset). A password sign-up proves nothing, so it is false until\nthen. Resolving an account by email for a grant (adding an org or team\nmember) requires it; anything else would hand the grant to whoever\nregistered the address first.",
+                    "type": "boolean"
                 },
                 "embed_interactive": {
                     "description": "EmbedInteractive: an embed key that may drive its bound session's desktop.",
@@ -43704,6 +45340,10 @@
                 "must_change_password": {
                     "description": "if the user must change their password",
                     "type": "boolean"
+                },
+                "oidc_subject": {
+                    "description": "OIDCSubject is the identity provider's subject this account is signed in\nwith. For accounts created by SSO it equals ID; for an account created\nanother way and later linked to an SSO identity by its verified email,\nit records that link so later sign-ins resolve by subject.",
+                    "type": "string"
                 },
                 "onboarding_completed": {
                     "type": "boolean"
@@ -43731,6 +45371,10 @@
                     "description": "When running in Helix Code sandbox",
                     "type": "string"
                 },
+                "runner_id": {
+                    "description": "RunnerID is the runner a per-runner token is bound to. Empty for the\nshared runner token and for every non-runner credential.",
+                    "type": "string"
+                },
                 "sb": {
                     "type": "boolean"
                 },
@@ -43740,10 +45384,6 @@
                 },
                 "spec_task_id": {
                     "description": "When running in Helix Code sandbox",
-                    "type": "string"
-                },
-                "token": {
-                    "description": "the actual token used and its type",
                     "type": "string"
                 },
                 "token_type": {
@@ -43970,6 +45610,9 @@
                 },
                 "email": {
                     "type": "string"
+                },
+                "email_verified": {
+                    "type": "boolean"
                 },
                 "git_commit_email": {
                     "type": "string"
@@ -44300,6 +45943,189 @@
                 }
             }
         },
+        "types.WebSearchEndpoint": {
+            "type": "string",
+            "enum": [
+                "search",
+                "contents",
+                "findSimilar",
+                "answer"
+            ],
+            "x-enum-varnames": [
+                "WebSearchEndpointSearch",
+                "WebSearchEndpointContents",
+                "WebSearchEndpointFindSimilar",
+                "WebSearchEndpointAnswer"
+            ]
+        },
+        "types.WebSearchEndpointUsage": {
+            "type": "object",
+            "properties": {
+                "costDollars": {
+                    "type": "number"
+                },
+                "endpoint": {
+                    "$ref": "#/definitions/types.WebSearchEndpoint"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "outOfCredits": {
+                    "type": "integer"
+                },
+                "requests": {
+                    "type": "integer"
+                },
+                "succeeded": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.WebSearchRequest": {
+            "type": "object",
+            "properties": {
+                "apiKeyName": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "type": "number"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "durationMs": {
+                    "type": "integer"
+                },
+                "endpoint": {
+                    "$ref": "#/definitions/types.WebSearchEndpoint"
+                },
+                "errorTag": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organizationId": {
+                    "description": "OrganizationID is empty for a call billed to a user's own wallet (a\npersonal API key, an agent session outside an organization).",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Query is the search or answer query, the findSimilar URL, or the first\ncontents URL with how many more were asked for.",
+                    "type": "string"
+                },
+                "results": {
+                    "type": "integer"
+                },
+                "searchType": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/types.WebSearchSource"
+                },
+                "status": {
+                    "description": "Status is the HTTP status the call ended with; an error event after a\nstream started counts with the error's status.",
+                    "type": "integer"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WebSearchRequestList": {
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WebSearchRequest"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.WebSearchSource": {
+            "type": "string",
+            "enum": [
+                "api",
+                "agent"
+            ],
+            "x-enum-varnames": [
+                "WebSearchSourceAPI",
+                "WebSearchSourceAgent"
+            ]
+        },
+        "types.WebSearchUsage": {
+            "type": "object",
+            "properties": {
+                "byEndpoint": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WebSearchEndpointUsage"
+                    }
+                },
+                "days": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WebSearchUsageDay"
+                    }
+                },
+                "totals": {
+                    "$ref": "#/definitions/types.WebSearchUsageCounts"
+                }
+            }
+        },
+        "types.WebSearchUsageCounts": {
+            "type": "object",
+            "properties": {
+                "costDollars": {
+                    "type": "number"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "outOfCredits": {
+                    "type": "integer"
+                },
+                "requests": {
+                    "type": "integer"
+                },
+                "succeeded": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.WebSearchUsageDay": {
+            "type": "object",
+            "properties": {
+                "costDollars": {
+                    "type": "number"
+                },
+                "date": {
+                    "description": "YYYY-MM-DD",
+                    "type": "string"
+                },
+                "endpoint": {
+                    "$ref": "#/definitions/types.WebSearchEndpoint"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "outOfCredits": {
+                    "type": "integer"
+                },
+                "requests": {
+                    "type": "integer"
+                },
+                "succeeded": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.WebServiceDeploy": {
             "type": "object",
             "properties": {
@@ -44460,11 +46286,13 @@
             "type": "string",
             "enum": [
                 "active",
-                "disabled"
+                "disabled",
+                "deleted"
             ],
             "x-enum-varnames": [
                 "WebhookEndpointStatusActive",
-                "WebhookEndpointStatusDisabled"
+                "WebhookEndpointStatusDisabled",
+                "WebhookEndpointStatusDeleted"
             ]
         },
         "types.WebsiteCrawler": {
@@ -44836,6 +46664,794 @@
                     "type": "integer"
                 },
                 "zed_instance_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.AnswerRequest": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string"
+                },
+                "outputSchema": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "systemPrompt": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "boolean"
+                },
+                "userIdentifier": {
+                    "type": "string"
+                },
+                "userLocation": {
+                    "$ref": "#/definitions/websearch.UserLocation"
+                }
+            }
+        },
+        "websearch.AnswerResponse": {
+            "type": "object",
+            "properties": {
+                "answer": {
+                    "description": "string, or object when outputSchema is set"
+                },
+                "citations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "requestId": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Citation": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentError": {
+            "type": "object",
+            "properties": {
+                "httpStatusCode": {
+                    "type": "integer"
+                },
+                "tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentStatus": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/websearch.ContentError"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "cached | crawled",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "success | error",
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentsCost": {
+            "type": "object",
+            "properties": {
+                "highlights": {
+                    "type": "number"
+                },
+                "summary": {
+                    "type": "number"
+                },
+                "text": {
+                    "type": "number"
+                }
+            }
+        },
+        "websearch.ContentsOptions": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "$ref": "#/definitions/websearch.ContextOption"
+                },
+                "crawledBeforeDate": {
+                    "type": "string"
+                },
+                "extras": {
+                    "$ref": "#/definitions/websearch.ExtrasOptions"
+                },
+                "highlights": {
+                    "$ref": "#/definitions/websearch.HighlightsOption"
+                },
+                "livecrawl": {
+                    "type": "string"
+                },
+                "livecrawlTimeout": {
+                    "type": "integer"
+                },
+                "maxAgeHours": {
+                    "type": "integer"
+                },
+                "snapshotAsOf": {
+                    "type": "string"
+                },
+                "subpageTarget": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "subpages": {
+                    "type": "integer"
+                },
+                "summary": {
+                    "$ref": "#/definitions/websearch.SummaryOption"
+                },
+                "text": {
+                    "$ref": "#/definitions/websearch.TextOption"
+                }
+            }
+        },
+        "websearch.ContentsRequest": {
+            "type": "object",
+            "properties": {
+                "compliance": {
+                    "type": "string"
+                },
+                "context": {
+                    "$ref": "#/definitions/websearch.ContextOption"
+                },
+                "crawledBeforeDate": {
+                    "type": "string"
+                },
+                "extras": {
+                    "$ref": "#/definitions/websearch.ExtrasOptions"
+                },
+                "highlights": {
+                    "$ref": "#/definitions/websearch.HighlightsOption"
+                },
+                "ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "livecrawl": {
+                    "type": "string"
+                },
+                "livecrawlTimeout": {
+                    "type": "integer"
+                },
+                "maxAgeHours": {
+                    "type": "integer"
+                },
+                "snapshotAsOf": {
+                    "type": "string"
+                },
+                "subpageTarget": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "subpages": {
+                    "type": "integer"
+                },
+                "summary": {
+                    "$ref": "#/definitions/websearch.SummaryOption"
+                },
+                "text": {
+                    "$ref": "#/definitions/websearch.TextOption"
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "userIdentifier": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentsResponse": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "searchTime": {
+                    "type": "number"
+                },
+                "statuses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.ContentStatus"
+                    }
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Warning"
+                    }
+                }
+            }
+        },
+        "websearch.ContextOption": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "maxCharacters": {
+                    "type": "integer"
+                }
+            }
+        },
+        "websearch.CostDollars": {
+            "type": "object",
+            "properties": {
+                "contents": {
+                    "$ref": "#/definitions/websearch.ContentsCost"
+                },
+                "total": {
+                    "type": "number"
+                }
+            }
+        },
+        "websearch.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Extras": {
+            "type": "object",
+            "properties": {
+                "imageLinks": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "richImageLinks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.ImageLink"
+                    }
+                }
+            }
+        },
+        "websearch.ExtrasOptions": {
+            "type": "object",
+            "properties": {
+                "codeBlocks": {
+                    "description": "deprecated",
+                    "type": "integer"
+                },
+                "imageLinks": {
+                    "type": "integer"
+                },
+                "links": {
+                    "type": "integer"
+                },
+                "richImageLinks": {
+                    "type": "integer"
+                },
+                "richLinks": {
+                    "description": "deprecated",
+                    "type": "integer"
+                }
+            }
+        },
+        "websearch.FindSimilarRequest": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "contents": {
+                    "$ref": "#/definitions/websearch.ContentsOptions"
+                },
+                "endCrawlDate": {
+                    "type": "string"
+                },
+                "endPublishedDate": {
+                    "type": "string"
+                },
+                "excludeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "excludeSourceDomain": {
+                    "type": "boolean"
+                },
+                "excludeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "numResults": {
+                    "type": "integer"
+                },
+                "startCrawlDate": {
+                    "type": "string"
+                },
+                "startPublishedDate": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "userIdentifier": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.FindSimilarResponse": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "searchTime": {
+                    "type": "number"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Warning"
+                    }
+                }
+            }
+        },
+        "websearch.Grounding": {
+            "type": "object",
+            "properties": {
+                "citations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Citation"
+                    }
+                },
+                "confidence": {
+                    "description": "low | medium | high",
+                    "type": "string"
+                },
+                "field": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.HighlightsOption": {
+            "type": "object",
+            "properties": {
+                "dynamic": {
+                    "description": "beta",
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "highlightsPerUrl": {
+                    "description": "deprecated: ignored",
+                    "type": "integer"
+                },
+                "maxCharacters": {
+                    "type": "integer"
+                },
+                "numSentences": {
+                    "description": "deprecated: ~1333 chars per sentence",
+                    "type": "integer"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "verbosity": {
+                    "description": "beta",
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ImageLink": {
+            "type": "object",
+            "properties": {
+                "alt": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Notice": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Result": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "entities": {
+                    "description": "Entities are Exa's structured company/person records; only the exa\nprovider returns them.",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "extras": {
+                    "$ref": "#/definitions/websearch.Extras"
+                },
+                "favicon": {
+                    "type": "string"
+                },
+                "highlightScores": {
+                    "description": "findSimilar only",
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "highlights": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "publishedDate": {
+                    "type": "string"
+                },
+                "score": {
+                    "description": "findSimilar only",
+                    "type": "number"
+                },
+                "subpages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.SearchOutput": {
+            "type": "object",
+            "properties": {
+                "content": {},
+                "grounding": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Grounding"
+                    }
+                }
+            }
+        },
+        "websearch.SearchRequest": {
+            "type": "object",
+            "properties": {
+                "additionalQueries": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "category": {
+                    "type": "string"
+                },
+                "compliance": {
+                    "type": "string"
+                },
+                "contents": {
+                    "$ref": "#/definitions/websearch.ContentsOptions"
+                },
+                "context": {
+                    "$ref": "#/definitions/websearch.ContextOption"
+                },
+                "endCrawlDate": {
+                    "type": "string"
+                },
+                "endPublishedDate": {
+                    "type": "string"
+                },
+                "excludeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "excludeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "moderation": {
+                    "type": "boolean"
+                },
+                "numResults": {
+                    "type": "integer"
+                },
+                "objective": {
+                    "type": "string"
+                },
+                "outputSchema": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                },
+                "startCrawlDate": {
+                    "type": "string"
+                },
+                "startPublishedDate": {
+                    "type": "string"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "systemPrompt": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "userIdentifier": {
+                    "type": "string"
+                },
+                "userLocation": {
+                    "$ref": "#/definitions/websearch.UserLocation"
+                }
+            }
+        },
+        "websearch.SearchResponse": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "notices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Notice"
+                    }
+                },
+                "output": {
+                    "$ref": "#/definitions/websearch.SearchOutput"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "resolvedSearchType": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "searchTime": {
+                    "type": "number"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Warning"
+                    }
+                }
+            }
+        },
+        "websearch.SummaryOption": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "websearch.TextOption": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "excludeSections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeHtmlTags": {
+                    "type": "boolean"
+                },
+                "includeSections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "linkStyle": {
+                    "description": "LinkStyle*",
+                    "type": "string"
+                },
+                "maxCharacters": {
+                    "type": "integer"
+                },
+                "verbosity": {
+                    "description": "Verbosity*",
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.UserLocation": {
+            "type": "object",
+            "properties": {
+                "country": {
+                    "type": "string"
+                },
+                "latitude": {
+                    "type": "number"
+                },
+                "longitude": {
+                    "type": "number"
+                }
+            }
+        },
+        "websearch.Warning": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "path": {
                     "type": "string"
                 }
             }

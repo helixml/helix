@@ -677,6 +677,7 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 		}
 		if notifyErr := notifier.Notify(ctx, &types.Notification{
 			Event:       types.EventCronTriggerFailed,
+			Session:     triggerNotificationSession(a, userID, sessionName),
 			Message:     taskErr.Error(),
 			Emails:      trigger.Emails,
 			CallbackURL: trigger.CallbackURL,
@@ -844,12 +845,12 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 	}
 
 	if specTaskCreator == nil {
-		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, triggerID, trigger.Emails,
+		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, userID, triggerID, trigger.Emails,
 			fmt.Errorf("spec task creator not configured, cannot execute spec_task action"))
 	}
 
 	if trigger.ProjectID == "" {
-		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, triggerID, trigger.Emails,
+		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, userID, triggerID, trigger.Emails,
 			fmt.Errorf("project_id is required for spec_task action"))
 	}
 
@@ -875,7 +876,7 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 		JustDoItMode: trigger.JustDoItMode,
 	})
 	if err != nil {
-		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, triggerID, trigger.Emails, err)
+		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, userID, triggerID, trigger.Emails, err)
 	}
 
 	output := fmt.Sprintf("Created spec task %s: %s", task.ID, task.Name)
@@ -883,6 +884,7 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 	// Send success notification
 	err = notifier.Notify(ctx, &types.Notification{
 		Event:   types.EventCronTriggerComplete,
+		Session: triggerNotificationSession(a, userID, sessionName),
 		Message: output,
 		Emails:  trigger.Emails,
 	})
@@ -915,10 +917,18 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 	return output, nil
 }
 
+// triggerNotificationSession identifies the user a trigger runs as and the
+// app's organization for notifications sent where no chat session is available (spec
+// task and external agent runs), so the session carries no ID. Recipients are
+// checked against this owner and organization.
+func triggerNotificationSession(a *types.App, userID, name string) *types.Session {
+	return &types.Session{Name: name, Owner: userID, OrganizationID: a.OrganizationID}
+}
+
 // recordSpecTaskFailure marks the execution failed, notifies, and returns cause so
 // the caller can propagate it. Every spec_task failure path goes through here so a
 // fire that produced no task always leaves a row explaining why.
-func recordSpecTaskFailure(ctx context.Context, str store.Store, notifier notification.Notifier, execution *types.TriggerExecution, startedAt time.Time, a *types.App, triggerID string, emails []string, cause error) error {
+func recordSpecTaskFailure(ctx context.Context, str store.Store, notifier notification.Notifier, execution *types.TriggerExecution, startedAt time.Time, a *types.App, userID, triggerID string, emails []string, cause error) error {
 	log.Error().
 		Err(cause).
 		Str("app_id", a.ID).
@@ -927,6 +937,7 @@ func recordSpecTaskFailure(ctx context.Context, str store.Store, notifier notifi
 
 	if err := notifier.Notify(ctx, &types.Notification{
 		Event:   types.EventCronTriggerFailed,
+		Session: triggerNotificationSession(a, userID, execution.Name),
 		Message: cause.Error(),
 		Emails:  emails,
 	}); err != nil {

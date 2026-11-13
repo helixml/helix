@@ -89,6 +89,30 @@ func (s *PostgresStore) DeleteUserSession(ctx context.Context, id string) error 
 	return s.gdb.WithContext(ctx).Where("id = ?", id).Delete(&types.UserSession{}).Error
 }
 
+// MarkUserSessionOIDCRefreshDead stops a session from being refreshed again,
+// provided it still holds refreshToken (another replica may have rotated it).
+func (s *PostgresStore) MarkUserSessionOIDCRefreshDead(ctx context.Context, id, refreshToken string) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("session ID is required")
+	}
+	res := s.gdb.WithContext(ctx).Model(&types.UserSession{}).
+		Where("id = ? AND oidc_refresh_token = ?", id, refreshToken).
+		Updates(map[string]any{"oidc_refresh_dead": true, "updated_at": time.Now()})
+	return res.RowsAffected > 0, res.Error
+}
+
+// DeleteUserSessionWithRefreshToken deletes a session provided it still holds
+// refreshToken (another replica may have rotated it).
+func (s *PostgresStore) DeleteUserSessionWithRefreshToken(ctx context.Context, id, refreshToken string) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("session ID is required")
+	}
+	res := s.gdb.WithContext(ctx).
+		Where("id = ? AND oidc_refresh_token = ?", id, refreshToken).
+		Delete(&types.UserSession{})
+	return res.RowsAffected > 0, res.Error
+}
+
 // DeleteUserSessionsByUser deletes all sessions for a user (e.g., on logout from all devices)
 func (s *PostgresStore) DeleteUserSessionsByUser(ctx context.Context, userID string) error {
 	if userID == "" {
@@ -105,6 +129,7 @@ func (s *PostgresStore) GetUserSessionsNearOIDCExpiry(ctx context.Context, expir
 	err := s.gdb.WithContext(ctx).
 		Where("auth_provider = ?", types.AuthProviderOIDC).
 		Where("oidc_refresh_token != ''").
+		Where("oidc_refresh_dead = ?", false).
 		Where("oidc_token_expiry < ?", expiresBefore).
 		Where("expires_at > ?", time.Now()). // Only non-expired sessions
 		Find(&sessions).Error

@@ -487,8 +487,8 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 			// Initialize readiness tracking - we'll wait for agent_ready before sending continue prompt
 			// This prevents race conditions where we send prompts before the agent is ready
-			apiServer.externalAgentWSManager.initReadinessState(helixSessionID, needsContinue, nil)
-			defer apiServer.externalAgentWSManager.cleanupReadinessState(helixSessionID)
+			readiness := apiServer.externalAgentWSManager.initReadinessState(helixSessionID, needsContinue, nil)
+			defer apiServer.externalAgentWSManager.cleanupReadinessState(helixSessionID, readiness)
 
 			// Clear stale streaming context from previous connection.
 			apiServer.flushAndClearStreamingContext(ctx, helixSessionID)
@@ -2751,9 +2751,10 @@ func (manager *ExternalAgentWSManager) listConnections() []types.ExternalAgentCo
 // These methods track whether the agent in a session is ready to receive messages.
 // This prevents race conditions where we send prompts before Zed has loaded the agent.
 
-// initReadinessState initializes readiness tracking for a session
-// Returns a callback that should be called when agent_ready is received (or on timeout)
-func (manager *ExternalAgentWSManager) initReadinessState(sessionID string, needsContinue bool, onReady func()) {
+// initReadinessState initializes readiness tracking for a session and returns
+// the new state. The connection that created it passes that state back to
+// cleanupReadinessState, so it only ever removes its own.
+func (manager *ExternalAgentWSManager) initReadinessState(sessionID string, needsContinue bool, onReady func()) *SessionReadinessState {
 	manager.readinessMu.Lock()
 	defer manager.readinessMu.Unlock()
 
@@ -2787,6 +2788,7 @@ func (manager *ExternalAgentWSManager) initReadinessState(sessionID string, need
 		Str("session_id", sessionID).
 		Bool("needs_continue", needsContinue).
 		Msg("[READINESS] Initialized readiness tracking for session")
+	return state
 }
 
 // markSessionReady marks a session as ready and flushes pending messages.
@@ -2959,18 +2961,23 @@ func (manager *ExternalAgentWSManager) queueOrSend(sessionID string, cmd types.E
 	return true
 }
 
-// cleanupReadinessState removes readiness tracking for a session
-func (manager *ExternalAgentWSManager) cleanupReadinessState(sessionID string) {
+// cleanupReadinessState removes the session's readiness tracking if it is
+// still the state passed in as owned. When a session reconnects, the new connection installs
+// its own state before the old connection's teardown runs; that teardown must
+// leave the successor's state (and its queued commands) alone.
+func (manager *ExternalAgentWSManager) cleanupReadinessState(sessionID string, owned *SessionReadinessState) {
 	manager.readinessMu.Lock()
 	defer manager.readinessMu.Unlock()
 
-	if state, exists := manager.readinessState[sessionID]; exists {
-		if state.TimeoutTimer != nil {
-			state.TimeoutTimer.Stop()
-		}
-		delete(manager.readinessState, sessionID)
-		log.Debug().Str("session_id", sessionID).Msg("Cleaned up readiness state")
+	state, exists := manager.readinessState[sessionID]
+	if !exists || state != owned {
+		return
 	}
+	if state.TimeoutTimer != nil {
+		state.TimeoutTimer.Stop()
+	}
+	delete(manager.readinessState, sessionID)
+	log.Debug().Str("session_id", sessionID).Msg("Cleaned up readiness state")
 }
 
 // handleChatResponse processes complete chat response from external agent

@@ -2,14 +2,12 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from "re
 import type { LineAnnotation, SelectedLineRange } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/editor";
 import { EditProvider, File, Virtualizer } from "@pierre/diffs/react";
-import {
-  Box,
-  Button,
-  CircularProgress,
-  IconButton,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import { RefreshCw, Save } from "lucide-react";
 import useLightTheme from "../../hooks/useLightTheme";
 import useSnackbar from "../../hooks/useSnackbar";

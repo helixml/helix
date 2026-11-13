@@ -1,23 +1,21 @@
 import React, { FC, useState } from "react";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Paper,
-    Typography,
-    Box,
-    IconButton,
-    Menu,
-    MenuItem,
-    CircularProgress,
-    Tooltip,
-    SvgIcon,
-    TextField,
-    Switch,
-} from "@mui/material";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Paper from "@mui/material/Paper";
+import Typography from "@mui/material/Typography";
+import Box from "@mui/material/Box";
+import IconButton from "@mui/material/IconButton";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import CircularProgress from "@mui/material/CircularProgress";
+import Tooltip from "@mui/material/Tooltip";
+import SvgIcon from "@mui/material/SvgIcon";
+import TextField from "@mui/material/TextField";
+import Switch from "@mui/material/Switch";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { TypesModel, GithubComHelixmlHelixApiPkgTypesRuntime as TypesRuntime } from "../../api/api";
 import {
@@ -456,7 +454,7 @@ const HelixModelsTable: FC = () => {
         );
     }
 
-    if (!filteredModels || filteredModels.length === 0) {
+    if (!helixModels || helixModels.length === 0) {
         return (
             <Paper sx={{ p: 2, width: "100%" }}>
                 <Box
@@ -560,6 +558,22 @@ const HelixModelsTable: FC = () => {
                         </TableRow>
                     </TableHead>
                     <TableBody>
+                        {filteredModels.length === 0 && (
+                            <TableRow>
+                                <TableCell colSpan={10} align="center">
+                                    <Typography variant="body2" color="text.secondary" component="span">
+                                        No models match "{searchQuery}"
+                                    </Typography>
+                                    <Button
+                                        size="small"
+                                        onClick={() => setSearchQuery("")}
+                                        sx={{ ml: 1 }}
+                                    >
+                                        Clear search
+                                    </Button>
+                                </TableCell>
+                            </TableRow>
+                        )}
                         {filteredModels.map((model: TypesModel) => (
                             <TableRow key={model.id}>
                                 <TableCell>

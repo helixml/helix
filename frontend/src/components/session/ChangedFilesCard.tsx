@@ -1,5 +1,9 @@
 import React, { FC, useEffect, useMemo, useState } from "react";
-import { Box, Button, IconButton, Tooltip, Typography } from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
 import {
   ChevronRight,

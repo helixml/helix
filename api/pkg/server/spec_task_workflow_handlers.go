@@ -65,6 +65,13 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Not authorized", http.StatusForbidden)
 		return
 	}
+	// Approving an implementation merges the agent's work: a human decision,
+	// as for pull request proposals and task completion. The agent's own
+	// project or session key cannot take it.
+	if isAgentScopedKey(user) {
+		http.Error(w, errAgentKeyDecision.Error(), http.StatusForbidden)
+		return
+	}
 
 	// If the task is stuck in an earlier state (e.g., spec_review after a
 	// failed approval), nudge it forward by approving specs first.

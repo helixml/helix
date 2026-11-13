@@ -93,16 +93,10 @@ func (t *TeamsBot) Start(ctx context.Context) error {
 		AppPassword: t.trigger.AppPassword,
 	}
 
-	// Log the credentials being used (mask password)
-	maskedPassword := "***"
-	if len(t.trigger.AppPassword) > 4 {
-		maskedPassword = t.trigger.AppPassword[:2] + "***" + t.trigger.AppPassword[len(t.trigger.AppPassword)-2:]
-	}
 	log.Info().
 		Str("app_id", t.app.ID).
 		Str("ms_app_id", t.trigger.AppID).
-		Str("ms_app_password", maskedPassword).
-		Int("password_length", len(t.trigger.AppPassword)).
+		Bool("has_app_password", t.trigger.AppPassword != "").
 		Msg("Teams bot credentials")
 
 	// For single-tenant bots, set the tenant ID for authentication
@@ -141,6 +135,15 @@ func (t *TeamsBot) HandleActivity(w http.ResponseWriter, req *http.Request) {
 	if t.adapter == nil {
 		log.Error().Str("app_id", t.app.ID).Msg("adapter not initialized")
 		http.Error(w, "Bot not ready", http.StatusServiceUnavailable)
+		return
+	}
+	// The SDK validates the Bot Framework JWT against the configured App ID
+	// and treats an empty App ID as "authentication disabled". Never serve
+	// activities in that mode: without credentials nothing proves the
+	// delivery came from the Bot Framework.
+	if t.trigger == nil || strings.TrimSpace(t.trigger.AppID) == "" || t.trigger.AppPassword == "" {
+		log.Error().Str("app_id", t.app.ID).Msg("Teams bot has no Bot Framework credentials; refusing activity")
+		http.Error(w, "Bot credentials not configured", http.StatusServiceUnavailable)
 		return
 	}
 

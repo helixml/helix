@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import UserSearchModal from './UserSearchModal'
@@ -87,9 +88,22 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows "Create invitation" when the account for the email has not verified it', async () => {
+    mockV1OrgsUsersLookup.mockResolvedValue({
+      data: { email: 'someone@example.com', exists: true, email_verified: false, is_member: false, is_invited: false },
+    })
+    renderModal()
+    typeEmail('someone@example.com')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Create invitation' })).toBeInTheDocument()
+    })
+    expect(screen.getByText(/has not verified it/i)).toBeInTheDocument()
+  })
+
   it('shows "Add to organization" (enabled) when the email belongs to a Helix user outside the org', async () => {
     mockV1OrgsUsersLookup.mockResolvedValue({
-      data: { email: 'someone@example.com', exists: true, is_member: false, is_invited: false },
+      data: { email: 'someone@example.com', exists: true, email_verified: true, is_member: false, is_invited: false },
     })
     renderModal()
     typeEmail('someone@example.com')

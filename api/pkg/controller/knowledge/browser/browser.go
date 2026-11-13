@@ -9,9 +9,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/cdp"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/launcher/flags"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/rs/zerolog/log"
 
@@ -22,6 +25,8 @@ const (
 	defaultBrowserPoolSize = 3
 	defaultPagePoolSize    = 50
 )
+
+const webRTCIPHandlingPolicy flags.Flag = "force-webrtc-ip-handling-policy"
 
 type Browser struct {
 	ctx context.Context
@@ -65,6 +70,8 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error initializing launcher: %w", err)
 		}
+		// WebRTC can send UDP around the egress proxy; keep it on the proxy.
+		l.Set(webRTCIPHandlingPolicy, "disable_non_proxied_udp")
 		b.launcher = l
 
 	} else {
@@ -76,6 +83,20 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 	}
 
 	return b, nil
+}
+
+// launcherTokenHeader carries RAG_CRAWLER_LAUNCHER_TOKEN to the browser
+// manager (api/cmd/chrome-manager), which refuses launches without it when
+// it has a token configured.
+const launcherTokenHeader = "Helix-Launcher-Token"
+
+// launcherClient asks the manager to launch a browser and connects to it.
+func (b *Browser) launcherClient() (*cdp.Client, error) {
+	u, header := b.launcher.ClientHeader()
+	if token := b.cfg.RAG.Crawler.LauncherToken; token != "" {
+		header.Set(launcherTokenHeader, token)
+	}
+	return cdp.StartWithURL(b.ctx, u, header)
 }
 
 // Close closes the browser and all associated pages
@@ -90,29 +111,38 @@ func (b *Browser) Close() {
 	}
 }
 
-func (b *Browser) GetBrowser() (*rod.Browser, error) {
+// GetBrowser returns a browser, waiting for a free pool slot until ctx is
+// done. Pass it back with PutBrowser.
+func (b *Browser) GetBrowser(ctx context.Context) (*rod.Browser, error) {
 	if b.cfg.RAG.Crawler.LauncherEnabled {
-		return b.getFromPool()
+		return b.getFromPool(ctx)
 	}
 
 	return b.browser, nil
 }
 
-func (b *Browser) getFromPool() (*rod.Browser, error) {
-	log.Info().Msg("Getting browser from pool")
-	browser, err := b.browserPool.Get(b.getBrowser)
+func (b *Browser) getFromPool(ctx context.Context) (*rod.Browser, error) {
+	var browser *rod.Browser
+	select {
+	case browser = <-b.browserPool:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	if browser != nil {
+		return browser, nil
+	}
+	browser, err := b.getBrowser()
 	if err != nil {
+		// Return the empty slot, or every failed connect shrinks the pool.
+		b.browserPool.Put(nil)
 		return nil, err
 	}
-
-	log.Info().Msg("Browser from pool")
-
 	return browser, nil
 }
 func (b *Browser) getBrowser() (*rod.Browser, error) {
 	if b.launcher != nil {
 		log.Info().Msg("Getting client from launcher")
-		client, err := b.launcher.Client()
+		client, err := b.launcherClient()
 		if err != nil {
 			return nil, fmt.Errorf("error getting launcher client: %w", err)
 		}
@@ -188,6 +218,17 @@ func (b *Browser) PutBrowser(browser *rod.Browser) error {
 	b.browserPool.Put(browser)
 	// b.browserPool.Cleanup(func(browser *rod.Browser) { browser.MustClose() })
 	return nil
+}
+
+// DiscardBrowser releases a pooled browser whose connection has failed, so
+// the pool reconnects instead of handing it out again. The single browser
+// used without the launcher is shared and is left alone.
+func (b *Browser) DiscardBrowser(browser *rod.Browser) {
+	if !b.cfg.RAG.Crawler.LauncherEnabled {
+		return
+	}
+	_ = browser.Timeout(5 * time.Second).Close()
+	b.browserPool.Put(nil)
 }
 
 // noProxyClient is a shared HTTP client that bypasses any configured proxy.
@@ -282,4 +323,56 @@ func (b *Browser) getChromeURL() (string, error) {
 	wsURL.Host = resolvedParsed.Host
 
 	return wsURL.String(), nil
+}
+
+// GuardPage makes client carry every HTTP(S) request page issues —
+// navigations, redirects, script-initiated navigations, subresources,
+// fetch/XHR, and requests from its dedicated workers and out-of-process
+// iframes — so the client's transport (an outbound policy) decides what the
+// browser can reach and its own DNS resolution is never used. Requests the
+// client refuses fail in the page. WebSocket connections, which request
+// interception does not see, are blocked outright, and service workers are
+// held paused. Not covered: connection-only hints (<link rel=preconnect>,
+// dns-prefetch), which can open a connection or resolve a name but return
+// nothing to the page. Call the returned function before returning the page
+// to the pool.
+func GuardPage(page *rod.Page, client *http.Client) (func(), error) {
+	if err := (proto.NetworkEnable{}).Call(page); err != nil {
+		return nil, fmt.Errorf("enable network domain: %w", err)
+	}
+	if err := page.SetBlockedURLs([]string{"ws://*", "wss://*"}); err != nil {
+		return nil, fmt.Errorf("block websocket URLs: %w", err)
+	}
+	// Service and shared workers run as their own targets, outside this page's request
+	// interception (dedicated workers and out-of-process iframes are
+	// covered by it). Pause every service worker the browser starts and
+	// never resume it, and keep the page's requests from being answered by
+	// one. The browsers used here only render guarded pages.
+	if err := (proto.TargetSetAutoAttach{
+		AutoAttach:             true,
+		WaitForDebuggerOnStart: true,
+		Flatten:                true,
+		Filter:                 proto.TargetTargetFilter{{Type: "service_worker"}, {Type: "shared_worker"}, {Exclude: true}},
+	}).Call(page.Browser()); err != nil {
+		return nil, fmt.Errorf("hold service workers: %w", err)
+	}
+	if err := (proto.NetworkSetBypassServiceWorker{Bypass: true}).Call(page); err != nil {
+		return nil, fmt.Errorf("bypass service workers: %w", err)
+	}
+	router := page.HijackRequests()
+	err := router.Add("*", "", func(h *rod.Hijack) {
+		if err := h.LoadResponse(client, true); err != nil {
+			log.Debug().Err(err).Str("url", h.Request.URL().String()).Msg("browser request refused")
+			h.Response.Fail(proto.NetworkErrorReasonBlockedByClient)
+		}
+	})
+	if err != nil {
+		_ = router.Stop()
+		return nil, fmt.Errorf("intercept page requests: %w", err)
+	}
+	go router.Run()
+	return func() {
+		_ = page.Navigate("about:blank") // leave nothing running unguarded
+		_ = router.Stop()
+	}, nil
 }

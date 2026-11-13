@@ -28,6 +28,8 @@ services:
     environment:
       - SERVER_PORT=8080
       - HELIX_METRICS_LISTEN=${HELIX_METRICS_LISTEN:-}
+      # Shared secret for the crawler browser (chrome service); set CHROME_LAUNCHER_TOKEN in .env.
+      - RAG_CRAWLER_LAUNCHER_TOKEN=${CHROME_LAUNCHER_TOKEN:-}
       - LOG_LEVEL=${LOG_LEVEL:-debug}
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres
@@ -134,7 +136,7 @@ services:
       - "outer-api:${OUTER_API_IP:-127.0.0.1}"
   postgres:
     logging: *default-logging
-    image: postgres:12.13-alpine
+    image: ${HELIX_POSTGRES_IMAGE:-postgres:17-alpine}
     restart: always
     ports:
       - 127.0.0.1:5432:5432
@@ -212,7 +214,7 @@ services:
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   searxng:
     logging: *default-logging
-    image: searxng/searxng:latest
+    image: searxng/searxng:2025.12.7-9d3ec9a2a
     # ports:
     #   - 8112:8080
     volumes:
@@ -225,8 +227,16 @@ services:
       - UWSGI_THREADS=4
   chrome:
     logging: *default-logging
-    image: ghcr.io/go-rod/rod:v0.115.0
+    # Built locally from Dockerfile.chrome; `docker compose build chrome`
+    # refreshes Chromium. HELIX_CHROME_IMAGE uses a published image instead.
+    image: ${HELIX_CHROME_IMAGE:-helix-chrome:dev}
+    build:
+      context: .
+      dockerfile: Dockerfile.chrome
     restart: always
+    environment:
+      # Launches need this secret; unset, any client on the network can launch a browser.
+      - CHROME_LAUNCHER_TOKEN=${CHROME_LAUNCHER_TOKEN:-}
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke
     # ports:

@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -82,16 +83,23 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 	}
 	ctx := req.Context()
 	user := getRequestUser(req)
+	// This route sits on the optional-auth router; refuse anonymous callers
+	// before the lookup so the response does not depend on whether the id exists.
+	if !hasUser(user) {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		writeStoreLookupError(rw, err, "session")
 		return
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusForbidden)
+		log.Ctx(ctx).Debug().Err(err).Str("session_id", id).Msg("session access refused")
+		http.Error(rw, "not authorized to access this session", http.StatusForbidden)
 		return
 	}
 
@@ -111,7 +119,8 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 	// count + max updated_at (single aggregate query), and runtime agent status.
 	interactionCount, maxInteractionUpdated, err := apiServer.Store.GetInteractionsSummary(ctx, id, session.GenerationID)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		log.Ctx(ctx).Error().Err(err).Str("session_id", id).Msg("failed to load session interactions")
+		http.Error(rw, "failed to load session", http.StatusInternalServerError)
 		return
 	}
 
@@ -146,7 +155,8 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 			PerPage:      1000,
 		})
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			log.Ctx(ctx).Error().Err(err).Str("session_id", id).Msg("failed to load session interactions")
+			http.Error(rw, "failed to load session", http.StatusInternalServerError)
 			return
 		}
 		session.Interactions = interactions
@@ -227,16 +237,26 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	}
 	if orgID != "" {
 		// Lookup org
+		// An unknown org and one the caller cannot use answer the same 404
+		// without echoing the requested reference.
 		org, err := apiServer.lookupOrg(ctx, orgID)
 		if err != nil {
-			return nil, system.NewHTTPError404(err.Error())
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			log.Ctx(ctx).Error().Err(err).Msg("failed to look up organization for session list")
+			return nil, system.NewHTTPError500("failed to look up organization")
 		}
 
 		orgID = org.ID
 
 		membership, err := apiServer.authorizeOrgMember(ctx, user, orgID)
 		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
+			if errors.Is(err, store.ErrNotFound) || errors.Is(err, orgstore.ErrKeyOrgScope) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			log.Ctx(ctx).Error().Err(err).Msg("failed to check organization membership for session list")
+			return nil, system.NewHTTPError500("failed to check organization membership")
 		}
 
 		query.OrganizationID = orgID
@@ -264,6 +284,25 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		// When no organization is specified, we only want personal sessions
 		// Setting empty string explicitly ensures we only get sessions with no organization
 		query.OrganizationID = ""
+	}
+
+	// A project-scoped key lists only its own project's sessions.
+	if user.ProjectID != "" {
+		if projectID != "" && projectID != user.ProjectID {
+			return nil, system.NewHTTPError403(errProjectScopedKey.Error())
+		}
+		allowed := []string{user.ProjectID}
+		if query.RestrictToProjects {
+			// Already bounded (e.g. owner_id): keep only the key's project.
+			allowed = allowed[:0]
+			for _, id := range query.ProjectIDs {
+				if id == user.ProjectID {
+					allowed = append(allowed, id)
+				}
+			}
+		}
+		query.RestrictToProjects = true
+		query.ProjectIDs = allowed
 	}
 
 	// Parse query parameters
@@ -413,7 +452,7 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, storeLookupError(err, "session")
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionDelete)
@@ -466,7 +505,7 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, storeLookupError(err, "session")
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
@@ -482,7 +521,7 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 
 	err = json.NewDecoder(req.Body).Decode(&update)
 	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if update.Name != nil {
@@ -612,7 +651,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	var startReq types.SessionChatRequest
 	err = json.Unmarshal(body, &startReq)
 	if err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -831,7 +870,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	if startReq.SessionID != "" {
 		session, err = s.Store.GetSession(ctx, startReq.SessionID)
 		if err != nil {
-			http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", startReq.SessionID, err), http.StatusInternalServerError)
+			writeStoreLookupError(rw, err, "session")
 			return
 		}
 
@@ -1246,9 +1285,6 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	}
 
 	ownerID := user.ID
-	if user.TokenType == types.TokenTypeRunner {
-		ownerID = oai.RunnerID
-	}
 
 	lastInteraction := session.Interactions[len(session.Interactions)-1]
 
@@ -1515,9 +1551,6 @@ func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.Us
 	defer cancel()
 
 	ownerID := user.ID
-	if user.TokenType == types.TokenTypeRunner {
-		ownerID = oai.RunnerID
-	}
 
 	// Get last interaction ID
 	lastInteractionID := "n/a"
@@ -2208,7 +2241,7 @@ func (s *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Req
 
 	session, err := s.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", id, err))
+		return nil, storeLookupError(err, "session")
 	}
 
 	err = s.authorizeUserToSession(ctx, user, session, types.ActionGet)
@@ -2252,7 +2285,7 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	if session.Owner != user.ID {
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 		http.Error(rw, "you are not allowed to access this session", http.StatusForbidden)
 		return
 	}
@@ -2337,7 +2370,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			Err(err).
 			Str("session_id", id).
 			Msg("Failed to get session for resume")
-		http.Error(rw, fmt.Sprintf("session not found: %s", err.Error()), http.StatusNotFound)
+		writeStoreLookupError(rw, err, "session")
 		return
 	}
 

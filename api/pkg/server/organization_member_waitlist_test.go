@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 func newTestServerWithNotifier(mockStore *store.MockStore, notifier notification.Notifier) *HelixAPIServer {
@@ -46,7 +47,7 @@ func TestAddOrganizationMember_ExistingWaitlistedUser_JoinsAndIsApproved(t *test
 	server := newTestServerWithNotifier(mockStore, notifier)
 
 	orgID, ownerID := "org_vouch", "user_owner"
-	waitlisted := &types.User{ID: "fake-pal-gmail-com", Email: "pal@gmail.com", FullName: "Pal Person", Waitlisted: true}
+	waitlisted := &types.User{ID: "fake-pal-gmail-com", Email: "pal@gmail.com", EmailVerified: true, FullName: "Pal Person", Waitlisted: true}
 
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
@@ -94,7 +95,7 @@ func TestAddOrganizationMember_ExistingWaitlistedUser_KeepsOnboardingTimestamp(t
 
 	orgID, ownerID := "org_vouch", "user_owner"
 	onboardedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	waitlisted := &types.User{ID: "u1", Email: "pal@gmail.com", Waitlisted: true, OnboardingCompleted: true, OnboardingCompletedAt: onboardedAt}
+	waitlisted := &types.User{ID: "u1", Email: "pal@gmail.com", EmailVerified: true, Waitlisted: true, OnboardingCompleted: true, OnboardingCompletedAt: onboardedAt}
 
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
@@ -127,7 +128,7 @@ func TestAddOrganizationMember_ExistingApprovedUser_Unchanged(t *testing.T) {
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
-		Return(&types.User{ID: "u1", Email: "dev@helix.ml", Waitlisted: false}, nil)
+		Return(&types.User{ID: "u1", Email: "dev@helix.ml", EmailVerified: true, Waitlisted: false}, nil)
 	mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, m *types.OrganizationMembership) (*types.OrganizationMembership, error) {
 			return m, nil
@@ -171,7 +172,7 @@ func TestAddOrganizationMember_MembershipFails_DoesNotApprove(t *testing.T) {
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
-		Return(&types.User{ID: "u1", Email: "pal@gmail.com", Waitlisted: true}, nil)
+		Return(&types.User{ID: "u1", Email: "pal@gmail.com", EmailVerified: true, Waitlisted: true}, nil)
 	mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).Return(nil, errors.New("boom"))
 	mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Times(0)
 
@@ -180,18 +181,27 @@ func TestAddOrganizationMember_MembershipFails_DoesNotApprove(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
-// A waitlisted requester never reaches a handler (so cannot add themselves to
-// an org they own and self-approve): every authenticated route runs
-// rejectWaitlisted first.
-func TestRejectWaitlisted(t *testing.T) {
-	rr := httptest.NewRecorder()
-	require.True(t, rejectWaitlisted(rr, &types.User{ID: "u1", Waitlisted: true}))
-	require.Equal(t, http.StatusForbidden, rr.Code)
-	require.Contains(t, rr.Body.String(), "waiting for approval")
+// A waitlisted, deactivated or deleted requester never reaches a handler (so
+// a waitlisted user cannot add themselves to an org they own and
+// self-approve): every authenticated route runs rejectInactiveAccount first.
+func TestRejectInactiveAccount(t *testing.T) {
+	for _, tc := range []struct {
+		user     *types.User
+		wantBody string
+	}{
+		{user: &types.User{ID: "u1", Waitlisted: true}, wantBody: "waiting for approval"},
+		{user: &types.User{ID: "u1", Deactivated: true}, wantBody: "deactivated"},
+		{user: &types.User{ID: "u1", DeletedAt: gorm.DeletedAt{Valid: true}}, wantBody: "deleted"},
+	} {
+		rr := httptest.NewRecorder()
+		require.True(t, rejectInactiveAccount(rr, tc.user))
+		require.Equal(t, http.StatusForbidden, rr.Code)
+		require.Contains(t, rr.Body.String(), tc.wantBody)
+	}
 
-	rr = httptest.NewRecorder()
-	require.False(t, rejectWaitlisted(rr, &types.User{ID: "u1"}))
-	require.False(t, rejectWaitlisted(rr, nil))
+	rr := httptest.NewRecorder()
+	require.False(t, rejectInactiveAccount(rr, &types.User{ID: "u1"}))
+	require.False(t, rejectInactiveAccount(rr, nil))
 	require.Equal(t, http.StatusOK, rr.Code)
 }
 
@@ -207,7 +217,7 @@ func TestAddOrganizationMember_ApprovalFails_RollsBackMembership(t *testing.T) {
 	expectResolveOrganizationByID(mockStore, orgID)
 	expectOrgOwner(mockStore, orgID, ownerID)
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).
-		Return(&types.User{ID: "u1", Email: "pal@gmail.com", Waitlisted: true}, nil)
+		Return(&types.User{ID: "u1", Email: "pal@gmail.com", EmailVerified: true, Waitlisted: true}, nil)
 	gomock.InOrder(
 		mockStore.EXPECT().CreateOrganizationMembership(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, m *types.OrganizationMembership) (*types.OrganizationMembership, error) {

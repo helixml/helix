@@ -1,5 +1,35 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme, Tooltip, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Alert, Collapse, Link, Chip, FormControl, InputLabel, Select, SelectChangeEvent, Tabs, Tab, TextField, InputAdornment } from '@mui/material';
+import Box from '@mui/material/Box';
+import Grid from '@mui/material/Grid';
+import Card from '@mui/material/Card';
+import CardHeader from '@mui/material/CardHeader';
+import CardContent from '@mui/material/CardContent';
+import CardActions from '@mui/material/CardActions';
+import Avatar from '@mui/material/Avatar';
+import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Tooltip from '@mui/material/Tooltip';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogActions from '@mui/material/DialogActions';
+import Alert from '@mui/material/Alert';
+import Collapse from '@mui/material/Collapse';
+import Link from '@mui/material/Link';
+import Chip from '@mui/material/Chip';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import TextField from '@mui/material/TextField';
+import InputAdornment from '@mui/material/InputAdornment';
+import { useTheme } from '@mui/material/styles';
+import type { SelectChangeEvent } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS, SlackLogo } from '../icons/ProviderIcons';
 import atlassianLogo from '../../../assets/img/atlassian-logo.png';
 import azureDevOpsLogo from '../../../assets/img/azure-devops/logo.png';
@@ -873,7 +903,7 @@ const Skills: React.FC<SkillsProps> = ({
         if (skill.name === 'Browser') {
           await onUpdate({
             ...app,
-            browserTool: { enabled: false, markdown_post_processing: false },
+            browserTool: { enabled: false },
           });
           return
         }

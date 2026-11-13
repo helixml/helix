@@ -65,12 +65,14 @@ describe('ProjectChatBotEntry', () => {
       running: true,
       working: true,
       restartRequired: false,
+      portraitIndex: 0,
     })
 
     const trailingSlot = screen.getByTestId('sidebar-bot-trailing-slot')
     const workingLabel = screen.getByRole('status', { name: 'Working' })
     expect(workingLabel).toHaveTextContent('Working')
     expect(workingLabel).toHaveStyle({ color: '#34d399' })
+    expect(container.querySelector('img')).toHaveStyle({ filter: 'grayscale(1)' })
     expect(trailingSlot).toContainElement(workingLabel)
     expect(trailingSlot).toContainElement(screen.getByRole('button', { name: 'More actions for Chief of Staff' }))
     expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()

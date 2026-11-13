@@ -90,6 +90,7 @@ type SpecDrivenTaskService struct {
 	SessionContextService      *SessionContextService    // Service for inter-session coordination
 	auditLogService            *AuditLogService          // Service for audit logging
 	koditService               KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
+	koditRepoLister            KoditRepoLister           // Kodit repositories a task's agent can reach (for prompts)
 	ExecInDesktop              DesktopExecFunc           // Callback to exec commands in running desktop containers
 	WakeDesktop                DesktopWakeFunc           // Callback to start a stopped desktop after a failed exec
 	ReadAttachmentBlob         AttachmentBlobReader      // Callback to load attachment bytes from filestore
@@ -142,6 +143,12 @@ func NewSpecDrivenTaskService(
 // SetKoditService replaces the kodit service after late initialization.
 func (s *SpecDrivenTaskService) SetKoditService(svc KoditServicer) {
 	s.koditService = svc
+}
+
+// SetKoditRepoLister wires the resolution of the Kodit repositories a task's
+// agent can reach, used for the repository section of task prompts.
+func (s *SpecDrivenTaskService) SetKoditRepoLister(fn KoditRepoLister) {
+	s.koditRepoLister = fn
 }
 
 // SetTestMode enables or disables test mode (prevents async operations)
@@ -1066,13 +1073,7 @@ Follow these guidelines when making changes:
 - Verify: `+"`git branch --show-current`"+` should show %s
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
-	hasPullRequests := false
-	for _, repo := range projectRepos {
-		if repo.ExternalURL != "" {
-			hasPullRequests = true
-			break
-		}
-	}
+	hasPullRequests := ProjectUsesPullRequests(project, projectRepos)
 	if hasPullRequests {
 		gitInstructions += "\n\n" + PullRequestProposalGuidance(branchName)
 	}
@@ -1414,7 +1415,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 					return fmt.Errorf("%s", FormatDivergenceErrorForUser(divergeErr, repo.Name))
 				}
 				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", effectiveBaseBranch).Msg("Failed to sync from remote")
-				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
+				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", RedactURLCredentials(repo.ExternalURL), redactURLSecretInError(err, repo.ExternalURL))
 			}
 		}
 
@@ -1535,7 +1536,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// Start implementation in the existing task session and sandbox, but on
 		// a clean ACP thread owned by the implementation configuration.
 		if sessionID != "" && !s.testMode {
-			agentInstructionService := NewAgentInstructionService(s.store, s.EnqueueMessageToAgent, s.koditService)
+			agentInstructionService := NewAgentInstructionService(s.store, s.EnqueueMessageToAgent, s.koditService, s.koditRepoLister)
 			message := agentInstructionService.BuildApprovalInstruction(
 				context.Background(), task, branchName, effectiveBaseBranch, repo.Name,
 			)
@@ -1866,41 +1867,9 @@ func isNonRetryableIdentityError(err error) bool {
 	return errors.Is(err, errIdentityUserNotFound) || errors.Is(err, errIdentityNoEmail)
 }
 
-// buildRepositorySectionForTask fetches project and org repos, then builds the repository section
+// buildRepositorySectionForTask builds the repository section of a task prompt.
 func (s *SpecDrivenTaskService) buildRepositorySectionForTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
-	if task.ProjectID == "" {
-		return ""
-	}
-
-	// Fetch project repos
-	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: task.ProjectID,
-	})
-	if err != nil {
-		return ""
-	}
-
-	// Fetch Kodit org repos if enabled
-	var koditOrgRepos []*types.GitRepository
-	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
-		orgRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			OrganizationID: project.OrganizationID,
-		})
-		if err == nil {
-			for _, repo := range orgRepos {
-				if repo.KoditIndexing {
-					koditOrgRepos = append(koditOrgRepos, repo)
-				}
-			}
-		}
-	}
-
-	primaryRepoID := ""
-	if project != nil {
-		primaryRepoID = project.DefaultRepoID
-	}
-
-	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
+	return repositorySectionForTask(ctx, s.store, s.koditRepoLister, task, project)
 }
 
 // Helper functions
@@ -2080,8 +2049,13 @@ type SessionAPIKeyRequest struct {
 // GetOrCreateSessionAPIKey gets or creates an ephemeral API key for a session.
 // Keys are scoped to the session for lifecycle management (minted on start, revoked on stop).
 // The key capabilities vary based on session type:
-// - SpecTask sessions: git push rights to specific branch, LLM calls
-// - Non-SpecTask sessions: LLM calls only
+//   - sessions in a project (spec tasks, exploratory desktops): confined to
+//     that project; a spec task's key pushes only to its branch;
+//   - bot instances: the restricted bot instance key type;
+//   - sessions outside any project (a plain chat's desktop): confined by the
+//     API auth middleware to its own session's desktop routes and the LLM
+//     proxy (server.desktopKeyRefusal), and refused by git;
+//   - helix-org workers: their hiring user's access, by design.
 func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, req *SessionAPIKeyRequest) (string, error) {
 	if req.SessionID == "" {
 		return "", fmt.Errorf("session ID is required for session-scoped API key")
@@ -2100,15 +2074,32 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		keyType = types.APIkeytypeBotInstance
 	}
 
-	// Check for existing session-scoped key of that type. The type is part of
-	// the lookup so a full key minted before an instance existed is never
-	// reused for it.
+	// Derive project ID and spec task ID from session metadata. A bot
+	// instance's key is bound to its project: git access is limited to it.
+	// So is a project's exploratory desktop: it works across the project
+	// (its spec tasks and their sessions), so its key is confined to the
+	// project rather than to its single session.
+	projectID, specTaskID := sessionKeyScope(session)
+	if session.Metadata.SpecTaskID != "" {
+		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get spec task for API key attribution")
+		} else {
+			projectID = specTask.ProjectID
+		}
+	}
+
+	// Check for existing session-scoped key of that type and scope. Type and
+	// project are part of the lookup so a broader key minted earlier (before
+	// an instance existed, or before exploratory keys carried their project)
+	// is never reused.
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: req.OrganizationID,
 		Owner:          req.UserID,
 		OwnerType:      types.OwnerTypeUser,
 		SessionID:      req.SessionID,
 		Type:           keyType,
+		ProjectID:      projectID,
 	})
 	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
@@ -2116,22 +2107,6 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 
 	if existing != nil {
 		return existing.Key, nil
-	}
-
-	// Derive project ID and spec task ID from session metadata. A bot
-	// instance's key is bound to its project: git access is limited to it.
-	var projectID, specTaskID string
-	if keyType == types.APIkeytypeBotInstance {
-		projectID = session.ProjectID
-	}
-	if session.Metadata.SpecTaskID != "" {
-		specTaskID = session.Metadata.SpecTaskID
-		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
-		if err != nil {
-			log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get spec task for API key attribution")
-		} else {
-			projectID = specTask.ProjectID
-		}
 	}
 
 	newKey, err := system.GenerateAPIKey()
@@ -2425,4 +2400,47 @@ func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task
 	}
 
 	return nil
+}
+
+// ProjectUsesPullRequests reports whether a task's agent delivers work as pull
+// requests: always for external repositories, and for Helix-hosted ones when
+// the project opts in (HelixRepoPullRequests).
+func ProjectUsesPullRequests(project *types.Project, repos []*types.GitRepository) bool {
+	if project != nil && project.HelixRepoPullRequests {
+		return true
+	}
+	for _, repo := range repos {
+		if repo.ExternalURL != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// sessionKeyScope is the project and spec task a session's API key is
+// confined to, before the spec task's own project is looked up.
+//   - A spec task session: its spec task (and that task's project).
+//   - A bot instance: its project.
+//   - A helix-org worker: no project; it runs with its hiring user's
+//     org-level reach by design.
+//   - Any other session in a project (an exploratory desktop, a golden
+//     build, a recurring-task job, a project chat with an external agent):
+//     its project, so it keeps the project's repositories and nothing more.
+//   - Anything else (a plain chat): no project; the key is confined to its
+//     session's desktop routes instead.
+func sessionKeyScope(session *types.Session) (projectID, specTaskID string) {
+	projectID = session.ProjectID
+	if projectID == "" {
+		projectID = session.Metadata.ProjectID
+	}
+	switch {
+	case session.Metadata.SpecTaskID != "":
+		return projectID, session.Metadata.SpecTaskID
+	case session.Metadata.SessionRole == types.SessionRoleOrgBotInstance:
+		return session.ProjectID, ""
+	case session.Metadata.OrgWorkerID != "":
+		return "", ""
+	default:
+		return projectID, ""
+	}
 }

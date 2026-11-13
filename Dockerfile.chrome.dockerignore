@@ -1,0 +1,6 @@
+# Dockerfile.chrome needs the module files, the manager source and the pins.
+*
+!go.mod
+!go.sum
+!api/cmd/chrome-manager/main.go
+!chrome-version.env

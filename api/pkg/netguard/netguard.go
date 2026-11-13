@@ -11,10 +11,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -67,10 +71,13 @@ var (
 		"::1/128",        // IPv6 loopback
 		"fc00::/7",       // IPv6 unique-local
 	)
-	// Prefixes that embed an IPv4 address in the low 32 bits. The embedded
-	// address is checked too, so ::ffff:169.254.169.254 or a NAT64-mapped
-	// metadata address is treated like the IPv4 address it reaches.
-	nat64 = mustCIDRs("64:ff9b::/96", "64:ff9b:1::/48")
+	// Prefixes that embed an IPv4 address in the low 32 bits: NAT64 and the
+	// deprecated IPv4-compatible ::a.b.c.d. The embedded address is checked
+	// too, so a NAT64-mapped metadata address is treated like the IPv4
+	// address it reaches. (::ffff:a.b.c.d is handled by To4.)
+	embedsIPv4Low = mustCIDRs("64:ff9b::/96", "64:ff9b:1::/48", "::/96")
+	// 6to4 embeds the IPv4 address in bits 16-47.
+	sixToFour = mustCIDRs("2002::/16")
 )
 
 func mustCIDRs(cidrs ...string) []*net.IPNet {
@@ -130,8 +137,8 @@ func (p Policy) classify(ip net.IP) error {
 	}
 	if v4 := ip.To4(); v4 != nil {
 		ip = v4
-	} else if inAny(ip, nat64) {
-		if err := p.classify(net.IP(ip[12:16])); err != nil {
+	} else if v4 := embeddedIPv4(ip); v4 != nil {
+		if err := p.classify(v4); err != nil {
 			return err
 		}
 	}
@@ -140,6 +147,20 @@ func (p Policy) classify(ip net.IP) error {
 	}
 	if !p.AllowPrivate && inAny(ip, privateRanges) {
 		return errPrivate
+	}
+	return nil
+}
+
+// embeddedIPv4 returns the IPv4 address a 16-byte IPv6 address reaches
+// through NAT64, IPv4-compatible or 6to4 addressing, or nil.
+func embeddedIPv4(ip net.IP) net.IP {
+	switch {
+	case ip.Equal(net.IPv6unspecified) || ip.Equal(net.IPv6loopback):
+		return nil // inside ::/96, but not IPv4-compatible addresses
+	case inAny(ip, embedsIPv4Low):
+		return ip[12:16]
+	case inAny(ip, sixToFour):
+		return ip[2:6]
 	}
 	return nil
 }
@@ -185,6 +206,9 @@ func (p Policy) resolve(ctx context.Context, host string) ([]net.IP, error) {
 		}
 		return []net.IP{ip}, nil
 	}
+	if isNonCanonicalIPv4Literal(host) {
+		return nil, fmt.Errorf("%w: non-canonical numeric host %q", ErrBlockedDestination, host)
+	}
 	if !p.AllowPrivate && isLocalhostName(host) {
 		return nil, fmt.Errorf("%w (host %s)", errPrivate, host)
 	}
@@ -205,6 +229,51 @@ func (p Policy) resolve(ctx context.Context, host string) ([]net.IP, error) {
 	return ips, nil
 }
 
+// isNonCanonicalIPv4Literal reports whether host is a numeric IPv4 address
+// in one of the legacy inet_aton spellings that net.ParseIP does not accept:
+// a bare integer (2130706433), hex (0x7f000001), octal or zero-padded parts
+// (0177.0.0.1) or a shortened form (127.1). Some resolvers and tools read
+// these as addresses, so they are refused instead of being treated as names.
+// A real hostname always ends in a non-numeric label, so none match.
+func isNonCanonicalIPv4Literal(host string) bool {
+	h := strings.TrimSuffix(host, ".")
+	if h == "" {
+		return false
+	}
+	parts := strings.Split(h, ".")
+	if len(parts) > 4 {
+		return false
+	}
+	for _, part := range parts {
+		if !isNumericAddressPart(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func isNumericAddressPart(part string) bool {
+	if part == "" {
+		return false
+	}
+	digits, hex := part, false
+	if len(part) >= 2 && part[0] == '0' && (part[1] == 'x' || part[1] == 'X') {
+		digits, hex = part[2:], true
+		if digits == "" {
+			return true // "0x" alone is read as zero by inet_aton
+		}
+	}
+	for _, c := range digits {
+		switch {
+		case c >= '0' && c <= '9':
+		case hex && (c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func isLocalhostName(host string) bool {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
 	return h == "localhost" || strings.HasSuffix(h, ".localhost")
@@ -212,22 +281,37 @@ func isLocalhostName(host string) bool {
 
 // GuardTransport enforces the policy on every connection t makes.
 //
-// Direct connections: the target host is resolved once, every address is
-// checked, and the connection is made only to those checked addresses so the
-// HTTP stack cannot re-resolve to something else (DNS rebinding).
+// Direct connections get the same check as DialContext, made through t's
+// own dialer when it has one.
 //
 // Proxied connections (HTTP(S)_PROXY from the operator's environment): the
 // proxy address itself comes from operator configuration and is dialled
 // as-is, but the request destination is still checked before the proxy is
 // used. If the destination does not resolve locally (proxy-only DNS), the
 // request is passed to the proxy, which is then the egress control point.
+//
+// It panics if t has a dialer it cannot guard (Dial, DialTLS,
+// DialTLSContext), which http.Transport would use instead of DialContext.
 func (p Policy) GuardTransport(t *http.Transport) {
+	if t.Dial != nil || t.DialTLS != nil || t.DialTLSContext != nil { //nolint:staticcheck // checking the deprecated hooks is the point
+		panic("netguard: GuardTransport cannot guard a transport with Dial, DialTLS or DialTLSContext set")
+	}
 	var proxyAddrs sync.Map // host:port of operator-configured proxies
 	if origProxy := t.Proxy; origProxy != nil {
 		t.Proxy = func(req *http.Request) (*url.URL, error) {
 			proxyURL, err := origProxy(req)
-			if err != nil || proxyURL == nil {
-				return proxyURL, err
+			if err != nil {
+				return nil, err
+			}
+			if proxyURL == nil {
+				// A direct request to a proxy's own address (NO_PROXY covers
+				// it) would hit the dial exemption below, so check it here.
+				if _, isProxy := proxyAddrs.Load(canonicalProxyAddr(req.URL)); isProxy {
+					if _, err := p.resolve(req.Context(), req.URL.Hostname()); err != nil {
+						return nil, err
+					}
+				}
+				return nil, nil
 			}
 			if err := p.checkProxiedDestination(req.Context(), req.URL.Hostname()); err != nil {
 				return nil, err
@@ -237,33 +321,45 @@ func (p Policy) GuardTransport(t *http.Transport) {
 		}
 	}
 
-	dialer := &net.Dialer{Timeout: dialTimeout, KeepAlive: dialKeepAlive}
 	baseDial := t.DialContext
 	if baseDial == nil {
-		baseDial = dialer.DialContext
+		baseDial = defaultDialer.DialContext
 	}
 	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		if _, ok := proxyAddrs.Load(addr); ok {
 			return baseDial(ctx, network, addr)
 		}
-		host, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			return nil, err
-		}
-		ips, err := p.resolve(ctx, host)
-		if err != nil {
-			return nil, err
-		}
-		var lastErr error
-		for _, ip := range ips {
-			conn, err := baseDial(ctx, network, net.JoinHostPort(ip.String(), port))
-			if err == nil {
-				return conn, nil
-			}
-			lastErr = err
-		}
-		return nil, lastErr
+		return p.dialVia(ctx, network, addr, baseDial)
 	}
+}
+
+var defaultDialer = &net.Dialer{Timeout: dialTimeout, KeepAlive: dialKeepAlive}
+
+// DialContext connects to addr (host:port) only if the policy allows it: the
+// host is resolved once, every address is checked, and only the checked
+// addresses are dialled, so a second lookup cannot rebind the name.
+func (p Policy) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return p.dialVia(ctx, network, addr, defaultDialer.DialContext)
+}
+
+func (p Policy) dialVia(ctx context.Context, network, addr string, dial func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := p.resolve(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	var lastErr error
+	for _, ip := range ips {
+		conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 func (p Policy) checkProxiedDestination(ctx context.Context, host string) error {
@@ -301,4 +397,114 @@ func (p Policy) NewClient(timeout time.Duration) *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	p.GuardTransport(t)
 	return &http.Client{Timeout: timeout, Transport: t, CheckRedirect: NoRedirects}
+}
+
+// MaxRedirects is the most redirects a NewRedirectingClient follows.
+const MaxRedirects = 10
+
+// NewRedirectingClient is NewClient that follows up to MaxRedirects
+// redirects. Each hop's URL is checked against p before it is requested
+// (http/https only, and any locally resolvable host must pass CheckIP), and
+// the guarded transport re-checks every address it dials, so a redirect
+// cannot lead the client somewhere a direct request could not go. Go's
+// client drops credentials (Authorization, cookies) on redirects to another
+// host.
+func (p Policy) NewRedirectingClient(timeout time.Duration) *http.Client {
+	client := p.NewClient(timeout)
+	client.CheckRedirect = p.checkRedirect
+	return client
+}
+
+func (p Policy) checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= MaxRedirects {
+		return fmt.Errorf("stopped after %d redirects", MaxRedirects)
+	}
+	if err := p.ValidateURL(req.Context(), req.URL.String()); err != nil {
+		return fmt.Errorf("redirect: %w", err)
+	}
+	return nil
+}
+
+// ResolveHost resolves host (a name or IP literal) and checks every address
+// against the policy, for callers that hand the vetted addresses to another
+// program (e.g. git's http.curloptResolve) so it cannot re-resolve. A host
+// with any blocked address is rejected; a lookup failure is returned as is.
+func (p Policy) ResolveHost(ctx context.Context, host string) ([]net.IP, error) {
+	return p.resolve(ctx, host)
+}
+
+// GuardContext returns a context that applies the policy to every connection
+// an HTTP request made with it dials, for third-party clients that build
+// their own http.Client and accept no transport (e.g. SDKs). When a dial
+// targets a blocked address (after DNS resolution, so rebinding is covered)
+// the context is cancelled with an error wrapping ErrBlockedDestination
+// before any request bytes are sent; context.Cause reports it. Prefer
+// GuardTransport wherever the transport can be set.
+//
+// Connections to an operator-configured HTTP(S)_PROXY are allowed.
+func (p Policy) GuardContext(ctx context.Context) context.Context {
+	ctx, cancel := context.WithCancelCause(ctx)
+	proxies := environmentProxyAddrs()
+	refuse := func(addr string) bool {
+		if proxies[addr] {
+			return false
+		}
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			cancel(fmt.Errorf("%w: unparseable address", ErrBlockedDestination))
+			return true
+		}
+		if err := p.CheckIP(net.ParseIP(host)); err != nil {
+			log.Warn().Err(err).Msg("outbound connection refused by policy")
+			cancel(err)
+			return true
+		}
+		return false
+	}
+	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		// A new connection: refuse before the dial completes.
+		ConnectStart: func(_, addr string) { refuse(addr) },
+		// Any connection, including one reused from a shared pool: close
+		// it before the request is written.
+		GotConn: func(info httptrace.GotConnInfo) {
+			if refuse(info.Conn.RemoteAddr().String()) {
+				_ = info.Conn.Close()
+			}
+		},
+	})
+}
+
+// BlockedCause returns the policy rejection recorded on a GuardContext
+// context, or nil.
+func BlockedCause(ctx context.Context) error {
+	if cause := context.Cause(ctx); errors.Is(cause, ErrBlockedDestination) {
+		return cause
+	}
+	return nil
+}
+
+// environmentProxyAddrs returns the ip:port addresses of the HTTP(S)_PROXY
+// servers configured in the environment.
+func environmentProxyAddrs() map[string]bool {
+	addrs := map[string]bool{}
+	for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
+		raw := os.Getenv(key)
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		hostPort := canonicalProxyAddr(u)
+		host, port, _ := net.SplitHostPort(hostPort)
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			continue
+		}
+		for _, ip := range ips {
+			addrs[net.JoinHostPort(ip.String(), port)] = true
+		}
+	}
+	return addrs
 }

@@ -38,6 +38,7 @@ func TestRetry(t *testing.T) {
 	defer ts.Close()
 
 	client := New("test", ts.URL, true)
+	client.retryDelay = time.Millisecond
 
 	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{})
 	require.NoError(t, err)
@@ -152,13 +153,6 @@ func TestValidateModel_Success(t *testing.T) {
 }
 
 func TestDoNotRetryOnAuthFailures(t *testing.T) {
-	client := New("test", "https://api.together.xyz/v1", true)
-
-	_, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{})
-	require.Error(t, err)
-}
-
-func TestDoNotRetryOnAuthFailures_TestServer(t *testing.T) {
 	called := 0
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

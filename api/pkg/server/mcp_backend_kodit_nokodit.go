@@ -15,6 +15,12 @@ func newKoditMCPBackend() *KoditMCPBackend {
 	return &KoditMCPBackend{}
 }
 
+// SetSessionAuthorizer is a no-op without kodit support.
+func (b *KoditMCPBackend) SetSessionAuthorizer(SessionAuthorizer) {}
+
+// SetRepositoryAuthorizer is a no-op without kodit support.
+func (b *KoditMCPBackend) SetRepositoryAuthorizer(RepositoryAuthorizer) {}
+
 func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, _ *http.Request, _ *types.User) {
 	http.Error(w, "Kodit is not available in this build", http.StatusNotImplemented)
 }
