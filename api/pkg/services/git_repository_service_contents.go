@@ -297,6 +297,11 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 // ErrInvalidBranchName is returned for a branch name git would refuse.
 var ErrInvalidBranchName = errors.New("invalid branch name")
 
+const (
+	maxRepoFilePathBytes = 4096
+	maxRepoFilePathDepth = 128
+)
+
 // ErrInvalidRepoFilePath is returned for a file path that is not a plain
 // path inside the work tree.
 var ErrInvalidRepoFilePath = errors.New("file path must be relative, stay inside the repository and not touch .git")
@@ -306,10 +311,16 @@ var ErrInvalidRepoFilePath = errors.New("file path must be relative, stay inside
 // (whose hooks run on the next commit).
 func CleanRepoFilePath(p string) (string, error) {
 	cleaned := pathpkg.Clean(p)
-	if p == "" || !filepath.IsLocal(cleaned) || cleaned == "." {
+	if p == "" || len(p) > maxRepoFilePathBytes || !filepath.IsLocal(cleaned) || cleaned == "." {
 		return "", ErrInvalidRepoFilePath
 	}
-	for _, part := range strings.Split(cleaned, "/") {
+	parts := strings.Split(cleaned, "/")
+	// Each component costs a tree rebuild under the repo lock, and git
+	// refuses to check out trees past its own depth limit.
+	if len(parts) > maxRepoFilePathDepth {
+		return "", ErrInvalidRepoFilePath
+	}
+	for _, part := range parts {
 		if strings.EqualFold(part, ".git") {
 			return "", ErrInvalidRepoFilePath
 		}
