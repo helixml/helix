@@ -20,8 +20,10 @@ for.
     (`!ApiKey.IsAgentBound()`: personal or org key);
   - a person (`User.IsHumanCredential()`) writes a new startup script commit
     through the UI/API (project create, project update, `helix apply`, sample
-    projects). A save that leaves the script unchanged trusts nothing: the
-    settings page resends the script on every save.
+    projects, or `PUT /git/repositories/{id}/contents` of `.helix/startup.sh`
+    on helix-specs). A save that leaves the script unchanged trusts nothing:
+    the settings page resends the script on every save. Other files written
+    through the contents route trust nothing.
 - Agent pushes (spec-task, session, sandbox, project, app, embed, bot keys) are
   still accepted; they never move it.
 - `UpdateGitRepository` omits the column; only `SetGitRepositoryTrustedStartupSHA`
@@ -36,6 +38,16 @@ for.
   is printed and written to `/tmp/helix-startup.log`.
 - Web-service deploys check out `$SPECS` at the trusted commit and refuse to
   deploy without one.
+
+## Agent REST writes
+
+The REST routes that write a repository apply the push allow-list
+(`GitHTTPServer.AgentPushBranches`) to agent-bound keys
+(`server/git_repository_agent_writes.go`): files, new branches and pull
+requests only on the task's own branches; on helix-specs only under the task's
+`design/tasks/<dir>/`. An agent key without a spec task writes nothing through
+REST. Repository settings, deletion, remote sync, kodit rescan, merges and
+access grants are refused to agent keys in the auth middleware.
 
 ## Limits
 

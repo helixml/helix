@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -302,6 +304,11 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		return "", fmt.Errorf("branch is required")
 	}
 
+	path, err = CleanRepoFilePath(path)
+	if err != nil {
+		return "", err
+	}
+
 	if commitMessage == "" {
 		commitMessage = fmt.Sprintf("Update %s", path)
 	}
@@ -328,15 +335,17 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 	}
 	defer wc.Cleanup()
 
-	filename := filepath.Join(wc.TempDir, path)
-
-	fileDir := filepath.Dir(filename)
-	if err := os.MkdirAll(fileDir, 0755); err != nil {
+	// os.Root keeps the write inside the working copy even when the branch
+	// holds a symlink pointing out of it.
+	root, err := os.OpenRoot(wc.TempDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to open working copy: %w", err)
+	}
+	defer root.Close()
+	if err := root.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
-
-	err = os.WriteFile(filename, content, 0644)
-	if err != nil {
+	if err := root.WriteFile(path, content, 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -381,6 +390,26 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		Msg("Successfully created/updated file in repository")
 
 	return commitHash, nil
+}
+
+// ErrInvalidRepoFilePath is returned for a file path that is not a plain
+// path inside the work tree.
+var ErrInvalidRepoFilePath = errors.New("file path must be relative, stay inside the repository and not touch .git")
+
+// CleanRepoFilePath returns path in clean slash form, or ErrInvalidRepoFilePath
+// when it is absolute, leaves the work tree or names anything under .git
+// (whose hooks run on the next commit).
+func CleanRepoFilePath(p string) (string, error) {
+	cleaned := pathpkg.Clean(p)
+	if p == "" || !filepath.IsLocal(cleaned) || cleaned == "." {
+		return "", ErrInvalidRepoFilePath
+	}
+	for _, part := range strings.Split(cleaned, "/") {
+		if strings.EqualFold(part, ".git") {
+			return "", ErrInvalidRepoFilePath
+		}
+	}
+	return cleaned, nil
 }
 
 // GetFileContents reads the contents of a file from a specific branch

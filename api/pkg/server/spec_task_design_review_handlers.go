@@ -338,7 +338,9 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if user.ID != task.CreatedBy {
+	// The creator shortcut is for people: an agent key carries its owner's
+	// id, so it is always scope-checked.
+	if user.ID != task.CreatedBy || holdsAgentKey(user) {
 		if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
 			writeSpecTaskAuthzError(w, err)
 			return
@@ -391,6 +393,10 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 		}
 	}
 	documentPath := taskDir + "/" + filename
+	if err := s.authorizeAgentRepositoryWrite(ctx, user, repo.ID, services.SpecsBranchName, documentPath); err != nil {
+		writeHTTPStatusError(w, err)
+		return
+	}
 	commitHash := review.GitCommitHash
 
 	writeDocument := func() error {

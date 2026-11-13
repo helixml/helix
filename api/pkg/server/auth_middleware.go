@@ -460,6 +460,12 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// An agent key may not administer, sync or merge a repository.
+		if err := agentKeyRepositoryRefusal(user, r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+
 		auth.touchUserLastSeen(user)
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 		next.ServeHTTP(w, r)
@@ -557,6 +563,12 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		// A task-confined key reaches only its own spec task and sessions.
 		if status, err := auth.taskConfinedKeyRefusal(user, r); err != nil {
 			http.Error(w, err.Error(), status)
+			return
+		}
+
+		// An agent key may not administer, sync or merge a repository.
+		if err := agentKeyRepositoryRefusal(user, r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 

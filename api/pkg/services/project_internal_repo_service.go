@@ -72,7 +72,7 @@ func (s *ProjectRepoService) LoadStartupScriptFromCodeRepo(codeRepoPath string) 
 	}
 
 	// Get file content directly from commit
-	content, err := commit.GetFileContent(".helix/startup.sh", 0)
+	content, err := commit.GetFileContent(StartupScriptPath, 0)
 	if err != nil {
 		// File doesn't exist yet - return empty script
 		return "", nil
@@ -115,7 +115,7 @@ func (s *ProjectRepoService) GetStartupScriptHistoryFromCodeRepo(codeRepoPath st
 
 	var versions []StartupScriptVersion
 	for _, commit := range commits {
-		content, err := commit.GetFileContent(".helix/startup.sh", 0)
+		content, err := commit.GetFileContent(StartupScriptPath, 0)
 		if err != nil {
 			log.Warn().Err(err).Str("commit", commit.ID.String()).Msg("Failed to get file from commit")
 			continue
@@ -652,7 +652,7 @@ func (s *ProjectRepoService) LoadStartupScriptFromHelixSpecs(codeRepoPath string
 	}
 
 	// Get file content
-	content, err := commit.GetFileContent(".helix/startup.sh", 0)
+	content, err := commit.GetFileContent(StartupScriptPath, 0)
 	if err != nil {
 		// File doesn't exist yet - try legacy location on main branch
 		log.Debug().Str("repo_path", codeRepoPath).Msg("startup.sh not in helix-specs, falling back to main branch")
@@ -696,7 +696,7 @@ func (s *ProjectRepoService) GetStartupScriptHistoryFromHelixSpecs(codeRepoPath 
 
 	var versions []StartupScriptVersion
 	for _, commit := range commits {
-		content, err := commit.GetFileContent(".helix/startup.sh", 0)
+		content, err := commit.GetFileContent(StartupScriptPath, 0)
 		if err != nil {
 			log.Warn().Err(err).Str("commit", commit.ID.String()).Msg("Failed to get file from commit")
 			continue
