@@ -767,7 +767,8 @@ func (s *WebSearchIntegrationSuite) TestFindSimilar() {
 		}
 		s.Greater(*body.Results[0].Score, *body.Results[1].Score)
 		s.requireCharged(resp, body.CostDollars, wsPrices.FindSimilar+2*wsPrices.ContentPage)
-		s.Contains(s.firstPageQueries(), wsDescribeReply, "the LLM's description of the page is the search query")
+		s.Contains(s.firstPageQueries(), wsDescribeReply+" -site:127.0.0.1",
+			"the LLM's description of the page is the search query, excluding the source site at the engines")
 	})
 	s.Run("same domain allowed", func() {
 		resp := s.call(s.api, "/findSimilar", jsonString(map[string]any{"url": s.genericsURL()}))
