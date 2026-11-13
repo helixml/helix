@@ -17,9 +17,10 @@ const koditScopeGuardMaxBody = 1 << 20
 
 // koditScopeGuard checks MCP requests before the scoped Kodit handler sees
 // them. In kodit v1.3.8 the scoped handler serves document text/raster reads
-// and visual search without applying the repository scope, so the guard
-// refuses a file URI whose repository is outside the scope (for every read
-// mode) and refuses visual search outright.
+// and visual search without applying the repository scope, and its doc/wiki
+// tools trust a caller-chosen commit_sha. The guard refuses a file URI whose
+// repository is outside the scope (for every read mode), visual search, and
+// commit_sha on those tools.
 func koditScopeGuard(allowed map[int64]bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.Body == nil {
@@ -84,16 +85,17 @@ func koditScopeViolation(body []byte, allowed map[int64]bool) string {
 			case "kodit_visual_search":
 				return "visual search is not available"
 			case "kodit_read_resource":
-				var args struct {
-					URI string `json:"uri"`
-				}
-				if len(m.Params.Arguments) > 0 {
-					if err := json.Unmarshal(m.Params.Arguments, &args); err != nil {
-						return "malformed request"
-					}
-				}
-				if !koditURIInScope(args.URI, allowed) {
+				uri, ok := koditExactStringArg(m.Params.Arguments, "uri")
+				if !ok || !koditURIInScope(uri, allowed) {
 					return "resource is outside this session's repositories"
+				}
+			default:
+				// These tools look enrichments up by commit_sha without
+				// checking the commit belongs to the resolved repository.
+				if koditCommitScopedTools[m.Params.Name] {
+					if _, present := koditArgKeyFold(m.Params.Arguments, "commit_sha"); present {
+						return "commit_sha is not available"
+					}
 				}
 			}
 		}
@@ -115,4 +117,55 @@ func koditURIInScope(uri string, allowed map[int64]bool) bool {
 		return false
 	}
 	return allowed[repoID]
+}
+
+// koditCommitScopedTools take a caller-chosen commit_sha that kodit v1.3.8
+// does not check against the resolved repository.
+var koditCommitScopedTools = map[string]bool{
+	"kodit_architecture_docs":  true,
+	"kodit_api_docs":           true,
+	"kodit_commit_description": true,
+	"kodit_database_schema":    true,
+	"kodit_cookbook":           true,
+	"kodit_wiki":               true,
+	"kodit_wiki_page":          true,
+}
+
+// koditExactStringArg reads arguments[key] the way mcp-go hands tool
+// arguments to kodit: a map keyed by the exact name. Decoding into a struct
+// would match keys case-insensitively and could check a different value
+// from the one kodit reads.
+func koditExactStringArg(raw json.RawMessage, key string) (string, bool) {
+	var args map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &args) != nil {
+		return "", false
+	}
+	value, ok := args[key]
+	if !ok {
+		return "", false
+	}
+	var s string
+	if json.Unmarshal(value, &s) != nil {
+		return "", false
+	}
+	return s, true
+}
+
+// koditArgKeyFold reports whether arguments has key in any letter case, so
+// a refusal cannot be dodged by spelling. Unparseable arguments count as
+// present.
+func koditArgKeyFold(raw json.RawMessage, key string) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	var args map[string]json.RawMessage
+	if json.Unmarshal(raw, &args) != nil {
+		return "", true
+	}
+	for k := range args {
+		if strings.EqualFold(k, key) {
+			return k, true
+		}
+	}
+	return "", false
 }

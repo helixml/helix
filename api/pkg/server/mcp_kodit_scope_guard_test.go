@@ -37,6 +37,12 @@ func TestKoditScopeGuard(t *testing.T) {
 		{"other tools pass", call("kodit_semantic_search", `{"query":"x"}`), http.StatusOK},
 		{"initialize passes", `{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}`, http.StatusOK},
 		{"malformed", `{"method":`, http.StatusForbidden},
+		{"case-folded duplicate uri", call("kodit_read_resource", `{"uri":"file://8/main/doc.pdf?mode=text&page=1","URI":"file://7/main/a"}`), http.StatusForbidden},
+		{"only a case-folded uri", call("kodit_read_resource", `{"URI":"file://7/main/a"}`), http.StatusForbidden},
+		{"non-string uri", call("kodit_read_resource", `{"uri":7}`), http.StatusForbidden},
+		{"wiki with commit_sha", call("kodit_wiki", `{"repo_url":"https://x/r.git","commit_sha":"abc123"}`), http.StatusForbidden},
+		{"wiki with case-folded commit_sha", call("kodit_wiki_page", `{"repo_url":"https://x/r.git","Commit_SHA":"abc123"}`), http.StatusForbidden},
+		{"wiki without commit_sha", call("kodit_wiki", `{"repo_url":"https://x/r.git"}`), http.StatusOK},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
