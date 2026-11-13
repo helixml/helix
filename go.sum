@@ -549,6 +549,8 @@ github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyf
 github.com/hashicorp/hcl v1.0.0/go.mod h1:E5yfLk+7swimpb2L/Alb/PJmXilQ/rhwaUYs4T20WEQ=
 github.com/helixml/kodit v1.3.8 h1:bdAzZgdeFvoTdT+tht4G6drlkSsEdqAzFnReLC4RTW8=
 github.com/helixml/kodit v1.3.8/go.mod h1:NhT1+0j9LZk6u0mZzuMbyc/P/Rfheh8OYLUxANN9JTg=
+github.com/helixml/kodit v1.4.0 h1:buiyQWlpetQ1TyYHsJqbFCjw1eWZhSOp/1f7PuHrJlI=
+github.com/helixml/kodit v1.4.0/go.mod h1:NhT1+0j9LZk6u0mZzuMbyc/P/Rfheh8OYLUxANN9JTg=
 github.com/helixml/langchaingo v0.1.15 h1:6cEwRQgEri4aDrvDnSESmsMY9H35UUoWuOEukSP3lJw=
 github.com/helixml/langchaingo v0.1.15/go.mod h1:EeervIv/DNYhSfQSMaql20wMFvhgF7lDaVaatp8lVPw=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
