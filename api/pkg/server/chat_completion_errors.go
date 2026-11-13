@@ -119,6 +119,9 @@ func classifyProviderFailure(err error, scope chatCompletionErrorScope) chatComp
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		// Helix's credentials for the provider are wrong; the caller's are not.
 		return gatewayFailure(http.StatusBadGateway, "the model provider rejected Helix's credentials; an administrator must check the provider configuration")
+	case status == http.StatusTooManyRequests && providerErrorCode(err) == errorTypeInsufficient:
+		// The provider account is out of credit: retrying cannot help.
+		return providerRefusal(err, http.StatusPaymentRequired, errorTypeInsufficient, scope)
 	case status == http.StatusTooManyRequests:
 		failure := providerRefusal(err, status, errorTypeRateLimit, scope)
 		var providerErr *oai.ProviderError
@@ -178,6 +181,16 @@ func providerRefusal(err error, status int, defaultType string, scope chatComple
 		}
 	}
 	return chatCompletionFailure{status: status, body: body}
+}
+
+func providerErrorCode(err error) string {
+	var apiErr *openai.APIError
+	if errors.As(err, &apiErr) {
+		if code, ok := apiErr.Code.(string); ok {
+			return code
+		}
+	}
+	return ""
 }
 
 func isTimeoutError(err error) bool {
@@ -258,18 +271,23 @@ func logChatCompletionFailure(err error, failure chatCompletionFailure, scope ch
 const maxProviderMessageBytes = 512
 
 var (
-	urlPattern      = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s"'<>]+`)
-	ipv4Pattern     = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b`)
-	ipv6Pattern     = regexp.MustCompile(`(?i)\[?\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{0,4}\]?(?::\d{1,5})?`)
-	hostPortPattern = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9.-]*:\d{2,5}\b`)
+	urlPattern  = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s"'<>]+`)
+	ipv4Pattern = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b`)
+	// IPv6 candidates (full or compressed, optionally bracketed with a port);
+	// each is confirmed with net.ParseIP so times ("12:30:45") and paths
+	// ("std::io") survive.
+	ipv6CandidatePattern = regexp.MustCompile(`(?i)\[?[0-9a-f.]*:[0-9a-f:.]*:[0-9a-f:.]*\]?(?::\d{1,5})?`)
+	hostPortPattern      = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9.-]*:\d{2,5}\b`)
 	// Helix's own cluster hosts are named node01, node06, …
 	internalNodePattern = regexp.MustCompile(`(?i)\bnode\d{1,3}\b`)
 	// Dotted names under a public or internal suffix. Restricting the suffix
 	// keeps parameter paths such as "messages.0.content" readable.
-	hostnamePattern = regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|net|org|io|ai|dev|app|cloud|co|uk|us|eu|xyz|sh|me|internal|local|localhost|lan|corp|svc|cluster|intra|home)\b`)
+	hostnamePattern = regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|net|org|io|ai|dev|app|cloud|co|uk|us|eu|xyz|sh|me|internal|local|localhost|lan|corp|svc|cluster|intra|home|network|prod|production|staging|stage|test|priv|private)\b`)
 
-	credentialAssignmentPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|token|secret|password|authorization|key)(\s*[:=]\s*)"?[^\s"',;]+`)
+	// The separator also covers JSON ("api_key":"…") and percent-encoded (key%3D…) forms.
+	credentialAssignmentPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|token|secret|password|authorization|key)("?\s*(?:[:=]|%3d)\s*)"?[^\s"',;&]+`)
 	bearerPattern               = regexp.MustCompile(`(?i)\bbearer\s+\S+`)
+	basicAuthPattern            = regexp.MustCompile(`(?i)\bbasic\s+[A-Za-z0-9+/=_-]{4,}`)
 	prefixedKeyPattern          = regexp.MustCompile(`\b(?:sk|pk|rk|hl)-[A-Za-z0-9_*-]{6,}|\b(?:ghp|gho|ghs|ghu|github_pat|xoxb|xoxp|hf|gsk|xai)_[A-Za-z0-9_]{6,}|\bAIza[0-9A-Za-z_-]{16,}`)
 	jwtPattern                  = regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)
 	// An opaque run of 24+ credential characters containing a digit: an
@@ -282,6 +300,7 @@ var (
 func redactCredentials(s string) string {
 	s = jwtPattern.ReplaceAllString(s, auditlog.RedactedValue)
 	s = bearerPattern.ReplaceAllString(s, "Bearer "+auditlog.RedactedValue)
+	s = basicAuthPattern.ReplaceAllString(s, "Basic "+auditlog.RedactedValue)
 	s = credentialAssignmentPattern.ReplaceAllString(s, "${1}${2}"+auditlog.RedactedValue)
 	s = prefixedKeyPattern.ReplaceAllString(s, auditlog.RedactedValue)
 	return opaqueTokenPattern.ReplaceAllStringFunc(s, func(word string) string {
@@ -314,10 +333,47 @@ func sanitizeProviderText(s string) string {
 	s = urlPattern.ReplaceAllString(s, "[url]")
 	s = redactCredentials(s)
 	s = ipv4Pattern.ReplaceAllString(s, "[address]")
-	s = ipv6Pattern.ReplaceAllString(s, "[address]")
+	s = redactIPv6(s)
 	s = hostPortPattern.ReplaceAllString(s, "[host]")
 	s = hostnamePattern.ReplaceAllString(s, "[host]")
 	return internalNodePattern.ReplaceAllString(s, "[host]")
+}
+
+func redactIPv6(s string) string {
+	var b strings.Builder
+	last := 0
+	for _, loc := range ipv6CandidatePattern.FindAllStringIndex(s, -1) {
+		start, end := loc[0], loc[1]
+		// A letter or digit directly before the match means it is part of a
+		// word such as "std::io", not a standalone address.
+		if start > 0 && isWordByte(s[start-1]) {
+			continue
+		}
+		candidate := strings.TrimPrefix(s[start:end], "[")
+		if i := strings.Index(candidate, "]"); i >= 0 {
+			candidate = candidate[:i]
+		}
+		if net.ParseIP(candidate) == nil && net.ParseIP(stripIPv6Port(candidate)) == nil {
+			continue
+		}
+		b.WriteString(s[last:start])
+		b.WriteString("[address]")
+		last = end
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+// stripIPv6Port drops a trailing ":port" from an unbracketed candidate.
+func stripIPv6Port(s string) string {
+	if i := strings.LastIndex(s, ":"); i > 0 {
+		return s[:i]
+	}
+	return s
+}
+
+func isWordByte(c byte) bool {
+	return c == '_' || ('0' <= c && c <= '9') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 }
 
 func capProviderMessage(s string) string {

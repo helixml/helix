@@ -389,4 +389,29 @@ func TestSanitizeProviderMessage(t *testing.T) {
 		sanitizeProviderMessage("upstream node06 failed for Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8-0731", "", "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8-0731"))
 	require.Equal(t, "This model's maximum context length is 131072 tokens; you requested 140000 tokens (qwen3.8-27b, gpt-4.1).",
 		sanitizeProviderMessage("This model's maximum context length is 131072 tokens; you requested 140000 tokens (qwen3.8-27b, gpt-4.1)."))
+
+	basicCred := "dXNlcjpw" + "YXNzd29yZA=="
+	for _, probe := range []struct{ in, leak string }{
+		{"proxy said: Authorization: Basic " + basicCred, basicCred},
+		{`upstream body {"api_key":"hunter2x"}`, "hunter2x"},
+		{"rejected key%3Dsupersecret1 in query", "supersecret1"},
+		{"connect to fd00::1234 failed", "fd00::1234"},
+		{"dial tcp [::1]:8000: refused", "::1"},
+		{"dial [fd00::1]:8000 refused", "fd00::1"},
+		{"lookup proxy.network failed", "proxy.network"},
+		{"db.prod unreachable", "db.prod"},
+	} {
+		require.NotContains(t, sanitizeProviderMessage(probe.in), probe.leak, probe.in)
+	}
+	require.Equal(t, "panic in std::io::Error at 12:30:45", sanitizeProviderMessage("panic in std::io::Error at 12:30:45"))
+}
+
+func TestProviderOutOfCreditIsNotRetryable(t *testing.T) {
+	quota := &openai.APIError{HTTPStatusCode: http.StatusTooManyRequests, Code: "insufficient_quota", Message: "You exceeded your current quota"}
+	failure := classifyProviderFailure(fmt.Errorf("upstream: %w", quota), chatCompletionErrorScope{})
+	require.Equal(t, http.StatusPaymentRequired, failure.status)
+	require.Equal(t, "insufficient_quota", failure.body.Code)
+
+	limited := &openai.APIError{HTTPStatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded", Message: "slow down"}
+	require.Equal(t, http.StatusTooManyRequests, classifyProviderFailure(limited, chatCompletionErrorScope{}).status)
 }
