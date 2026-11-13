@@ -25,7 +25,7 @@ func (c *ServerConfig) InternalServiceURLs() []string {
 		// Text extraction
 		c.TextExtractor.URL,
 		// Search
-		c.Search.SearXNGBaseURL,
+		c.WebSearch.SearXNGBaseURL,
 		// Frontend
 		c.WebServer.FrontendURL,
 		// Kodit (git server is always the local API)

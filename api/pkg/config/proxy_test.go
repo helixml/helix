@@ -103,7 +103,7 @@ func TestEnsureNoProxyForInternalHosts(t *testing.T) {
 			cfg.RAG.Crawler.ChromeURL = tt.chromeURL
 			cfg.RAG.Crawler.LauncherURL = tt.launcherURL
 			if tt.searxngURL != "" {
-				cfg.Search.SearXNGBaseURL = tt.searxngURL
+				cfg.WebSearch.SearXNGBaseURL = tt.searxngURL
 			}
 			// Simulate production: FRONTEND_URL is a filesystem path
 			cfg.WebServer.FrontendURL = "/www"

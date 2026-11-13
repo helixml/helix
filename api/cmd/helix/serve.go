@@ -378,7 +378,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	searchProvider := searxng.NewSearXNG(&searxng.Config{
-		BaseURL: cfg.Search.SearXNGBaseURL,
+		BaseURL: cfg.WebSearch.SearXNGBaseURL,
 	})
 
 	controllerOptions := controller.Options{
