@@ -893,9 +893,10 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 					return nil
 				},
 			)
-			if writeErr == nil {
-				// A person saving the script vouches for the helix-specs
-				// commit it now lives in, even when the text was unchanged.
+			// Only a save that wrote a commit is trusted: the settings page
+			// resends the unchanged script on every save, which must not
+			// endorse whatever agents have since pushed to helix-specs.
+			if writeErr == nil && changed {
 				writeErr = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, startupCommit)
 			}
 			if writeErr != nil {
@@ -3112,8 +3113,8 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				// Repo not yet cloned — trigger async clone; write startup script after clone succeeds.
 				log.Info().Str("repo_id", primaryRepo.ID).Msg("Triggering async clone to initialize startup script in helix-specs")
 				s.gitRepositoryService.CloneRepositoryAsync(primaryRepo, func(localPath string) {
-					commitSHA, _, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail)
-					if err == nil {
+					commitSHA, changed, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail)
+					if err == nil && changed {
 						err = s.trustStartupScriptWrite(context.Background(), user, primaryRepo.ID, commitSHA)
 					}
 					if err != nil {
@@ -3124,8 +3125,8 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				})
 			} else {
 				// Repo already cloned — write startup script synchronously.
-				commitSHA, _, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail)
-				if err == nil {
+				commitSHA, changed, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail)
+				if err == nil && changed {
 					err = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, commitSHA)
 				}
 				if err != nil {

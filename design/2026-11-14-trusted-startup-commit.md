@@ -18,9 +18,10 @@ for.
 - `git_repositories.trusted_startup_sha` holds that commit. It moves only when:
   - a push that updates `helix-specs` is authenticated with a human credential
     (`!ApiKey.IsAgentBound()`: personal or org key);
-  - a person (`User.IsHumanCredential()`) saves or creates the startup script
+  - a person (`User.IsHumanCredential()`) writes a new startup script commit
     through the UI/API (project create, project update, `helix apply`, sample
-    projects).
+    projects). A save that leaves the script unchanged trusts nothing: the
+    settings page resends the script on every save.
 - Agent pushes (spec-task, session, sandbox, project, app, embed, bot keys) are
   still accepted; they never move it.
 - `UpdateGitRepository` omits the column; only `SetGitRepositoryTrustedStartupSHA`
@@ -44,5 +45,5 @@ for.
 - CWD is the primary code checkout, which agents of the same project can push
   (their task branch). Other projects' agents cannot push that branch.
 - Repositories that existed before this change have no trusted commit; their
-  startup script does not run until a person saves it in Project Settings or
+  startup script does not run until a person changes it in Project Settings or
   pushes helix-specs.
