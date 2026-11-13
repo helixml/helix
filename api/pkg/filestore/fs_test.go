@@ -3,6 +3,7 @@ package filestore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -104,4 +105,8 @@ func TestFileSystemStorageGetUnreadableIsNotNotFound(t *testing.T) {
 	require.False(t, errors.Is(err, ErrNotFound))
 	require.True(t, errors.Is(err, fs.ErrPermission))
 	require.NotContains(t, err.Error(), root)
+}
+
+func TestErrNotFoundMatchesFsErrNotExist(t *testing.T) {
+	require.ErrorIs(t, fmt.Errorf("get x: %w", ErrNotFound), fs.ErrNotExist)
 }
