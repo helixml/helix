@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
@@ -163,4 +166,50 @@ func scopesOverlap(a, b types.SecretScope) bool {
 		b = types.SecretScopeDev
 	}
 	return a == types.SecretScopeBoth || b == types.SecretScopeBoth || a == b
+}
+
+// encryptLegacyPlaintextSecrets encrypts secret values stored before secrets
+// were encrypted at rest (59aa0de79e, December 2025). Nothing backfilled those
+// rows, and every write path has encrypted since, so a value that is not an
+// AES-GCM envelope can only be legacy plaintext. A value that is an envelope
+// but does not decrypt was written under another key and is left alone: it
+// is reported as undecryptable where it is read. A legacy plaintext value
+// that happens to look like an envelope is treated the same way and must be
+// re-entered. Idempotent: encrypted rows are envelopes and are skipped.
+func (s *PostgresStore) encryptLegacyPlaintextSecrets(ctx context.Context) error {
+	if !s.gdb.Migrator().HasTable(&types.Secret{}) {
+		return nil
+	}
+	var rows []types.Secret
+	if err := s.gdb.WithContext(ctx).Select("id", "value").
+		Where("value IS NOT NULL AND length(value) > 0").Find(&rows).Error; err != nil {
+		return fmt.Errorf("list secrets to encrypt: %w", err)
+	}
+	var legacy []types.Secret
+	for _, row := range rows {
+		if !crypto.IsAES256GCMEnvelope(string(row.Value)) {
+			legacy = append(legacy, row)
+		}
+	}
+	if len(legacy) == 0 {
+		return nil
+	}
+	key, err := crypto.GetEncryptionKey()
+	if err != nil {
+		return fmt.Errorf("get encryption key: %w", err)
+	}
+	for _, row := range legacy {
+		encrypted, err := crypto.EncryptAES256GCM(row.Value, key)
+		if err != nil {
+			return fmt.Errorf("encrypt secret %s: %w", row.ID, err)
+		}
+		// Matching on the old value skips a row rewritten since it was read.
+		if err := s.gdb.WithContext(ctx).Model(&types.Secret{}).
+			Where("id = ? AND value = ?", row.ID, row.Value).
+			Update("value", []byte(encrypted)).Error; err != nil {
+			return fmt.Errorf("encrypt secret %s: %w", row.ID, err)
+		}
+	}
+	log.Info().Int("count", len(legacy)).Msg("Encrypted secrets stored before encryption at rest")
+	return nil
 }

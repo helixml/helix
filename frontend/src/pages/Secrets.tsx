@@ -160,7 +160,13 @@ const SecretsContent: React.FC = () => {
                       <TableRow key={secret.id}>
                         <TableCell>{new Date(secret.created).toLocaleString()}</TableCell>
                         <TableCell>{secret.name}</TableCell>
-                        <TableCell>*****</TableCell>
+                        <TableCell>
+                          {secret.undecryptable ? (
+                            <Typography variant="body2" color="error">
+                              Can't decrypt: saved under a different encryption key. Delete and re-create it; until then it is not substituted.
+                            </Typography>
+                          ) : '*****'}
+                        </TableCell>
                         <TableCell>
                           <IconButton onClick={() => handleDeleteClick(secret.id)} color="error">
                             <DeleteIcon />
