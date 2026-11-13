@@ -154,7 +154,7 @@ func createdTaskConfinement(t *testing.T, confine bool) bool {
 	_, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
 		ProjectID: "prj_a", Prompt: "find bugs", Type: "feature", Priority: types.SpecTaskPriorityHigh,
 		UserID: "usr_owner", CodeAgentConfig: config, ConfineAgentKey: confine,
-	})
+	}, testUploader)
 	require.NoError(t, err)
 	return stored.ConfineAgentKey
 }

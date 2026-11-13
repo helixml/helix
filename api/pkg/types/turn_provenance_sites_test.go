@@ -13,15 +13,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// turnCreatingLiterals are the composite literals that create a user-role
-// turn. Each one outside the store must set Provenance.
-var turnCreatingLiterals = map[string]string{
-	"types.Interaction":            "PromptMessage",
-	"types.PromptHistoryEntry":     "Content",
-	"controller.RunSessionRequest": "PromptMessage",
-	"RunSessionRequest":            "PromptMessage",
-	"Interaction":                  "PromptMessage",
-	"PromptHistoryEntry":           "Content",
+// requiredLiteralKey says that a composite literal of a type, when it sets
+// the "when" key ("" = always), must also set the "require" key.
+type requiredLiteralKey struct{ when, require string }
+
+// provenanceLiterals are the literals that create a user-role turn, or that
+// create or carry work Helix will turn into a turn later. Each one outside
+// the store must record who caused it.
+var provenanceLiterals = map[string]requiredLiteralKey{
+	"types.Interaction":                 {"PromptMessage", "Provenance"},
+	"Interaction":                       {"PromptMessage", "Provenance"},
+	"types.PromptHistoryEntry":          {"Content", "Provenance"},
+	"PromptHistoryEntry":                {"Content", "Provenance"},
+	"controller.RunSessionRequest":      {"PromptMessage", "Provenance"},
+	"RunSessionRequest":                 {"PromptMessage", "Provenance"},
+	"types.SpecTask":                    {"UserID", "QueuedBy"},
+	"types.SpecTaskDesignReviewComment": {"CommentText", "Provenance"},
+	"agentSwitchOptions":                {"", "actor"},
+	"evaluation.RunnerConfig":           {"Controller", "Actor"},
+}
+
+// queueingFunctionsKeepingQueuedBy queue agent work on a task without a new
+// caller: they keep the QueuedBy the task already carries.
+var queueingFunctionsKeepingQueuedBy = map[string]bool{
+	// Project auto-start of a backlog task: queued in its creator's name.
+	"services/spec_task_orchestrator.go:handleBacklog": true,
+	// Requeue of a stranded implementation launch.
+	"services/spec_task_orchestrator.go:reclaimStrandedImplementation": true,
+	// Publishing a task whose attachments finished preparing: QueuedBy was
+	// set when it was created.
+	"services/spec_driven_task_service.go:PublishTaskFromPromptAttachments": true,
+	// Creation: the QueuedBy key is set on the task literal.
+	"services/spec_driven_task_service.go:createTaskFromPrompt": true,
+	"server/spec_task_clone_handlers.go:cloneTaskToProject":     true,
+	// ApproveSpecs re-reads the task its caller stamped with QueuedBy.
+	"services/spec_driven_task_service.go:ApproveSpecs": true,
 }
 
 // expectedSystemTurnSites pins every function that writes a system turn to
@@ -51,8 +77,8 @@ var expectedSystemTurnSites = map[string][]string{
 	"services/spec_task_ci_notifier.go:NotifyCIResult":                           {"SystemTurnCIStatus"},
 	"services/spec_task_completion.go:DecideCompletion":                          {"SystemTurnCompletionSentBack"},
 	"services/spec_task_completion.go:NotifyPRSettled":                           {"SystemTurnPRSettled"},
-	"services/spec_task_pr_proposals.go:Decide":                                  {"SystemTurnPRProposalOutcome"},
-	"services/spec_task_pr_proposals.go:autoApprove":                             {"SystemTurnPRProposalOutcome"},
+	"services/spec_task_pr_proposals.go:decide":                                  {"SystemTurnPRProposalOutcome"},
+	"services/spec_task_pr_proposals.go:autoApprove":                             {"SystemTurnPRAutoApprove"},
 	"services/spec_task_pr_proposals.go:openAndNotify":                           {"SystemTurnPRProposalOutcome"},
 	"trigger/azure/azure_devops_trigger.go:processEvent":                         {"SystemTurnAzureDevOpsEvent"},
 	"trigger/crisp/crisp_bot.go:handleTextMessage":                               {"SystemTurnCrispMessage"},
@@ -105,8 +131,8 @@ func typeName(e ast.Expr) string {
 	return ""
 }
 
-// TestEveryTurnLiteralSetsProvenance fails when a path builds an interaction,
-// queued prompt or controller run request without recording who caused it.
+// TestEveryTurnLiteralSetsProvenance fails when a path builds a turn, or work
+// that becomes a turn later, without recording who caused it.
 func TestEveryTurnLiteralSetsProvenance(t *testing.T) {
 	var missing []string
 	walkSource(t, func(rel string, file *ast.File, fset *token.FileSet) {
@@ -115,31 +141,86 @@ func TestEveryTurnLiteralSetsProvenance(t *testing.T) {
 			if !ok {
 				return true
 			}
-			promptKey, tracked := turnCreatingLiterals[typeName(lit.Type)]
+			rule, tracked := provenanceLiterals[typeName(lit.Type)]
 			if !tracked {
 				return true
 			}
-			var hasPrompt, hasProvenance bool
+			hasWhen, hasRequired := rule.when == "", false
 			for _, el := range lit.Elts {
 				kv, ok := el.(*ast.KeyValueExpr)
 				if !ok {
 					continue
 				}
-				switch key, _ := kv.Key.(*ast.Ident); {
-				case key == nil:
-				case key.Name == promptKey:
-					hasPrompt = true
-				case key.Name == "Provenance":
-					hasProvenance = true
+				key, _ := kv.Key.(*ast.Ident)
+				if key == nil {
+					continue
 				}
+				hasWhen = hasWhen || key.Name == rule.when
+				hasRequired = hasRequired || key.Name == rule.require
 			}
-			if hasPrompt && !hasProvenance {
-				missing = append(missing, fset.Position(lit.Pos()).String())
+			if hasWhen && !hasRequired {
+				missing = append(missing, fset.Position(lit.Pos()).String()+" "+typeName(lit.Type)+" needs "+rule.require)
 			}
 			return true
 		})
 	})
-	require.Empty(t, missing, "turn-creating literals without Provenance")
+	require.Empty(t, missing, "literals that do not record who caused the turn")
+}
+
+var queuedStatuses = map[string]bool{
+	"TaskStatusQueuedSpecGeneration": true,
+	"TaskStatusQueuedImplementation": true,
+	"TaskStatusImplementationQueued": true,
+}
+
+// TestEveryQueueingPathSetsQueuedBy fails when a function queues agent work on
+// a spec task (a queued status, or a spec approval) without naming the caller
+// in QueuedBy: the orchestrator sends that work later, in QueuedBy's name.
+func TestEveryQueueingPathSetsQueuedBy(t *testing.T) {
+	var missing []string
+	walkSource(t, func(rel string, file *ast.File, _ *token.FileSet) {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			var queues, setsQueuedBy bool
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				switch v := n.(type) {
+				case *ast.AssignStmt:
+					for i, lhs := range v.Lhs {
+						if i >= len(v.Rhs) {
+							break
+						}
+						if sel, ok := lhs.(*ast.SelectorExpr); ok && sel.Sel.Name == "QueuedBy" {
+							setsQueuedBy = true
+						}
+						if rhs, ok := v.Rhs[i].(*ast.SelectorExpr); ok && queuedStatuses[rhs.Sel.Name] {
+							queues = true
+						}
+						if sel, ok := lhs.(*ast.SelectorExpr); ok && sel.Sel.Name == "SpecApprovedBy" {
+							if lit, isLit := v.Rhs[i].(*ast.BasicLit); !isLit || lit.Value != `""` {
+								queues = true
+							}
+						}
+					}
+				case *ast.KeyValueExpr:
+					if key, ok := v.Key.(*ast.Ident); ok && key.Name == "QueuedBy" {
+						setsQueuedBy = true
+					}
+					if lit, ok := v.Key.(*ast.BasicLit); ok && lit.Value == `"queued_by"` {
+						setsQueuedBy = true
+					}
+				}
+				return true
+			})
+			key := filepath.ToSlash(rel) + ":" + fn.Name.Name
+			if queues && !setsQueuedBy && !queueingFunctionsKeepingQueuedBy[key] {
+				missing = append(missing, key)
+			}
+		}
+	})
+	require.Empty(t, missing, "functions that queue agent work without setting QueuedBy")
 }
 
 // TestSystemTurnKindsPerCallSite checks every system call site writes the

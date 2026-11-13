@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testSecret = "hl-0123456789abcdefghijklmnopqrstuvwxyz"
+// testSecret is built at runtime so secret scanners don't flag a literal.
+var testSecret = APIKeyPrefix + strings.Repeat("t3st", 10)
 
 func TestRequestTurnProvenance(t *testing.T) {
 	keyID := APIKeyID(testSecret)
@@ -37,6 +38,14 @@ func TestRequestTurnProvenance(t *testing.T) {
 			TurnProvenance{Origin: TurnOriginAPI, APIKeyOwner: "u1", APIKeyType: APIKeyScopeApp, APIKeyID: keyID}},
 		{"embed key", &User{ID: "u1", TokenType: TokenTypeAPIKey, Token: testSecret, APIKeyType: APIkeytypeEmbed, SessionID: "ses_1"},
 			TurnProvenance{Origin: TurnOriginAPI, APIKeyOwner: "u1", APIKeyType: APIKeyScopeEmbed, APIKeyID: keyID, APIKeySessionID: "ses_1"}},
+		{"task-confined session key", &User{ID: "u1", TokenType: TokenTypeAPIKey, Token: testSecret, APIKeyType: APIkeytypeAPI,
+			OrganizationID: "org_1", ProjectID: "prj_1", SpecTaskID: "spt_1", SessionID: "ses_1", TaskConfined: true},
+			TurnProvenance{Origin: TurnOriginAPI, APIKeyOwner: "u1", APIKeyType: APIKeyScopeSpecTask, APIKeyID: keyID,
+				APIKeyOrgID: "org_1", APIKeyProjectID: "prj_1", APIKeySpecTaskID: "spt_1", APIKeySessionID: "ses_1", APIKeyTaskConfined: true}},
+		{"unconfined session key of the same task", &User{ID: "u1", TokenType: TokenTypeAPIKey, Token: testSecret, APIKeyType: APIkeytypeAPI,
+			OrganizationID: "org_1", ProjectID: "prj_1", SpecTaskID: "spt_1", SessionID: "ses_1"},
+			TurnProvenance{Origin: TurnOriginAPI, APIKeyOwner: "u1", APIKeyType: APIKeyScopeSession, APIKeyID: keyID,
+				APIKeyOrgID: "org_1", APIKeyProjectID: "prj_1", APIKeySpecTaskID: "spt_1", APIKeySessionID: "ses_1"}},
 		{"bot instance key", &User{ID: "u1", TokenType: TokenTypeAPIKey, Token: testSecret, APIKeyType: APIkeytypeBotInstance},
 			TurnProvenance{Origin: TurnOriginAPI, APIKeyOwner: "u1", APIKeyType: APIKeyScopeBotInstance, APIKeyID: keyID}},
 	}

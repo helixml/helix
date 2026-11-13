@@ -68,7 +68,10 @@ func (s *SpecDrivenTaskService) stageAttachmentsAndBuildPromptSection(
 //     the planning prompt (built later) lists it via ListSpecTaskAttachments — no note.
 //   - Planning already running (PlanningSessionID set): the prompt may already have been
 //     built without this file, so we enqueue an "attachment added" note.
-func (s *SpecDrivenTaskService) StageUploadedAttachments(ctx context.Context, taskID string) error {
+//
+// uploader is the caller who uploaded them; the note telling the agent about
+// them is triggered_by it.
+func (s *SpecDrivenTaskService) StageUploadedAttachments(ctx context.Context, taskID string, uploader types.TurnProvenance) error {
 	task, err := s.store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("get task: %w", err)
@@ -115,7 +118,7 @@ func (s *SpecDrivenTaskService) StageUploadedAttachments(ctx context.Context, ta
 	// agent has already been told.
 	if len(newlyArrived) > 0 && task.PlanningSessionID != "" && s.EnqueueMessageToAgent != nil {
 		note := buildAttachmentAddedNote(newlyArrived, GetTaskDirName(task))
-		if err := s.EnqueueMessageToAgent(ctx, task, note, false, task.CreatedBy, types.SystemTurn(types.SystemTurnAttachmentAdded)); err != nil {
+		if err := s.EnqueueMessageToAgent(ctx, task, note, false, task.CreatedBy, types.TriggeredBySystemTurn(types.SystemTurnAttachmentAdded, uploader)); err != nil {
 			return fmt.Errorf("enqueue attachment-added note: %w", err)
 		}
 	}

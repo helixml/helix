@@ -13981,6 +13981,10 @@ definitions:
     - code_review_trigger
     - evaluation_question
     - external_agent_test_harness
+    - org_bot_action
+    - helix_agent_tool
+    - trigger_configuration
+    - pr_auto_approve
     type: string
     x-enum-varnames:
     - SystemTurnPlanningPrompt
@@ -14011,6 +14015,10 @@ definitions:
     - SystemTurnCodeReviewTrigger
     - SystemTurnEvaluationQuestion
     - SystemTurnExternalAgentTestHarness
+    - SystemTurnOrgBotAction
+    - SystemTurnHelixAgentTool
+    - SystemTurnTriggerConfiguration
+    - SystemTurnPRAutoApprove
   types.Team:
     properties:
       created_at:
@@ -14502,6 +14510,9 @@ definitions:
         type: string
       api_key_spec_task_id:
         type: string
+      api_key_task_confined:
+        description: 'APIKeyTaskConfined: the key reaches only APIKeySpecTaskID.'
+        type: boolean
       api_key_type:
         $ref: '#/definitions/types.APIKeyScope'
       org_bot_id:
@@ -14513,6 +14524,15 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.SystemTurnKind'
         description: SystemKind names the code path, for origin=system.
+      trigger_app_id:
+        type: string
+      trigger_id:
+        description: |-
+          Trigger fields, for a trigger_configuration actor: the trigger's id
+          when it has one, the app it is configured on, and its configuring user.
+        type: string
+      trigger_owner:
+        type: string
       triggered_by:
         allOf:
         - $ref: '#/definitions/types.TurnProvenance'

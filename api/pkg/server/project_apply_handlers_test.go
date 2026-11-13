@@ -57,8 +57,9 @@ func (s *ApplyProjectSuite) SetupTest() {
 	s.store = store.NewMockStore(s.ctrl)
 	s.userID = "user-apply-test"
 	s.authCtx = setRequestUser(context.Background(), types.User{
-		ID:    s.userID,
-		Email: "apply@example.com",
+		ID:        s.userID,
+		Email:     "apply@example.com",
+		TokenType: types.TokenTypeOIDC,
 	})
 	s.server = &HelixAPIServer{
 		Cfg:   &config.ServerConfig{},

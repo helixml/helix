@@ -208,11 +208,11 @@ func (s *PRProposalService) Decide(ctx context.Context, user *types.User, propos
 	if err != nil {
 		return nil, fmt.Errorf("get spec task: %w", err)
 	}
-	outcome, err := types.SystemTurnTriggeredBy(types.SystemTurnPRProposalOutcome, user)
+	decider, err := types.RequestTurnProvenance(user)
 	if err != nil {
 		return nil, err
 	}
-	return s.decide(ctx, user, task, p, req, false, outcome)
+	return s.decide(ctx, user, task, p, req, false, decider)
 }
 
 // autoApprove approves a new proposal of a task that auto-approves PRs, as
@@ -223,7 +223,7 @@ func (s *PRProposalService) autoApprove(ctx context.Context, task *types.SpecTas
 	if user == nil {
 		return nil
 	}
-	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true, types.SystemTurn(types.SystemTurnPRProposalOutcome))
+	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true, types.SystemTurn(types.SystemTurnPRAutoApprove))
 	if err != nil {
 		log.Warn().Err(err).Str("task_id", task.ID).Str("proposal_id", p.ID).Msg("pr proposal: auto-approval failed; waiting for a human")
 		return nil
@@ -264,8 +264,10 @@ func (s *PRProposalService) currentAutoApprover(ctx context.Context, task *types
 // user's behalf by the task's auto-approve setting: nobody was asked, so no
 // approval request is dismissed and the agent learns the outcome from the
 // propose_pull_request result rather than a separate message.
-// outcome is the provenance of the turn telling the agent about the decision.
-func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *types.SpecTask, p *types.SpecTaskPRProposal, req *types.PRProposalDecisionRequest, auto bool, outcome types.TurnProvenance) (*types.SpecTaskPRProposal, error) {
+// decider is the deciding caller; the turn telling the agent the outcome,
+// now or once commits land, is triggered_by it.
+func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *types.SpecTask, p *types.SpecTaskPRProposal, req *types.PRProposalDecisionRequest, auto bool, decider types.TurnProvenance) (*types.SpecTaskPRProposal, error) {
+	outcome := types.TriggeredBySystemTurn(types.SystemTurnPRProposalOutcome, decider)
 	now := time.Now()
 	from := p.Status
 
@@ -286,6 +288,7 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 			}
 			cur.Status = types.PRProposalStatusRejected
 			cur.DecidedBy, cur.DecidedAt, cur.DecisionComment = user.ID, &now, req.Comment
+			cur.Decider = decider
 			ok, err := s.store.UpdateSpecTaskPRProposal(ctx, cur, from)
 			if err != nil {
 				return err
@@ -344,6 +347,7 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 		}
 		p.Status = types.PRProposalStatusApproved
 		p.DecidedBy, p.DecidedAt, p.Error = user.ID, &now, ""
+		p.Decider = decider
 		p.AutoApproved = auto
 		if req.Comment != "" || from == types.PRProposalStatusPending {
 			p.DecisionComment = req.Comment
@@ -480,7 +484,7 @@ func (s *PRProposalService) openAndNotify(ctx context.Context, proposalID string
 	if err != nil {
 		return
 	}
-	s.notifyAgent(ctx, task, p, nil, nil, types.SystemTurn(types.SystemTurnPRProposalOutcome))
+	s.notifyAgent(ctx, task, p, nil, nil, types.TriggeredBySystemTurn(types.SystemTurnPRProposalOutcome, p.Decider))
 }
 
 // tryOpen pushes an approved proposal's branch upstream and opens (or adopts)

@@ -50,7 +50,7 @@ func callSwitchAgentHTTP(t *testing.T, srv *HelixAPIServer, user *types.User, se
 func TestAgentConfigAppliedPreservesConcurrentRecoveryUpdate(t *testing.T) {
 	srv, memory := newForkTestServer(t)
 	ctx := context.Background()
-	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	oldRecovery := &types.ProviderRecovery{PromptID: "prompt-old", InteractionID: "interaction-old"}
 	newRecovery := &types.ProviderRecovery{PromptID: "prompt-new", InteractionID: "interaction-new"}
 	session := newTestParentSession(user.ID)
@@ -93,7 +93,7 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	srv.requestToInteractionMapping["req_old"] = "int_old"
 	srv.interactionDispatchClaims["int_old"] = dispatchClaim{requestID: "req_old", sessionID: session.ID}
 
-	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeQwenCode, "app_target")
+	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeQwenCode, "app_target", testUserTurn)
 	require.Nil(t, httpErr)
 
 	updated, err := mem.GetSession(ctx, session.ID)
@@ -138,6 +138,10 @@ func TestSwitchAgentInPlace_MutatesSessionAndSeeds(t *testing.T) {
 	}
 	require.NotNil(t, seed, "fork_seed interaction must be created")
 	assert.NotEmpty(t, seed.ResponseMessage, "fork_seed must carry the serialized transcript")
+	assert.Equal(t, types.TriggeredBySystemTurn(types.SystemTurnAgentSwitched, testUserTurn), seed.Provenance,
+		"the switch marker names whoever asked for the switch")
+	require.NotNil(t, handoff)
+	assert.Equal(t, types.TriggeredBySystemTurn(types.SystemTurnAgentSwitchHandoff, testUserTurn), handoff.Provenance)
 	require.NotNil(t, handoff, "handoff interaction must be created")
 	assert.Equal(t, types.InteractionStateWaiting, handoff.State, "handoff must be Waiting so the reconnect resume path delivers it on reconnect")
 }
@@ -246,7 +250,7 @@ func TestSessionUsesAgentRuntime_AcceptsNativeAgentName(t *testing.T) {
 func TestSwitchAgent_RepairsStaleAgentNameForCurrentApp(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
-	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 
 	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
@@ -275,7 +279,7 @@ func TestSwitchAgentWhileStoppedRecordsChangeWithoutHandoff(t *testing.T) {
 	executor := external_agent.NewMockExecutor(ctrl)
 	srv.externalAgentExecutor = executor
 	ctx := context.Background()
-	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
 
 	mem.SeedApp(&types.App{ID: "app_target", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
@@ -320,7 +324,7 @@ func TestSwitchAgentWhileStoppedRecordsChangeWithoutHandoff(t *testing.T) {
 
 func TestSwitchAgent_RejectsOrgAgentForCodingSession(t *testing.T) {
 	srv, mem := newForkTestServer(t)
-	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 
 	mem.SeedApp(&types.App{ID: "app_org", AgentKind: types.AgentKindOrg, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Assistants: []types.AssistantConfig{{
@@ -352,7 +356,7 @@ func TestReconcileSessionAgentWithApp_RepairsBeforeUserTurn(t *testing.T) {
 	session.Metadata.ZedThreadID = "thread_from_claude"
 	seedParentWithInteractions(t, mem, session, 1)
 
-	httpErr := srv.reconcileSessionAgentWithApp(ctx, session)
+	httpErr := srv.reconcileSessionAgentWithApp(ctx, session, testUserTurn)
 	require.Nil(t, httpErr)
 
 	updated, err := mem.GetSession(ctx, session.ID)
@@ -393,7 +397,7 @@ func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {
 	session.Metadata.ZedThreadID = "ctx_old_thread"
 	seedParentWithInteractions(t, mem, session, 2)
 
-	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeQwenCode, "app_target")
+	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeQwenCode, "app_target", testUserTurn)
 	require.Nil(t, httpErr)
 
 	updated, err := mem.GetSession(ctx, session.ID)
@@ -407,7 +411,7 @@ func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {
 
 func TestSwitchAgentHTTPRejectsAppForSpecTask(t *testing.T) {
 	srv, mem := newForkTestServer(t)
-	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_a", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 
 	mem.SeedApp(&types.App{ID: "app_opus", AgentKind: types.AgentKindCoding, Config: types.AppConfig{Helix: types.AppHelixConfig{
 		Name: "Opus",

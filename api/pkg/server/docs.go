@@ -44596,7 +44596,11 @@ const docTemplate = `{
                 "azure_devops_event",
                 "code_review_trigger",
                 "evaluation_question",
-                "external_agent_test_harness"
+                "external_agent_test_harness",
+                "org_bot_action",
+                "helix_agent_tool",
+                "trigger_configuration",
+                "pr_auto_approve"
             ],
             "x-enum-varnames": [
                 "SystemTurnPlanningPrompt",
@@ -44626,7 +44630,11 @@ const docTemplate = `{
                 "SystemTurnAzureDevOpsEvent",
                 "SystemTurnCodeReviewTrigger",
                 "SystemTurnEvaluationQuestion",
-                "SystemTurnExternalAgentTestHarness"
+                "SystemTurnExternalAgentTestHarness",
+                "SystemTurnOrgBotAction",
+                "SystemTurnHelixAgentTool",
+                "SystemTurnTriggerConfiguration",
+                "SystemTurnPRAutoApprove"
             ]
         },
         "types.Team": {
@@ -45324,6 +45332,10 @@ const docTemplate = `{
                 "api_key_spec_task_id": {
                     "type": "string"
                 },
+                "api_key_task_confined": {
+                    "description": "APIKeyTaskConfined: the key reaches only APIKeySpecTaskID.",
+                    "type": "boolean"
+                },
                 "api_key_type": {
                     "$ref": "#/definitions/types.APIKeyScope"
                 },
@@ -45341,6 +45353,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.SystemTurnKind"
                         }
                     ]
+                },
+                "trigger_app_id": {
+                    "type": "string"
+                },
+                "trigger_id": {
+                    "description": "Trigger fields, for a trigger_configuration actor: the trigger's id\nwhen it has one, the app it is configured on, and its configuring user.",
+                    "type": "string"
+                },
+                "trigger_owner": {
+                    "type": "string"
                 },
                 "triggered_by": {
                     "description": "TriggeredBy is the authenticated caller whose request made Helix write\nthis system turn (an operator clicking \"request changes\", say). Nil\nwhen the system turn came from a background event.",

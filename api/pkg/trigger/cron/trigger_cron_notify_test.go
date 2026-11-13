@@ -32,7 +32,7 @@ func TestExternalAgentFailureNotificationCarriesOwner(t *testing.T) {
 
 	app := &types.App{ID: "app-1", Owner: "usr_owner", OrganizationID: "org_1"}
 	trigger := &types.CronTrigger{Emails: []string{"owner@example.com"}}
-	_, err := executeExternalAgentCronTask(context.Background(), st, nil, notifier, app, "usr_owner", "trg-1", trigger, "nightly", "do it")
+	_, err := executeExternalAgentCronTask(context.Background(), st, nil, notifier, app, "usr_owner", "trg-1", trigger, "nightly", "do it", testCronActor)
 	require.Error(t, err)
 
 	require.NotNil(t, got)

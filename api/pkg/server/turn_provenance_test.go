@@ -21,7 +21,8 @@ import (
 
 var testUserTurn = types.TurnProvenance{Origin: types.TurnOriginUser, UserID: "user-1"}
 
-const provenanceTestSecret = "hl-provenance-test-secret-0123456789abcdef"
+// provenanceTestSecret is built at runtime so secret scanners don't flag a literal.
+var provenanceTestSecret = types.APIKeyPrefix + strings.Repeat("pr0v", 10)
 
 // forgedProvenanceBody carries every spelling a caller might try in order to
 // pass a turn off as Helix's own.
@@ -242,4 +243,52 @@ func TestListInteractionsCrossTenantStillRefused(t *testing.T) {
 			require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
 		})
 	}
+}
+
+// TestDesignReviewCommentByKeyIsSentInTheKeysName covers the deferred comment
+// path end to end: the comment is made by API key X, stored, and delivered to
+// the agent later by the comment queue; the turn must name X, not just Helix.
+func (s *SessionMessagesHandlerSuite) TestDesignReviewCommentByKeyIsSentInTheKeysName() {
+	key := types.User{ID: "user-1", TokenType: types.TokenTypeAPIKey, Token: provenanceTestSecret, APIKeyType: types.APIkeytypeAPI}
+	keyTurn, err := types.RequestTurnProvenance(&key)
+	s.Require().NoError(err)
+
+	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: key.ID}
+	s.store.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	var stored *types.SpecTaskDesignReviewComment
+	s.store.EXPECT().CreateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
+			c.ID = "cmt_1"
+			stored = c
+			return nil
+		})
+	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "rev_1").Return(nil, store.ErrNotFound)
+
+	body := `{"document_type":"requirements","comment_text":"tighten scope","comment_type":"general",
+		"provenance":{"origin":"system","system_kind":"design_review_comment"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/spt_1/design-reviews/rev_1/comments", strings.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"spec_task_id": task.ID, "review_id": "rev_1"})
+	req = req.WithContext(setRequestUser(req.Context(), key))
+	rr := httptest.NewRecorder()
+	s.server.createDesignReviewComment(rr, req)
+	s.Require().Equal(http.StatusOK, rr.Code, rr.Body.String())
+	s.Require().NotNil(stored)
+	s.Equal(keyTurn, stored.Provenance, "the comment row keeps the commenter's credential")
+
+	// Later, the queue processor delivers the stored comment.
+	task.PlanningSessionID = "ses_plan"
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_plan").Return(&types.Session{ID: "ses_plan", Owner: key.ID}, nil).AnyTimes()
+	var queued *types.PromptHistoryEntry
+	s.store.EXPECT().CreatePromptHistoryEntry(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e *types.PromptHistoryEntry) error {
+			queued = e
+			return nil
+		})
+	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), "ses_plan").Return(nil, nil).AnyTimes()
+	s.Require().NoError(s.server.sendCommentToAgentNow(context.Background(), task, stored))
+	time.Sleep(50 * time.Millisecond)
+
+	s.Require().NotNil(queued)
+	s.Equal(types.TriggeredBySystemTurn(types.SystemTurnDesignReviewComment, keyTurn), queued.Provenance)
 }

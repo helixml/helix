@@ -265,6 +265,7 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 
 	now := time.Now()
 	task := &types.SpecTask{
+		QueuedBy:       types.OrgBotActor(string(workerID)),
 		ID:             system.GenerateSpecTaskID(),
 		ProjectID:      projectID,
 		UserID:         hiringUserID,
@@ -414,6 +415,7 @@ func (s *SpecTasks) StartPlanning(ctx context.Context, orgID string, workerID or
 	} else {
 		task.Status = types.TaskStatusQueuedSpecGeneration
 	}
+	task.QueuedBy = types.OrgBotActor(string(workerID))
 	task.UpdatedAt = time.Now()
 	if err := s.tasks.UpdateSpecTask(ctx, task); err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("start planning: %w", err)
@@ -613,6 +615,7 @@ func (s *SpecTasks) ApproveSpec(ctx context.Context, orgID string, workerID orgc
 	// approval record.
 	now := time.Now()
 	task.SpecApprovedBy = hiringUserID
+	task.QueuedBy = types.OrgBotActor(string(workerID))
 	task.SpecApprovedAt = &now
 	task.Status = types.TaskStatusSpecApproved
 	task.UpdatedAt = now

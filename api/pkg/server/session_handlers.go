@@ -907,7 +907,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
-		if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session); reconcileErr != nil {
+		if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session, provenance); reconcileErr != nil {
 			http.Error(rw, reconcileErr.Message, reconcileErr.StatusCode)
 			return
 		}
@@ -2750,17 +2750,17 @@ func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Reque
 		return nil, err
 	}
 
-	if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session); reconcileErr != nil {
+	provenance, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+	if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session, provenance); reconcileErr != nil {
 		return nil, reconcileErr
 	}
 
 	// Enqueue onto the session-scoped prompt queue (the single sender path).
 	// interrupt honours the caller's request; org bots pass false and thereby get
 	// proper busy-defer (previously they hit the direct path with no busy-check).
-	provenance, err := requestTurnProvenance(ctx, user)
-	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
-	}
 	promptID, err := s.enqueueAgentMessage(ctx, sessionID, body.Content, body.Interrupt, body.NotifyUserID, "", provenance)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to queue session message")

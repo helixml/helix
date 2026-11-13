@@ -26,7 +26,7 @@ import (
 
 // SpecTaskCreator creates spec tasks from prompts. Implemented by SpecDrivenTaskService.
 type SpecTaskCreator interface {
-	CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error)
+	CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest, creator types.TurnProvenance) (*types.SpecTask, error)
 }
 
 // ExternalAgentStarter creates external agent (Zed) sessions. Implemented by the API server.
@@ -405,7 +405,8 @@ func (c *Cron) runCronApp(ctx context.Context, cronApp *cronApp) {
 
 	// Resolved here, not at construction time: the scheduler starts before the
 	// API server wires these in.
-	_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, c.specTaskCreator(), c.externalAgentStarter(), cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name)
+	_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, c.specTaskCreator(), c.externalAgentStarter(), cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name,
+		types.TriggerActor(types.TriggerSource{TriggerID: cronApp.ID, AppID: cronApp.App.ID, Owner: cronApp.UserID}))
 	if err != nil {
 		log.Error().Err(err).
 			Str("app_id", cronApp.App.ID).
@@ -459,10 +460,10 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, specTaskCreator SpecTaskCreator, externalAgentStarter ExternalAgentStarter, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (*types.TriggerExecuteResponse, error) {
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, specTaskCreator SpecTaskCreator, externalAgentStarter ExternalAgentStarter, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string, actor types.TurnProvenance) (*types.TriggerExecuteResponse, error) {
 	// Handle spec_task action: create a spec task instead of running a session
 	if trigger.Action == "spec_task" {
-		content, err := executeSpecTaskAction(ctx, str, specTaskCreator, notifier, a, userID, triggerID, trigger, sessionName)
+		content, err := executeSpecTaskAction(ctx, str, specTaskCreator, notifier, a, userID, triggerID, trigger, sessionName, actor)
 		if err != nil {
 			return nil, err
 		}
@@ -483,7 +484,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	// Tasks-page triggers omit AgentType and ProjectID. Infer the runtime from
 	// the selected agent so they take the same path as an interactive chat.
 	if cronAgentType(a, trigger) == types.AgentTypeZedExternal {
-		sessionID, err := executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText)
+		sessionID, err := executeExternalAgentCronTask(ctx, str, externalAgentStarter, notifier, a, userID, triggerID, trigger, sessionName, promptText, actor)
 		if err != nil {
 			return nil, err
 		}
@@ -582,7 +583,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Session:        session,
 		User:           user,
 		PromptMessage:  types.MessageContent{Parts: []any{promptText}},
-		Provenance:     types.SystemTurn(types.SystemTurnCronTrigger),
+		Provenance:     types.TriggeredBySystemTurn(types.SystemTurnCronTrigger, actor),
 	})
 	if err != nil {
 		log.Error().
@@ -654,7 +655,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	}, nil
 }
 
-func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter ExternalAgentStarter, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string, promptText string) (string, error) {
+func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter ExternalAgentStarter, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string, promptText string, actor types.TurnProvenance) (string, error) {
 	sessionID := system.GenerateSessionID()
 	execution, started, err := reserveCronExecution(ctx, str, triggerID, sessionName, sessionID)
 	if err != nil {
@@ -714,7 +715,7 @@ func executeExternalAgentCronTask(ctx context.Context, str store.Store, starter 
 				Content: types.MessageContent{Parts: []any{promptText}},
 			},
 		},
-	}, userID, types.SystemTurn(types.SystemTurnCronTrigger))
+	}, userID, types.TriggeredBySystemTurn(types.SystemTurnCronTrigger, actor))
 	if err != nil {
 		log.Error().Err(err).Str("app_id", a.ID).Msg("failed to start external agent cron session")
 		return fail(err)
@@ -824,7 +825,7 @@ func readInputFile(ctx context.Context, str store.Store, trigger *types.CronTrig
 	return string(content), nil
 }
 
-func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator SpecTaskCreator, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator SpecTaskCreator, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string, actor types.TurnProvenance) (string, error) {
 	// Create execution record FIRST, before any validation, so a misconfigured
 	// trigger leaves a visible failed execution rather than disappearing. A fire
 	// that records nothing is indistinguishable from a fire that never happened —
@@ -875,7 +876,7 @@ func executeSpecTaskAction(ctx context.Context, str store.Store, specTaskCreator
 		// — it is also refused every git push except helix-specs. See the note on
 		// CronTrigger.JustDoItMode.
 		JustDoItMode: trigger.JustDoItMode,
-	})
+	}, actor)
 	if err != nil {
 		return "", recordSpecTaskFailure(ctx, str, notifier, execution, startedAt, a, userID, triggerID, trigger.Emails, err)
 	}

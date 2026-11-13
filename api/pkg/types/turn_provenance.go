@@ -64,6 +64,21 @@ const (
 	SystemTurnExternalAgentTestHarness SystemTurnKind = "external_agent_test_harness"
 )
 
+// Actor kinds appear only inside TriggeredBy, naming a non-human caller.
+const (
+	// SystemTurnOrgBotAction: an org bot (OrgBotID) asked for the work.
+	SystemTurnOrgBotAction SystemTurnKind = "org_bot_action"
+	// SystemTurnHelixAgentTool: a Helix chat agent's tool asked for the work.
+	SystemTurnHelixAgentTool SystemTurnKind = "helix_agent_tool"
+	// SystemTurnTriggerConfiguration: a configured trigger or integration
+	// (TriggerID, TriggerAppID, TriggerOwner) fired. The external sender is
+	// not known to Helix and is not recorded.
+	SystemTurnTriggerConfiguration SystemTurnKind = "trigger_configuration"
+	// SystemTurnPRAutoApprove: Helix approved a pull request proposal under
+	// the task's auto-approve setting.
+	SystemTurnPRAutoApprove SystemTurnKind = "pr_auto_approve"
+)
+
 // APIKeyScope classifies the API key a turn was sent with.
 type APIKeyScope string
 
@@ -97,11 +112,18 @@ type TurnProvenance struct {
 	APIKeyProjectID  string      `json:"api_key_project_id,omitempty"`
 	APIKeySpecTaskID string      `json:"api_key_spec_task_id,omitempty"`
 	APIKeySessionID  string      `json:"api_key_session_id,omitempty"`
+	// APIKeyTaskConfined: the key reaches only APIKeySpecTaskID.
+	APIKeyTaskConfined bool `json:"api_key_task_confined,omitempty"`
 
 	// SystemKind names the code path, for origin=system.
 	SystemKind SystemTurnKind `json:"system_kind,omitempty"`
 	// OrgBotID is the org bot that caused an org_bot_* system turn.
 	OrgBotID string `json:"org_bot_id,omitempty"`
+	// Trigger fields, for a trigger_configuration actor: the trigger's id
+	// when it has one, the app it is configured on, and its configuring user.
+	TriggerID    string `json:"trigger_id,omitempty"`
+	TriggerAppID string `json:"trigger_app_id,omitempty"`
+	TriggerOwner string `json:"trigger_owner,omitempty"`
 	// TriggeredBy is the authenticated caller whose request made Helix write
 	// this system turn (an operator clicking "request changes", say). Nil
 	// when the system turn came from a background event.
@@ -153,6 +175,41 @@ func OrgBotSystemTurn(kind SystemTurnKind, botID string) TurnProvenance {
 	p := SystemTurn(kind)
 	p.OrgBotID = botID
 	return p
+}
+
+// TriggerSource identifies a configured trigger or integration.
+type TriggerSource struct {
+	TriggerID string
+	AppID     string
+	Owner     string
+}
+
+// TriggerActor names a configured trigger as the caller of deferred work.
+func TriggerActor(source TriggerSource) TurnProvenance {
+	return TurnProvenance{
+		Origin:       TurnOriginSystem,
+		SystemKind:   SystemTurnTriggerConfiguration,
+		TriggerID:    source.TriggerID,
+		TriggerAppID: source.AppID,
+		TriggerOwner: source.Owner,
+	}
+}
+
+// TriggerTurn is the provenance of a turn an external-platform trigger
+// caused: a system turn triggered by the trigger's configuration.
+func TriggerTurn(kind SystemTurnKind, source TriggerSource) TurnProvenance {
+	return TriggeredBySystemTurn(kind, TriggerActor(source))
+}
+
+// OrgBotActor names an org bot as the caller of deferred work.
+func OrgBotActor(botID string) TurnProvenance {
+	return OrgBotSystemTurn(SystemTurnOrgBotAction, botID)
+}
+
+// HelixAgentToolActor names a Helix chat agent's tool as the caller of
+// deferred work.
+func HelixAgentToolActor() TurnProvenance {
+	return SystemTurn(SystemTurnHelixAgentTool)
 }
 
 // SystemTurnTriggeredBy is the provenance of a templated turn Helix writes
@@ -208,14 +265,15 @@ func RequestTurnProvenance(user *User) (TurnProvenance, error) {
 			return TurnProvenance{}, fmt.Errorf("turn provenance: API key request carries no key")
 		}
 		return TurnProvenance{
-			Origin:           TurnOriginAPI,
-			APIKeyOwner:      user.ID,
-			APIKeyType:       apiKeyScope(user),
-			APIKeyID:         APIKeyID(user.Token),
-			APIKeyOrgID:      user.OrganizationID,
-			APIKeyProjectID:  user.ProjectID,
-			APIKeySpecTaskID: user.SpecTaskID,
-			APIKeySessionID:  user.SessionID,
+			Origin:             TurnOriginAPI,
+			APIKeyOwner:        user.ID,
+			APIKeyType:         apiKeyScope(user),
+			APIKeyID:           APIKeyID(user.Token),
+			APIKeyOrgID:        user.OrganizationID,
+			APIKeyProjectID:    user.ProjectID,
+			APIKeySpecTaskID:   user.SpecTaskID,
+			APIKeySessionID:    user.SessionID,
+			APIKeyTaskConfined: user.TaskConfined,
 		}, nil
 	default:
 		return TurnProvenance{}, fmt.Errorf("turn provenance: credential type %q cannot send turns", user.TokenType)
@@ -232,6 +290,9 @@ func apiKeyScope(user *User) APIKeyScope {
 		return APIKeyScopeBotInstance
 	}
 	switch {
+	case user.TaskConfined:
+		// A task-confined session key reaches only its spec task.
+		return APIKeyScopeSpecTask
 	case strings.HasPrefix(user.SessionID, SandboxIDPrefix):
 		return APIKeyScopeSandbox
 	case user.SessionID != "":

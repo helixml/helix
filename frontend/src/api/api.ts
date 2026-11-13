@@ -8917,6 +8917,10 @@ export enum TypesSystemTurnKind {
   SystemTurnCodeReviewTrigger = "code_review_trigger",
   SystemTurnEvaluationQuestion = "evaluation_question",
   SystemTurnExternalAgentTestHarness = "external_agent_test_harness",
+  SystemTurnOrgBotAction = "org_bot_action",
+  SystemTurnHelixAgentTool = "helix_agent_tool",
+  SystemTurnTriggerConfiguration = "trigger_configuration",
+  SystemTurnPRAutoApprove = "pr_auto_approve",
 }
 
 export interface TypesTeam {
@@ -9215,12 +9219,21 @@ export interface TypesTurnProvenance {
   api_key_project_id?: string;
   api_key_session_id?: string;
   api_key_spec_task_id?: string;
+  /** APIKeyTaskConfined: the key reaches only APIKeySpecTaskID. */
+  api_key_task_confined?: boolean;
   api_key_type?: TypesAPIKeyScope;
   /** OrgBotID is the org bot that caused an org_bot_* system turn. */
   org_bot_id?: string;
   origin?: TypesTurnOrigin;
   /** SystemKind names the code path, for origin=system. */
   system_kind?: TypesSystemTurnKind;
+  trigger_app_id?: string;
+  /**
+   * Trigger fields, for a trigger_configuration actor: the trigger's id
+   * when it has one, the app it is configured on, and its configuring user.
+   */
+  trigger_id?: string;
+  trigger_owner?: string;
   /**
    * TriggeredBy is the authenticated caller whose request made Helix write
    * this system turn (an operator clicking "request changes", say). Nil

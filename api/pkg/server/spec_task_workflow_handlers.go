@@ -99,6 +99,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		now := time.Now()
 		specTask.Status = types.TaskStatusSpecApproved
 		specTask.SpecApprovedBy = user.ID
+		specTask.QueuedBy = approver
 		specTask.SpecApprovedAt = &now
 		specTask.StatusUpdatedAt = &now
 		specTask.SpecApproval = &types.SpecApprovalResponse{

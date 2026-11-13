@@ -1258,7 +1258,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		if err := requireUnpaused(session); err != nil {
 			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
 		}
-		if err := c.server.reconcileSessionAgentWithApp(ctx, session); err != nil {
+		if err := c.server.reconcileSessionAgentWithApp(ctx, session, types.SystemTurn(types.SystemTurnOrgActivation)); err != nil {
 			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
 		}
 		defer c.server.lockPromptDrain(sessionID)()

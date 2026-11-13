@@ -196,7 +196,7 @@ func (h *HelixCodeReviewTrigger) runReviewSession(ctx context.Context, project *
 		Session:        session,
 		User:           user,
 		PromptMessage:  types.MessageContent{Parts: []any{prompt}},
-		Provenance:     types.SystemTurn(types.SystemTurnCodeReviewTrigger),
+		Provenance:     types.TriggerTurn(types.SystemTurnCodeReviewTrigger, types.TriggerSource{AppID: app.ID}),
 	})
 	if err != nil {
 		log.Warn().
