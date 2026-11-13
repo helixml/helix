@@ -28,10 +28,12 @@ export default defineConfig({
       },
     },
     setupFiles: ['./src/setupTests.ts'],
-    // The CI runner shares CPUs with the Go test steps; under that load the
-    // slower jsdom component tests exceed the 5s default and fail at random.
+    // CI shares CPUs and memory with the Go test steps. Under that load slow
+    // component tests exceed the 5s default, and memory grows with the worker
+    // count (each test file forks its own worker), so the count is fixed
+    // rather than a share of the host's cores.
     ...(process.env.CI
-      ? { testTimeout: 30_000, hookTimeout: 30_000, minWorkers: 1, maxWorkers: '50%' }
+      ? { testTimeout: 30_000, hookTimeout: 30_000, minWorkers: 1, maxWorkers: 4 }
       : {}),
     deps: {
       inline: [/react-markdown/, /react-syntax-highlighter/],
