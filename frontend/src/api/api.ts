@@ -2741,6 +2741,14 @@ export interface TypesArtifact {
   name?: string;
   organization_id?: string;
   project_id?: string;
+  /**
+   * SpecTaskID is the spec task whose task-confined key created the
+   * artifact, set by the server from the key and never from the request.
+   * Such a key may change or delete only its own task's artifacts, and a
+   * reader can tell one lane's artifacts from another's. Empty for
+   * artifacts created any other way.
+   */
+  spec_task_id?: string;
   subdomain_url?: string;
   updated_at?: string;
   updated_by?: string;
@@ -4717,6 +4725,11 @@ export interface TypesIdentityAttestationClaims {
   exp?: string;
   iat?: string;
   jti?: string;
+  /**
+   * KeyConfined: the attested key reaches only its own spec task and that
+   * task's sessions (a task created with confine_agent_key).
+   */
+  key_confined?: boolean;
   nonce?: string;
   organization_id?: string;
   owner?: string;
@@ -17408,10 +17421,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/projects/{id}/artifacts
      * @secure
      */
-    v1ProjectsArtifactsDetail: (id: string, params: RequestParams = {}) =>
+    v1ProjectsArtifactsDetail: (
+      id: string,
+      query?: {
+        /** Only artifacts created by this spec task's task-confined key */
+        spec_task_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesArtifactsListResponse, any>({
         path: `/api/v1/projects/${id}/artifacts`,
         method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,

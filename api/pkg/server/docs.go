@@ -14513,6 +14513,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only artifacts created by this spec task's task-confined key",
+                        "name": "spec_task_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -31749,6 +31755,10 @@ const docTemplate = `{
                 "project_id": {
                     "type": "string"
                 },
+                "spec_task_id": {
+                    "description": "SpecTaskID is the spec task whose task-confined key created the\nartifact, set by the server from the key and never from the request.\nSuch a key may change or delete only its own task's artifacts, and a\nreader can tell one lane's artifacts from another's. Empty for\nartifacts created any other way.",
+                    "type": "string"
+                },
                 "subdomain_url": {
                     "type": "string"
                 },
@@ -35894,6 +35904,10 @@ const docTemplate = `{
                 },
                 "jti": {
                     "type": "string"
+                },
+                "key_confined": {
+                    "description": "KeyConfined: the attested key reaches only its own spec task and that\ntask's sessions (a task created with confine_agent_key).",
+                    "type": "boolean"
                 },
                 "nonce": {
                     "type": "string"

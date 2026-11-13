@@ -4264,6 +4264,14 @@ definitions:
         type: string
       project_id:
         type: string
+      spec_task_id:
+        description: |-
+          SpecTaskID is the spec task whose task-confined key created the
+          artifact, set by the server from the key and never from the request.
+          Such a key may change or delete only its own task's artifacts, and a
+          reader can tell one lane's artifacts from another's. Empty for
+          artifacts created any other way.
+        type: string
       subdomain_url:
         type: string
       updated_at:
@@ -7361,6 +7369,11 @@ definitions:
         type: string
       jti:
         type: string
+      key_confined:
+        description: |-
+          KeyConfined: the attested key reaches only its own spec task and that
+          task's sessions (a task created with confine_agent_key).
+        type: boolean
       nonce:
         type: string
       organization_id:
@@ -25540,6 +25553,10 @@ paths:
         in: path
         name: id
         required: true
+        type: string
+      - description: Only artifacts created by this spec task's task-confined key
+        in: query
+        name: spec_task_id
         type: string
       produces:
       - application/json
