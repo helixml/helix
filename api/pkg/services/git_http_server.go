@@ -316,11 +316,17 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	if err != nil {
 		return nil, nil, fmt.Errorf("user not found: %w", err)
 	}
-	// Carry the key's scope so repository authorization can confine a
-	// project-scoped key to its project, as the API auth middleware does.
+	// Carry the key's scope so repository authorization confines a
+	// project-scoped key to its project and an org-scoped key to its
+	// organization, as the API auth middleware does. A scoped key never
+	// carries its owner's global admin there either.
 	user.ProjectID = apiKeyRecord.ProjectID
 	user.SpecTaskID = apiKeyRecord.SpecTaskID
 	user.SessionID = apiKeyRecord.SessionID
+	user.OrganizationID = apiKeyRecord.OrganizationID
+	if apiKeyRecord.OrganizationID != "" || apiKeyRecord.ProjectID != "" || apiKeyRecord.SessionID != "" {
+		user.Admin = false
+	}
 
 	return user, apiKeyRecord, nil
 }
@@ -1132,13 +1138,6 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 		return false
 	}
 
-	// Repository owner can always read the repository, unless their key is
-	// confined to a project: then authorizeFn decides.
-	if user.ID == repo.OwnerID && user.ProjectID == "" {
-		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: user is repo owner, allowing")
-		return true
-	}
-
 	// Use ActionGet for read access on projects (requires org membership)
 	err = s.authorizeFn(ctx, user, repo, types.ActionGet)
 	if err != nil {
@@ -1159,13 +1158,6 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 	if err != nil {
 		log.Warn().Err(err).Str("repo_id", repoID).Msg("hasWriteAccess: failed to get repository")
 		return false
-	}
-
-	// Repository owner can always write to the repository, unless their key
-	// is confined to a project: then authorizeFn decides.
-	if user.ID == repo.OwnerID && user.ProjectID == "" {
-		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasWriteAccess: user is repo owner, allowing")
-		return true
 	}
 
 	// Use ActionUpdate for write access on projects (requires org membership)

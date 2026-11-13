@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
@@ -46,15 +47,19 @@ func requireTriggerAgentKind(app *types.Agent) error {
 // key, a person who left), and without it such a trigger can never be cleaned up by
 // anyone while the cron scheduler goes on firing it.
 func (s *HelixAPIServer) authorizeUserToTrigger(ctx context.Context, user *types.User, trigger *types.TriggerConfiguration) error {
-	if trigger.Owner == user.ID && user.ProjectID == "" {
+	if trigger.Owner == user.ID && user.ProjectID == "" && user.OrganizationID == "" {
 		return nil
 	}
 	app, err := s.Store.GetApp(ctx, trigger.AppID)
 	if trigger.Owner == user.ID {
-		// The creator shortcut must not carry a project-scoped key past its
-		// project: the trigger runs as an agent the project may not use.
+		// The creator shortcut must not carry a scoped key past its scope:
+		// the trigger runs as an agent the key's project may not use, in an
+		// organization (the agent's) the key may not reach.
 		if err != nil {
 			return fmt.Errorf("%w: %v", errProjectScopedKey, err)
+		}
+		if !callerOwns(user, trigger.Owner, app.OrganizationID) {
+			return orgstore.ErrKeyOrgScope
 		}
 		return s.enforceKeyAppScope(ctx, user, app, types.ActionUpdate)
 	}

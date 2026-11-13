@@ -87,11 +87,15 @@ func (s *HasReadAccessSuite) TestRepoNotFound_DeniesAccess() {
 	s.False(result)
 }
 
-func (s *HasReadAccessSuite) TestOwner_AllowsAccess() {
+// The owner has no shortcut of its own: the authorizer, which knows the key's
+// project and organization scope, decides for everyone.
+func (s *HasReadAccessSuite) TestOwner_DefersToAuthorizeFn() {
 	repoPath := s.createBareRepo("repo1")
 
+	var called int
 	authFn := func(ctx context.Context, user *types.User, repo *types.GitRepository, action types.Action) error {
-		return fmt.Errorf("should not be called for owner")
+		called++
+		return nil
 	}
 	server := s.newServer(authFn)
 
@@ -105,6 +109,28 @@ func (s *HasReadAccessSuite) TestOwner_AllowsAccess() {
 	user := &types.User{ID: "user1"}
 	result := server.hasReadAccess(context.Background(), user, "repo1")
 	s.True(result)
+	s.Equal(1, called)
+}
+
+// An org key held by the repository owner, scoped to another organization,
+// is refused when the authorizer refuses it.
+func (s *HasReadAccessSuite) TestOrgScopedKeyOwner_DefersToAuthorizeFn() {
+	repoPath := s.createBareRepo("repo5")
+
+	authFn := func(ctx context.Context, user *types.User, repo *types.GitRepository, action types.Action) error {
+		if user.OrganizationID != repo.OrganizationID {
+			return fmt.Errorf("credentials are scoped to another organization")
+		}
+		return nil
+	}
+	server := s.newServer(authFn)
+
+	repo := &types.GitRepository{ID: "repo5", OwnerID: "user1", OrganizationID: "org_a", LocalPath: repoPath}
+	s.mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo5").Return(repo, nil).Times(2)
+
+	user := &types.User{ID: "user1", OrganizationID: "org_b"}
+	s.False(server.hasReadAccess(context.Background(), user, "repo5"))
+	s.False(server.hasWriteAccess(context.Background(), user, "repo5"))
 }
 
 func (s *HasReadAccessSuite) TestNonOwner_AuthorizeFnAllows() {
@@ -180,15 +206,38 @@ func (s *HasReadAccessSuite) TestScopedKeyOwner_DefersToAuthorizeFn() {
 func (s *HasReadAccessSuite) TestValidateAPIKeyCarriesKeyScope() {
 	server := s.newServer(nil)
 	s.mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-task"}).Return(&types.ApiKey{
-		Key: "hl-task", Owner: "user1", ProjectID: "prj_a", SpecTaskID: "spt_1", SessionID: "ses_1",
+		Key: "hl-task", Owner: "user1", OrganizationID: "org_a", ProjectID: "prj_a", SpecTaskID: "spt_1", SessionID: "ses_1",
 	}, nil)
-	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user1"}, nil)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user1", Admin: true}, nil)
 
 	user, _, err := server.validateAPIKeyAndGetUser(context.Background(), "Bearer hl-task")
 	s.Require().NoError(err)
+	s.Equal("org_a", user.OrganizationID)
 	s.Equal("prj_a", user.ProjectID)
 	s.Equal("spt_1", user.SpecTaskID)
 	s.Equal("ses_1", user.SessionID)
+	s.False(user.Admin, "a scoped key must not carry its owner's global admin")
+}
+
+// An org key carries its organization and sheds its owner's global admin; a
+// personal key keeps both as they are.
+func (s *HasReadAccessSuite) TestValidateAPIKeyOrgScope() {
+	server := s.newServer(nil)
+	s.mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-org"}).Return(&types.ApiKey{Key: "hl-org", Owner: "admin1", OrganizationID: "org_b"}, nil)
+	s.mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-personal"}).Return(&types.ApiKey{Key: "hl-personal", Owner: "admin1"}, nil)
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, *store.GetUserQuery) (*types.User, error) {
+		return &types.User{ID: "admin1", Admin: true}, nil
+	}).Times(2)
+
+	orgUser, _, err := server.validateAPIKeyAndGetUser(context.Background(), "Bearer hl-org")
+	s.Require().NoError(err)
+	s.Equal("org_b", orgUser.OrganizationID)
+	s.False(orgUser.Admin)
+
+	personal, _, err := server.validateAPIKeyAndGetUser(context.Background(), "Bearer hl-personal")
+	s.Require().NoError(err)
+	s.Empty(personal.OrganizationID)
+	s.True(personal.Admin)
 }
 
 // TestParsePullRequestMarkdown tests the parsePullRequestMarkdown function
