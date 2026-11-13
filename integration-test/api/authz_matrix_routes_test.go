@@ -15,12 +15,35 @@ import (
 // Expectation building blocks. Every row lists the actors it cares about;
 // strangers() adds the four that must never reach organization A's data.
 
-// strangers: another tenant, a user with no organization, an account still
-// waiting for approval, and no credential.
+// strangers: another tenant (its owner, a member, and A's owner holding a key
+// scoped to it), a user with no organization, an account still waiting for
+// approval, and no credential.
 func strangers(e expect) expect {
-	out := expect{bOwner: deny, outsider: deny, waitlisted: deny, anonymous: deny}
+	out := expect{bOwner: deny, bMember: deny, aOwnerOrgBKey: deny, outsider: deny, waitlisted: deny, anonymous: deny}
 	for k, v := range e {
 		out[k] = v
+	}
+	return out
+}
+
+// desktopKeysDenied adds the two project-less desktop keys (a plain chat's
+// session key and a sandbox's key) as denied to every row that does not list
+// them. A table it wraps holds project, repository and secret routes, which
+// such a key never reaches (server.desktopKeyRefusal).
+func desktopKeysDenied(routes []route) []route {
+	out := make([]route, len(routes))
+	for i, r := range routes {
+		e := expect{}
+		for k, v := range r.Expect {
+			e[k] = v
+		}
+		for _, key := range []actor{sessKey, sandboxKey} {
+			if _, ok := e[key]; !ok {
+				e[key] = deny
+			}
+		}
+		r.Expect = e
+		out[i] = r
 	}
 	return out
 }
@@ -36,18 +59,23 @@ func TestAuthzMatrix(t *testing.T) {
 	requireAuthzServer(t)
 	f := newAuthzFixture(t)
 
-	t.Run("projects", func(t *testing.T) { runRoutes(t, f, projectRoutes()) })
+	t.Run("projects", func(t *testing.T) { runRoutes(t, f, desktopKeysDenied(append(projectRoutes(), projectSubRoutes()...))) })
 	t.Run("sessions", func(t *testing.T) { runRoutes(t, f, sessionRoutes()) })
 	t.Run("agents", func(t *testing.T) { runRoutes(t, f, agentRoutes()) })
-	t.Run("repositories", func(t *testing.T) { runRoutes(t, f, repositoryRoutes()) })
-	t.Run("git-smart-http", func(t *testing.T) { runRoutes(t, f, gitSmartHTTPRoutes()) })
+	t.Run("repositories", func(t *testing.T) {
+		runRoutes(t, f, desktopKeysDenied(append(repositoryRoutes(), repositorySubRoutes()...)))
+	})
+	t.Run("git-smart-http", func(t *testing.T) { runRoutes(t, f, desktopKeysDenied(gitSmartHTTPRoutes())) })
 	t.Run("git-cli", func(t *testing.T) { gitCLIChecks(t, f) })
-	t.Run("spec-tasks", func(t *testing.T) { runRoutes(t, f, specTaskRoutes()) })
-	t.Run("secrets", func(t *testing.T) { runRoutes(t, f, append(secretRoutes(), secretListRoutes()...)) })
+	t.Run("spec-tasks", func(t *testing.T) { runRoutes(t, f, desktopKeysDenied(specTaskRoutes())) })
+	t.Run("secrets", func(t *testing.T) {
+		runRoutes(t, f, desktopKeysDenied(append(secretRoutes(), secretListRoutes()...)))
+	})
+	t.Run("member-to-member", func(t *testing.T) { runRoutes(t, f, desktopKeysDenied(peerRoutes())) })
 	t.Run("knowledge", func(t *testing.T) { runRoutes(t, f, knowledgeRoutes()) })
 	t.Run("triggers", func(t *testing.T) { runRoutes(t, f, triggerRoutes()) })
 	t.Run("providers", func(t *testing.T) { runRoutes(t, f, providerRoutes()) })
-	t.Run("artifacts", func(t *testing.T) { runRoutes(t, f, artifactRoutes()) })
+	t.Run("artifacts", func(t *testing.T) { runRoutes(t, f, desktopKeysDenied(artifactRoutes())) })
 	t.Run("organizations", func(t *testing.T) { runRoutes(t, f, organizationRoutes()) })
 	t.Run("helix-org", func(t *testing.T) { runRoutes(t, f, helixOrgRoutes()) })
 	t.Run("keys-and-admin", func(t *testing.T) { runRoutes(t, f, keyAndAdminRoutes()) })
@@ -56,7 +84,9 @@ func TestAuthzMatrix(t *testing.T) {
 	t.Run("zed", func(t *testing.T) { runRoutes(t, f, zedRoutes()) })
 	t.Run("mcp", func(t *testing.T) { runRoutes(t, f, mcpRoutes()) })
 	t.Run("llm-proxy", func(t *testing.T) { runRoutes(t, f, llmProxyRoutes()) })
-	t.Run("lists", func(t *testing.T) { runListRows(t, f, listRows()) })
+	t.Run("lists", func(t *testing.T) {
+		runListRows(t, f, append(append(listRows(), peerListRows()...), outsiderListRows()...))
+	})
 	t.Run("organizations-destructive", func(t *testing.T) { runRoutes(t, f, organizationDestructiveRoutes()) })
 }
 
@@ -312,6 +342,18 @@ func sessionRoutes() []route {
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA}/codex-credentials",
 			Expect:        strangers(expect{aOwner: reached, aMember: deny}),
+			ReachedMarker: "no Codex subscription found",
+		},
+		{
+			// Agent credentials of a session go to its owner's credential
+			// only within that credential's project and organization.
+			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA2}/claude-credentials",
+			Expect:        expect{aOwner: reached, projKey: deny, aOwnerOrgBKey: deny, exploreKey: deny},
+			ReachedMarker: "no Claude subscription found",
+		},
+		{
+			Method: http.MethodGet, Path: "/api/v1/sessions/{sessA2}/codex-credentials",
+			Expect:        expect{aOwner: reached, projKey: deny, aOwnerOrgBKey: deny, exploreKey: deny},
 			ReachedMarker: "no Codex subscription found",
 		},
 		{
@@ -966,8 +1008,9 @@ func keyAndAdminRoutes() []route {
 			Expect: strangers(expect{admin: allow, aOwner: deny}),
 		},
 		{
+			// B's owner shares organization B with A's owner.
 			Method: http.MethodGet, Path: "/api/v1/users/{aOwnerID}",
-			Expect: expect{aOwner: allow, aMember: allow, bOwner: deny, outsider: deny, anonymous: deny},
+			Expect: expect{aOwner: allow, aMember: allow, bOwner: allow, outsider: deny, anonymous: deny},
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/status",
@@ -1091,6 +1134,11 @@ func externalAgentRoutes() []route {
 			Method: http.MethodGet, Path: "/api/v1/external-agents/sync?session_id={sessA}",
 			Header: websocketUpgrade(),
 			Expect: strangers(expect{aOwner: reached, aMember: deny}),
+		},
+		{
+			Method: http.MethodGet, Path: "/api/v1/external-agents/sync?session_id={sessA2}",
+			Header: websocketUpgrade(),
+			Expect: expect{aOwner: reached, projKey: deny, exploreKey: deny},
 		},
 	}
 }
@@ -1293,6 +1341,29 @@ func listRows() []listRow {
 	}
 }
 
+// outsiderListRows: a project-less desktop key, a member of another tenant and
+// a key scoped to another tenant list none of A's projects, repositories,
+// spec tasks or secrets (a refusal also passes).
+func outsiderListRows() []listRow {
+	var rows []listRow
+	for _, who := range []actor{sessKey, sandboxKey, bMember, aOwnerOrgBKey} {
+		rows = append(rows,
+			listRow{Path: "/api/v1/projects?organization_id={orgA}", Actor: who, Excludes: []string{"projA", "projA2", "projP"}},
+			listRow{Path: "/api/v1/git/repositories?organization_id={orgA}", Actor: who, Excludes: []string{"repoA", "repoA2", "repoP"}},
+			listRow{Path: "/api/v1/git/repositories", Actor: who, Excludes: []string{"repoA", "repoA2", "repoP"}},
+			listRow{Path: "/api/v1/spec-tasks?organization_id={orgA}", Actor: who, Excludes: []string{"taskA", "taskA2", "taskP"}},
+			listRow{Path: "/api/v1/spec-tasks?project_id={projA}", Actor: who, Excludes: []string{"taskA"}},
+			listRow{Path: "/api/v1/projects/{projA}/secrets", Actor: who, Excludes: []string{"secretProj"}},
+			listRow{Path: "/api/v1/search?q=authzmark", Actor: who, Excludes: []string{"projA", "projA2", "projP", "repoA", "repoA2", "taskA", "sessA"}},
+		)
+	}
+	// Personal secrets belong to their owner's own credential only.
+	for _, who := range []actor{sessKey, sandboxKey, projKey, aOwnerOrgBKey} {
+		rows = append(rows, listRow{Path: "/api/v1/secrets", Actor: who, Excludes: []string{"secretPersonal"}})
+	}
+	return rows
+}
+
 // gitCLIChecks drives the real git client against the smart-HTTP endpoints,
 // with the actor's key as the basic-auth password the way users clone.
 func gitCLIChecks(t *testing.T, f *authzFixture) {
@@ -1336,7 +1407,10 @@ func gitCLIChecks(t *testing.T, f *authzFixture) {
 	}
 
 	t.Run("clone", func(t *testing.T) {
-		for who, ok := range map[actor]bool{aOwner: true, aMember: true, projKey: true, bOwner: false, outsider: false, waitlisted: false} {
+		for who, ok := range map[actor]bool{
+			aOwner: true, aMember: true, projKey: true, bOwner: false, bMember: false, aOwnerOrgBKey: false,
+			sessKey: false, sandboxKey: false, outsider: false, waitlisted: false,
+		} {
 			_, err := clone(t, who, "repoA")
 			if ok && err != nil {
 				t.Errorf("%s could not clone repoA: %v", who, err)
@@ -1358,8 +1432,13 @@ func gitCLIChecks(t *testing.T, f *authzFixture) {
 		if err := push(t, dir, aMember, "repoA"); err == nil {
 			t.Errorf("read-only member pushed to repoA")
 		}
-		if err := push(t, dir, bOwner, "repoA"); err == nil {
-			t.Errorf("another tenant pushed to repoA")
+		for _, who := range []actor{bOwner, bMember, aOwnerOrgBKey, sessKey, sandboxKey} {
+			if err := push(t, dir, who, "repoA"); err == nil {
+				t.Errorf("%s pushed to repoA", who)
+			}
+		}
+		if _, err := clone(t, aMember, "repoP"); err == nil {
+			t.Errorf("a member cloned another member's unshared repository")
 		}
 		if err := push(t, dir, aOwner, "repoA"); err != nil {
 			t.Errorf("owner could not push a branch: %v", err)

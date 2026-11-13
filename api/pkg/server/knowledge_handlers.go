@@ -455,20 +455,27 @@ func (s *HelixAPIServer) addFileToZip(ctx context.Context, zipWriter *zip.Writer
 }
 
 // ownsKnowledge reports whether user may manage knowledge by id: only its
-// owner, and a project-scoped key only for knowledge of an agent its project
-// uses (the owner shortcut would otherwise reach every agent's knowledge).
+// owner; an org-scoped key only for knowledge of an agent in its
+// organization, and a project-scoped key only for knowledge of an agent its
+// project uses (the owner shortcut would otherwise reach every agent's
+// knowledge).
 func (s *HelixAPIServer) ownsKnowledge(ctx context.Context, user *types.User, knowledge *types.Knowledge) bool {
 	if knowledge.Owner != user.ID {
 		return false
 	}
-	if user.ProjectID == "" {
+	if user.ProjectID == "" && user.OrganizationID == "" {
 		return true
 	}
+	// A scoped key reaches knowledge through its agent, whose organization
+	// is authoritative (knowledge rows do not always carry one).
 	if knowledge.AppID == "" {
 		return false
 	}
 	app, err := s.Store.GetApp(ctx, knowledge.AppID)
 	if err != nil {
+		return false
+	}
+	if !callerOwns(user, knowledge.Owner, app.OrganizationID) {
 		return false
 	}
 	return s.enforceKeyAppScope(ctx, user, app, types.ActionUpdate) == nil

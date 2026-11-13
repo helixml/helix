@@ -131,6 +131,11 @@ func freshArtifact2(t *testing.T, f *authzFixture) map[string]string {
 	return map[string]string{"artifactA2": f.createArtifact(t, "fresh-artifact-"+uuid.NewString()[:8], f.vars["projA2"])}
 }
 
+func freshPersonalProject(t *testing.T, f *authzFixture) map[string]string {
+	t.Helper()
+	return map[string]string{"projPersonal": f.createPersonalProject(t)}
+}
+
 // freshOrg gives aOwner a throwaway organization (deleted with the run).
 func freshOrg(t *testing.T, f *authzFixture) map[string]string {
 	t.Helper()
@@ -169,7 +174,12 @@ func freshArchivedTask2(t *testing.T, f *authzFixture) map[string]string {
 
 func (f *authzFixture) archivedTask(t *testing.T, projectID string) string {
 	t.Helper()
-	id := f.createSpecTask(t, "fresh-task-"+uuid.NewString()[:8], projectID)
+	return f.archivedTaskAs(t, aOwner, projectID)
+}
+
+func (f *authzFixture) archivedTaskAs(t *testing.T, who actor, projectID string) string {
+	t.Helper()
+	id := f.createSpecTaskAs(t, who, "fresh-task-"+uuid.NewString()[:8], projectID)
 	task, err := f.db.GetSpecTask(f.ctx, id)
 	if err != nil {
 		t.Fatalf("load task: %v", err)

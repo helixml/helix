@@ -779,7 +779,7 @@ func (apiServer *HelixAPIServer) getSessionClaudeCredentials(_ http.ResponseWrit
 	if user == nil {
 		return nil, system.NewHTTPError403("access denied")
 	}
-	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID && user.SessionID != session.ID {
+	if user.TokenType != types.TokenTypeRunner && !ownsSessionInKeyScope(user, session) && user.SessionID != session.ID {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
@@ -865,7 +865,7 @@ func (apiServer *HelixAPIServer) updateSessionClaudeCredentials(_ http.ResponseW
 	if user == nil {
 		return nil, system.NewHTTPError403("access denied")
 	}
-	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID && user.SessionID != session.ID {
+	if user.TokenType != types.TokenTypeRunner && !ownsSessionInKeyScope(user, session) && user.SessionID != session.ID {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
