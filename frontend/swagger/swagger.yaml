@@ -13718,6 +13718,11 @@ definitions:
           OpenCodeBundledVersion tells the UI what "bundled" currently is so it
           can show the floor without hardcoding it.
         type: string
+      opencode_version_error:
+        description: |-
+          OpenCodeVersionError is set when the stored pin fails validation;
+          sessions then ignore it and run the bundled build.
+        type: string
       optimus_generation_model:
         type: string
       optimus_generation_model_provider:

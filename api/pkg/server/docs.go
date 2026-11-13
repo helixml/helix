@@ -44086,6 +44086,10 @@ const docTemplate = `{
                     "description": "OpenCodeVersion is the admin override; empty means the bundled build.\nOpenCodeBundledVersion tells the UI what \"bundled\" currently is so it\ncan show the floor without hardcoding it.",
                     "type": "string"
                 },
+                "opencode_version_error": {
+                    "description": "OpenCodeVersionError is set when the stored pin fails validation;\nsessions then ignore it and run the bundled build.",
+                    "type": "string"
+                },
                 "optimus_generation_model": {
                     "type": "string"
                 },
