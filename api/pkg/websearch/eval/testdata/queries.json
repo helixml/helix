@@ -1,0 +1,254 @@
+[
+  {
+    "id": "tech-01",
+    "kind": "technical",
+    "query": "how to configure nginx rate limiting per client IP",
+    "numResults": 10
+  },
+  {
+    "id": "tech-02",
+    "kind": "technical",
+    "query": "postgres find and kill long running queries",
+    "numResults": 10
+  },
+  {
+    "id": "tech-03",
+    "kind": "technical",
+    "query": "kubernetes pod stuck in CrashLoopBackOff how to debug",
+    "numResults": 10
+  },
+  {
+    "id": "tech-04",
+    "kind": "technical",
+    "query": "golang propagate context cancellation to worker goroutines example",
+    "numResults": 10
+  },
+  {
+    "id": "tech-05",
+    "kind": "technical",
+    "query": "react useEffect cleanup abort fetch request with AbortController",
+    "numResults": 10
+  },
+  {
+    "id": "tech-06",
+    "kind": "technical",
+    "query": "rust error cannot borrow as mutable more than once at a time fix",
+    "numResults": 10
+  },
+  {
+    "id": "tech-07",
+    "kind": "technical",
+    "query": "git undo last commit but keep the changes",
+    "numResults": 10
+  },
+  {
+    "id": "tech-08",
+    "kind": "technical",
+    "query": "terraform state lock error with S3 backend and DynamoDB force-unlock",
+    "numResults": 10
+  },
+  {
+    "id": "tech-09",
+    "kind": "technical",
+    "query": "python asyncio.gather vs TaskGroup differences in error handling",
+    "numResults": 10
+  },
+  {
+    "id": "tech-10",
+    "kind": "technical",
+    "query": "docker compose depends_on condition service_healthy healthcheck example",
+    "numResults": 10
+  },
+  {
+    "id": "desc-01",
+    "kind": "descriptive",
+    "query": "startups building open-source vector databases",
+    "numResults": 10
+  },
+  {
+    "id": "desc-02",
+    "kind": "descriptive",
+    "query": "blog posts arguing against microservices",
+    "numResults": 10
+  },
+  {
+    "id": "desc-03",
+    "kind": "descriptive",
+    "query": "personal blogs of engineers writing about building a compiler from scratch",
+    "numResults": 10
+  },
+  {
+    "id": "desc-04",
+    "kind": "descriptive",
+    "query": "companies offering self-hosted alternatives to Slack",
+    "numResults": 10
+  },
+  {
+    "id": "desc-05",
+    "kind": "descriptive",
+    "query": "research papers on benchmarks for evaluating retrieval-augmented generation",
+    "numResults": 10
+  },
+  {
+    "id": "desc-06",
+    "kind": "descriptive",
+    "query": "essays about the decline of the open web and SEO spam in search results",
+    "numResults": 10
+  },
+  {
+    "id": "desc-07",
+    "kind": "descriptive",
+    "query": "open-source tools for running large language models locally on a laptop",
+    "numResults": 10
+  },
+  {
+    "id": "desc-08",
+    "kind": "descriptive",
+    "query": "case studies of companies moving from AWS to their own bare metal servers",
+    "numResults": 10
+  },
+  {
+    "id": "news-01",
+    "kind": "news",
+    "query": "Kubernetes new release announcement",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-02",
+    "kind": "news",
+    "query": "EU AI Act enforcement and fines",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-03",
+    "kind": "news",
+    "query": "Nvidia quarterly earnings results data center revenue",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-04",
+    "kind": "news",
+    "query": "major cloud provider outage postmortem",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-05",
+    "kind": "news",
+    "query": "OpenAI new model launch",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-06",
+    "kind": "news",
+    "query": "ransomware attack on hospital systems",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "ent-01",
+    "kind": "company-people",
+    "query": "Hugging Face",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-02",
+    "kind": "company-people",
+    "query": "Tailscale, the WireGuard-based VPN company",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-03",
+    "kind": "company-people",
+    "query": "Mistral AI, French large language model startup",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-04",
+    "kind": "company-people",
+    "query": "Andrej Karpathy",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "ent-05",
+    "kind": "company-people",
+    "query": "Mitchell Hashimoto, co-founder of HashiCorp",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "ent-06",
+    "kind": "company-people",
+    "query": "Simon Willison, creator of Datasette",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "intl-fr",
+    "kind": "non-english",
+    "query": "comment installer un serveur VPN WireGuard sur Ubuntu",
+    "numResults": 10
+  },
+  {
+    "id": "intl-de",
+    "kind": "non-english",
+    "query": "Kündigungsfrist Mietwohnung bei Eigenbedarf des Vermieters",
+    "numResults": 10
+  },
+  {
+    "id": "intl-es",
+    "kind": "non-english",
+    "query": "buenas prácticas de seguridad para APIs REST",
+    "numResults": 10
+  },
+  {
+    "id": "intl-lt",
+    "kind": "non-english",
+    "query": "kaip įregistruoti individualią veiklą Lietuvoje",
+    "numResults": 10
+  },
+  {
+    "id": "intl-ja",
+    "kind": "non-english",
+    "query": "Pythonで非同期処理を実装する方法 asyncio",
+    "numResults": 10
+  },
+  {
+    "id": "fact-01",
+    "kind": "factual",
+    "query": "default value of max_connections in PostgreSQL",
+    "numResults": 10
+  },
+  {
+    "id": "fact-02",
+    "kind": "factual",
+    "query": "boiling point of water at the summit of Mount Everest",
+    "numResults": 10
+  },
+  {
+    "id": "fact-03",
+    "kind": "factual",
+    "query": "who designed the Go programming language gopher mascot",
+    "numResults": 10
+  },
+  {
+    "id": "fact-04",
+    "kind": "factual",
+    "query": "maximum request payload size for a synchronous AWS Lambda invocation",
+    "numResults": 10
+  },
+  {
+    "id": "fact-05",
+    "kind": "factual",
+    "query": "year the first transatlantic telegraph cable was completed",
+    "numResults": 10
+  }
+]
