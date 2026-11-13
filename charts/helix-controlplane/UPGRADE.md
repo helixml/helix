@@ -5,6 +5,7 @@
 The crawler browser moves from `ghcr.io/go-rod/rod:v0.116.2` to `ghcr.io/helixml/chrome`, built with each release and tagged with the chart `appVersion`.
 
 - **Mirrored or private registries.** If your values override only `chrome.image.repository` (for example to a mirror of `ghcr.io/go-rod/rod`), the chart now renders `<your repository>:<appVersion>`, which your mirror probably does not have. Mirror `ghcr.io/helixml/chrome` at the release tag, or set `chrome.image.tag` as well.
+- **Launch token.** The controlplane now authenticates to the browser manager with a shared secret (`RAG_CRAWLER_LAUNCHER_TOKEN` / `CHROME_LAUNCHER_TOKEN`). The chart generates it into the `<release>-chrome-launcher` Secret and reads it back on upgrade. If you render with `helm template` or a GitOps tool, `lookup` cannot see the cluster and a new value is generated on every render (both pods roll together, so nothing breaks, but they restart each sync): set `chrome.launcherToken` or `chrome.launcherTokenExistingSecret` instead.
 - **NetworkPolicy.** The chart adds a NetworkPolicy, `chrome.networkPolicy.enabled` (default `true`), that only admits the controlplane pods to the chrome pod on port 7317. Add other sources with `chrome.networkPolicy.extraFrom`.
 
 ## JWT signing key

@@ -129,9 +129,12 @@ pin_postgres_for_existing_data() {
     fi
     pin=$(printf '\n# Existing PostgreSQL %s data: stay on %s until it is upgraded\n# (https://github.com/helixml/helix/blob/main/docs/postgres-upgrade.md).\nHELIX_POSTGRES_IMAGE=%s\n' "$major" "$major" "$image")
     if [ -w "$env_file" ] || [ "$ENVIRONMENT" = "gitbash" ]; then
-        echo "$pin" >> "$env_file"
+        echo "$pin" >> "$env_file" || return 1
     else
-        echo "$pin" | sudo tee -a "$env_file" >/dev/null
+        if ! echo "$pin" | sudo -n tee -a "$env_file" >/dev/null; then
+            echo "Could not write HELIX_POSTGRES_IMAGE=$image to $env_file; add it by hand." >&2
+            return 1
+        fi
     fi
     echo "Existing PostgreSQL $major data found: set HELIX_POSTGRES_IMAGE=$image in $env_file"
 }

@@ -27,7 +27,7 @@ fi
 echo "COMPOSE_FILE=$COMPOSE_FILE"
 # Keep an existing PostgreSQL data volume on its major (stackscript/postgres_pin.go).
 INSTALL_DIR="$HOME/helix" DOCKER_CMD=docker ENVIRONMENT=linux
-PG_PIN=$(pin_postgres_for_existing_data)
+PG_PIN=$(pin_postgres_for_existing_data 2>&1) || echo "PG_PIN_FAILED"
 if [ -n "$PG_PIN" ]; then
     echo "$PG_PIN"
 fi

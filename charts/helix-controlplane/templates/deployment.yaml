@@ -18,9 +18,15 @@ spec:
       {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
+      {{- $checksum := include "helix-controlplane.chrome-launcher-checksum" . }}
+      {{- if or .Values.podAnnotations $checksum }}
       annotations:
+        {{- with $checksum }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       labels:
         app.kubernetes.io/component: controlplane
@@ -177,6 +183,9 @@ spec:
               value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }}
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
+            {{- if .Values.chrome.enabled }}
+            {{- include "helix-controlplane.chrome-launcher-env" (dict "name" "RAG_CRAWLER_LAUNCHER_TOKEN" "root" .) | nindent 12 }}
+            {{- end }}
             {{- if .Values.searxng.enabled }}
             - name: SEARCH_SEARXNG_BASE_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-searxng:8080

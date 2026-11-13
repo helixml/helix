@@ -43,6 +43,14 @@ chrome:
     tag: ""
   # Extra environment variables for the Chrome container (in addition to global.extraEnv)
   extraEnv: []
+  # Shared secret the controlplane sends to the browser manager; it refuses
+  # launches without it. Left empty, the chart generates one and keeps it in
+  # the <release>-chrome-launcher Secret across upgrades (read back with
+  # lookup). With `helm template`/GitOps, where lookup sees no cluster, set
+  # launcherToken or launcherTokenExistingSecret so it stays stable.
+  launcherToken: ""
+  launcherTokenExistingSecret: ""
+  launcherTokenExistingSecretKey: ""
   networkPolicy:
     # Only the controlplane pods may reach the browser manager on :7317; it
     # launches a browser for any client that can connect. Needs a CNI that

@@ -981,9 +981,12 @@ pin_postgres_for_existing_data() {
     fi
     pin=$(printf '\n# Existing PostgreSQL %s data: stay on %s until it is upgraded\n# (https://github.com/helixml/helix/blob/main/docs/postgres-upgrade.md).\nHELIX_POSTGRES_IMAGE=%s\n' "$major" "$major" "$image")
     if [ -w "$env_file" ] || [ "$ENVIRONMENT" = "gitbash" ]; then
-        echo "$pin" >> "$env_file"
+        echo "$pin" >> "$env_file" || return 1
     else
-        echo "$pin" | sudo tee -a "$env_file" >/dev/null
+        if ! echo "$pin" | sudo -n tee -a "$env_file" >/dev/null; then
+            echo "Could not write HELIX_POSTGRES_IMAGE=$image to $env_file; add it by hand." >&2
+            return 1
+        fi
     fi
     echo "Existing PostgreSQL $major data found: set HELIX_POSTGRES_IMAGE=$image in $env_file"
 }
@@ -1103,7 +1106,7 @@ do_upgrade() {
     fi
     echo "Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
 
-    pin_postgres_for_existing_data
+    pin_postgres_for_existing_data || exit 1
 
     cd "$INSTALL_DIR" || exit 1
 
@@ -2061,6 +2064,8 @@ EOF
         RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
         PGVECTOR_PASSWORD=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | sed 's/^PGVECTOR_PASSWORD=//' || generate_password)
         HELIX_ENCRYPTION_KEY=$(grep '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" | sed 's/^HELIX_ENCRYPTION_KEY=//' || generate_encryption_key)
+        CHROME_LAUNCHER_TOKEN=$(grep '^CHROME_LAUNCHER_TOKEN=' "$ENV_FILE" | sed 's/^CHROME_LAUNCHER_TOKEN=//')
+        [ -n "$CHROME_LAUNCHER_TOKEN" ] || CHROME_LAUNCHER_TOKEN=$(generate_password)
         REGULAR_AUTH_JWT_SECRET=$(grep '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" | sed 's/^REGULAR_AUTH_JWT_SECRET=//')
         case "$REGULAR_AUTH_JWT_SECRET" in
             ""|helix-default-jwt-secret|helix-default-secret-change-in-production)
@@ -2081,6 +2086,7 @@ EOF
         PGVECTOR_PASSWORD=$(generate_password)
         HELIX_ENCRYPTION_KEY=$(generate_encryption_key)
         REGULAR_AUTH_JWT_SECRET=$(generate_encryption_key)
+        CHROME_LAUNCHER_TOKEN=$(generate_password)
     fi
 
     # On upgrades, write to a temp file so we can merge user customizations
@@ -2110,6 +2116,9 @@ HELIX_ENCRYPTION_KEY=$HELIX_ENCRYPTION_KEY
 # Signing key for login sessions and password-reset links
 # 64-character hex string (32 bytes). Changing it signs everyone out.
 REGULAR_AUTH_JWT_SECRET=$REGULAR_AUTH_JWT_SECRET
+
+# Shared secret between the API and the crawler browser (chrome service)
+CHROME_LAUNCHER_TOKEN=$CHROME_LAUNCHER_TOKEN
 
 # URLs
 KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
@@ -2313,7 +2322,7 @@ EOF
         mv "$ENV_TARGET" "$ENV_FILE"
     fi
 
-    pin_postgres_for_existing_data
+    pin_postgres_for_existing_data || exit 1
 
     CADDY=false
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu

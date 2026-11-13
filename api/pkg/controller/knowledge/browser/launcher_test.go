@@ -26,3 +26,31 @@ func TestNewManagedLauncherConfinesWebRTCToProxy(t *testing.T) {
 	_, header := b.launcher.ClientHeader()
 	require.Contains(t, header.Get("Rod-Launcher"), `"force-webrtc-ip-handling-policy":["disable_non_proxied_udp"]`)
 }
+
+func TestLauncherClientSendsToken(t *testing.T) {
+	for _, token := range []string{"s3cret", ""} {
+		got := make(chan http.Header, 1)
+		manager := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Upgrade") == "websocket" {
+				got <- r.Header.Clone()
+				http.Error(w, "refused", http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write([]byte(`{"Flags":{"headless":[]}}`))
+		}))
+
+		var cfg config.ServerConfig
+		cfg.RAG.Crawler.LauncherEnabled = true
+		cfg.RAG.Crawler.LauncherURL = manager.URL
+		cfg.RAG.Crawler.LauncherToken = token
+
+		b, err := New(&cfg)
+		require.NoError(t, err)
+		_, err = b.launcherClient()
+		require.Error(t, err)
+		h := <-got
+		require.Equal(t, token, h.Get(launcherTokenHeader))
+		require.NotEmpty(t, h.Get("Rod-Launcher"))
+		manager.Close()
+	}
+}

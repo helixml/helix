@@ -197,6 +197,24 @@ echo "POSTGRES_DATA=$WORK/emptydata" >> "$INSTALL_DIR/.env"
 pin_postgres_for_existing_data >/dev/null
 check "empty bind mount runs no sudo or container" "" "$(calls)"
 
+# A .env the user cannot write, and sudo -n refused: report it, fail.
+if [ "$(id -u)" != 0 ]; then
+    new_install_dir HelixML
+    pg12_volume helixml_helix-postgres-db
+    chmod 444 "$INSTALL_DIR/.env"
+    status=0
+    err=$(pin_postgres_for_existing_data 2>&1 >/dev/null) || status=$?
+    chmod 644 "$INSTALL_DIR/.env"
+    check "unwritable .env fails the pin" "1" "$status"
+    case "$err" in
+        *"add it by hand"*) check "unwritable .env is reported" yes yes ;;
+        *) check "unwritable .env is reported" yes "no: $err" ;;
+    esac
+    check "unwritable .env uses sudo -n tee" "yes" "$(grep -q '^sudo -n tee -a' "$CALLS" && echo yes || echo no)"
+else
+    echo "skip - unwritable .env (running as root)"
+fi
+
 # An operator's own choice always wins.
 new_install_dir HelixML
 pg12_volume helixml_helix-postgres-db

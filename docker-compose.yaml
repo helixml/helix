@@ -26,6 +26,8 @@ services:
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - SERVER_PORT=8080
+      # Shared secret for the crawler browser (chrome service); install.sh generates it.
+      - RAG_CRAWLER_LAUNCHER_TOKEN=${CHROME_LAUNCHER_TOKEN:-}
       - APP_URL=${SERVER_URL:-http://localhost:8080}
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres
@@ -117,6 +119,9 @@ services:
     # with any image serving the go-rod launcher protocol on :7317.
     image: ${HELIX_CHROME_IMAGE:-ghcr.io/helixml/chrome:${HELIX_VERSION:-latest}}
     restart: always
+    environment:
+      # Launches need this secret; unset, any client on the network can launch a browser.
+      - CHROME_LAUNCHER_TOKEN=${CHROME_LAUNCHER_TOKEN:-}
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke
     # ports:
