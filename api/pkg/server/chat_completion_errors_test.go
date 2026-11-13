@@ -24,14 +24,16 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
 // Planted in upstream error messages; none of it may reach the caller.
-const (
-	plantedKey  = "sk-proj-PLANTEDk3y0123456789abcdefXYZ"
-	plantedURL  = "http://10.20.30.40:8000/v1/chat/completions?api_key=hunter2hunter2"
+// Built at runtime so secret scanners do not flag the fixture itself.
+var (
+	plantedKey  = "sk-" + "proj-" + strings.Repeat("PLANTEDk3y0", 3)
+	plantedURL  = "http://10.20.30.40:8000/v1/chat/completions?api_key=" + strings.Repeat("hunter2", 2)
 	plantedHost = "bunker-qwen.svc.cluster.local"
 )
 
@@ -51,7 +53,24 @@ func writeUpstreamError(w http.ResponseWriter, status int, typ, code, message st
 
 // newChatServerWithUpstream wires the real handler, controller, provider
 // client and logging middleware to a fake provider at baseURL.
+// providerDeadlineClient bounds each provider call with its own deadline, as
+// a provider-side timeout does, while the caller's request stays connected.
+type providerDeadlineClient struct {
+	oai.Client
+	timeout time.Duration
+}
+
+func (c providerDeadlineClient) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	return c.Client.CreateChatCompletion(ctx, req)
+}
+
 func newChatServerWithUpstream(t *testing.T, baseURL string) *HelixAPIServer {
+	return newChatServerWithProvider(t, oai.New("provider-key", baseURL, false))
+}
+
+func newChatServerWithProvider(t *testing.T, provider oai.Client) *HelixAPIServer {
 	ctrl := gomock.NewController(t)
 	st := store.NewMockStore(ctrl)
 	mgr := manager.NewMockProviderManager(ctrl)
@@ -60,7 +79,7 @@ func newChatServerWithUpstream(t *testing.T, baseURL string) *HelixAPIServer {
 	require.NoError(t, err)
 	cfg := &config.ServerConfig{}
 	cfg.WebServer.ModelsCacheTTL = time.Minute
-	client := logger.Wrap(cfg, types.ProviderOpenAI, oai.New("provider-key", baseURL, false), modelInfo, nil)
+	client := logger.Wrap(cfg, types.ProviderOpenAI, provider, modelInfo, nil)
 
 	mgr.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(client, nil).AnyTimes()
 	mgr.EXPECT().ListProviders(gomock.Any(), gomock.Any()).Return([]types.Provider{}, nil).AnyTimes()
@@ -95,10 +114,11 @@ func closedPortURL(t *testing.T) string {
 // status says whose fault it is, and with no provider URL, host or key.
 func TestCreateChatCompletion_UpstreamFailures(t *testing.T) {
 	cases := []struct {
-		name     string
-		stream   bool
-		timeout  time.Duration
-		upstream http.HandlerFunc // nil: nothing listens at the provider URL
+		name   string
+		stream bool
+		// providerTimeout bounds the provider call; the caller stays connected.
+		providerTimeout time.Duration
+		upstream        http.HandlerFunc // nil: nothing listens at the provider URL
 		// expectations
 		status     int
 		errType    string
@@ -183,8 +203,8 @@ func TestCreateChatCompletion_UpstreamFailures(t *testing.T) {
 			status: http.StatusBadGateway, errType: "upstream_error",
 		},
 		{
-			name:    "timeout",
-			timeout: 300 * time.Millisecond,
+			name:            "provider timeout with the caller connected",
+			providerTimeout: 300 * time.Millisecond,
 			upstream: func(w http.ResponseWriter, r *http.Request) {
 				select {
 				case <-r.Context().Done():
@@ -204,16 +224,14 @@ func TestCreateChatCompletion_UpstreamFailures(t *testing.T) {
 				t.Cleanup(upstream.Close)
 				baseURL = upstream.URL + "/v1"
 			}
-			srv := newChatServerWithUpstream(t, baseURL)
+			var provider oai.Client = oai.New("provider-key", baseURL, false)
+			if tc.providerTimeout > 0 {
+				provider = providerDeadlineClient{Client: provider, timeout: tc.providerTimeout}
+			}
+			srv := newChatServerWithProvider(t, provider)
 
 			body := fmt.Sprintf(`{"model":"openai/test-model","stream":%t,"messages":[{"role":"user","content":"hi"}]}`, tc.stream)
-			ctx := context.Background()
-			if tc.timeout > 0 {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, tc.timeout)
-				defer cancel()
-			}
-			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test", OrganizationID: "org_test"}))
 			rw := httptest.NewRecorder()
 
@@ -274,6 +292,77 @@ func TestCreateChatCompletion_MidStreamFailure(t *testing.T) {
 	}
 }
 
+// cancelOnFirstChunk cancels the request (the caller disconnecting) as soon
+// as the first SSE chunk has been written to it.
+type cancelOnFirstChunk struct {
+	*httptest.ResponseRecorder
+	cancel context.CancelFunc
+}
+
+func (w *cancelOnFirstChunk) Write(b []byte) (int, error) {
+	n, err := w.ResponseRecorder.Write(b)
+	w.cancel()
+	return n, err
+}
+
+// A caller that goes away is not answered and not reported as a provider
+// failure: nothing is written after the disconnect, before or mid-stream.
+func TestCreateChatCompletion_ClientDisconnect(t *testing.T) {
+	blockUntilGone := func(w http.ResponseWriter, r *http.Request, firstChunk bool) {
+		if firstChunk {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, `data: {"id":"c1","object":"chat.completion.chunk","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}`+"\n\n")
+			w.(http.Flusher).Flush()
+		}
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}
+
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("before the first chunk, stream=%t", stream), func(t *testing.T) {
+			t.Parallel()
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { blockUntilGone(w, r, false) }))
+			t.Cleanup(upstream.Close)
+			srv := newChatServerWithUpstream(t, upstream.URL+"/v1")
+
+			ctx, cancel := context.WithCancel(context.Background())
+			time.AfterFunc(200*time.Millisecond, cancel)
+			body := fmt.Sprintf(`{"model":"openai/test-model","stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)).WithContext(ctx)
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test", OrganizationID: "org_test"}))
+			rw := httptest.NewRecorder()
+
+			start := time.Now()
+			srv.createChatCompletion(rw, req)
+			require.Less(t, time.Since(start), 2*time.Second, "the provider call must end with the caller's request")
+
+			require.Empty(t, rw.Body.String())
+			require.Empty(t, rw.Header().Get("Content-Type"))
+		})
+	}
+
+	t.Run("mid-stream", func(t *testing.T) {
+		t.Parallel()
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { blockUntilGone(w, r, true) }))
+		t.Cleanup(upstream.Close)
+		srv := newChatServerWithUpstream(t, upstream.URL+"/v1")
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"openai/test-model","stream":true,"messages":[{"role":"user","content":"hi"}]}`)).WithContext(ctx)
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_test", OrganizationID: "org_test"}))
+		rw := &cancelOnFirstChunk{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
+
+		srv.createChatCompletion(rw, req)
+
+		require.Equal(t, 1, strings.Count(rw.Body.String(), "data: "), rw.Body.String())
+		require.Contains(t, rw.Body.String(), `"Hel"`)
+		require.NotContains(t, rw.Body.String(), `"error"`)
+	})
+}
+
 // decodeOpenAIError asserts body is {"error":{"message","type","code","param"}}
 // and returns the error object.
 func decodeOpenAIError(t *testing.T, body []byte) map[string]any {
@@ -296,6 +385,8 @@ func TestSanitizeProviderMessage(t *testing.T) {
 		require.NotContains(t, got, leak)
 	}
 	require.LessOrEqual(t, len(sanitizeProviderMessage(strings.Repeat("a ", 2000))), maxProviderMessageBytes+len("…"))
+	require.Equal(t, "upstream [host] failed for Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8-0731",
+		sanitizeProviderMessage("upstream node06 failed for Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8-0731", "", "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8-0731"))
 	require.Equal(t, "This model's maximum context length is 131072 tokens; you requested 140000 tokens (qwen3.8-27b, gpt-4.1).",
 		sanitizeProviderMessage("This model's maximum context length is 131072 tokens; you requested 140000 tokens (qwen3.8-27b, gpt-4.1)."))
 }

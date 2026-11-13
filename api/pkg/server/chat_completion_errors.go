@@ -66,7 +66,7 @@ func classifyChatCompletionError(err error, scope chatCompletionErrorScope) chat
 	var quotaErr *controller.InferenceQuotaExceededError
 	switch {
 	case errors.As(err, &providerErr):
-		return classifyProviderFailure(providerErr)
+		return classifyProviderFailure(providerErr, scope)
 	case isModelResolutionError(err):
 		return chatCompletionFailure{status: http.StatusBadRequest, body: chatCompletionErrorBody{
 			Message: modelResolutionMessage(scope),
@@ -107,21 +107,21 @@ func modelResolutionMessage(scope chatCompletionErrorScope) string {
 // classifyProviderFailure maps an error from the model provider. It also
 // classifies a failure read from an established stream, whose status can no
 // longer be sent but whose body still can.
-func classifyProviderFailure(err error) chatCompletionFailure {
+func classifyProviderFailure(err error, scope chatCompletionErrorScope) chatCompletionFailure {
 	status := oai.ProviderStatusCode(err)
 	switch {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		// Helix's credentials for the provider are wrong; the caller's are not.
 		return gatewayFailure(http.StatusBadGateway, "the model provider rejected Helix's credentials; an administrator must check the provider configuration")
 	case status == http.StatusTooManyRequests:
-		failure := providerRefusal(err, status, errorTypeRateLimit)
+		failure := providerRefusal(err, status, errorTypeRateLimit, scope)
 		var providerErr *oai.ProviderError
 		if errors.As(err, &providerErr) {
 			failure.header = providerErr.Header
 		}
 		return failure
 	case status >= 400 && status < 500:
-		return providerRefusal(err, status, errorTypeInvalidRequest)
+		return providerRefusal(err, status, errorTypeInvalidRequest, scope)
 	case status >= 500:
 		return gatewayFailure(http.StatusBadGateway, "the model provider failed to process the request")
 	case status > 0:
@@ -131,7 +131,7 @@ func classifyProviderFailure(err error) chatCompletionFailure {
 	var apiErr *openai.APIError
 	if errors.As(err, &apiErr) {
 		// An error event inside an established stream carries no status.
-		return providerRefusal(err, http.StatusBadGateway, errorTypeUpstream)
+		return providerRefusal(err, http.StatusBadGateway, errorTypeUpstream, scope)
 	}
 	if isTimeoutError(err) {
 		return gatewayFailure(http.StatusGatewayTimeout, "timed out waiting for the model provider")
@@ -147,14 +147,15 @@ func gatewayFailure(status int, message string) chatCompletionFailure {
 // type, code and param when the body was OpenAI-shaped, with the message
 // sanitized. A body that was not OpenAI-shaped (an HTML page from a proxy)
 // is replaced by the status text.
-func providerRefusal(err error, status int, defaultType string) chatCompletionFailure {
+func providerRefusal(err error, status int, defaultType string, scope chatCompletionErrorScope) chatCompletionFailure {
 	body := chatCompletionErrorBody{
 		Message: fmt.Sprintf("the model provider refused the request: %s", http.StatusText(status)),
 		Type:    defaultType,
 	}
 	var apiErr *openai.APIError
 	if errors.As(err, &apiErr) {
-		if msg := sanitizeProviderMessage(apiErr.Message); msg != "" {
+		models := []string{scope.requestedModel, scope.model}
+		if msg := sanitizeProviderMessage(apiErr.Message, models...); msg != "" {
 			body.Message = msg
 		}
 		if t := sanitizeProviderMessage(apiErr.Type); t != "" {
@@ -181,6 +182,27 @@ func isTimeoutError(err error) bool {
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
+// answerChatCompletionFailure answers a failed chat completion, unless the
+// caller has gone away: then the failure is the disconnect itself (the
+// provider call was cancelled with the request), there is no one to answer,
+// and it is not a provider fault. Usage already consumed is recorded by the
+// logging middleware either way.
+func answerChatCompletionFailure(rw http.ResponseWriter, r *http.Request, err error, scope chatCompletionErrorScope, streamStarted bool) {
+	if r.Context().Err() != nil {
+		log.Info().
+			Str("provider", scope.provider).
+			Str("model", scope.model).
+			Bool("stream_started", streamStarted).
+			Msg("chat completion client disconnected")
+		return
+	}
+	if streamStarted {
+		writeChatCompletionStreamError(rw, err, scope)
+		return
+	}
+	writeChatCompletionError(rw, err, scope)
+}
+
 // writeChatCompletionError answers a chat completion that failed before any
 // of the response was sent.
 func writeChatCompletionError(rw http.ResponseWriter, err error, scope chatCompletionErrorScope) {
@@ -201,7 +223,7 @@ func writeChatCompletionError(rw http.ResponseWriter, err error, scope chatCompl
 // `data: {"error": …}` event and no [DONE]; the OpenAI SDKs (and go-openai)
 // raise that event as an API error.
 func writeChatCompletionStreamError(rw http.ResponseWriter, err error, scope chatCompletionErrorScope) {
-	failure := classifyProviderFailure(err)
+	failure := classifyProviderFailure(err, scope)
 	logChatCompletionFailure(err, failure, scope)
 	bts, marshalErr := json.Marshal(chatCompletionErrorResponse{Error: failure.body})
 	if marshalErr != nil {
@@ -234,6 +256,8 @@ var (
 	ipv4Pattern     = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b`)
 	ipv6Pattern     = regexp.MustCompile(`(?i)\[?\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{0,4}\]?(?::\d{1,5})?`)
 	hostPortPattern = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9.-]*:\d{2,5}\b`)
+	// Helix's own cluster hosts are named node01, node06, …
+	internalNodePattern = regexp.MustCompile(`(?i)\bnode\d{1,3}\b`)
 	// Dotted names under a public or internal suffix. Restricting the suffix
 	// keeps parameter paths such as "messages.0.content" readable.
 	hostnamePattern = regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|net|org|io|ai|dev|app|cloud|co|uk|us|eu|xyz|sh|me|internal|local|localhost|lan|corp|svc|cluster|intra|home)\b`)
@@ -264,14 +288,33 @@ func redactCredentials(s string) string {
 
 // sanitizeProviderMessage makes provider error text safe to return to the
 // caller: credentials, URLs, IP addresses and hostnames are replaced, and the
-// result is capped.
-func sanitizeProviderMessage(s string) string {
+// result is capped. The caller's own model names (which can look like opaque
+// tokens) are kept verbatim.
+func sanitizeProviderMessage(s string, models ...string) string {
+	for _, m := range models {
+		if m == "" || !strings.Contains(s, m) {
+			continue
+		}
+		parts := strings.Split(s, m)
+		for i, part := range parts {
+			parts[i] = sanitizeProviderText(part)
+		}
+		return capProviderMessage(strings.Join(parts, m))
+	}
+	return capProviderMessage(sanitizeProviderText(s))
+}
+
+func sanitizeProviderText(s string) string {
 	s = urlPattern.ReplaceAllString(s, "[url]")
 	s = redactCredentials(s)
 	s = ipv4Pattern.ReplaceAllString(s, "[address]")
 	s = ipv6Pattern.ReplaceAllString(s, "[address]")
 	s = hostPortPattern.ReplaceAllString(s, "[host]")
 	s = hostnamePattern.ReplaceAllString(s, "[host]")
+	return internalNodePattern.ReplaceAllString(s, "[host]")
+}
+
+func capProviderMessage(s string) string {
 	s = strings.TrimSpace(s)
 	if truncated, cut := auditlog.Truncate(s, maxProviderMessageBytes); cut {
 		return truncated + "…"

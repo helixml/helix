@@ -349,7 +349,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	if !chatCompletionRequest.Stream {
 		resp, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 		if err != nil {
-			writeChatCompletionError(rw, err, errScope)
+			answerChatCompletionFailure(rw, r, err, errScope, false)
 			return
 		}
 
@@ -383,7 +383,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	// Streaming request, receive and write the stream in chunks
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
-		writeChatCompletionError(rw, err, errScope)
+		answerChatCompletionFailure(rw, r, err, errScope, false)
 		return
 	}
 	defer stream.Close()
@@ -398,11 +398,9 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			break
 		}
 		if err != nil {
-			if streaming {
-				writeChatCompletionStreamError(rw, err, errScope)
-			} else {
-				writeChatCompletionError(rw, &oai.ProviderError{Err: err}, errScope)
-			}
+			// A failed stream read is the provider's failure (or the caller's
+			// disconnect, which answerChatCompletionFailure recognizes).
+			answerChatCompletionFailure(rw, r, &oai.ProviderError{Err: err}, errScope, streaming)
 			return
 		}
 
