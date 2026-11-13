@@ -6,12 +6,17 @@ set -euo pipefail
 # =============================================================================
 # Rolls a released version onto the live SaaS, automating
 # design/2026-06-25-prod-version-bump-runbook.md:
-#   1. controlplane (helix-cloud-london): CHECKPOINT + ZFS-snapshot the DB, bump
-#      HELIX_VERSION, `docker compose pull api && up -d api`, health-check, and
-#      roll the image version back in place if the health-check fails.
-#      Only `api` is recreated. The London database keeps the PostgreSQL major
-#      pinned as HELIX_POSTGRES_IMAGE in its .env: compose defaults to 17, and
-#      17 does not start on older data (docs/postgres-upgrade.md).
+#   1. controlplane (helix-cloud-london), scripts/lib/deploy-controlplane-remote.sh:
+#      diff the host's docker-compose.yaml and resolved image pins against this
+#      checkout's, check every new image is pullable, then ZFS-snapshot the DB,
+#      bump HELIX_VERSION, converge every non-database service (api and chrome
+#      both follow HELIX_VERSION), health-check, and roll back in place on
+#      failure. Compose drift fails the deploy unless COMPOSE_SYNC=true, which
+#      backs up the host's file and installs this checkout's (the host's
+#      docker-compose.override.yaml is kept). Database services are recreated
+#      only with RECREATE_POSTGRES=true and never across a PostgreSQL major:
+#      London pins its major as HELIX_POSTGRES_IMAGE in .env
+#      (docs/postgres-upgrade.md).
 #   2. runners: pull the released sandbox image and re-run each host's launcher.
 #
 # The hosts are reached over plain SSH with one dedicated CD key (the key's
@@ -19,7 +24,9 @@ set -euo pipefail
 #
 # Invoked by the `deploy-prod` Drone pipeline on a GREEN release tag (so the
 # controlplane/sandbox images for $DRONE_TAG already exist on ghcr). Can also be
-# run manually:  scripts/deploy-prod.sh VERSION
+# run manually from a checkout of VERSION:  scripts/deploy-prod.sh VERSION
+# VERSION is a release tag or the 7-character SHA of a green main build (main
+# builds publish images tagged with it).
 #
 # Required env (CI provides this from a Drone secret):
 #   HELIX_CD_SSH_KEY   base64-encoded OpenSSH private key authorised on both
@@ -34,14 +41,17 @@ set -euo pipefail
 #   RUNNER_CONTAINER=helix-sandbox-app
 #   DEPLOY_CONTROLPLANE=true   (set false to skip the control plane)
 #   DEPLOY_RUNNER=true   (set false to skip the runner upgrade)
+#   COMPOSE_SYNC=false   (true: install this checkout's docker-compose.yaml on drift)
+#   RECREATE_POSTGRES=false   (true: allow a same-major database image change)
 #   SLACK_WEBHOOK_URL    optional notifications
 # =============================================================================
 
 VERSION="${1:-${DRONE_TAG:-}}"
-if [ -z "$VERSION" ]; then
-  echo "usage: $0 VERSION  (or set DRONE_TAG)" >&2
+if ! [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|[0-9a-f]{7})$ ]]; then
+  echo "usage: $0 VERSION  (or set DRONE_TAG); VERSION is a release tag or a 7-character main SHA" >&2
   exit 1
 fi
+REPO_DIR=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 
 LONDON_SSH="${LONDON_SSH:-luke_helix_ml@34.39.116.64}"
 LONDON_STACK_DIR="${LONDON_STACK_DIR:-/data/helix-app/helix}"
@@ -53,6 +63,8 @@ RUNNER_START_SCRIPT="${RUNNER_START_SCRIPT:-}"
 RUNNER_CONTAINER="${RUNNER_CONTAINER:-helix-sandbox-app}"
 DEPLOY_CONTROLPLANE="${DEPLOY_CONTROLPLANE:-true}"
 DEPLOY_RUNNER="${DEPLOY_RUNNER:-true}"
+COMPOSE_SYNC="${COMPOSE_SYNC:-false}"
+RECREATE_POSTGRES="${RECREATE_POSTGRES:-false}"
 
 log()  { echo "[deploy-prod] $*"; }
 warn() { echo "[deploy-prod] WARNING: $*" >&2; }
@@ -87,43 +99,30 @@ DEPLOYED=""
 
 # --- 1. controlplane (london) ----------------------------------------------
 if [ "$DEPLOY_CONTROLPLANE" = "true" ]; then
+  # The compose file deployed is this checkout's, so it must be VERSION's.
+  head=$(git -C "$REPO_DIR" rev-parse HEAD)
+  want=$(git -C "$REPO_DIR" rev-parse -q --verify "${VERSION}^{commit}") ||
+    fail "${VERSION} is not a tag or commit in ${REPO_DIR}; run from a checkout of ${VERSION}"
+  [ "$head" = "$want" ] || fail "${REPO_DIR} is at ${head}, not ${VERSION} (${want})"
+  git -C "$REPO_DIR" diff --quiet HEAD -- docker-compose.yaml ||
+    fail "${REPO_DIR}/docker-compose.yaml has uncommitted changes"
+
   SNAP="${LONDON_DB_DATASET}@pre-${VERSION}-$(date +%Y%m%d-%H%M%S)"
   log "Deploying controlplane ${VERSION} to ${LONDON_SSH} (snapshot ${SNAP}) ..."
 
-  # Remote script. Unquoted heredoc: local values are substituted here; values
-  # evaluated on the remote are escaped (\$).
-  CP_DEPLOY=$(cat <<REMOTE
-set -e
-cd "$LONDON_STACK_DIR"
-OLD_VERSION=\$(grep -E '^HELIX_VERSION=' .env | head -1 | cut -d= -f2- | tr -d '"')
-echo "controlplane: \${OLD_VERSION:-<none>} -> $VERSION"
-# Crash-consistent DB snapshot for rollback (CHECKPOINT first to minimise WAL replay).
-sudo docker exec helix-postgres-1 psql -U postgres -c 'CHECKPOINT;' >/dev/null 2>&1 || true
-sudo zfs snapshot "$SNAP"
-sudo sed -i 's/^HELIX_VERSION=.*/HELIX_VERSION="$VERSION"/' .env
-sudo docker compose pull api
-sudo docker compose up -d api
-ok=0
-for i in \$(seq 1 36); do
-  code=\$(curl -s -o /dev/null -w '%{http_code}' "https://$LONDON_HEALTH_HOST/" --resolve "$LONDON_HEALTH_HOST:443:127.0.0.1" --max-time 10 || echo 000)
-  if [ "\$code" = "200" ]; then ok=1; break; fi
-  sleep 5
-done
-if [ "\$ok" != "1" ]; then
-  echo "HEALTHCHECK FAILED - rolling image back to \${OLD_VERSION}"
-  if [ -n "\${OLD_VERSION:-}" ]; then
-    sudo sed -i "s/^HELIX_VERSION=.*/HELIX_VERSION=\\"\${OLD_VERSION}\\"/" .env
-    sudo docker compose up -d api || true
-  fi
-  echo "DB snapshot for manual restore if a migration was incompatible: $SNAP"
-  exit 42
-fi
-echo "controlplane healthy on $VERSION"
-REMOTE
-)
+  CP_DEPLOY="$(printf '%s=%q\n' \
+    STACK_DIR "$LONDON_STACK_DIR" \
+    VERSION "$VERSION" \
+    SNAP "$SNAP" \
+    HEALTH_HOST "$LONDON_HEALTH_HOST" \
+    COMPOSE_SYNC "$COMPOSE_SYNC" \
+    RECREATE_POSTGRES "$RECREATE_POSTGRES" \
+    REPO_COMPOSE_B64 "$(base64 < "$REPO_DIR/docker-compose.yaml" | tr -d '\n')")
+$(cat "$REPO_DIR/scripts/lib/deploy-controlplane-remote.sh")"
 
-  if ! rsh "$LONDON_SSH" "$CP_DEPLOY"; then
-    fail "controlplane deploy/health-check failed (image rolled back in place). DB snapshot: ${SNAP}"
+  # shellcheck disable=SC2086
+  if ! ssh $SSH_OPTS "$LONDON_SSH" 'bash -s' <<<"$CP_DEPLOY"; then
+    fail "controlplane deploy failed: see the log above (nothing changes before the snapshot; a failed health-check rolls back in place). DB snapshot, if taken: ${SNAP}"
   fi
   log "controlplane on ${VERSION}"
   DEPLOYED="control plane"
@@ -178,7 +177,7 @@ REMOTE
 
   printf -v quoted_version '%q' "$VERSION"
   RUNNER_IMAGE_REPORT="HELIX_RUNNER_CURRENT_VERSION=$quoted_version
-$(cat "$(dirname "$0")/cleanup-runner-images.sh")"
+$(cat "$REPO_DIR/scripts/cleanup-runner-images.sh")"
   if ! rsh "$RUNNER_SSH" "$RUNNER_IMAGE_REPORT"; then
     warn "runner image retention dry run failed on ${RUNNER_SSH}"
   fi

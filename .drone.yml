@@ -121,7 +121,7 @@ steps:
   - name: shell-script-tests
     image: alpine:3.21
     commands:
-      - apk add --no-cache bash git procps
+      - apk add --no-cache bash git procps docker-cli-compose
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./desktop/shared/test-helix-specs-creation.sh
@@ -2898,7 +2898,9 @@ steps:
         from_secret: JANITOR_SLACK_WEBHOOK_URL
     commands:
       - apt-get update -qq
-      - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
+      - apt-get install -y -qq curl ca-certificates openssh-client git > /dev/null
+      # The tag clone checks out FETCH_HEAD; deploy-prod.sh resolves the tag itself.
+      - git fetch --no-tags origin "+refs/tags/$DRONE_TAG:refs/tags/$DRONE_TAG"
       - DEPLOY_RUNNER=false scripts/deploy-prod.sh "$DRONE_TAG"
 
   - name: prod runner code.helix.ml
