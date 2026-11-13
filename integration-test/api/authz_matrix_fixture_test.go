@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -182,6 +183,16 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 		OrganizationID: orgA.ID,
 		SessionID:      f.vars["sessExplore"],
 		ProjectID:      f.vars["projA"],
+	})
+	// A project chat with no spec task or desktop role (an external agent
+	// started on projA, a recurring-task job, a golden build): its key is
+	// minted the way the desktop gets it, and carries projA.
+	f.vars["sessProjChat"] = f.createSession(t, "sessProjChat", orgA.ID, f.vars["projA"], "")
+	f.keys[projChatKey] = f.mintSessionKey(t, orgA.ID, f.vars["sessProjChat"])
+	f.keys[sandboxKey] = f.createScopedKey(t, &types.ApiKey{
+		Name:           "Sandbox key - authz matrix",
+		OrganizationID: orgA.ID,
+		SessionID:      system.GenerateSandboxID(),
 	})
 	f.keys[aOwnerBrowser] = f.createBrowserSession(t)
 	// A helix-org worker's key: its session names the bot it runs as.
@@ -378,6 +389,22 @@ func (f *authzFixture) createScopedKey(t *testing.T, template *types.ApiKey) str
 	template.Type = types.APIkeytypeAPI
 	if _, err := f.db.CreateAPIKey(f.ctx, template); err != nil {
 		t.Fatalf("create scoped key: %v", err)
+	}
+	return key
+}
+
+// mintSessionKey mints aOwner's desktop key for a session through
+// services.GetOrCreateSessionAPIKey, so its scope is the one a desktop gets.
+func (f *authzFixture) mintSessionKey(t *testing.T, orgID, sessionID string) string {
+	t.Helper()
+	svc := services.NewSpecDrivenTaskService(f.db, nil, "", nil, nil, nil, nil, nil, nil)
+	key, err := svc.GetOrCreateSessionAPIKey(f.ctx, &services.SessionAPIKeyRequest{
+		OrganizationID: orgID,
+		UserID:         f.users[aOwner].ID,
+		SessionID:      sessionID,
+	})
+	if err != nil {
+		t.Fatalf("mint session key: %v", err)
 	}
 	return key
 }

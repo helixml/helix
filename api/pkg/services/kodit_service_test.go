@@ -35,7 +35,7 @@ func TestDisabledServiceMethods(t *testing.T) {
 		fn   func() error
 	}{
 		{"GetRepositoryEnrichments", func() error { _, e := svc.GetRepositoryEnrichments(ctx, 1, "", ""); return e }},
-		{"GetEnrichment", func() error { _, e := svc.GetEnrichment(ctx, "1"); return e }},
+		{"GetRepositoryEnrichment", func() error { _, e := svc.GetRepositoryEnrichment(ctx, 1, "1"); return e }},
 		{"GetRepositoryCommits", func() error { _, e := svc.GetRepositoryCommits(ctx, 1, 10); return e }},
 		{"SearchSnippets", func() error { _, e := svc.SearchSnippets(ctx, 1, "test", 10); return e }},
 		{"GetRepositoryStatus", func() error { _, e := svc.GetRepositoryStatus(ctx, 1); return e }},

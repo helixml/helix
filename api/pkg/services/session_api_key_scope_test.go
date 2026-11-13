@@ -36,6 +36,23 @@ func TestSessionKeyScope(t *testing.T) {
 		"helix-org worker keeps no project": {
 			session: types.Session{ProjectID: "prj_a", Metadata: types.SessionMetadata{SessionRole: "exploratory", OrgWorkerID: "chief-of-staff"}},
 		},
+		"helix-org worker outside a project": {
+			session: types.Session{Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"}},
+		},
+		// Sessions in a project with no spec task or exploratory role keep
+		// their project: their desktops clone its repositories.
+		"golden build": {
+			session:     types.Session{ProjectID: "prj_a", Metadata: types.SessionMetadata{ProjectID: "prj_a"}},
+			wantProject: "prj_a",
+		},
+		"recurring task job": {
+			session:     types.Session{ProjectID: "prj_a", Metadata: types.SessionMetadata{SessionRole: "job", ProjectID: "prj_a"}},
+			wantProject: "prj_a",
+		},
+		"project chat with an external agent and no role": {
+			session:     types.Session{ProjectID: "prj_a"},
+			wantProject: "prj_a",
+		},
 		"plain chat": {
 			session: types.Session{},
 		},

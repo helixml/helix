@@ -79,7 +79,7 @@ func (m *koditServiceMock) DeleteRepository(ctx context.Context, id int64) error
 func (m *koditServiceMock) GetRepositoryEnrichments(context.Context, int64, string, string) ([]enrichment.Enrichment, error) {
 	return nil, nil
 }
-func (m *koditServiceMock) GetEnrichment(context.Context, string) (enrichment.Enrichment, error) {
+func (m *koditServiceMock) GetRepositoryEnrichment(context.Context, int64, string) (enrichment.Enrichment, error) {
 	return enrichment.Enrichment{}, nil
 }
 func (m *koditServiceMock) GetRepositoryCommits(ctx context.Context, id int64, limit int) ([]repository.Commit, error) {

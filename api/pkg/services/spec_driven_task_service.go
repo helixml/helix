@@ -90,6 +90,7 @@ type SpecDrivenTaskService struct {
 	SessionContextService      *SessionContextService    // Service for inter-session coordination
 	auditLogService            *AuditLogService          // Service for audit logging
 	koditService               KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
+	koditRepoLister            KoditRepoLister           // Kodit repositories a task's agent can reach (for prompts)
 	ExecInDesktop              DesktopExecFunc           // Callback to exec commands in running desktop containers
 	WakeDesktop                DesktopWakeFunc           // Callback to start a stopped desktop after a failed exec
 	ReadAttachmentBlob         AttachmentBlobReader      // Callback to load attachment bytes from filestore
@@ -142,6 +143,12 @@ func NewSpecDrivenTaskService(
 // SetKoditService replaces the kodit service after late initialization.
 func (s *SpecDrivenTaskService) SetKoditService(svc KoditServicer) {
 	s.koditService = svc
+}
+
+// SetKoditRepoLister wires the resolution of the Kodit repositories a task's
+// agent can reach, used for the repository section of task prompts.
+func (s *SpecDrivenTaskService) SetKoditRepoLister(fn KoditRepoLister) {
+	s.koditRepoLister = fn
 }
 
 // SetTestMode enables or disables test mode (prevents async operations)
@@ -1529,7 +1536,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// Start implementation in the existing task session and sandbox, but on
 		// a clean ACP thread owned by the implementation configuration.
 		if sessionID != "" && !s.testMode {
-			agentInstructionService := NewAgentInstructionService(s.store, s.EnqueueMessageToAgent, s.koditService)
+			agentInstructionService := NewAgentInstructionService(s.store, s.EnqueueMessageToAgent, s.koditService, s.koditRepoLister)
 			message := agentInstructionService.BuildApprovalInstruction(
 				context.Background(), task, branchName, effectiveBaseBranch, repo.Name,
 			)
@@ -1860,41 +1867,9 @@ func isNonRetryableIdentityError(err error) bool {
 	return errors.Is(err, errIdentityUserNotFound) || errors.Is(err, errIdentityNoEmail)
 }
 
-// buildRepositorySectionForTask fetches project and org repos, then builds the repository section
+// buildRepositorySectionForTask builds the repository section of a task prompt.
 func (s *SpecDrivenTaskService) buildRepositorySectionForTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
-	if task.ProjectID == "" {
-		return ""
-	}
-
-	// Fetch project repos
-	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: task.ProjectID,
-	})
-	if err != nil {
-		return ""
-	}
-
-	// Fetch Kodit org repos if enabled
-	var koditOrgRepos []*types.GitRepository
-	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
-		orgRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			OrganizationID: project.OrganizationID,
-		})
-		if err == nil {
-			for _, repo := range orgRepos {
-				if repo.KoditIndexing {
-					koditOrgRepos = append(koditOrgRepos, repo)
-				}
-			}
-		}
-	}
-
-	primaryRepoID := ""
-	if project != nil {
-		primaryRepoID = project.DefaultRepoID
-	}
-
-	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
+	return repositorySectionForTask(ctx, s.store, s.koditRepoLister, task, project)
 }
 
 // Helper functions
@@ -2074,8 +2049,13 @@ type SessionAPIKeyRequest struct {
 // GetOrCreateSessionAPIKey gets or creates an ephemeral API key for a session.
 // Keys are scoped to the session for lifecycle management (minted on start, revoked on stop).
 // The key capabilities vary based on session type:
-// - SpecTask sessions: git push rights to specific branch, LLM calls
-// - Non-SpecTask sessions: LLM calls only
+//   - sessions in a project (spec tasks, exploratory desktops): confined to
+//     that project; a spec task's key pushes only to its branch;
+//   - bot instances: the restricted bot instance key type;
+//   - sessions outside any project (a plain chat's desktop): confined by the
+//     API auth middleware to its own session's desktop routes and the LLM
+//     proxy (server.desktopKeyRefusal), and refused by git;
+//   - helix-org workers: their hiring user's access, by design.
 func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, req *SessionAPIKeyRequest) (string, error) {
 	if req.SessionID == "" {
 		return "", fmt.Errorf("session ID is required for session-scoped API key")
@@ -2441,10 +2421,13 @@ func ProjectUsesPullRequests(project *types.Project, repos []*types.GitRepositor
 // confined to, before the spec task's own project is looked up.
 //   - A spec task session: its spec task (and that task's project).
 //   - A bot instance: its project.
-//   - A project's exploratory desktop (not a helix-org worker, which runs
-//     with its own org-level reach): its project.
-//   - Anything else (a plain chat, an org worker): no project; the key is
-//     confined to its session instead.
+//   - A helix-org worker: no project; it runs with its hiring user's
+//     org-level reach by design.
+//   - Any other session in a project (an exploratory desktop, a golden
+//     build, a recurring-task job, a project chat with an external agent):
+//     its project, so it keeps the project's repositories and nothing more.
+//   - Anything else (a plain chat): no project; the key is confined to its
+//     session's desktop routes instead.
 func sessionKeyScope(session *types.Session) (projectID, specTaskID string) {
 	projectID = session.ProjectID
 	if projectID == "" {
@@ -2455,9 +2438,9 @@ func sessionKeyScope(session *types.Session) (projectID, specTaskID string) {
 		return projectID, session.Metadata.SpecTaskID
 	case session.Metadata.SessionRole == types.SessionRoleOrgBotInstance:
 		return session.ProjectID, ""
-	case session.Metadata.SessionRole == "exploratory" && session.Metadata.OrgWorkerID == "":
-		return projectID, ""
-	default:
+	case session.Metadata.OrgWorkerID != "":
 		return "", ""
+	default:
+		return projectID, ""
 	}
 }
