@@ -1,3 +1,5 @@
+//go:build !nokodit
+
 package server
 
 import (
