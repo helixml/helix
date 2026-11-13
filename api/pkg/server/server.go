@@ -1704,6 +1704,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Project audit log routes
 	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/api_keys", system.Wrapper(apiServer.listProjectAPIKeys)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/api_keys/{key_id}", system.Wrapper(apiServer.deleteProjectAPIKey)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.getArtifact).Methods(http.MethodGet)
 	authRouter.HandleFunc("/artifacts/{artifact_id}/download", apiServer.serveArtifactDownload).Methods(http.MethodGet, http.MethodHead)
 	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.updateArtifact).Methods(http.MethodPut)
