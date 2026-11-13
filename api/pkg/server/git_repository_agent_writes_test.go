@@ -294,7 +294,7 @@ func TestContentsWriteStaysInsideTheWorkTree(t *testing.T) {
 	f := newAgentWriteFixture(t)
 	// core.fsmonitor runs a command on the next "git add" in the working copy.
 	poison := "[core]\n\tfsmonitor = touch " + filepath.Join(f.outside, "hook-ran") + "\n"
-	for _, path := range []string{"../../x", "/etc/x", ".git/config", ".git/hooks/pre-commit", "a/.GIT/config", "escape/pwned"} {
+	for _, path := range []string{"../../x", "/etc/x", ".git", ".GIT", "sub/.git", ".git/config", ".git/hooks/pre-commit", "a/.GIT/config", "escape/pwned"} {
 		t.Run(path, func(t *testing.T) {
 			before := f.refs(t)
 			code, body := f.serve(t, http.MethodPut, awRepoBase+"/contents", awContents("main", path, poison), awHumanKey.Key)
