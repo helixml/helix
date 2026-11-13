@@ -3144,6 +3144,8 @@ export enum TypesAuditEventType {
   AuditEventProjectDeleted = "project_deleted",
   AuditEventProjectSettingsUpdated = "project_settings_updated",
   AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
+  AuditEventIdentityAttestationMinted = "identity_attestation_minted",
+  AuditEventIdentityAttestationVerified = "identity_attestation_verified",
   AuditEventAPIKeyCreated = "api_key_created",
   AuditEventAPIKeyRevoked = "api_key_revoked",
 }
@@ -3152,6 +3154,9 @@ export interface TypesAuditMetadata {
   /** API key events: the key's non-secret id and name, never the secret */
   api_key_id?: string;
   api_key_name?: string;
+  attestation_audience?: string;
+  /** Identity attestation tracking */
+  attestation_jti?: string;
   branch_name?: string;
   /** Group ID linking related cloned tasks */
   clone_group_id?: string;
@@ -3175,6 +3180,7 @@ export interface TypesAuditMetadata {
   pull_requests?: TypesRepoPR[];
   /** Hash of requirements spec content */
   requirements_spec_hash?: string;
+  sandbox_id?: string;
   /** Helix session/interaction linking */
   session_id?: string;
   /** Spec versioning - capture spec state at time of event */
@@ -4704,6 +4710,42 @@ export interface TypesGuidelinesHistory {
   /** Set for user-level (personal workspace) guidelines */
   user_id?: string;
   version?: number;
+}
+
+export interface TypesIdentityAttestationClaims {
+  aud?: string;
+  exp?: string;
+  iat?: string;
+  jti?: string;
+  nonce?: string;
+  organization_id?: string;
+  owner?: string;
+  project_id?: string;
+  sandbox_id?: string;
+  session_id?: string;
+  spec_task_id?: string;
+}
+
+export interface TypesIdentityAttestationError {
+  error?: string;
+}
+
+export interface TypesIdentityAttestationRequest {
+  /** Audience names the verifier the token is for, e.g. "ptaas.example.com". */
+  audience?: string;
+  /** Nonce is the verifier's challenge (16–128 characters). */
+  nonce?: string;
+}
+
+export interface TypesIdentityAttestationResponse {
+  expires_at?: string;
+  token?: string;
+}
+
+export interface TypesIdentityAttestationVerifyRequest {
+  audience?: string;
+  nonce?: string;
+  token?: string;
 }
 
 export enum TypesImageURLDetail {
@@ -14274,6 +14316,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns a short-lived token stating which spec task, session or sandbox the caller's key belongs to, for one audience and nonce. Only the session or sandbox key of a desktop in a project may call it.
+     *
+     * @tags identity
+     * @name V1IdentityAttestationsCreate
+     * @summary Mint an identity attestation
+     * @request POST:/api/v1/identity/attestations
+     * @secure
+     */
+    v1IdentityAttestationsCreate: (request: TypesIdentityAttestationRequest, params: RequestParams = {}) =>
+      this.request<TypesIdentityAttestationResponse, SystemHTTPError>({
+        path: `/api/v1/identity/attestations`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Redeems an attestation once. The caller must be a user or an org-scoped API key that may read the attested project; session, project and app keys are refused. Every invalid, expired, foreign or replayed token gets the same 404.
+     *
+     * @tags identity
+     * @name V1IdentityAttestationsVerifyCreate
+     * @summary Verify an identity attestation
+     * @request POST:/api/v1/identity/attestations/verify
+     * @secure
+     */
+    v1IdentityAttestationsVerifyCreate: (request: TypesIdentityAttestationVerifyRequest, params: RequestParams = {}) =>
+      this.request<TypesIdentityAttestationClaims, SystemHTTPError | TypesIdentityAttestationError>({
+        path: `/api/v1/identity/attestations/verify`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

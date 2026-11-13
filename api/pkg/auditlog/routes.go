@@ -51,6 +51,10 @@ var sensitiveBodyPaths = []string{
 	"/projects/*/secret-intakes/**",
 	"/connect/intake/redeem",
 	"/connect/intake/submit",
+
+	// Identity attestation tokens are bearer credentials until redeemed.
+	"/identity/attestations",
+	"/identity/attestations/verify",
 }
 
 // IsSensitiveBodyRoute reports whether the body of a request for this path must
