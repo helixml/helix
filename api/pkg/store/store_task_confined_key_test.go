@@ -86,3 +86,30 @@ func (suite *PostgresStoreTestSuite) TestAPIKey_TaskConfinedRoundTrips() {
 	suite.Require().NoError(err)
 	suite.True(stored.TaskConfined)
 }
+
+func (suite *PostgresStoreTestSuite) TestListArtifacts_FiltersBySpecTask() {
+	project := suite.createTestProject()
+	suite.T().Cleanup(func() { _ = suite.db.DeleteProject(context.Background(), project.ID) })
+	for _, taskID := range []string{"spt_finder", "spt_verifier", ""} {
+		artifactID, versionID := "art_"+system.GenerateUUID(), "artv_"+system.GenerateUUID()
+		artifact := &types.Artifact{
+			ID: artifactID, ProjectID: project.ID, Name: "a", Kind: "html", Entrypoint: "index.html",
+			Visibility: types.ArtifactVisibilityProject, ActiveVersionID: versionID,
+			CreatedBy: "u", UpdatedBy: "u", SpecTaskID: taskID,
+		}
+		version := &types.ArtifactVersion{
+			ID: versionID, ArtifactID: artifactID, Version: 1, StoragePrefix: "p",
+			Files: []types.ArtifactFile{{Path: "index.html"}}, FileCount: 1, CreatedBy: "u",
+		}
+		suite.Require().NoError(suite.db.CreateArtifact(suite.ctx, artifact, version))
+	}
+
+	artifacts, err := suite.db.ListArtifacts(suite.ctx, &ListArtifactsQuery{ProjectID: project.ID, SpecTaskID: "spt_verifier"})
+	suite.Require().NoError(err)
+	suite.Require().Len(artifacts, 1)
+	suite.Equal("spt_verifier", artifacts[0].SpecTaskID)
+
+	all, err := suite.db.ListArtifacts(suite.ctx, &ListArtifactsQuery{ProjectID: project.ID})
+	suite.Require().NoError(err)
+	suite.Len(all, 3)
+}
