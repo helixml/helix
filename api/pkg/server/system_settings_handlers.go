@@ -47,6 +47,9 @@ func (apiServer *HelixAPIServer) getSystemSettings(rw http.ResponseWriter, r *ht
 func systemSettingsResponse(settings *types.SystemSettings, envToken string) *types.SystemSettingsResponse {
 	resp := settings.ToResponseWithSource(settings.HuggingFaceToken, envToken)
 	resp.OpenCodeBundledVersion = opencode.BakedVersion
+	if err := opencode.ValidateVersion(settings.OpenCodeVersion); err != nil {
+		resp.OpenCodeVersionError = err.Error()
+	}
 	return resp
 }
 

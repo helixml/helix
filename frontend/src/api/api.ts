@@ -8732,6 +8732,11 @@ export interface TypesSystemSettingsResponse {
    * can show the floor without hardcoding it.
    */
   opencode_version?: string;
+  /**
+   * OpenCodeVersionError is set when the stored pin fails validation;
+   * sessions then ignore it and run the bundled build.
+   */
+  opencode_version_error?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
