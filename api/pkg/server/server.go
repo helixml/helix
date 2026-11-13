@@ -27,6 +27,7 @@ import (
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/anthropic"
+	"github.com/helixml/helix/api/pkg/attestation"
 	"github.com/helixml/helix/api/pkg/auditlog"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -131,7 +132,9 @@ type HelixAPIServer struct {
 	// orgAgentConfigChanged, when wired, is called after an App's
 	// system prompt changes so the helix-org layer can flag any Bot backed
 	// by that App as needing a sandbox restart. nil when helix-org is off.
-	orgAgentConfigChanged       func(ctx context.Context, appID string)
+	orgAgentConfigChanged func(ctx context.Context, appID string)
+	// attestations mints and verifies identity attestations.
+	attestations                *attestation.Signer
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
@@ -450,8 +453,20 @@ func NewServer(
 		return nil, fmt.Errorf("HELIX_LOGIN_TRUSTED_PROXIES: %w", err)
 	}
 
+	// The same secret the authenticator resolved in serve; the signer derives
+	// its own key from it.
+	jwtSecret, err := auth.ResolveJWTSecret(context.Background(), store, cfg.Auth.Regular.JWTSecret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve JWT secret for identity attestations: %w", err)
+	}
+	attestations, err := attestation.NewSigner(jwtSecret)
+	if err != nil {
+		return nil, err
+	}
+
 	apiServer := &HelixAPIServer{
 		Cfg:                        cfg,
+		attestations:               attestations,
 		Store:                      store,
 		Stripe:                     stripe,
 		startTime:                  time.Now(),
@@ -1150,6 +1165,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.createAPIKey)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.getAPIKeys)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods(http.MethodDelete)
+
+	// Identity attestations: a desktop's key mints, a verifier redeems once.
+	authRouter.HandleFunc("/identity/attestations", system.Wrapper(apiServer.createIdentityAttestation)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/identity/attestations/verify", apiServer.verifyIdentityAttestation).Methods(http.MethodPost)
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods(http.MethodGet)
 
 	// User search endpoint
