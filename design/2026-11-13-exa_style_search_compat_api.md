@@ -108,7 +108,7 @@ Exa reference: OpenAPI spec `exa-labs/openapi-spec` version `2.0.0`, read 2026-1
 | `text.includeHtmlTags` | Raw HTML available | ✅ | Return the readability HTML instead of Markdown. |
 | `text.linkStyle` `full` / `citation` | `full` only | 🔧 | A converter rule for `citation` that appends a `[n]: url` list. |
 | `text.verbosity`, `includeSections` / `excludeSections` | Readability gives only the body | 🟡 | `compact` = readability body. `full` = whole-document Markdown. Sections come from `<header>`, `<nav>`, `<footer>`, `<aside>`, and ARIA roles, best-effort (Exa also says best-effort). |
-| `highlights` (`query`, `maxCharacters`) | — | 🔧 | Chunk the text, embed it with `/v1/embeddings`, and rank by cosine similarity to `highlights.query` (or to the search query). Fall back to BM25 when no embedding model is configured. Errors if neither works. Fill `highlightScores` for findSimilar. |
+| `highlights` (`query`, `maxCharacters`) | — | 🔧 | Chunk the text, embed it with `/v1/embeddings`, and rank by cosine similarity to `highlights.query` (or to the search query). Without an embedding model, highlights return `FEATURE_DISABLED`. Fill `highlightScores` for findSimilar. |
 | `highlights.dynamic` / `verbosity` (Exa beta) | — | ❌ for v1 | Reject unless the `Exa-Beta` header is set. Support later. |
 | `summary` (`query`, `schema`) | `Browser` skill summarises with an LLM | 🔧 | Use a small, fast model from the org's providers. `schema` → JSON-mode / structured output, validated. |
 | `extras.links` / `imageLinks` / `richImageLinks` (0–1000) | Not extracted | ✅ | Collect from the DOM during fetch. |
@@ -255,9 +255,9 @@ Today `searxng.SearchProvider` is used directly by `agent/skill/web_search.go`. 
 
 | Phase | Scope | Exit criterion |
 |---|---|---|
-| **0** | §8 fixes; `websearch` package and types; `exa` provider; skill refactor onto `Provider` | Agents work unchanged on `native`; with `WEBSEARCH_PROVIDER=exa` they work through Exa. |
+| **0** | §8 fixes; `websearch` package and types; `exa` provider; skill refactor onto `Provider` | Agents work unchanged on `native`; with `SEARCH_PROVIDER=exa` they work through Exa. |
 | **1** | `/search` (no inline contents), `/contents` (text, extras, statuses, PDFs), content cache with `maxAgeHours`, `x-api-key` auth, usage records, error envelope | `exa-py` `search()` and `get_contents()` work against Helix; schema conformance passes. |
-| **2** | Inline `contents`, highlights (embeddings/BM25), summary (+ schema), subpages, domain/date/category approximations, `numResults` pagination | Differential suite baseline recorded. |
+| **2** | Inline `contents`, highlights (embeddings), summary (+ schema), subpages, domain/date/category approximations, `numResults` pagination | Differential suite baseline recorded. |
 | **3** | `/answer` + SSE, `/search` `outputSchema` synthesis + stream, `deep` / `additionalQueries`, `findSimilar` | SDK `answer(stream=True)` works. |
 | **4 (v2)** | `/agent/runs` on the Helix agent loop; cache versioning → `snapshotAsOf` | — |
 
@@ -267,7 +267,7 @@ Today `searxng.SearchProvider` is used directly by `agent/skill/web_search.go`. 
 
 1. **Engine policy.** Do we keep Google/Bing scraping through SearXNG for a customer-facing product, or move to licensed engine APIs (Brave Search API, Bing replacement) as SearXNG engines? This affects legality more than code.
 2. **Content cache storage.** A Postgres row per URL (metadata, `fetched_at`) plus the body in filestore, or the body in Postgres? How long do we keep it, and should cached content be shared across orgs? Sharing is efficient but leaks fetch timing between tenants.
-3. **Chargeback.** Do we populate `costDollars` from an internal price table, or always send zero and rely on Helix usage records?
+3. ~~Chargeback.~~ Decided: one `SEARCH_PRICE_*` table (Exa list prices) for every provider, debited from Helix credits (§12).
 4. **Model mapping** for `/answer` `model` values. Is it per deployment, or does it come from the org's default provider?
 5. ~~Scope of `x-api-key`.~~ Already a general Helix auth header before this work.
 
