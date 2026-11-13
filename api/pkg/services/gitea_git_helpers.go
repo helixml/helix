@@ -427,7 +427,7 @@ func ShortHash(hash string) string {
 
 // PreReceiveHookVersion is incremented when the hook logic changes.
 // The hook script contains this version and will be updated if it differs.
-const PreReceiveHookVersion = "7"
+const PreReceiveHookVersion = "8"
 
 // preReceiveHookScript is the shell script that:
 // 1. Protects helix-specs branch from force pushes
@@ -453,6 +453,11 @@ branch_allowed() {
     if [ -z "$allowed" ]; then
         return 0
     fi
+
+    # A comma in the branch would let it span several list entries.
+    case "$branch" in
+        *,*) return 1 ;;
+    esac
 
     # Use case statement for exact matching (avoids subshell issues with pipes)
     # Add commas to both ends so we match whole branch names only

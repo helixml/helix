@@ -1216,6 +1216,10 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 		writeErrResponse(w, system.NewHTTPError400("either specify a branch or set the default branch for the repository"), http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateGitBranchName(request.Branch); err != nil {
+		writeErrResponse(w, system.NewHTTPError400(err.Error()), http.StatusBadRequest)
+		return
+	}
 
 	if err := s.authorizeAgentRepositoryWrite(r.Context(), user, repoID, request.Branch, request.Path); err != nil {
 		writeHTTPStatusError(w, err)
@@ -1279,10 +1283,12 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 	}
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Str("path", request.Path).Msg("Failed to create/update file")
-		// Check if it's a sync error (409) or other error (500)
-		if strings.Contains(err.Error(), "sync from upstream") {
+		switch {
+		case errors.Is(err, services.ErrRepoPathBlocked), errors.Is(err, services.ErrInvalidBranchName):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, services.ErrBranchMoved), strings.Contains(err.Error(), "sync from upstream"):
 			http.Error(w, err.Error(), http.StatusConflict)
-		} else {
+		default:
 			http.Error(w, fmt.Sprintf("Failed to create/update file: %s", err.Error()), http.StatusInternalServerError)
 		}
 		return
@@ -1401,6 +1407,10 @@ func (s *HelixAPIServer) pullFromRemote(w http.ResponseWriter, r *http.Request) 
 		writeErrResponse(w, system.NewHTTPError400("branch name is required"), http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateGitBranchName(branchName); err != nil {
+		writeErrResponse(w, system.NewHTTPError400(err.Error()), http.StatusBadRequest)
+		return
+	}
 
 	force := r.URL.Query().Get("force") == "true"
 
@@ -1460,6 +1470,10 @@ func (s *HelixAPIServer) pushToRemote(w http.ResponseWriter, r *http.Request) {
 	branchName := r.URL.Query().Get("branch")
 	if branchName == "" {
 		writeErrResponse(w, system.NewHTTPError400("branch name is required"), http.StatusBadRequest)
+		return
+	}
+	if err := types.ValidateGitBranchName(branchName); err != nil {
+		writeErrResponse(w, system.NewHTTPError400(err.Error()), http.StatusBadRequest)
 		return
 	}
 
@@ -1526,6 +1540,9 @@ func (s *HelixAPIServer) pushPullGitRepository(w http.ResponseWriter, r *http.Re
 			writeErrResponse(w, system.NewHTTPError400("repository has no default branch"), http.StatusBadRequest)
 			return
 		}
+	} else if err := types.ValidateGitBranchName(branchName); err != nil {
+		writeErrResponse(w, system.NewHTTPError400(err.Error()), http.StatusBadRequest)
+		return
 	}
 
 	force := r.URL.Query().Get("force") == "true"
@@ -1689,6 +1706,10 @@ func (s *HelixAPIServer) createGitRepositoryBranch(w http.ResponseWriter, r *htt
 
 	if request.BranchName == "" {
 		http.Error(w, "Branch name is required", http.StatusBadRequest)
+		return
+	}
+	if err := types.ValidateGitBranchName(request.BranchName); err != nil {
+		writeErrResponse(w, system.NewHTTPError400(err.Error()), http.StatusBadRequest)
 		return
 	}
 	if err := s.authorizeAgentRepositoryWrite(r.Context(), user, repoID, request.BranchName, ""); err != nil {

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gorilla/mux"
@@ -615,14 +616,15 @@ func (s *HelixAPIServer) readSpecTaskAttachmentBlob(_ context.Context, absoluteP
 	return io.ReadAll(rc)
 }
 
-// sanitiseAttachmentFilename trims path components and rejects hidden/empty names.
+// sanitiseAttachmentFilename trims path components and rejects hidden/empty
+// names and names holding control characters.
 func sanitiseAttachmentFilename(name string) string {
 	name = filepath.Base(name)
 	name = strings.TrimSpace(name)
 	if name == "" || name == "." || name == ".." || strings.HasPrefix(name, ".") {
 		return ""
 	}
-	if strings.ContainsAny(name, "/\\\x00") {
+	if strings.ContainsAny(name, "/\\") || strings.ContainsFunc(name, unicode.IsControl) {
 		return ""
 	}
 	return name
