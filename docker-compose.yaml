@@ -26,6 +26,8 @@ services:
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - SERVER_PORT=8080
+      # Shared secret for the crawler browser (chrome service); install.sh generates it.
+      - RAG_CRAWLER_LAUNCHER_TOKEN=${CHROME_LAUNCHER_TOKEN:-}
       - APP_URL=${SERVER_URL:-http://localhost:8080}
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres
@@ -75,10 +77,11 @@ services:
       - "host.docker.internal:host-gateway"
   postgres:
     logging: *default-logging
-    # PostgreSQL 12 is end-of-life. The default stays on 12 because a newer
-    # major cannot start on an existing 12 data directory; moving to a
-    # supported major is an opt-in dump/restore, see docs/postgres-upgrade.md.
-    image: ${HELIX_POSTGRES_IMAGE:-postgres:12.22-alpine}
+    # New installs run PostgreSQL 17. Data created by an older major does not
+    # start under 17 (PostgreSQL refuses it and leaves it untouched), so
+    # install.sh pins HELIX_POSTGRES_IMAGE in .env for existing installs.
+    # Upgrading old data is a dump/restore: docs/postgres-upgrade.md.
+    image: ${HELIX_POSTGRES_IMAGE:-postgres:17-alpine}
     restart: always
     # ports:
     #   - 5432:5432
@@ -111,8 +114,14 @@ services:
       - UWSGI_THREADS=4
   chrome:
     logging: *default-logging
-    image: ghcr.io/go-rod/rod:v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107
+    # Crawler browser (Dockerfile.chrome): go-rod's launcher manager and a
+    # current Chromium, released with Helix. HELIX_CHROME_IMAGE overrides it
+    # with any image serving the go-rod launcher protocol on :7317.
+    image: ${HELIX_CHROME_IMAGE:-ghcr.io/helixml/chrome:${HELIX_VERSION:-latest}}
     restart: always
+    environment:
+      # Launches need this secret; unset, any client on the network can launch a browser.
+      - CHROME_LAUNCHER_TOKEN=${CHROME_LAUNCHER_TOKEN:-}
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke
     # ports:

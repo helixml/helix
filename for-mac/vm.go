@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"for-mac/stackscript"
 )
 
 //go:embed scripts/init-zfs-pool.sh
@@ -1232,46 +1234,7 @@ func (vm *VMManager) ensureDockerRunning() error {
 // or docker-compose.yaml (prod/install.sh with pre-built images).
 // In prod mode, also starts sandbox.sh separately (sandbox is not a compose service).
 func (vm *VMManager) startHelixStack() error {
-	script := `
-cd ~/helix 2>/dev/null || exit 0
-if [ ! -f .env ] && [ ! -f .env.vm ]; then
-    echo 'NO_ENV_FILE'
-    exit 0
-fi
-# Docker Compose always reads .env by default; symlink so it picks up our config
-if [ ! -e .env ]; then
-    ln -s .env.vm .env
-fi
-# Detect compose file: dev (build-from-source) vs prod (install.sh)
-COMPOSE_FILE=""
-if [ -f docker-compose.dev.yaml ]; then
-    COMPOSE_FILE="docker-compose.dev.yaml"
-elif [ -f docker-compose.yaml ]; then
-    COMPOSE_FILE="docker-compose.yaml"
-else
-    echo 'NO_COMPOSE_FILE'
-    exit 0
-fi
-echo "COMPOSE_FILE=$COMPOSE_FILE"
-# Check if stack is already running
-if docker compose -f "$COMPOSE_FILE" ps --format '{{.Service}}' 2>/dev/null | grep -q api; then
-    echo 'ALREADY_RUNNING'
-else
-    echo 'Starting Helix stack...'
-    docker compose -f "$COMPOSE_FILE" up -d 2>&1
-    echo 'STARTED'
-fi
-# In prod mode (install.sh), always restart the sandbox container.
-# sandbox.sh creates the container with --restart=always, so it may have
-# auto-started from a previous boot with a stale RUNNER_TOKEN. Stop/rm it
-# and re-run sandbox.sh so it picks up the current token from .env.
-if [ "$COMPOSE_FILE" = "docker-compose.yaml" ] && [ -f sandbox.sh ]; then
-    docker stop helix-sandbox 2>/dev/null || true
-    docker rm helix-sandbox 2>/dev/null || true
-    nohup bash sandbox.sh > /tmp/sandbox.log 2>&1 &
-    echo 'SANDBOX_RESTARTED'
-fi
-`
+	script := stackscript.Start()
 	out, err := vm.runSSH("Start stack", script)
 	if err != nil {
 		return fmt.Errorf("failed to start Helix stack: %w (output: %s)", err, out)

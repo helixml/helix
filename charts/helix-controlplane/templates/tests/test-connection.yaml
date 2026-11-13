@@ -4,6 +4,7 @@ metadata:
   name: "{{ include "helix-controlplane.fullname" . }}-test-connection"
   labels:
     {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: helm-test
   annotations:
     "helm.sh/hook": test
 spec:

@@ -1,0 +1,35 @@
+{{- if and .Values.chrome.enabled .Values.chrome.networkPolicy.enabled }}
+# The browser manager launches a browser for any client that reaches :7317,
+# so only the controlplane pods (the crawler) and the chart's helm test may
+# connect to it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-chrome
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: chrome
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: chrome
+      {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controlplane
+              {{- include "helix-controlplane.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: helm-test
+              {{- include "helix-controlplane.selectorLabels" . | nindent 14 }}
+        {{- with .Values.chrome.networkPolicy.extraFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - port: 7317
+          protocol: TCP
+{{- end }}
