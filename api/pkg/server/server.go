@@ -1126,12 +1126,12 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// e.g. /sessions/123 becomes /users/456/sessions/123
 	// so - the point is, the auth is done by injecting the user id based on the token
 	authRouter.HandleFunc("/filestore/config", system.DefaultWrapper(apiServer.filestoreConfig)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(apiServer.filestoreList)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(apiServer.filestoreGet)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/filestore/folder", system.DefaultWrapper(apiServer.filestoreCreateFolder)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/filestore/upload", system.DefaultWrapper(apiServer.filestoreUpload)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(apiServer.filestoreRename)).Methods(http.MethodPut)
-	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(apiServer.filestoreDelete)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreList))).Methods(http.MethodGet)
+	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreGet))).Methods(http.MethodGet)
+	authRouter.HandleFunc("/filestore/folder", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreCreateFolder))).Methods(http.MethodPost)
+	authRouter.HandleFunc("/filestore/upload", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreUpload))).Methods(http.MethodPost)
+	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreRename))).Methods(http.MethodPut)
+	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreDelete))).Methods(http.MethodDelete)
 	// Authentication is done within the handler itself based on API path
 	subRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(APIPrefix+"/filestore/viewer/", http.HandlerFunc(apiServer.filestoreViewerHandler)))
 
