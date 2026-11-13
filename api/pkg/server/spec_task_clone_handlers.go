@@ -295,8 +295,12 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 // will be built on and checks the caller may do so. The project inherits the
 // repository's organization; authorizeUserToRepository requires membership of
 // that organization (or ownership, for a repository outside any org), so the
-// project always lands somewhere the caller belongs.
+// project always lands somewhere the caller belongs. A project-scoped key may
+// not create projects: the new project would be outside its scope.
 func (s *HelixAPIServer) authorizeQuickCreateProject(ctx context.Context, user *types.User, repoID string) (*types.GitRepository, *system.HTTPError) {
+	if user.ProjectID != "" {
+		return nil, system.NewHTTPError403("a project-scoped API key cannot create projects")
+	}
 	repo, err := s.Store.GetGitRepository(ctx, repoID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {

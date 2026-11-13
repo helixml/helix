@@ -55,6 +55,8 @@ func init() {
 		"GET /api/v1/projects/{id}/secrets":                                 object("authorizeUserToProjectByID"),
 		"POST /api/v1/projects/{id}/secrets":                                object("authorizeUserToProjectByID"),
 		"GET /api/v1/projects/{id}/audit-logs":                              object("authorizeUserToProject"),
+		"GET /api/v1/projects/{id}/api_keys":                                object("authorizeProjectAPIKeyManagement"),
+		"DELETE /api/v1/projects/{id}/api_keys/{key_id}":                    object("authorizeProjectAPIKeyManagement"),
 		"GET /api/v1/artifacts/{artifact_id}":                               object("requireArtifactAccess"),
 		"GET /api/v1/artifacts/{artifact_id}/download":                      object("authorizeUserToProjectByID"),
 		"HEAD /api/v1/artifacts/{artifact_id}/download":                     object("authorizeUserToProjectByID"),

@@ -57,6 +57,20 @@ import (
 // here: the worker manages its organization through the REST API as its
 // hiring user, by design.
 //
+// A project key (project_apikey_handlers.go) is not a desktop key, but it is
+// confined here the same way, by route: it is bound to one project and no
+// session, and is held outside Helix (a portal, a CI job). It may reach:
+//
+//   - the LLM proxy, where its usage is attributed to its project (it may
+//     not name a RAG source or assistant; an agent it names is authorized
+//     by the handler, which confines it to its project's agents);
+//   - its own project under /api/v1/projects/{id}, except key management,
+//     access grants, moving the project and deleting it;
+//   - spec tasks, sessions by id and repositories by id, whose handlers
+//     confine it to its project (authorizeUserToProject,
+//     enforceKeySessionScope, enforceKeyRepositoryScope);
+//   - GET /api/v1/status.
+//
 // FAIL CLOSED: anything not matched is denied and logged. A session key
 // whose session cannot be loaded is confined as if it had no agent.
 
@@ -65,12 +79,26 @@ type desktopKeyKind int
 const (
 	desktopKeySandbox desktopKeyKind = iota + 1
 	desktopKeySession
+	projectKey
 )
 
-// desktopKey is a project-less key held by code in a desktop container.
+func (kind desktopKeyKind) String() string {
+	switch kind {
+	case desktopKeySandbox:
+		return "sandbox"
+	case desktopKeySession:
+		return "session"
+	case projectKey:
+		return "project"
+	}
+	return "unknown"
+}
+
+// desktopKey is a project-less key held by code in a desktop container, or
+// a project key.
 type desktopKey struct {
 	kind desktopKeyKind
-	// id is the sandbox or session the key is bound to.
+	// id is the sandbox, session or project the key is bound to.
 	id string
 	// orgID is the key's organization.
 	orgID string
@@ -103,9 +131,25 @@ func isProjectlessSessionKey(user *types.User) bool {
 	return user.APIKeyType == types.APIkeytypeAPI || user.APIKeyType == ""
 }
 
+// isProjectKey reports whether the caller holds an ordinary API key bound to
+// a project and no session or spec task: a user-managed project key.
+func isProjectKey(user *types.User) bool {
+	if user == nil || user.TokenType != types.TokenTypeAPIKey {
+		return false
+	}
+	if user.ProjectID == "" || user.SessionID != "" || user.SpecTaskID != "" || user.AppID != "" {
+		return false
+	}
+	return user.APIKeyType == types.APIkeytypeAPI || user.APIKeyType == ""
+}
+
 // confinedDesktopKey returns the confinement for a caller holding a
-// project-less desktop key, or nil when the caller is not confined here.
+// project-less desktop key or a project key, or nil when the caller is not
+// confined here.
 func (auth *authMiddleware) confinedDesktopKey(ctx context.Context, user *types.User) *desktopKey {
+	if isProjectKey(user) {
+		return &desktopKey{kind: projectKey, id: user.ProjectID, orgID: user.OrganizationID}
+	}
 	if sandboxID := sandboxSessionKeyID(user); sandboxID != "" {
 		return &desktopKey{kind: desktopKeySandbox, id: sandboxID, orgID: user.OrganizationID}
 	}
@@ -133,13 +177,21 @@ func (auth *authMiddleware) desktopKeyRefusal(user *types.User, r *http.Request)
 	if key == nil || key.allows(r) {
 		return nil
 	}
+	idField := "key_session_id"
+	if key.kind == projectKey {
+		idField = "key_project_id"
+	}
 	log.Warn().
-		Str("key_session_id", key.id).
+		Str("key_kind", key.kind.String()).
+		Str(idField, key.id).
 		Str("method", r.Method).
 		Str("path", r.URL.Path).
-		Msg("Desktop key denied")
-	if key.kind == desktopKeySandbox {
+		Msg("Scoped key denied")
+	switch key.kind {
+	case desktopKeySandbox:
 		return ErrSandboxKeyNotAllowed
+	case projectKey:
+		return ErrProjectKeyNotAllowed
 	}
 	return ErrSessionKeyNotAllowed
 }
@@ -210,6 +262,9 @@ func (key *desktopKey) allows(r *http.Request) bool {
 		if query.Has("rag_source_id") || query.Has("assistant_id") {
 			return false
 		}
+		if key.kind == projectKey {
+			return true
+		}
 		// An agent brings its owner's knowledge, RAG and API tools. The
 		// handlers pin a session key's calls to its session's agent when
 		// it has one; without one the key may not pick another. A sandbox
@@ -219,6 +274,10 @@ func (key *desktopKey) allows(r *http.Request) bool {
 			return appID == "" || appID == key.parentApp
 		}
 		return appID == ""
+	}
+
+	if key.kind == projectKey {
+		return key.projectRouteAllows(path, r.Method)
 	}
 
 	if key.kind == desktopKeySandbox && key.orgID != "" {
@@ -308,6 +367,75 @@ func ownSandboxRouteAllows(rest, method string) bool {
 			}
 		}
 		return false
+	}
+	return false
+}
+
+// projectKeyRefusedProjectRoutes are the sub-routes of /projects/{id} a
+// project key may not call on its own project: managing keys and access, and
+// moving the project to another organization, belong to a person.
+var projectKeyRefusedProjectRoutes = []string{"/api_keys", "/access-grants", "/move"}
+
+// projectRouteAllows applies to a project key on any route but the LLM
+// proxy.
+func (key *desktopKey) projectRouteAllows(path, method string) bool {
+	if rest, ok := strings.CutPrefix(path, "/api/v1/projects/"+key.id); ok {
+		if rest == "" {
+			return method != http.MethodDelete
+		}
+		if !strings.HasPrefix(rest, "/") {
+			return false
+		}
+		for _, refused := range projectKeyRefusedProjectRoutes {
+			if rest == refused || strings.HasPrefix(rest, refused+"/") {
+				return false
+			}
+		}
+		return true
+	}
+	if path == "/api/v1/status" {
+		return method == http.MethodGet
+	}
+	if path == "/api/v1/spec-tasks" || strings.HasPrefix(path, "/api/v1/spec-tasks/") {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(path, "/api/v1/sessions/"); ok {
+		id, _, _ := strings.Cut(rest, "/")
+		// Ids only: /sessions/chat creates a session outside the project.
+		return id != "" && id != "chat"
+	}
+	if rest, ok := strings.CutPrefix(path, "/api/v1/git/repositories/"); ok {
+		id, sub, _ := strings.Cut(rest, "/")
+		// Ids only: /git/repositories/from-template creates a repository.
+		if id == "" || id == "from-template" {
+			return false
+		}
+		return projectKeyRepositoryRouteAllows(sub, method)
+	}
+	return false
+}
+
+// projectKeyRepositoryRouteAllows applies to "/git/repositories/{id}/<sub>".
+// A repository can be attached to several projects, so a project key gets
+// reads and the pull-request workflow only. Changing, deleting, re-indexing
+// or syncing the repository with its remote, writing files, merging and
+// managing access stay with people.
+func projectKeyRepositoryRouteAllows(sub, method string) bool {
+	if sub == "access-grants" || strings.HasPrefix(sub, "access-grants/") {
+		return false
+	}
+	if method == http.MethodGet || method == http.MethodHead {
+		return true
+	}
+	parts := strings.Split(sub, "/")
+	switch method {
+	case http.MethodPost:
+		if sub == "branches" || sub == "pull-requests" {
+			return true
+		}
+		return len(parts) == 3 && parts[0] == "pulls" && parts[2] == "request-rebase"
+	case http.MethodPatch:
+		return len(parts) == 2 && parts[0] == "pulls"
 	}
 	return false
 }

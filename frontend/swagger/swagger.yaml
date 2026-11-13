@@ -3851,6 +3851,32 @@ definitions:
       type:
         type: string
     type: object
+  types.APIKeySummary:
+    properties:
+      app_id:
+        type: string
+      created:
+        type: string
+      id:
+        description: |-
+          ID is a stable, non-secret handle for the key, derived from a hash of
+          the secret. Use it to delete a key you did not create.
+        type: string
+      key_prefix:
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      project_id:
+        type: string
+      type:
+        $ref: '#/definitions/types.APIKeyType'
+    type: object
   types.APIKeyType:
     enum:
     - ""
@@ -4867,8 +4893,12 @@ definitions:
     - project_deleted
     - project_settings_updated
     - project_guidelines_updated
+    - api_key_created
+    - api_key_revoked
     type: string
     x-enum-comments:
+      AuditEventAPIKeyCreated: A project API key was minted
+      AuditEventAPIKeyRevoked: A project API key was revoked
       AuditEventAgentPrompt: Prompt sent from Helix UI to agent
       AuditEventAgentStarted: Agent session started
       AuditEventGitPush: Git push detected
@@ -4905,8 +4935,16 @@ definitions:
     - AuditEventProjectDeleted
     - AuditEventProjectSettingsUpdated
     - AuditEventProjectGuidelinesUpdated
+    - AuditEventAPIKeyCreated
+    - AuditEventAPIKeyRevoked
   types.AuditMetadata:
     properties:
+      api_key_id:
+        description: 'API key events: the key''s non-secret id and name, never the
+          secret'
+        type: string
+      api_key_name:
+        type: string
       branch_name:
         type: string
       clone_group_id:
@@ -18066,9 +18104,16 @@ paths:
       tags:
       - api-keys
     post:
-      description: Create a new API key
+      description: 'Create a new API key. With project_id (and type "api"), the key
+        is scoped to that project: it reaches only the project''s routes and the LLM
+        proxy, and proxy usage is attributed to the project. Minting a project key
+        requires write access to the project and a browser session, a personal API
+        key, or an API key of the project''s organization. Unknown body fields are
+        refused. The legacy name query parameter mints a personal key and cannot be
+        combined with a body.'
       parameters:
-      - description: Request body with name and type
+      - description: Request body with name, type, and app_id (app keys) or project_id
+          (project keys)
         in: body
         name: request
         required: true
@@ -25282,6 +25327,71 @@ paths:
       security:
       - BearerAuth: []
       summary: Grant access to a project to a team or organization member
+      tags:
+      - projects
+  /api/v1/projects/{id}/api_keys:
+    get:
+      description: List the caller's own API keys scoped to the project. Key secrets
+        are never returned; each key has a non-secret id and key_prefix. Requires
+        a browser session, a personal API key, or an API key of the project's organization.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.APIKeySummary'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List project API keys
+      tags:
+      - projects
+  /api/v1/projects/{id}/api_keys/{key_id}:
+    delete:
+      description: Revoke one of the caller's own API keys scoped to the project.
+        The key stops authenticating immediately. To rotate a key, create a new one
+        and revoke the old one.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: ID of the API key (the id field from the list)
+        in: path
+        name: key_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.APIKeySummary'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Revoke a project API key
       tags:
       - projects
   /api/v1/projects/{id}/artifacts:

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -1111,9 +1112,9 @@ func (apiServer *HelixAPIServer) approveWaitlistedUser(ctx context.Context, targ
 
 // createAPIKey godoc
 // @Summary Create a new API key
-// @Description Create a new API key
+// @Description Create a new API key. With project_id (and type "api"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization. Unknown body fields are refused. The legacy name query parameter mints a personal key and cannot be combined with a body.
 // @Tags    api-keys
-// @Param request body map[string]interface{} true "Request body with name and type"
+// @Param request body map[string]interface{} true "Request body with name, type, and app_id (app keys) or project_id (project keys)"
 // @Success 200 {string} string "API key"
 // @Router /api/v1/api_keys [post]
 func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
@@ -1123,16 +1124,21 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 	user := getRequestUser(req)
 	ctx := req.Context()
 
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return "", err
+	}
 	if name != "" {
-		// if we are using the query string route then don't try to deode the body
+		// The query-string form mints a personal key. A body would be
+		// ignored, so a request meant to mint a scoped key would silently
+		// get an unscoped one.
+		if len(bytes.TrimSpace(body)) > 0 {
+			return "", system.NewHTTPError400("the name query parameter cannot be combined with a request body; send name in the body instead")
+		}
 		newAPIKey.Name = name
 		newAPIKey.Type = types.APIkeytypeAPI
 	} else {
 		// For now we need to manually unmarshal the body because of the sql.NullString
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			return "", err
-		}
 		var objmap map[string]json.RawMessage
 		err = json.Unmarshal(body, &objmap)
 		if err != nil {
@@ -1145,6 +1151,13 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		typeStr, httpErr := requiredJSONStringField(objmap, "type")
 		if httpErr != nil {
 			return "", httpErr
+		}
+		if _, ok := objmap["project_id"]; ok {
+			createdKey, err := apiServer.createProjectAPIKey(ctx, user, body)
+			if err != nil {
+				return "", err
+			}
+			return createdKey.Key, nil
 		}
 		apiKeyStr, httpErr := requiredJSONStringField(objmap, "app_id")
 		if httpErr != nil {

@@ -84,6 +84,10 @@ type ListAPIKeysQuery struct {
 	Type           types.APIKeyType `json:"type"`
 	AppID          string           `json:"app_id"`
 	OrganizationID string           `json:"organization_id"`
+	ProjectID      string           `json:"project_id"`
+	// UserManaged excludes the ephemeral keys minted for a session or spec
+	// task, leaving the keys a person created and revokes.
+	UserManaged bool `json:"user_managed"`
 }
 
 type ListToolsQuery struct {
