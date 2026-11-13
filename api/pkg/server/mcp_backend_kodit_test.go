@@ -315,3 +315,59 @@ func TestKoditMCPBackend_AuthorizesSession(t *testing.T) {
 	unwired := &KoditMCPBackend{store: st}
 	assert.Error(t, unwired.authorizeSession(ctx, "ses_b", &types.User{ID: "usr_owner"}), "fails closed without an authorizer")
 }
+
+// kodit.NewScopedMCPHandler treats an empty repository set as "every
+// repository on the instance", so an empty scope must never reach it.
+func TestScopedKoditMCPHandler_RefusesEmptyScope(t *testing.T) {
+	for _, ids := range [][]int64{nil, {}} {
+		handler, err := scopedKoditMCPHandler(nil, ids)
+		assert.ErrorIs(t, err, errNoKoditRepositories)
+		assert.Nil(t, handler)
+	}
+}
+
+// A session whose scope resolves to no repositories gets 403, not an
+// unscoped handler: a project with Kodit off, and a user with nothing indexed.
+func TestKoditMCPBackend_EmptyScopeIsForbidden(t *testing.T) {
+	cases := []struct {
+		name    string
+		session *types.Session
+		user    *types.User
+		setup   func(st *store.MockStore)
+	}{
+		{
+			name:    "project with Kodit disabled",
+			session: &types.Session{ID: "ses_p", Owner: "usr_a", ProjectID: "prj_off"},
+			user:    &types.User{ID: "usr_a"},
+			setup: func(st *store.MockStore) {
+				st.EXPECT().GetProject(gomock.Any(), "prj_off").Return(&types.Project{ID: "prj_off", KoditEnabled: false}, nil)
+			},
+		},
+		{
+			name:    "user with no indexed repositories",
+			session: &types.Session{ID: "ses_u", Owner: "usr_b"},
+			user:    &types.User{ID: "usr_b"},
+			setup: func(st *store.MockStore) {
+				st.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{
+					{ID: "repo_unindexed", KoditIndexing: false},
+				}, nil)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			st := store.NewMockStore(ctrl)
+			st.EXPECT().GetSession(gomock.Any(), tc.session.ID).Return(tc.session, nil).AnyTimes()
+			tc.setup(st)
+			backend := &KoditMCPBackend{store: st, enabled: true, handlers: map[string]*sessionHandler{}}
+			backend.SetSessionAuthorizer(func(context.Context, *types.User, *types.Session, types.Action) error { return nil })
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/kodit?session_id="+tc.session.ID, nil)
+			rec := httptest.NewRecorder()
+			backend.ServeHTTP(rec, req, tc.user)
+			assert.Equal(t, http.StatusForbidden, rec.Code)
+			assert.Empty(t, backend.handlers, "no handler may be cached for an empty scope")
+		})
+	}
+}
