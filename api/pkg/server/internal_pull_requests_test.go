@@ -342,7 +342,7 @@ func (s *InternalPullRequestSuite) TestCloseKeepsDiffAndHooksAreAccepted() {
 	s.Require().NoError(err)
 
 	closed := "closed"
-	pr, err := s.server.updateInternalPR(s.ctx, s.repo, 1, &types.GitPullRequestUpdate{State: &closed})
+	pr, err := s.server.updateInternalPR(s.ctx, s.repo, nil, 1, &types.GitPullRequestUpdate{State: &closed})
 	s.Require().NoError(err)
 	s.Equal(types.GitPullRequestStateClosed, pr.State)
 	s.run("", "git", "--git-dir", s.repo.LocalPath, "branch", "-D", "feature/x")

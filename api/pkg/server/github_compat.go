@@ -322,6 +322,10 @@ func (apiServer *HelixAPIServer) compatCreatePullRequest(w http.ResponseWriter, 
 	if _, branch, ok := strings.Cut(req.Head, ":"); ok {
 		req.Head = branch
 	}
+	if err := apiServer.authorizeAgentRepositoryWrite(r.Context(), user, repo.ID, req.Head, ""); err != nil {
+		writeCompatError(w, err)
+		return
+	}
 	pr, err := apiServer.createInternalPR(r.Context(), repo, user, req.Title, req.Body, req.Head, req.Base)
 	if err != nil {
 		writeCompatError(w, err)
@@ -370,7 +374,7 @@ func (apiServer *HelixAPIServer) compatGetPullRequest(w http.ResponseWriter, r *
 }
 
 func (apiServer *HelixAPIServer) compatEditPullRequest(w http.ResponseWriter, r *http.Request) {
-	repo, _, err := apiServer.compatRequest(r, types.ActionUpdate)
+	repo, user, err := apiServer.compatRequest(r, types.ActionUpdate)
 	if err != nil {
 		writeCompatError(w, err)
 		return
@@ -385,7 +389,7 @@ func (apiServer *HelixAPIServer) compatEditPullRequest(w http.ResponseWriter, r 
 		compatError(w, http.StatusBadRequest, "Problems parsing JSON")
 		return
 	}
-	pr, err := apiServer.updateInternalPR(r.Context(), repo, number, &update)
+	pr, err := apiServer.updateInternalPR(r.Context(), repo, user, number, &update)
 	if err != nil {
 		writeCompatError(w, err)
 		return
@@ -463,7 +467,7 @@ func (apiServer *HelixAPIServer) compatMergePullRequest(w http.ResponseWriter, r
 			return
 		}
 	}
-	pr, err := apiServer.gitHTTPServer.MergeInternalPullRequest(r.Context(), repo, number, req.MergeMethod, req.CommitTitle, req.CommitMessage, user.ID)
+	pr, err := apiServer.mergeInternalPR(r.Context(), repo, user, number, &req)
 	if err != nil {
 		writeCompatError(w, err)
 		return
