@@ -537,3 +537,46 @@ func (s *KoditRAGSuite) TestRegisterDirectory_PropagatesKoditError() {
 	s.Error(err)
 	s.True(errors.Is(err, koditErr))
 }
+
+// A knowledge folder whose uploads make it look like a git repository must not
+// reach Kodit, which would run git with the folder's own config and objects.
+func (s *KoditRAGSuite) TestRegisterDirectory_RefusesGitMetadata() {
+	cases := map[string]func(dir string){
+		".git directory": func(dir string) { s.Require().NoError(os.Mkdir(filepath.Join(dir, ".git"), 0o755)) },
+		".git file":      func(dir string) { s.Require().NoError(os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /elsewhere\n"), 0o644)) },
+		"bare layout": func(dir string) {
+			s.Require().NoError(os.WriteFile(filepath.Join(dir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644))
+			s.Require().NoError(os.Mkdir(filepath.Join(dir, "objects"), 0o755))
+			s.Require().NoError(os.Mkdir(filepath.Join(dir, "refs"), 0o755))
+		},
+	}
+	for name, plant := range cases {
+		s.Run(name, func() {
+			dir := s.T().TempDir()
+			plant(dir)
+			called := false
+			s.mockSvc.registerRepositoryFn = func(context.Context, *services.RegisterRepositoryParams) (int64, bool, error) {
+				called = true
+				return 1, true, nil
+			}
+			err := s.rag.RegisterDirectory(context.Background(), "de_git", dir, "user_1", "user")
+			s.Require().Error(err)
+			s.Contains(err.Error(), "git metadata")
+			s.False(called, "Kodit must not see the folder")
+		})
+	}
+}
+
+func TestGitMetadataAt_OrdinaryFolders(t *testing.T) {
+	dir := t.TempDir()
+	// A document named HEAD, or an objects/ folder on its own, is ordinary content.
+	if err := os.WriteFile(filepath.Join(dir, "HEAD"), []byte("notes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitMetadataAt(dir); got != "" {
+		t.Fatalf("gitMetadataAt = %q, want empty", got)
+	}
+}
