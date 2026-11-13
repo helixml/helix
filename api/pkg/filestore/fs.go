@@ -3,8 +3,10 @@ package filestore
 import (
 	"archive/tar"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,8 +41,11 @@ func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, erro
 	}
 
 	files, err := os.ReadDir(fullPath)
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return []Item{}, nil
+	}
+	if err != nil {
+		return nil, storeError("list", prefix, err)
 	}
 
 	items := []Item{}
@@ -48,7 +53,7 @@ func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, erro
 		path := filepath.Join(prefix, f.Name())
 		info, err := f.Info()
 		if err != nil {
-			return nil, fmt.Errorf("error fetching file info: %w", err)
+			return nil, storeError("stat", path, err)
 		}
 		items = append(items, Item{
 			Directory: f.IsDir(),
@@ -73,7 +78,7 @@ func (s *FileSystemStorage) Get(_ context.Context, path string) (Item, error) {
 
 	info, err := os.Stat(fullPath)
 	if err != nil {
-		return Item{}, fmt.Errorf("error fetching file info: %w", err)
+		return Item{}, storeError("stat", path, err)
 	}
 	return Item{
 		Directory: info.IsDir(),
@@ -125,7 +130,7 @@ func (s *FileSystemStorage) OpenFile(_ context.Context, path string) (io.ReadClo
 
 	file, err := os.Open(fullPath)
 	if err != nil {
-		return nil, fmt.Errorf("error opening file: %w", err)
+		return nil, storeError("open", path, err)
 	}
 
 	return file, nil
@@ -295,4 +300,18 @@ func (s *FileSystemStorage) getSafePath(path string) (string, error) {
 		return "", fmt.Errorf("%w: %s", ErrInvalidPath, path)
 	}
 	return absPath, nil
+}
+
+// storeError reports a failed operation on a store-relative path. The
+// *fs.PathError from the os package names the host path, so only its
+// underlying cause is kept; a missing path becomes ErrNotFound.
+func storeError(op, path string, err error) error {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		err = pathErr.Err
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%s %s: %w", op, path, ErrNotFound)
+	}
+	return fmt.Errorf("%s %s: %w", op, path, err)
 }

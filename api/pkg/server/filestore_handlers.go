@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -55,8 +56,11 @@ func (s *HelixAPIServer) filestoreViewerHandler(w http.ResponseWriter, r *http.R
 	shouldRedirectURLs := r.URL.Query().Get("redirect_urls") == "true"
 	if shouldRedirectURLs && strings.HasSuffix(r.URL.Path, ".url") {
 		url, err := s.Controller.FilestoreReadTextFile(r.URL.Path)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if errors.Is(err, filestore.ErrNotFound) {
+			http.Error(w, "file not found", http.StatusNotFound)
+		} else if err != nil {
+			log.Error().Err(err).Str("path", r.URL.Path).Msg("failed to read filestore URL file")
+			http.Error(w, "failed to read file", http.StatusInternalServerError)
 		} else {
 			http.Redirect(w, r, url, http.StatusFound)
 		}
