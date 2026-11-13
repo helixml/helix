@@ -64,6 +64,9 @@ type FileStore interface {
 // storage fault.
 var ErrInvalidPath = errors.New("invalid path")
 
+// ErrNotFound marks a file or folder that does not exist in the store.
+var ErrNotFound = errors.New("not found")
+
 // CleanRelativePath normalizes a logical filestore path and rejects paths
 // that would escape the caller's user or app scope when joined to its root.
 // A leading separator denotes the root of that scope, not the host filesystem.

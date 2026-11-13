@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -43,7 +44,7 @@ func (s *GCSStorage) List(ctx context.Context, prefix string) ([]Item, error) {
 			break
 		}
 		if err != nil {
-			return []Item{}, nil
+			return nil, fmt.Errorf("list %s: %w", prefix, err)
 		}
 
 		item := Item{
@@ -62,6 +63,9 @@ func (s *GCSStorage) List(ctx context.Context, prefix string) ([]Item, error) {
 
 func (s *GCSStorage) Get(ctx context.Context, path string) (Item, error) {
 	attrs, err := s.bucket.Object(path).Attrs(ctx)
+	if errors.Is(err, storage.ErrObjectNotExist) {
+		return Item{}, fmt.Errorf("stat %s: %w", path, ErrNotFound)
+	}
 	if err != nil {
 		return Item{}, fmt.Errorf("error fetching GCS object attributes: %w", err)
 	}
@@ -109,6 +113,9 @@ func (s *GCSStorage) WriteFile(ctx context.Context, path string, r io.Reader) (I
 func (s *GCSStorage) OpenFile(ctx context.Context, path string) (io.ReadCloser, error) {
 	obj := s.bucket.Object(path)
 	reader, err := obj.NewReader(ctx)
+	if errors.Is(err, storage.ErrObjectNotExist) {
+		return nil, fmt.Errorf("open %s: %w", path, ErrNotFound)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCS object reader: %w", err)
 	}

@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -522,6 +523,10 @@ func (s *HelixAPIServer) getSpecTaskAttachmentContent(w http.ResponseWriter, r *
 	}
 
 	rc, err := s.Controller.FilestoreSpecTaskAttachmentDownload(att.FilestorePath)
+	if errors.Is(err, filestore.ErrNotFound) {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		log.Error().Err(err).Str("path", att.FilestorePath).Msg("Failed to open attachment from filestore")
 		http.Error(w, "failed to load file", http.StatusInternalServerError)
