@@ -6749,6 +6749,21 @@ func (mr *MockStoreMockRecorder) RecoverProviderPrompt(ctx, sessionID, promptID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverProviderPrompt", reflect.TypeOf((*MockStore)(nil).RecoverProviderPrompt), ctx, sessionID, promptID, now, nextCheckAt, maxAttempts)
 }
 
+// RedeemIdentityAttestation mocks base method.
+func (m *MockStore) RedeemIdentityAttestation(ctx context.Context, jti string, expiresAt time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemIdentityAttestation", ctx, jti, expiresAt)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemIdentityAttestation indicates an expected call of RedeemIdentityAttestation.
+func (mr *MockStoreMockRecorder) RedeemIdentityAttestation(ctx, jti, expiresAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemIdentityAttestation", reflect.TypeOf((*MockStore)(nil).RedeemIdentityAttestation), ctx, jti, expiresAt)
+}
+
 // RedeemSecretIntakeInvitation mocks base method.
 func (m *MockStore) RedeemSecretIntakeInvitation(arg0 context.Context, arg1, arg2, arg3, arg4 string, arg5, arg6 time.Time) (bool, error) {
 	m.ctrl.T.Helper()

@@ -182,7 +182,7 @@ var routePolicyDomains = map[string]string{
 	"projects": "projects", "samples": "projects", "sample-projects": "projects", "artifacts": "projects",
 	"public": "projects",
 	"auth":   "identity", "users": "identity", "api_keys": "identity", "oauth": "identity", "invitations": "identity",
-	"secrets":            "identity",
+	"secrets": "identity", "identity": "identity",
 	"provider-endpoints": "providers", "providers": "providers", "helix-models": "providers", "model-info": "providers",
 	"v1":        "providers",
 	"sandboxes": "sandboxes", "sandbox-desktop-types": "sandboxes", "sandbox-runtimes": "sandboxes",
