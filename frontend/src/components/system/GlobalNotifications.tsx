@@ -10,7 +10,7 @@ import Tooltip from '@mui/material/Tooltip'
 import Stack from '@mui/material/Stack'
 import ReactMarkdown from 'react-markdown'
 import { useRouter as useRouter5 } from 'react-router5'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, GitPullRequestArrow, Flag, ExternalLink, MessageSquare, ArrowRight } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, GitPullRequestArrow, Flag, ExternalLink, MessageSquare, ArrowRight, KeyRound } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -37,6 +37,7 @@ function eventIcon(eventType: AttentionEventType, color: string): React.ReactEle
     case 'pr_proposal': return <GitPullRequestArrow {...props} />
     case 'completion_request': return <Flag {...props} />
     case 'org_message': return <MessageSquare {...props} />
+    case 'project_secret_undecryptable': return <KeyRound {...props} />
     default: return <Bell {...props} />
   }
 }
@@ -48,7 +49,8 @@ function timeAgoMs(ms: number): string {
 function eventAccentColor(eventType: AttentionEventType): string {
   switch (eventType) {
     case 'spec_failed':
-    case 'implementation_failed': return '#ef4444'
+    case 'implementation_failed':
+    case 'project_secret_undecryptable': return '#ef4444'
     case 'agent_interaction_completed': return '#f59e0b'
     case 'specs_pushed': return '#3b82f6'
     case 'pr_ready': return '#8b5cf6'

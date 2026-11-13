@@ -16053,7 +16053,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.",
+                "description": "One entry per distinct VCS provider present among the project's external repos, with the acting user, the configured repository account, and per-repo access status. Backs the project board connection lozenge.",
                 "consumes": [
                     "application/json"
                 ],
@@ -30893,24 +30893,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "github",
-                "helix_events",
-                "webhook",
-                "cron",
-                "slack",
-                "gitlab",
                 "email",
-                "local"
+                "gitlab",
+                "local",
+                "helix_events",
+                "slack",
+                "github",
+                "webhook",
+                "cron"
             ],
             "x-enum-varnames": [
-                "KindGitHub",
-                "KindHelixEvents",
-                "KindWebhook",
-                "KindCron",
-                "KindSlack",
-                "KindGitLab",
                 "KindEmail",
-                "KindLocal"
+                "KindGitLab",
+                "KindLocal",
+                "KindHelixEvents",
+                "KindSlack",
+                "KindGitHub",
+                "KindWebhook",
+                "KindCron"
             ]
         },
         "transport.ResolvedActivation": {
@@ -32273,7 +32273,8 @@ const docTemplate = `{
                 "completion_request",
                 "org_message",
                 "ci_passed",
-                "ci_failed"
+                "ci_failed",
+                "project_secret_undecryptable"
             ],
             "x-enum-varnames": [
                 "AttentionEventSpecsPushed",
@@ -32285,7 +32286,8 @@ const docTemplate = `{
                 "AttentionEventCompletionRequest",
                 "AttentionEventOrgMessage",
                 "AttentionEventCIPassed",
-                "AttentionEventCIFailed"
+                "AttentionEventCIFailed",
+                "AttentionEventProjectSecretUndecryptable"
             ]
         },
         "types.AttentionEventUpdateRequest": {
@@ -40602,6 +40604,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.SecretScope"
                         }
                     ]
+                },
+                "undecryptable": {
+                    "description": "Undecryptable is set by the project secrets list when the stored value\ncannot be decrypted with the current HELIX_ENCRYPTION_KEY (it was\nwritten under an earlier key). Such a secret is never injected; it must\nbe re-entered.",
+                    "type": "boolean"
                 },
                 "updated": {
                     "type": "string"

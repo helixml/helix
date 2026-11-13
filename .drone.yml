@@ -382,10 +382,8 @@ steps:
   # Cross-tenant authorization matrix (integration-test/api/README.md,
   # "Authorization matrix"). No secrets: the server it starts has no LLM
   # provider credentials, so no row can reach a real, paid upstream.
-  # It runs alongside api-integration-test on its own database: the
-  # helix-org store auto-migrates on every server start (it does not honour
-  # HELIX_SKIP_AUTOMIGRATE), and two servers migrating one database at once
-  # collide on Postgres type creation.
+  # It runs alongside api-integration-test on its own database so the two
+  # suites' rows stay apart.
   - name: api-authz-matrix
     image: golang:1.25-bookworm
     volumes:

@@ -34,7 +34,6 @@ import CodeIcon from "@mui/icons-material/Code";
 import AddIcon from "@mui/icons-material/Add";
 import WarningIcon from "@mui/icons-material/Warning";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
-import DeleteIcon from "@mui/icons-material/Delete";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import HistoryIcon from "@mui/icons-material/History";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -60,6 +59,9 @@ import SavingToast from "../components/widgets/SavingToast";
 import SettingRow from "../components/widgets/SettingRow";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import WebServiceTab from "../components/project/WebServiceTab";
+import ProjectSecretsList, {
+  projectSecretsQueryKey,
+} from "../components/project/ProjectSecretsList";
 import { AppsContext } from "../contexts/apps";
 import { IApp, IAppFlatState, AGENT_TYPE_ZED_EXTERNAL } from "../types";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
@@ -108,19 +110,6 @@ interface ProjectSettingsProps {
   projectId: string;
   tab?: string;
 }
-
-// Human-readable label for a secret's environment scope. Treats an empty/
-// unknown scope as "Dev" (the default).
-const secretScopeLabel = (scope?: TypesSecretScope): string => {
-  switch (scope) {
-    case TypesSecretScope.SecretScopeProd:
-      return "Prod";
-    case TypesSecretScope.SecretScopeBoth:
-      return "Both";
-    default:
-      return "Dev";
-  }
-};
 
 // Standard toolbar geometry (18px glyph in a 30x30 button) for the per-agent
 // settings shortcut.
@@ -427,7 +416,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   // Project secrets query
   const { data: projectSecrets = [], refetch: refetchSecrets } = useQuery({
-    queryKey: ["project-secrets", projectId],
+    queryKey: projectSecretsQueryKey(projectId),
     queryFn: async () => {
       const response = await api
         .getApiClient()
@@ -1934,58 +1923,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
             need access to.
           </Typography>
         ) : (
-          <List dense>
-            {projectSecrets.map((secret) => (
-              <ListItem
-                key={secret.id}
-                sx={{ borderBottom: "1px solid", borderColor: "divider" }}
-                secondaryAction={
-                  <Button
-                    size="small"
-                    color="error"
-                    onClick={() =>
-                      secret.id &&
-                      deleteSecretMutation.mutate({ secretId: secret.id })
-                    }
-                    disabled={deleteSecretMutation.isPending}
-                    startIcon={<DeleteIcon />}
-                  >
-                    Delete
-                  </Button>
-                }
-              >
-                <Box
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                >
-                  <VpnKeyIcon fontSize="small" color="action" />
-                  <Typography
-                    variant="body2"
-                    sx={{ fontFamily: "monospace", fontWeight: 600 }}
-                  >
-                    {secret.name}
-                  </Typography>
-                  <Chip
-                    label={secretScopeLabel(secret.scope)}
-                    size="small"
-                    color={
-                      secret.scope === TypesSecretScope.SecretScopeProd
-                        ? "warning"
-                        : secret.scope === TypesSecretScope.SecretScopeDev
-                          ? "info"
-                          : "default"
-                    }
-                    variant="outlined"
-                    sx={{ ml: 1, fontSize: "0.7rem" }}
-                  />
-                  <Chip
-                    label="encrypted"
-                    size="small"
-                    sx={{ ml: 1, fontSize: "0.7rem" }}
-                  />
-                </Box>
-              </ListItem>
-            ))}
-          </List>
+          <ProjectSecretsList
+            projectId={projectId}
+            secrets={projectSecrets}
+            onDelete={(secretId) => deleteSecretMutation.mutate({ secretId })}
+            deleting={deleteSecretMutation.isPending}
+          />
         )}
       </Box>
     </Box>
