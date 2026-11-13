@@ -64,20 +64,18 @@ func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Remove the value from the secrets
-	for idx, secret := range secrets {
-		secret.Value = nil
-		secrets[idx] = secret
+	if err := s.redactSecrets(secrets); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
 	}
-
 	return secrets, nil
 }
 
-// redactProjectSecrets clears every value before a list response, first
-// flagging the ones the current encryption key cannot decrypt so the UI can
-// ask for them to be re-entered. Project secrets are always stored encrypted,
-// so a decryption failure means the key changed since the value was written.
-func (s *HelixAPIServer) redactProjectSecrets(secrets []*types.Secret) error {
+// redactSecrets clears every value before a list response, first flagging
+// the ones the current encryption key cannot decrypt so the UI can ask for
+// them to be re-entered. Secrets are stored encrypted (legacy plaintext rows
+// are encrypted at startup), so a decryption failure means the key changed
+// since the value was written.
+func (s *HelixAPIServer) redactSecrets(secrets []*types.Secret) error {
 	encryptionKey, err := s.getEncryptionKey()
 	if err != nil {
 		return fmt.Errorf("failed to get encryption key: %w", err)
@@ -384,7 +382,7 @@ func (s *HelixAPIServer) listProjectSecrets(_ http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
-	if err := s.redactProjectSecrets(secrets); err != nil {
+	if err := s.redactSecrets(secrets); err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 	return secrets, nil

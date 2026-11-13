@@ -80,14 +80,16 @@ func TestGetZedConfig_RefusesUnauthorizedCallers(t *testing.T) {
 
 func TestAuthorizeSessionSandboxConfig_Allows(t *testing.T) {
 	srv, _ := newScopedKeyTestServer(t)
-	session := &types.Session{ID: "ses_b", Owner: "usr_owner", ProjectID: "prj_b"}
+	session := &types.Session{ID: "ses_b", Owner: "usr_owner", ProjectID: "prj_b", SandboxID: "host1"}
 	ctx := context.Background()
 
 	require.NoError(t, srv.authorizeSessionSandboxConfig(ctx, &types.User{ID: "usr_owner"}, session), "owner")
 	require.NoError(t, srv.authorizeSessionSandboxConfig(ctx,
 		&types.User{ID: "usr_owner", TokenType: types.TokenTypeAPIKey, ProjectID: "prj_b", SessionID: "ses_b"}, session),
 		"the session's own key")
-	require.NoError(t, srv.authorizeSessionSandboxConfig(ctx, &types.User{ID: "runner", TokenType: types.TokenTypeRunner}, session), "runner")
+	require.NoError(t, srv.authorizeSessionSandboxConfig(ctx,
+		&types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, RunnerID: "host1"}, session),
+		"per-runner token for the session's host")
 
 	// A project member who is not the owner still may not read the owner's
 	// session key.

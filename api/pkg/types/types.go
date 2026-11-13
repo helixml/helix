@@ -2879,9 +2879,9 @@ type Secret struct {
 	// Defaults to "dev" so pre-existing secrets keep their original (dev-only)
 	// behaviour and dev stays the primary path.
 	Scope SecretScope `json:"scope,omitempty" yaml:"scope,omitempty" gorm:"type:varchar(16);default:'dev';index"`
-	// Undecryptable is set by the project secrets list when the stored value
-	// cannot be decrypted with the current HELIX_ENCRYPTION_KEY (it was
-	// written under an earlier key). Such a secret is never injected; it must
+	// Undecryptable is set by the secrets lists when the stored value cannot
+	// be decrypted with the current HELIX_ENCRYPTION_KEY (it was written under
+	// an earlier key). Such a secret is never injected or substituted; it must
 	// be re-entered.
 	Undecryptable bool `json:"undecryptable,omitempty" yaml:"-" gorm:"-"`
 }
