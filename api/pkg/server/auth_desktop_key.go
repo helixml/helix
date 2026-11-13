@@ -82,6 +82,18 @@ const (
 	projectKey
 )
 
+func (kind desktopKeyKind) String() string {
+	switch kind {
+	case desktopKeySandbox:
+		return "sandbox"
+	case desktopKeySession:
+		return "session"
+	case projectKey:
+		return "project"
+	}
+	return "unknown"
+}
+
 // desktopKey is a project-less key held by code in a desktop container, or
 // a project key.
 type desktopKey struct {
@@ -165,11 +177,16 @@ func (auth *authMiddleware) desktopKeyRefusal(user *types.User, r *http.Request)
 	if key == nil || key.allows(r) {
 		return nil
 	}
+	idField := "key_session_id"
+	if key.kind == projectKey {
+		idField = "key_project_id"
+	}
 	log.Warn().
-		Str("key_session_id", key.id).
+		Str("key_kind", key.kind.String()).
+		Str(idField, key.id).
 		Str("method", r.Method).
 		Str("path", r.URL.Path).
-		Msg("Desktop key denied")
+		Msg("Scoped key denied")
 	switch key.kind {
 	case desktopKeySandbox:
 		return ErrSandboxKeyNotAllowed
@@ -382,13 +399,43 @@ func (key *desktopKey) projectRouteAllows(path, method string) bool {
 	if path == "/api/v1/spec-tasks" || strings.HasPrefix(path, "/api/v1/spec-tasks/") {
 		return true
 	}
-	for _, prefix := range []string{"/api/v1/sessions/", "/api/v1/git/repositories/"} {
-		if id, ok := strings.CutPrefix(path, prefix); ok {
-			id, _, _ = strings.Cut(id, "/")
-			// Ids only: /sessions/chat and /git/repositories/from-template
-			// create objects outside the project.
-			return id != "" && id != "chat" && id != "from-template"
+	if rest, ok := strings.CutPrefix(path, "/api/v1/sessions/"); ok {
+		id, _, _ := strings.Cut(rest, "/")
+		// Ids only: /sessions/chat creates a session outside the project.
+		return id != "" && id != "chat"
+	}
+	if rest, ok := strings.CutPrefix(path, "/api/v1/git/repositories/"); ok {
+		id, sub, _ := strings.Cut(rest, "/")
+		// Ids only: /git/repositories/from-template creates a repository.
+		if id == "" || id == "from-template" {
+			return false
 		}
+		return projectKeyRepositoryRouteAllows(sub, method)
+	}
+	return false
+}
+
+// projectKeyRepositoryRouteAllows applies to "/git/repositories/{id}/<sub>".
+// A repository can be attached to several projects, so a project key gets
+// reads and the pull-request workflow only. Changing, deleting, re-indexing
+// or syncing the repository with its remote, writing files, merging and
+// managing access stay with people.
+func projectKeyRepositoryRouteAllows(sub, method string) bool {
+	if sub == "access-grants" || strings.HasPrefix(sub, "access-grants/") {
+		return false
+	}
+	if method == http.MethodGet || method == http.MethodHead {
+		return true
+	}
+	parts := strings.Split(sub, "/")
+	switch method {
+	case http.MethodPost:
+		if sub == "branches" || sub == "pull-requests" {
+			return true
+		}
+		return len(parts) == 3 && parts[0] == "pulls" && parts[2] == "request-rebase"
+	case http.MethodPatch:
+		return len(parts) == 2 && parts[0] == "pulls"
 	}
 	return false
 }

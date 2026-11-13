@@ -2936,7 +2936,7 @@
                 }
             },
             "post": {
-                "description": "Create a new API key. With project_id (and type \"api\"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization.",
+                "description": "Create a new API key. With project_id (and type \"api\"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization. Unknown body fields are refused. The legacy name query parameter mints a personal key and cannot be combined with a body.",
                 "tags": [
                     "api-keys"
                 ],

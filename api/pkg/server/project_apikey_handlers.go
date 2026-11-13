@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -73,10 +75,44 @@ func (apiServer *HelixAPIServer) authorizeProjectAPIKeyManagement(ctx context.Co
 	return project, nil
 }
 
+// createProjectAPIKeyRequest is the body of POST /api/v1/api_keys for a
+// project key. Unknown fields are refused, so a field such as owner,
+// organization_id or expires_at is never silently dropped.
+type createProjectAPIKeyRequest struct {
+	Name      string           `json:"name"`
+	Type      types.APIKeyType `json:"type"`
+	ProjectID string           `json:"project_id"`
+	// AppID is accepted only empty: clients send it with every key.
+	AppID *string `json:"app_id"`
+}
+
+func decodeCreateProjectAPIKeyRequest(body []byte) (*createProjectAPIKeyRequest, *system.HTTPError) {
+	var req createProjectAPIKeyRequest
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		return nil, system.NewHTTPError400(jsonDecodeErrorMessage(err))
+	}
+	switch {
+	case req.Name == "":
+		return nil, system.NewHTTPError400("name is required")
+	case req.ProjectID == "" || req.Type != types.APIkeytypeAPI:
+		return nil, system.NewHTTPError400(`a project API key needs a project_id and type "api"`)
+	case req.AppID != nil && *req.AppID != "":
+		return nil, system.NewHTTPError400("a project API key cannot name an app_id")
+	}
+	return &req, nil
+}
+
 // createProjectAPIKey mints a key for the caller scoped to the project. The
 // owner and organization come from the caller and the project, never the
 // request.
-func (apiServer *HelixAPIServer) createProjectAPIKey(ctx context.Context, user *types.User, name, projectID string) (*types.ApiKey, error) {
+func (apiServer *HelixAPIServer) createProjectAPIKey(ctx context.Context, user *types.User, body []byte) (*types.ApiKey, error) {
+	req, httpErr := decodeCreateProjectAPIKeyRequest(body)
+	if httpErr != nil {
+		return nil, httpErr
+	}
+	name, projectID := req.Name, req.ProjectID
 	project, httpErr := apiServer.authorizeProjectAPIKeyManagement(ctx, user, projectID, types.ActionUpdate)
 	if httpErr != nil {
 		return nil, httpErr

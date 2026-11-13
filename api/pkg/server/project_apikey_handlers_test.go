@@ -222,17 +222,47 @@ func (s *ProjectAPIKeySuite) TestMintByOwnerSessionAndOrgKey() {
 	}
 }
 
-// Owner and organization come from the caller and the project; the body
-// cannot set them.
-func (s *ProjectAPIKeySuite) TestMintIgnoresOwnerAndOrgInBody() {
-	body := `{"name":"portal","type":"api","project_id":"` + pkProjectA + `","owner":"` + pkOwnerB +
-		`","organization_id":"` + pkOrgB + `","session_id":"ses_x"}`
+// Owner, organization and scope come from the caller and the project. A body
+// naming any other field is refused, not silently narrowed.
+func (s *ProjectAPIKeySuite) TestMintRejectsUnknownFields() {
+	for _, field := range []string{
+		`"owner":"` + pkOwnerB + `"`,
+		`"organization_id":"` + pkOrgB + `"`,
+		`"session_id":"ses_x"`,
+		`"expires_at":"2030-01-01T00:00:00Z"`,
+	} {
+		s.Run(field, func() {
+			s.SetupTest()
+			body := `{"name":"portal","type":"api","project_id":"` + pkProjectA + `",` + field + `}`
+			rr := s.do(sessionCaller(pkOwnerA), http.MethodPost, "/api/v1/api_keys", nil, body, system.DefaultWrapper(s.server.createAPIKey))
+			s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+			s.requireNoWrites()
+		})
+	}
+}
+
+// Clients send an empty app_id with every key; that is not an app key.
+func (s *ProjectAPIKeySuite) TestMintAcceptsEmptyAppID() {
+	body := `{"name":"portal","type":"api","app_id":"","project_id":"` + pkProjectA + `"}`
 	rr := s.do(sessionCaller(pkOwnerA), http.MethodPost, "/api/v1/api_keys", nil, body, system.DefaultWrapper(s.server.createAPIKey))
 	s.Require().Equal(http.StatusOK, rr.Code, rr.Body.String())
 	s.Require().Len(s.created, 1)
-	s.Equal(pkOwnerA, s.created[0].Owner)
-	s.Equal(pkOrgA, s.created[0].OrganizationID)
-	s.Empty(s.created[0].SessionID)
+	s.Equal(pkProjectA, s.created[0].ProjectID)
+}
+
+// The ?name= form mints a personal key and never read the body, so a body
+// asking for a project key silently got an unscoped one.
+func (s *ProjectAPIKeySuite) TestLegacyNameQueryRefusesBody() {
+	body := `{"type":"api","project_id":"` + pkProjectA + `"}`
+	rr := s.do(sessionCaller(pkOwnerA), http.MethodPost, "/api/v1/api_keys?name=portal", nil, body, system.DefaultWrapper(s.server.createAPIKey))
+	s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+	s.requireNoWrites()
+
+	rr = s.do(sessionCaller(pkOwnerA), http.MethodPost, "/api/v1/api_keys?name=portal", nil, "", system.DefaultWrapper(s.server.createAPIKey))
+	s.Require().Equal(http.StatusOK, rr.Code, rr.Body.String())
+	s.Require().Len(s.created, 1)
+	s.Empty(s.created[0].ProjectID, "the query form mints a personal key")
+	s.Empty(s.created[0].OrganizationID)
 }
 
 func (s *ProjectAPIKeySuite) TestMintRefused() {

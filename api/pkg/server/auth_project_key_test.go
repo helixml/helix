@@ -78,7 +78,13 @@ func TestProjectKeyReachesOnlyItsProject(t *testing.T) {
 		{http.MethodGet, "/api/v1/spec-tasks/spt_1"},
 		{http.MethodGet, "/api/v1/sessions/ses_1"},
 		{http.MethodPost, "/api/v1/sessions/ses_1/messages"},
+		{http.MethodGet, "/api/v1/git/repositories/repo_1"},
 		{http.MethodGet, "/api/v1/git/repositories/repo_1/tree"},
+		{http.MethodGet, "/api/v1/git/repositories/repo_1/pulls/3"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/branches"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/pull-requests"},
+		{http.MethodPatch, "/api/v1/git/repositories/repo_1/pulls/3"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/pulls/3/request-rebase"},
 	}
 	for _, tc := range allowed {
 		t.Run("allows "+tc.method+" "+tc.target, func(t *testing.T) {
@@ -127,6 +133,20 @@ func TestProjectKeyReachesOnlyItsProject(t *testing.T) {
 		{http.MethodPost, "/api/v1/git/repositories"},
 		{http.MethodGet, "/api/v1/git/repositories"},
 		{http.MethodPost, "/api/v1/git/repositories/from-template"},
+		// A repository may be shared by several projects: changing,
+		// deleting, syncing, writing to or merging into it is refused.
+		{http.MethodDelete, "/api/v1/git/repositories/repo_1"},
+		{http.MethodPut, "/api/v1/git/repositories/repo_1"},
+		{http.MethodPut, "/api/v1/git/repositories/repo_1/contents"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/push"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/pull"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/push-pull"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/sync-all?force=true"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/kodit-rescan"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/pulls/3/merge"},
+		{http.MethodGet, "/api/v1/git/repositories/repo_1/access-grants"},
+		{http.MethodPost, "/api/v1/git/repositories/repo_1/access-grants"},
+		{http.MethodDelete, "/api/v1/git/repositories/repo_1/access-grants/grant_1"},
 		{http.MethodGet, "/api/v1/mcp/session?session_id=ses_1"},
 		// RAG sources and assistants are authorized by owner only.
 		{http.MethodPost, "/v1/chat/completions?rag_source_id=rag_1"},

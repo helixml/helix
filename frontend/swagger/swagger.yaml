@@ -18070,7 +18070,9 @@ paths:
         is scoped to that project: it reaches only the project''s routes and the LLM
         proxy, and proxy usage is attributed to the project. Minting a project key
         requires write access to the project and a browser session, a personal API
-        key, or an API key of the project''s organization.'
+        key, or an API key of the project''s organization. Unknown body fields are
+        refused. The legacy name query parameter mints a personal key and cannot be
+        combined with a body.'
       parameters:
       - description: Request body with name, type, and app_id (app keys) or project_id
           (project keys)
