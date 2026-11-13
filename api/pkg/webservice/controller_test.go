@@ -114,7 +114,7 @@ func TestProjectSecretEnv(t *testing.T) {
 // TestDeployScriptPreparesBeforeStop keeps the current app serving if Git or
 // startup-script validation fails, while preserving the single-writer rule.
 func TestDeployScriptPreparesBeforeStop(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "abc123", "main", "myrepo", 3000)
+	script := deployScript("https://github.com/o/r.git", "abc123", "c0ffee", "main", "myrepo", 3000)
 
 	prepareIdx := strings.Index(script, `if [ ! -f "$SPECS/.helix/startup.sh" ]`)
 	ownershipIdx := strings.Index(script, `chown -hR retro:retro "$CODE" "$SPECS"`)
@@ -141,7 +141,7 @@ func TestDeployScriptPreparesBeforeStop(t *testing.T) {
 }
 
 func TestDeployScriptTrustsOnlyItsCheckout(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	script := deployScript("https://github.com/o/r.git", "", "c0ffee", "main", "myrepo", 8080)
 	if !strings.Contains(script, `git -c safe.directory="$CODE" -C "$CODE" fetch --all`) {
 		t.Fatalf("Git commands do not trust the known checkout:\n%s", script)
 	}
@@ -179,7 +179,7 @@ func TestDeployScriptGitFailureLeavesCurrentAppRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	script := deployScript("https://github.com/o/r.git", "", "c0ffee", "main", "myrepo", 8080)
 	script = strings.ReplaceAll(script, "/workspace", filepath.Join(tmp, "workspace"))
 	script = strings.ReplaceAll(script, "/data", dataDir)
 	cmd := exec.Command("/bin/bash", "-c", script)
@@ -203,7 +203,7 @@ func TestDeployScriptGitFailureLeavesCurrentAppRunning(t *testing.T) {
 // TestDeployScriptExportsDataDirAndPort — the app receives the durable data
 // dir and its port via env so it knows where to persist state.
 func TestDeployScriptExportsDataDirAndPort(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	script := deployScript("https://github.com/o/r.git", "", "c0ffee", "main", "myrepo", 8080)
 	for _, want := range []string{
 		"HELIX_WEB_SERVICE_DATA_DIR=/data",
 		"HELIX_WEB_SERVICE_PORT=8080",
@@ -215,13 +215,13 @@ func TestDeployScriptExportsDataDirAndPort(t *testing.T) {
 	}
 	// The startup script is sourced from the helix-specs branch, checked out as
 	// a SIBLING worktree of the code (not overlaid into it).
-	if !strings.Contains(script, `worktree add --force --detach "$SPECS" FETCH_HEAD`) {
+	if !strings.Contains(script, `worktree add --force --detach "$SPECS" "$STARTUP_SHA"`) {
 		t.Errorf("helix-specs must be checked out as a sibling worktree:\n%s", script)
 	}
 }
 
 func TestDeployScriptRunsRootlessStartupAsRetro(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	script := deployScript("https://github.com/o/r.git", "", "c0ffee", "main", "myrepo", 8080)
 	for _, want := range []string{
 		`STARTUP_USER=()`,
 		`[ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-}" = "1" ]`,
@@ -238,7 +238,7 @@ func TestDeployScriptRunsRootlessStartupAsRetro(t *testing.T) {
 // TestDeployScriptChecksOutSHA — when a SHA is given it is checked out (in the
 // code worktree).
 func TestDeployScriptChecksOutSHA(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "deadbeef", "main", "myrepo", 8080)
+	script := deployScript("https://github.com/o/r.git", "deadbeef", "c0ffee", "main", "myrepo", 8080)
 	if !strings.Contains(script, "checkout --detach 'deadbeef'") {
 		t.Errorf("expected checkout of the requested SHA:\n%s", script)
 	}
@@ -250,11 +250,11 @@ func TestDeployScriptChecksOutSHA(t *testing.T) {
 // helix-specs is a SIBLING worktree (never a subdir of the code); startup.sh is
 // invoked with CWD = the code dir and $0 = the helix-specs worktree.
 func TestDeployScriptMirrorsSpecTaskLayout(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	script := deployScript("https://github.com/o/r.git", "", "c0ffee", "main", "myrepo", 8080)
 	for _, want := range []string{
 		`CODE='/workspace/myrepo'`,
 		`SPECS=/workspace/helix-specs`,
-		`git -c safe.directory="$CODE" -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
+		`git -c safe.directory="$CODE" -C "$CODE" worktree add --force --detach "$SPECS" "$STARTUP_SHA"`,
 		`cd "$CODE"`,
 		`bash "$SPECS/.helix/startup.sh"`,
 	} {
@@ -449,13 +449,13 @@ func TestMarkLiveIfCurrentDoesNotOverwriteNewerDeploy(t *testing.T) {
 // tip. Fetching alone leaves the first clone's commit in the worktree, so the
 // "redeploy" rebuilt old code.
 func TestDeployScriptWithoutSHADeploysBranchTip(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "", "main", "myrepo", 8080)
+	script := deployScript("https://github.com/o/r.git", "", "c0ffee", "main", "myrepo", 8080)
 	fetch := strings.Index(script, `git -c safe.directory="$CODE" -C "$CODE" fetch --all`)
 	checkout := strings.Index(script, "checkout --detach 'origin/main'")
 	if fetch < 0 || checkout < fetch {
 		t.Fatalf("expected the fetched origin/main to be checked out after the fetch:\n%s", script)
 	}
-	if !strings.Contains(deployScript("u", "", "", "myrepo", 8080), "checkout --detach 'origin/HEAD'") {
+	if !strings.Contains(deployScript("u", "", "c0ffee", "", "myrepo", 8080), "checkout --detach 'origin/HEAD'") {
 		t.Error("no default branch recorded: expected origin/HEAD")
 	}
 	if !strings.Contains(script, deployedSHAMarker) {
@@ -470,5 +470,26 @@ func TestDeployedSHAFromOutput(t *testing.T) {
 	}
 	if got := deployedSHAFromOutput("no marker"); got != "" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// Without a commit a person vouched for, a deploy runs no startup script.
+func TestDeployInPlaceRefusesWithoutTrustedStartupCommit(t *testing.T) {
+	c := &Controller{}
+	_, err := c.deployInPlace(context.Background(), &types.Sandbox{ID: "sbx_1"}, &types.GitRepository{ID: "repo_1"}, "prj_1", "", 8080, "")
+	if !errors.Is(err, errNoTrustedStartupCommit) {
+		t.Fatalf("deployInPlace error = %v, want errNoTrustedStartupCommit", err)
+	}
+}
+
+// The startup script is checked out at the trusted commit, never the
+// agent-writable helix-specs tip.
+func TestDeployScriptPinsTrustedStartupCommit(t *testing.T) {
+	script := deployScript("u", "", "1111111111111111111111111111111111111111", "main", "myrepo", 8080)
+	if !strings.Contains(script, "STARTUP_SHA='1111111111111111111111111111111111111111'") {
+		t.Errorf("trusted commit not pinned:\n%s", script)
+	}
+	if strings.Contains(script, "FETCH_HEAD") {
+		t.Errorf("startup script must not come from the fetched helix-specs tip:\n%s", script)
 	}
 }

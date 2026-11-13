@@ -466,19 +466,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	// Get actual primary repository name (not just the ID)
-	if agent.PrimaryRepositoryID != "" {
-		repo, err := h.store.GetGitRepository(ctx, agent.PrimaryRepositoryID)
-		if err != nil {
-			log.Warn().Err(err).Str("repo_id", agent.PrimaryRepositoryID).Msg("Failed to get primary repository name")
-		} else if repo != nil {
-			env = append(env, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", repo.Name))
-			log.Info().
-				Str("primary_repo_id", agent.PrimaryRepositoryID).
-				Str("primary_repo_name", repo.Name).
-				Msg("Primary repository for design docs worktree")
-		}
-	}
+	env = h.primaryRepoEnv(ctx, agent, env)
 
 	isolation := externalAgentIsolation(containerType, agent.NoContainerEngine, desktopRootless)
 	log.Info().
@@ -1860,15 +1848,43 @@ func validateDesktopRootlessLaunch(desktopType, customImage string, noContainerE
 	}
 }
 
-func setContainerEnv(env []string, key, value string) []string {
-	prefix := key + "="
-	for i, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
-			env[i] = prefix + value
-			return env
+// primaryRepoEnv names the primary repository for the design docs worktree and
+// sets the commit the startup script may run from. The commit is set even when
+// empty, so neither agent.Env nor a project secret can supply one.
+func (h *HydraExecutor) primaryRepoEnv(ctx context.Context, agent *types.DesktopAgent, env []string) []string {
+	trustedStartupSHA := ""
+	if agent.PrimaryRepositoryID != "" {
+		repo, err := h.store.GetGitRepository(ctx, agent.PrimaryRepositoryID)
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", agent.PrimaryRepositoryID).Msg("Failed to get primary repository name")
+		} else if repo != nil {
+			env = append(env, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", repo.Name))
+			trustedStartupSHA = repo.TrustedStartupSHA
+			log.Info().
+				Str("primary_repo_id", agent.PrimaryRepositoryID).
+				Str("primary_repo_name", repo.Name).
+				Str("trusted_startup_sha", trustedStartupSHA).
+				Msg("Primary repository for design docs worktree")
 		}
 	}
-	return append(env, prefix+value)
+	return setContainerEnv(env, TrustedStartupSHAEnv, trustedStartupSHA)
+}
+
+// TrustedStartupSHAEnv names the helix-specs commit whose .helix/startup.sh
+// helix-workspace-setup.sh runs (types.GitRepository.TrustedStartupSHA).
+const TrustedStartupSHAEnv = "HELIX_TRUSTED_STARTUP_SHA"
+
+// setContainerEnv sets key to value. Every existing entry for key is dropped:
+// Docker lets a later duplicate win, so replacing only the first would not stick.
+func setContainerEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	out := env[:0]
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			out = append(out, entry)
+		}
+	}
+	return append(out, prefix+value)
 }
 
 // buildMounts builds volume mounts for the container.

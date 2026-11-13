@@ -1074,6 +1074,17 @@ type ApiKey struct { //nolint:revive
 	TaskConfined bool `json:"task_confined,omitempty" gorm:"not null;default:false"`
 }
 
+// IsAgentBound reports whether the key acts for an agent rather than a person:
+// it is bound to a session, sandbox, spec task, project or app, or is an
+// app/embed/bot-instance key. Personal and org keys are not agent-bound.
+func (k *ApiKey) IsAgentBound() bool {
+	if k.Type != APIkeytypeAPI && k.Type != APIkeytypeNone {
+		return true
+	}
+	return k.SessionID != "" || k.ProjectID != "" || k.SpecTaskID != "" ||
+		(k.AppID != nil && k.AppID.Valid && k.AppID.String != "")
+}
+
 type OwnerContext struct {
 	Owner     string
 	OwnerType OwnerType
