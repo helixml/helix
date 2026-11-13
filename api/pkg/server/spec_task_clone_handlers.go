@@ -35,6 +35,10 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	taskID := vars["taskId"]
+	if err := denyTaskCreationToConfinedKey(user); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	// Parse request
 	var req types.CloneTaskRequest
@@ -51,7 +55,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 	}
 	// Cloning copies the source task's prompt and specs, so the caller must
 	// be able to read it.
-	if err := s.authorizeUserToProjectByID(ctx, user, sourceTask.ProjectID, types.ActionGet); err != nil {
+	if err := s.authorizeUserToSpecTask(ctx, user, sourceTask, types.ActionGet); err != nil {
 		writeSpecTaskAuthzError(w, err)
 		return
 	}
@@ -119,7 +123,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 
 	// Clone to existing projects
 	for _, projectID := range req.TargetProjectIDs {
-		result, err := s.cloneTaskToProject(ctx, sourceTask, projectID, cloneGroup.ID, user.ID, user.Email, req.AutoStart)
+		result, err := s.cloneTaskToProject(ctx, sourceTask, projectID, cloneGroup.ID, user.ID, user.Email, req.AutoStart, req.ConfineAgentKey)
 		if err != nil {
 			response.Errors = append(response.Errors, types.CloneTaskError{
 				ProjectID: projectID,
@@ -146,7 +150,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Clone to the new project
-		result, err := s.cloneTaskToProject(ctx, sourceTask, project.ID, cloneGroup.ID, user.ID, user.Email, req.AutoStart)
+		result, err := s.cloneTaskToProject(ctx, sourceTask, project.ID, cloneGroup.ID, user.ID, user.Email, req.AutoStart, req.ConfineAgentKey)
 		if err != nil {
 			response.Errors = append(response.Errors, types.CloneTaskError{
 				ProjectID: project.ID,
@@ -165,7 +169,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // cloneTaskToProject creates a copy of a task in the target project
-func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.SpecTask, projectID, cloneGroupID, userID, userEmail string, autoStart bool) (*types.CloneTaskResult, error) {
+func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.SpecTask, projectID, cloneGroupID, userID, userEmail string, autoStart, confineAgentKey bool) (*types.CloneTaskResult, error) {
 	// Get project to include its name in the result
 	project, err := s.Store.GetProject(ctx, projectID)
 	if err != nil {
@@ -238,6 +242,9 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 		CreatedAt:           time.Now(),
 		UpdatedAt:           time.Now(),
 	}
+	// A clone of confined work stays confined: cloning must not widen the
+	// keys its sessions get.
+	newTask.ConfineAgentKey = confineAgentKey || source.ConfineAgentKey
 	newTask.InitAutoApprovePullRequests(nil, project, userID)
 	if autoStart {
 		newTask.AssigneeID = userID
@@ -362,7 +369,7 @@ func (s *HelixAPIServer) listCloneGroups(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
 		writeSpecTaskAuthzError(w, err)
 		return
 	}
@@ -395,6 +402,12 @@ func (s *HelixAPIServer) getCloneGroupProgress(w http.ResponseWriter, r *http.Re
 
 	group, err := s.Store.GetCloneGroup(ctx, groupID)
 	if err != nil {
+		http.Error(w, "clone group not found", http.StatusNotFound)
+		return
+	}
+	// A clone group's progress covers every task cloned into it: beyond a
+	// task-confined key's one task.
+	if err := enforceKeyTaskScope(user, ""); err != nil {
 		http.Error(w, "clone group not found", http.StatusNotFound)
 		return
 	}
@@ -524,6 +537,11 @@ type QuickCreateProjectRequest struct {
 func (s *HelixAPIServer) quickCreateProject(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
+
+	if err := denyTaskCreationToConfinedKey(user); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	var req QuickCreateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

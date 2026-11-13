@@ -40,6 +40,9 @@ type IdentityAttestationClaims struct {
 	IssuedAt       time.Time `json:"iat"`
 	ExpiresAt      time.Time `json:"exp"`
 	JTI            string    `json:"jti"`
+	// KeyConfined: the attested key reaches only its own spec task and that
+	// task's sessions (a task created with confine_agent_key).
+	KeyConfined bool `json:"key_confined"`
 }
 
 // IdentityAttestationRedemption records a verified attestation's jti so the

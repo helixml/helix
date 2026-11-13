@@ -1069,6 +1069,9 @@ type ApiKey struct { //nolint:revive
 	// (keyboard, mouse, clipboard). Off for public embeds; set for an operator
 	// that embeds a tenant's own agent for that tenant. Ignored on other types.
 	EmbedInteractive bool `json:"embed_interactive,omitempty"`
+	// TaskConfined confines a session key of a spec task created with
+	// confine_agent_key to that task (SpecTask.ConfineAgentKey).
+	TaskConfined bool `json:"task_confined,omitempty" gorm:"not null;default:false"`
 }
 
 // IsAgentBound reports whether the key acts for an agent rather than a person:

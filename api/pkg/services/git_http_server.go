@@ -326,6 +326,7 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	user.ProjectID = apiKeyRecord.ProjectID
 	user.SpecTaskID = apiKeyRecord.SpecTaskID
 	user.SessionID = apiKeyRecord.SessionID
+	user.TaskConfined = apiKeyRecord.TaskConfined
 	user.OrganizationID = apiKeyRecord.OrganizationID
 	if apiKeyRecord.OrganizationID != "" || apiKeyRecord.ProjectID != "" || apiKeyRecord.SessionID != "" {
 		user.Admin = false

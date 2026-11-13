@@ -366,6 +366,9 @@ func (s *HelixAPIServer) listProjectSpecTaskAgents(_ http.ResponseWriter, r *htt
 // @Router /api/v1/projects [post]
 func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (*types.Project, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyProjectMutationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 
 	var req types.ProjectCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -653,6 +656,9 @@ func projectNameExists(projects []*types.Project, name string) bool {
 // @Router /api/v1/projects/{id} [put]
 func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (*types.Project, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyProjectMutationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 	projectID := getID(r)
 
 	var req types.ProjectUpdateRequest
@@ -1012,6 +1018,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 // @Router /api/v1/projects/{id} [delete]
 func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyProjectMutationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 	projectID := getID(r)
 
 	// Get existing project to check authorization
@@ -1550,6 +1559,11 @@ func (s *HelixAPIServer) getProjectExploratorySession(_ http.ResponseWriter, r *
 
 	// If no session found in database, return nil
 	if session == nil {
+		return nil, nil
+	}
+	// The exploratory session belongs to no task: a task-confined key does
+	// not see it.
+	if err := enforceKeySessionScope(user, session); err != nil {
 		return nil, nil
 	}
 
@@ -2295,6 +2309,9 @@ func getUniqueProjectName(baseName string, existingNames map[string]bool) string
 // @Router /api/v1/projects/{id}/move [post]
 func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*types.Project, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyProjectMutationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 	projectID := getID(r)
 
 	var req types.MoveProjectRequest
@@ -2877,6 +2894,9 @@ func (s *HelixAPIServer) unpinProject(_ http.ResponseWriter, r *http.Request) (*
 // @Router /api/v1/projects/apply [put]
 func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*types.ProjectApplyResponse, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyTaskCreationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 
 	var req types.ProjectApplyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

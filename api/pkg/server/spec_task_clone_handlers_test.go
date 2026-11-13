@@ -61,7 +61,7 @@ func TestCloneTaskToProject_WithSpecs_GoesToSpecGeneration(t *testing.T) {
 	)
 
 	// Call cloneTaskToProject with autoStart=true
-	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, true)
+	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, true, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -131,7 +131,7 @@ func TestCloneTaskToProject_WithoutSpecs_DoesNotSetDesignDocsPushedAt(t *testing
 	)
 
 	// Call cloneTaskToProject with autoStart=true
-	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, true)
+	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, true, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -191,7 +191,7 @@ func TestCloneTaskToProject_JustDoItMode_SkipsSpecReview(t *testing.T) {
 	)
 
 	// Call cloneTaskToProject with autoStart=true
-	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, true)
+	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, true, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -260,7 +260,7 @@ func TestCloneTaskToProject_SpecsFromDesignReview_GoesToSpecGeneration(t *testin
 	)
 
 	// Call cloneTaskToProject with autoStart=true
-	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, true)
+	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, true, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -325,7 +325,7 @@ func TestCloneTaskToProject_AutoStartFalse_GoesToBacklog(t *testing.T) {
 	)
 
 	// Call cloneTaskToProject with autoStart=false
-	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, false)
+	result, err := server.cloneTaskToProject(context.Background(), sourceTask, targetProjectID, cloneGroupID, userID, userEmail, false, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 

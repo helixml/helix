@@ -246,6 +246,9 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, path); err != nil {
+		return nil, err
+	}
 	return apiServer.Controller.FilestoreList(getOwnerContext(req), path)
 }
 
@@ -287,6 +290,9 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, path); err != nil {
+		return filestore.Item{}, err
+	}
 	return apiServer.Controller.FilestoreGet(getOwnerContext(req), path)
 }
 
@@ -333,6 +339,9 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, request.Path); err != nil {
+		return filestore.Item{}, err
+	}
 	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), request.Path)
 }
 
@@ -390,6 +399,11 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 	}
 
 	// Return to the controller which handles path sanitization for user context
+	if !fromAppPath {
+		if err := keyFilestorePathRefusal(req, path, newPath); err != nil {
+			return filestore.Item{}, err
+		}
+	}
 	return apiServer.Controller.FilestoreRename(getOwnerContext(req), path, newPath)
 }
 
@@ -432,6 +446,9 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, path); err != nil {
+		return "", err
+	}
 	err := apiServer.Controller.FilestoreDelete(getOwnerContext(req), path)
 	return path, err
 }
@@ -524,6 +541,9 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		destination, err := filestoreUploadDestination(path, fileHeader.Filename)
 		if err != nil {
 			return false, system.NewHTTPError400("invalid upload path: " + err.Error())
+		}
+		if err := keyFilestorePathRefusal(req, destination); err != nil {
+			return false, err
 		}
 
 		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), destination, file)

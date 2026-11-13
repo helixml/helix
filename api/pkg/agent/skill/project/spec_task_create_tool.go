@@ -74,6 +74,10 @@ var createSpecTaskParameters = jsonschema.Definition{
 			Type:        jsonschema.Boolean,
 			Description: "Skip planning and go straight to implementation. Useful when the task is clear and well defined.",
 		},
+		"confine_agent_key": {
+			Type:        jsonschema.Boolean,
+			Description: "Confine the task's agent to this one task: it cannot read or message the project's other tasks or sessions, nor create tasks. Use it when another task must check this one's work.",
+		},
 		"depends_on": {
 			Type:        jsonschema.Array,
 			Description: "Optional list of task IDs that this task depends on",
@@ -184,6 +188,8 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		skipPlanning = sp
 	}
 
+	confineAgentKey, _ := args["confine_agent_key"].(bool)
+
 	priority := types.SpecTaskPriorityMedium
 	if p, ok := args["priority"].(string); ok && p != "" {
 		priority = types.SpecTaskPriority(p)
@@ -230,6 +236,7 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
+	task.ConfineAgentKey = confineAgentKey
 	task.InitAutoApprovePullRequests(nil, project, meta.UserID)
 
 	// Assign task number immediately at creation time so it's always visible in UI

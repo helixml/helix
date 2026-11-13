@@ -86,6 +86,7 @@ func newStartCommand() *cobra.Command {
 	var wait bool
 	var noWait bool
 	var justDoIt bool
+	var confineAgentKey bool
 
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
@@ -101,6 +102,9 @@ Use --runtime to pick the sandbox environment:
   headless-ubuntu  agent-only, no compositor or streaming — faster and cheaper
 The runtime is fixed for the life of the task; omit --runtime to inherit the
 project default.
+Use --confine-agent-key to confine the task's agent to this one task: its key
+cannot read or message the project's other tasks or sessions, nor create
+tasks. Use it when another task must check this one's work. Fixed at creation.
 
 Example workflow:
   1. Fork a sample project:  helix project fork modern-todo-app --name "My Project" --provider openai --model gpt-5.6-sol
@@ -124,6 +128,9 @@ Example workflow:
 				// silently ignoring it here would be misleading.
 				if runtime != "" {
 					return fmt.Errorf("--runtime can only be set when creating a task; %s already has a fixed runtime", taskID)
+				}
+				if confineAgentKey {
+					return fmt.Errorf("--confine-agent-key can only be set when creating a task; it is fixed for %s", taskID)
 				}
 				if justDoIt {
 					if _, err := setSpecTaskJustDoIt(apiURL, token, taskID); err != nil {
@@ -156,7 +163,14 @@ Example workflow:
 				if taskPrompt == "" {
 					taskPrompt = "Complete the requested task"
 				}
-				task, err := createSpecTask(apiURL, token, taskName, taskPrompt, projectID, runtime, justDoIt)
+				task, err := createSpecTask(apiURL, token, types.CreateTaskRequest{
+					Name:            taskName,
+					Prompt:          taskPrompt,
+					ProjectID:       projectID,
+					SandboxRuntime:  types.SandboxRuntime(runtime),
+					JustDoItMode:    justDoIt,
+					ConfineAgentKey: confineAgentKey,
+				})
 				if err != nil {
 					return fmt.Errorf("failed to create spec task: %w", err)
 				}
@@ -274,6 +288,7 @@ Example workflow:
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output the task ID (session ID with --wait)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Block until the sandbox has booted, then print session-level connect info (default: return immediately with the task URL — the browser page shows it loading)")
 	cmd.Flags().BoolVar(&justDoIt, "just-do-it", false, "Skip spec planning and go straight to implementation")
+	cmd.Flags().BoolVar(&confineAgentKey, "confine-agent-key", false, "Confine the new task's agent key to the task: no access to the project's other tasks or sessions, no task creation. Immutable once the task exists.")
 	cmd.Flags().Bool("auto-start", false, "Start immediately (already the behavior of this command; accepted for create-command parity)")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Deprecated: no-wait is now the default; kept as a no-op for back-compat")
 	_ = cmd.Flags().MarkHidden("no-wait")
@@ -581,14 +596,7 @@ type SessionMetadata struct {
 	StatusMessage   string `json:"status_message"`
 }
 
-func createSpecTask(apiURL, token, name, prompt, projectID, runtime string, justDoIt bool) (*SpecTask, error) {
-	payload := types.CreateTaskRequest{
-		Name:           name,
-		Prompt:         prompt,
-		ProjectID:      projectID,
-		SandboxRuntime: types.SandboxRuntime(runtime),
-		JustDoItMode:   justDoIt,
-	}
+func createSpecTask(apiURL, token string, payload types.CreateTaskRequest) (*SpecTask, error) {
 	jsonData, _ := json.Marshal(payload)
 
 	// Use /from-prompt endpoint which handles spec task creation from prompts

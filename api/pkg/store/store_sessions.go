@@ -50,6 +50,10 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		}
 	}
 
+	if query.SpecTaskID != "" {
+		q = q.Where("config->>'spec_task_id' = ?", query.SpecTaskID)
+	}
+
 	switch query.ProjectScope {
 	case "none":
 		q = q.Where("project_id IS NULL OR project_id = ''")

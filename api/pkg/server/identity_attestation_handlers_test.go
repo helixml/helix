@@ -443,3 +443,17 @@ func (s *IdentityAttestationSuite) TestVerifyRefusesBadTokens() {
 	s.requireNotValid(s.verify(browserSession(attOwnerA), s.verifyRequest(token)))
 	s.Len(s.auditEvents(types.AuditEventIdentityAttestationVerified), 1)
 }
+
+// key_confined comes from the minting key: a key of a task created with
+// confine_agent_key attests true, an ordinary session key false.
+func (s *IdentityAttestationSuite) TestKeyConfinedClaimFollowsTheKey() {
+	for _, confined := range []bool{true, false} {
+		key := sessionKey(attFinderSes, attFinderTsk)
+		key.TaskConfined = confined
+		vr := s.verify(attestationOrgKey(attOwnerA, attOrgA), s.verifyRequest(s.mintToken(key)))
+		s.Require().Equal(http.StatusOK, vr.Code, vr.Body.String())
+		var claims map[string]any
+		s.Require().NoError(json.Unmarshal(vr.Body.Bytes(), &claims))
+		s.Equal(confined, claims["key_confined"], "the claim is present either way")
+	}
+}
