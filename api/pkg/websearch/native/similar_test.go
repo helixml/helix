@@ -15,11 +15,11 @@ import (
 )
 
 func TestFindSimilar(t *testing.T) {
-	e := newEnv(t)
+	e := newEnv(t).withRanker()
 	e.pipeline(nil)
 	e.pages["https://src.com/post"] = &Page{Title: "Source", Text: "about rust"}
 	e.synth.EXPECT().Describe(gomock.Any(), "Source", "about rust").Return("rust articles", nil)
-	got := e.discover(cands("https://src.com/post", "https://www.src.com/other", "https://b.com/", "https://c.com/")...)
+	got := e.discover(cands("https://src.com/post", "https://b.com/", "https://c.com/")...)
 	e.rank.EXPECT().Rank(gomock.Any(), "rust articles",
 		[]string{"Candidate https://b.com/\nsnippet https://b.com/", "Candidate https://c.com/\nsnippet https://c.com/"}).
 		Return([]float64{0.2, 0.9}, nil)
@@ -31,7 +31,8 @@ func TestFindSimilar(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"rust articles"}, got.Queries)
-	assert.Equal(t, 3, got.NumResults, "one extra, for the source page")
+	assert.Equal(t, 31, got.NumResults, "a pool to rank, and one extra for the source page")
+	assert.Equal(t, []string{"src.com"}, got.ExcludeDomains, "the source site is excluded in discovery")
 	assert.Equal(t, "news", got.Category)
 	assert.Equal(t, []string{"https://c.com/", "https://b.com/"}, resultURLs(resp.Results), "sorted by score")
 	assert.Equal(t, 0.9, *resp.Results[0].Score)
@@ -40,7 +41,7 @@ func TestFindSimilar(t *testing.T) {
 }
 
 func TestFindSimilarDropsRedirectedSource(t *testing.T) {
-	e := newEnv(t)
+	e := newEnv(t).withRanker()
 	e.pipeline(nil)
 	e.finals["https://src.com/old"] = "https://src.com/new"
 	e.synth.EXPECT().Describe(gomock.Any(), gomock.Any(), gomock.Any()).Return("d", nil)
@@ -52,7 +53,7 @@ func TestFindSimilarDropsRedirectedSource(t *testing.T) {
 }
 
 func TestFindSimilarKeepsSourceDomainByDefault(t *testing.T) {
-	e := newEnv(t)
+	e := newEnv(t).withRanker()
 	e.pipeline(nil)
 	e.synth.EXPECT().Describe(gomock.Any(), gomock.Any(), gomock.Any()).Return("d", nil)
 	e.discover(cands("https://src.com/", "https://src.com/other")...)
@@ -68,32 +69,32 @@ func TestFindSimilarFailures(t *testing.T) {
 			func(o *Options) { o.Synthesizer = nil },
 			func(o *Options) { o.Ranker = nil },
 		} {
-			e := newEnv(t)
+			e := newEnv(t).withRanker()
 			drop(&e.opts)
 			_, err := e.provider(t).FindSimilar(context.Background(), &websearch.FindSimilarRequest{URL: "https://a.com"})
 			requireTag(t, err, websearch.TagFeatureDisabled)
 		}
 	})
 	t.Run("source cannot be fetched", func(t *testing.T) {
-		e := newEnv(t)
+		e := newEnv(t).withRanker()
 		e.pipeline(map[string]error{"https://a.com/": &FetchError{Tag: websearch.TagCrawlTimeout, Err: errors.New("slow")}})
 		_, err := e.provider(t).FindSimilar(context.Background(), &websearch.FindSimilarRequest{URL: "https://a.com"})
 		requireTag(t, err, websearch.TagInvalidRequest)
 		assert.Contains(t, err.Error(), websearch.TagCrawlTimeout)
 	})
 	t.Run("ranker score count mismatch", func(t *testing.T) {
-		e := newEnv(t)
+		e := newEnv(t).withRanker()
 		e.pipeline(nil)
 		e.synth.EXPECT().Describe(gomock.Any(), gomock.Any(), gomock.Any()).Return("d", nil)
 		e.discover(cands("https://b.com/", "https://c.com/")...)
 		e.rank.EXPECT().Rank(gomock.Any(), gomock.Any(), gomock.Any()).Return([]float64{0.1}, nil)
 		_, err := e.provider(t).FindSimilar(context.Background(), &websearch.FindSimilarRequest{URL: "https://a.com"})
-		require.ErrorContains(t, err, "1 scores for 2 pages")
+		require.ErrorContains(t, err, "1 scores for 2 candidates")
 	})
 }
 
 func TestFindSimilarWarnings(t *testing.T) {
-	e := newEnv(t)
+	e := newEnv(t).withRanker()
 	e.pipeline(map[string]error{"https://c.com/": &FetchError{Tag: websearch.TagCrawlTimeout, Err: errors.New("slow")}})
 	e.synth.EXPECT().Describe(gomock.Any(), gomock.Any(), gomock.Any()).Return("d", nil)
 	e.discover(cands("https://b.com/", "https://c.com/")...)

@@ -250,5 +250,508 @@
     "kind": "factual",
     "query": "year the first transatlantic telegraph cable was completed",
     "numResults": 10
+  },
+  {
+    "id": "tech-11",
+    "kind": "technical",
+    "query": "postgres partial index vs expression index when to use",
+    "numResults": 10
+  },
+  {
+    "id": "tech-12",
+    "kind": "technical",
+    "query": "kubernetes pod stuck in CrashLoopBackOff how to debug",
+    "numResults": 10
+  },
+  {
+    "id": "tech-13",
+    "kind": "technical",
+    "query": "rust borrow checker error cannot borrow as mutable more than once",
+    "numResults": 10
+  },
+  {
+    "id": "tech-14",
+    "kind": "technical",
+    "query": "terraform state lock error dynamodb how to fix",
+    "numResults": 10
+  },
+  {
+    "id": "tech-15",
+    "kind": "technical",
+    "query": "react useEffect cleanup function memory leak fetch",
+    "numResults": 10
+  },
+  {
+    "id": "tech-16",
+    "kind": "technical",
+    "query": "golang context cancellation propagate to goroutines",
+    "numResults": 10
+  },
+  {
+    "id": "tech-17",
+    "kind": "technical",
+    "query": "python asyncio gather vs TaskGroup exception handling",
+    "numResults": 10
+  },
+  {
+    "id": "tech-18",
+    "kind": "technical",
+    "query": "nginx reverse proxy websocket upgrade headers",
+    "numResults": 10
+  },
+  {
+    "id": "tech-19",
+    "kind": "technical",
+    "query": "git rebase onto another branch interactive squash commits",
+    "numResults": 10
+  },
+  {
+    "id": "tech-20",
+    "kind": "technical",
+    "query": "docker multi-stage build reduce image size go binary",
+    "numResults": 10
+  },
+  {
+    "id": "tech-21",
+    "kind": "technical",
+    "query": "redis cache stampede prevention techniques",
+    "numResults": 10
+  },
+  {
+    "id": "tech-22",
+    "kind": "technical",
+    "query": "TLS certificate chain incomplete error openssl verify",
+    "numResults": 10
+  },
+  {
+    "id": "tech-23",
+    "kind": "technical",
+    "query": "OAuth2 PKCE flow single page application",
+    "numResults": 10
+  },
+  {
+    "id": "tech-24",
+    "kind": "technical",
+    "query": "SQL window functions running total per group",
+    "numResults": 10
+  },
+  {
+    "id": "tech-25",
+    "kind": "technical",
+    "query": "systemd service restart on failure with backoff",
+    "numResults": 10
+  },
+  {
+    "id": "desc-09",
+    "kind": "descriptive",
+    "query": "companies building AI coding agents for enterprises",
+    "numResults": 10
+  },
+  {
+    "id": "desc-10",
+    "kind": "descriptive",
+    "query": "essays about the craft of writing good technical documentation",
+    "numResults": 10
+  },
+  {
+    "id": "desc-11",
+    "kind": "descriptive",
+    "query": "personal blogs of engineers writing about distributed systems",
+    "numResults": 10
+  },
+  {
+    "id": "desc-12",
+    "kind": "descriptive",
+    "query": "open-source alternatives to Datadog for observability",
+    "numResults": 10
+  },
+  {
+    "id": "desc-13",
+    "kind": "descriptive",
+    "query": "research labs working on mechanistic interpretability",
+    "numResults": 10
+  },
+  {
+    "id": "desc-14",
+    "kind": "descriptive",
+    "query": "tutorials explaining how transformers work with visual diagrams",
+    "numResults": 10
+  },
+  {
+    "id": "desc-15",
+    "kind": "descriptive",
+    "query": "startups making carbon removal technology",
+    "numResults": 10
+  },
+  {
+    "id": "desc-16",
+    "kind": "descriptive",
+    "query": "podcasts about the history of computing",
+    "numResults": 10
+  },
+  {
+    "id": "desc-17",
+    "kind": "descriptive",
+    "query": "case studies of companies migrating off Kubernetes",
+    "numResults": 10
+  },
+  {
+    "id": "desc-18",
+    "kind": "descriptive",
+    "query": "tools for self-hosting LLMs on a single GPU",
+    "numResults": 10
+  },
+  {
+    "id": "desc-19",
+    "kind": "descriptive",
+    "query": "newsletters covering developer tooling and infrastructure",
+    "numResults": 10
+  },
+  {
+    "id": "desc-20",
+    "kind": "descriptive",
+    "query": "post-mortems about incidents caused by DNS",
+    "numResults": 10
+  },
+  {
+    "id": "news-07",
+    "kind": "news",
+    "query": "Apple WWDC announcements developer tools",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-08",
+    "kind": "news",
+    "query": "GitHub Copilot new features announced",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-09",
+    "kind": "news",
+    "query": "data breach disclosed by a major retailer",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-10",
+    "kind": "news",
+    "query": "Rust language foundation news",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-11",
+    "kind": "news",
+    "query": "Linux kernel release new features",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-12",
+    "kind": "news",
+    "query": "semiconductor export controls China chips",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-13",
+    "kind": "news",
+    "query": "Microsoft Azure outage",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-14",
+    "kind": "news",
+    "query": "Tesla robotaxi rollout",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "news-15",
+    "kind": "news",
+    "query": "SpaceX Starship test flight results",
+    "numResults": 10,
+    "category": "news"
+  },
+  {
+    "id": "ent-07",
+    "kind": "company-people",
+    "query": "Supabase",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-08",
+    "kind": "company-people",
+    "query": "Vercel, the frontend cloud platform",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-09",
+    "kind": "company-people",
+    "query": "Anthropic, AI safety company",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-10",
+    "kind": "company-people",
+    "query": "Cloudflare Workers",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-11",
+    "kind": "company-people",
+    "query": "Grafana Labs",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-12",
+    "kind": "company-people",
+    "query": "Fly.io",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-13",
+    "kind": "company-people",
+    "query": "Temporal, the durable execution platform",
+    "numResults": 10,
+    "category": "company"
+  },
+  {
+    "id": "ent-14",
+    "kind": "company-people",
+    "query": "Guido van Rossum",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "ent-15",
+    "kind": "company-people",
+    "query": "Linus Torvalds",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "ent-16",
+    "kind": "company-people",
+    "query": "Kelsey Hightower",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "ent-17",
+    "kind": "company-people",
+    "query": "Julia Evans, writer of programming zines",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "ent-18",
+    "kind": "company-people",
+    "query": "Patrick Collison, Stripe co-founder",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "ent-19",
+    "kind": "company-people",
+    "query": "Chris Lattner, creator of LLVM and Swift",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "ent-20",
+    "kind": "company-people",
+    "query": "Charity Majors, Honeycomb co-founder",
+    "numResults": 10,
+    "category": "people"
+  },
+  {
+    "id": "intl-fr2",
+    "kind": "non-english",
+    "query": "comment configurer un serveur VPN WireGuard sur Ubuntu",
+    "numResults": 10
+  },
+  {
+    "id": "intl-de2",
+    "kind": "non-english",
+    "query": "Unterschied zwischen Mietvertrag befristet und unbefristet",
+    "numResults": 10
+  },
+  {
+    "id": "intl-es2",
+    "kind": "non-english",
+    "query": "cómo preparar una entrevista técnica de programación",
+    "numResults": 10
+  },
+  {
+    "id": "intl-lt2",
+    "kind": "non-english",
+    "query": "kaip pasirinkti saulės elektrinę namams",
+    "numResults": 10
+  },
+  {
+    "id": "intl-ja2",
+    "kind": "non-english",
+    "query": "Docker コンテナ 本番環境 ベストプラクティス",
+    "numResults": 10
+  },
+  {
+    "id": "intl-pl",
+    "kind": "non-english",
+    "query": "jak skonfigurować automatyczne kopie zapasowe PostgreSQL",
+    "numResults": 10
+  },
+  {
+    "id": "intl-pt",
+    "kind": "non-english",
+    "query": "como funciona a reforma tributária no Brasil",
+    "numResults": 10
+  },
+  {
+    "id": "intl-it",
+    "kind": "non-english",
+    "query": "ricetta tradizionale del ragù alla bolognese",
+    "numResults": 10
+  },
+  {
+    "id": "intl-zh",
+    "kind": "non-english",
+    "query": "大语言模型 微调 入门 教程",
+    "numResults": 10
+  },
+  {
+    "id": "intl-ru",
+    "kind": "non-english",
+    "query": "как настроить мониторинг сервера с Prometheus и Grafana",
+    "numResults": 10
+  },
+  {
+    "id": "intl-pl2",
+    "kind": "non-english",
+    "query": "najlepsze praktyki bezpieczeństwa haseł w aplikacjach webowych",
+    "numResults": 10
+  },
+  {
+    "id": "intl-pt2",
+    "kind": "non-english",
+    "query": "diferença entre microsserviços e arquitetura monolítica",
+    "numResults": 10
+  },
+  {
+    "id": "intl-it2",
+    "kind": "non-english",
+    "query": "come funziona la fatturazione elettronica in Italia",
+    "numResults": 10
+  },
+  {
+    "id": "intl-zh2",
+    "kind": "non-english",
+    "query": "Kubernetes 和 Docker Swarm 的区别",
+    "numResults": 10
+  },
+  {
+    "id": "intl-ru2",
+    "kind": "non-english",
+    "query": "что такое квантовые вычисления простыми словами",
+    "numResults": 10
+  },
+  {
+    "id": "fact-06",
+    "kind": "factual",
+    "query": "what year was the first version of PostgreSQL released",
+    "numResults": 10
+  },
+  {
+    "id": "fact-07",
+    "kind": "factual",
+    "query": "default port number for Elasticsearch HTTP API",
+    "numResults": 10
+  },
+  {
+    "id": "fact-08",
+    "kind": "factual",
+    "query": "maximum size of a single DynamoDB item",
+    "numResults": 10
+  },
+  {
+    "id": "fact-09",
+    "kind": "factual",
+    "query": "who invented the World Wide Web and when",
+    "numResults": 10
+  },
+  {
+    "id": "fact-10",
+    "kind": "factual",
+    "query": "how many bits in an IPv6 address",
+    "numResults": 10
+  },
+  {
+    "id": "fact-11",
+    "kind": "factual",
+    "query": "what is the boiling point of water at the top of Mount Everest",
+    "numResults": 10
+  },
+  {
+    "id": "fact-12",
+    "kind": "factual",
+    "query": "Go language release date of version 1.0",
+    "numResults": 10
+  },
+  {
+    "id": "fact-13",
+    "kind": "factual",
+    "query": "maximum number of pods per node in Kubernetes default",
+    "numResults": 10
+  },
+  {
+    "id": "fact-14",
+    "kind": "factual",
+    "query": "speed of light in vacuum meters per second exact value",
+    "numResults": 10
+  },
+  {
+    "id": "fact-15",
+    "kind": "factual",
+    "query": "how long is the Linux kernel long-term support period",
+    "numResults": 10
+  },
+  {
+    "id": "fact-16",
+    "kind": "factual",
+    "query": "which company created the Kotlin programming language",
+    "numResults": 10
+  },
+  {
+    "id": "fact-17",
+    "kind": "factual",
+    "query": "what is the default TTL for an AWS Route 53 record",
+    "numResults": 10
+  },
+  {
+    "id": "fact-18",
+    "kind": "factual",
+    "query": "capital city of Australia and when it was chosen",
+    "numResults": 10
+  },
+  {
+    "id": "fact-19",
+    "kind": "factual",
+    "query": "how many parameters does the original GPT-3 model have",
+    "numResults": 10
+  },
+  {
+    "id": "fact-20",
+    "kind": "factual",
+    "query": "what does the HTTP status code 418 mean",
+    "numResults": 10
   }
 ]

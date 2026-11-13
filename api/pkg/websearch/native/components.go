@@ -33,13 +33,15 @@ type DiscoverRequest struct {
 	Moderation         bool
 }
 
+// DiscoverResult lists at most NumResults candidates, best first, one per
+// page (near-duplicate URLs are collapsed).
 type DiscoverResult struct {
 	Candidates []Candidate
 	Warnings   []websearch.Warning
 }
 
 type Candidate struct {
-	URL           string
+	URL           string // normalised by websearch.NormalizeURL
 	Title         string
 	Snippet       string
 	PublishedDate *time.Time
@@ -77,8 +79,9 @@ func (e *FetchError) Unwrap() error { return e.Err }
 // Extractor turns a raw page into text and metadata. opts have been
 // validated by the request. A failure caused by the page itself (a type it
 // cannot read, content that does not parse as its type) wraps
-// ErrUnsupportedDocument and is reported for that URL alone; any other error
-// (the document service is down, ctx is done) fails the request.
+// ErrUnsupportedDocument; a failure of the document service on this page
+// wraps ErrExtractionFailed. Both are reported for that URL alone; any other
+// error (ctx is done) fails the request.
 type Extractor interface {
 	Extract(ctx context.Context, page *RawPage, opts websearch.TextOptions) (*Page, error)
 }
@@ -86,6 +89,12 @@ type Extractor interface {
 // ErrUnsupportedDocument is an Extractor failure specific to one page,
 // reported as websearch.TagUnsupportedDocument.
 var ErrUnsupportedDocument = errors.New("unsupported document")
+
+// ErrExtractionFailed is the document service failing on one page,
+// reported as websearch.TagExtractionFailed: one PDF the service cannot
+// handle, or the service being down, costs that result its text, not the
+// whole search.
+var ErrExtractionFailed = errors.New("document extraction failed")
 
 type Page struct {
 	Title         string

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -41,18 +42,25 @@ once (EXA_API_KEY). See design/websearch-eval/README.md.`,
 			}
 			refPath := filepath.Join(dataDir, eval.ReferenceFile)
 			if captureReference {
-				if _, err := os.Stat(refPath); err == nil {
-					return fmt.Errorf("%s exists: the reference is frozen; delete it only to start a new series", refPath)
-				}
 				provider, err := exa.New(os.Getenv("EXA_API_KEY"), exaBaseURL)
 				if err != nil {
 					return err
 				}
-				run, err := eval.Collect(ctx, "exa", queries, provider.Search)
+				ref := &eval.Run{Provider: "exa", CapturedAt: time.Now().UTC()}
+				if _, err := os.Stat(refPath); err == nil {
+					if ref, err = eval.LoadRun(refPath); err != nil {
+						return err
+					}
+				}
+				added, err := eval.ExtendReference(ctx, ref, queries, provider.Search)
 				if err != nil {
 					return err
 				}
-				return eval.SaveRun(refPath, run)
+				fmt.Fprintf(cmd.OutOrStdout(), "captured %d new queries; existing reference entries unchanged\n", added)
+				if added == 0 {
+					return nil
+				}
+				return eval.SaveRun(refPath, ref)
 			}
 
 			if outDir == "" {
@@ -89,7 +97,10 @@ once (EXA_API_KEY). See design/websearch-eval/README.md.`,
 			if err != nil {
 				return err
 			}
-			judged, judgeErr := eval.JudgeAll(ctx, judge, judgments, queries, pools, judgeConcurrency)
+			judged, judgeErr := eval.JudgeAll(ctx, judge, judgments, queries, pools, judgeConcurrency, func(graded int) error {
+				fmt.Fprintf(cmd.ErrOrStderr(), "judged %d pages, saving %s\n", graded, judgmentsPath)
+				return judgments.Save(judgmentsPath)
+			})
 			if err := judgments.Save(judgmentsPath); err != nil {
 				return err
 			}
@@ -115,7 +126,7 @@ once (EXA_API_KEY). See design/websearch-eval/README.md.`,
 	cmd.Flags().StringVar(&judgeURL, "judge-url", "http://localhost:8080/v1", "OpenAI-compatible base URL of the judge")
 	cmd.Flags().StringVar(&judgeModel, "judge-model", "glm-5.3-flash", "Judge model; the judgment cache is bound to it")
 	cmd.Flags().IntVar(&judgeConcurrency, "judge-concurrency", 8, "Parallel judge calls")
-	cmd.Flags().BoolVar(&captureReference, "capture-reference", false, "Record the Exa reference (once per series) and exit")
+	cmd.Flags().BoolVar(&captureReference, "capture-reference", false, "Capture the Exa reference for queries it has none for (existing entries stay frozen) and exit")
 	return cmd
 }
 

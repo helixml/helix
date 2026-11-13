@@ -3,8 +3,8 @@ package native
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -43,12 +43,18 @@ func (p *Provider) FindSimilar(ctx context.Context, req *websearch.FindSimilarRe
 	}
 
 	n := numResults(req.NumResults)
+	exclude := req.ExcludeDomains
+	if req.ExcludeSourceDomain {
+		// Excluded in discovery, so the engines fill the n results from
+		// other sites rather than the request coming back short.
+		exclude = append(slices.Clone(exclude), siteHost(sourceURL))
+	}
 	found, err := p.opts.Discoverer.Discover(ctx, &DiscoverRequest{
 		Queries:            []string{description},
-		NumResults:         n + 1, // the source page itself is usually found, and dropped
+		NumResults:         p.candidatePool(n) + 1, // the source page itself is usually found, and dropped
 		Category:           req.Category,
 		IncludeDomains:     req.IncludeDomains,
-		ExcludeDomains:     req.ExcludeDomains,
+		ExcludeDomains:     exclude,
 		StartPublishedDate: req.StartPublishedDate,
 		EndPublishedDate:   req.EndPublishedDate,
 	})
@@ -56,26 +62,11 @@ func (p *Provider) FindSimilar(ctx context.Context, req *websearch.FindSimilarRe
 		return nil, err
 	}
 	landing := landingURL(source.raw)
-	sourceHost := siteHost(sourceURL)
-	var candidates []Candidate
-	for _, c := range found.Candidates {
-		u, err := websearch.NormalizeURL(c.URL)
-		if err != nil {
-			return nil, fmt.Errorf("discovered URL %q: %w", c.URL, err)
-		}
-		if u == sourceURL || u == landing || (req.ExcludeSourceDomain && siteHost(u) == sourceHost) {
-			continue
-		}
-		candidates = append(candidates, c)
-	}
-	if len(candidates) > n {
-		candidates = candidates[:n]
-	}
-	hits, err := candidateHits(candidates)
+	candidates := slices.DeleteFunc(found.Candidates, func(c Candidate) bool {
+		return c.URL == sourceURL || c.URL == landing
+	})
+	hits, err := p.mostSimilar(ctx, description, candidates, n)
 	if err != nil {
-		return nil, err
-	}
-	if err := p.score(ctx, description, candidates, hits); err != nil {
 		return nil, err
 	}
 
@@ -107,25 +98,21 @@ func (p *Provider) FindSimilar(ctx context.Context, req *websearch.FindSimilarRe
 	}, nil
 }
 
-// score sets each hit's Score from its title and snippet, best first.
-func (p *Provider) score(ctx context.Context, query string, candidates []Candidate, hits []hit) error {
-	if len(hits) == 0 {
-		return nil
+// mostSimilar returns the n candidates most similar to description, best
+// first, with Score set. Similarity alone orders them: the engines searched
+// for an LLM's description of the page, so their order says little.
+func (p *Provider) mostSimilar(ctx context.Context, description string, candidates []Candidate, n int) ([]hit, error) {
+	if len(candidates) == 0 {
+		return nil, nil
 	}
-	passages := make([]string, len(candidates))
-	for i, c := range candidates {
-		passages[i] = strings.TrimSpace(c.Title + "\n" + c.Snippet)
-	}
-	scores, err := p.opts.Ranker.Rank(ctx, query, passages)
+	scores, err := p.semanticScores(ctx, description, candidates)
 	if err != nil {
-		return fmt.Errorf("score similar pages: %w", err)
+		return nil, err
 	}
-	if len(scores) != len(hits) {
-		return fmt.Errorf("score similar pages: ranker returned %d scores for %d pages", len(scores), len(hits))
-	}
+	hits := candidateHits(candidates)
 	for i := range hits {
 		hits[i].result.Score = &scores[i]
 	}
 	sort.SliceStable(hits, func(a, b int) bool { return *hits[a].result.Score > *hits[b].result.Score })
-	return nil
+	return hits[:min(n, len(hits))], nil
 }

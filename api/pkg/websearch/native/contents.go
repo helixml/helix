@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/rs/zerolog/log"
+
 	"github.com/helixml/helix/api/pkg/websearch"
 )
 
@@ -157,9 +159,11 @@ func (p *Provider) fetchHits(ctx context.Context, hits []hit, po pageOptions) ([
 	}
 	pol, textOpts := policyFor(opts), textOptions(opts)
 	tallies := make([]subpageTally, len(hits))
+	failures := make([]string, len(hits)) // content error tag per failed page
 	err := p.forEach(ctx, len(hits), func(ctx context.Context, i int) error {
 		d, err := p.loadDoc(ctx, hits[i].result.URL, pol, textOpts)
-		if _, ok := pageFailure(err); ok {
+		if fe, ok := pageFailure(err); ok {
+			failures[i] = fe.Tag
 			return nil
 		}
 		if err != nil {
@@ -180,6 +184,9 @@ func (p *Provider) fetchHits(ctx context.Context, hits []hit, po pageOptions) ([
 			failed++
 		}
 		subpages.add(tallies[i])
+	}
+	if failed > 0 {
+		logUnfetched(ctx, failures)
 	}
 	warnings := append(unfetchedWarnings(failed, len(hits), "results"), subpages.warnings()...)
 	if filtering {
@@ -379,4 +386,21 @@ func buildContext(hits []hit, o *websearch.ContextOption, textLimit int) string 
 		fmt.Fprintf(&b, "Title: %s\nURL: %s\n%s\n\n", h.result.Title, h.result.URL, clipChars(h.doc.page.Text, textLimit))
 	}
 	return clipChars(strings.TrimSpace(b.String()), o.MaxCharacters)
+}
+
+// logUnfetched records, once per request, how many result pages could not
+// be fetched and why, so operators see a broken fetch path or document
+// service without reading responses.
+func logUnfetched(ctx context.Context, failures []string) {
+	byTag := map[string]int{}
+	for _, tag := range failures {
+		if tag != "" {
+			byTag[tag]++
+		}
+	}
+	log.Info().
+		Str("request_id", websearch.CallerFrom(ctx).RequestID).
+		Int("pages", len(failures)).
+		Interface("failed_by_tag", byTag).
+		Msg("websearch: result pages could not be fetched")
 }

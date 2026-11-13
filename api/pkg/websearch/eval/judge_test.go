@@ -3,6 +3,7 @@ package eval
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -77,7 +78,7 @@ func TestJudgeAllJudgesOnlyWhatTheCacheLacks(t *testing.T) {
 		"q2": {{Key: "cached.com"}, {Key: "stilltitleonly.com"}},
 	}
 	grader := &fakeGrader{}
-	n, err := JudgeAll(context.Background(), grader, cache, queries, pools, 2)
+	n, err := JudgeAll(context.Background(), grader, cache, queries, pools, 2, noCheckpoint)
 	require.NoError(t, err)
 	require.Equal(t, 3, n)
 	require.ElementsMatch(t, []string{"q1 titleonly.com", "q1 new.com", "q2 cached.com"}, grader.calls)
@@ -89,7 +90,7 @@ func TestJudgeAllJudgesOnlyWhatTheCacheLacks(t *testing.T) {
 	got, _ = cache.Lookup("q1", "cached.com")
 	require.Equal(t, 3, got.Grade)
 
-	n, err = JudgeAll(context.Background(), grader, cache, queries, pools, 2)
+	n, err = JudgeAll(context.Background(), grader, cache, queries, pools, 2, noCheckpoint)
 	require.NoError(t, err)
 	require.Zero(t, n)
 }
@@ -166,5 +167,26 @@ func TestLLMJudgeRejectsBadOutput(t *testing.T) {
 			_, err = judge.Grade(context.Background(), Query{Query: "q"}, Doc{URL: "https://x.test"})
 			require.Error(t, err)
 		})
+	}
+}
+
+func noCheckpoint(int) error { return nil }
+
+// A long judging run saves as it goes, so an interrupted run keeps the
+// grades it paid for.
+func TestJudgeAllCheckpoints(t *testing.T) {
+	queries := []Query{{ID: "q", Query: "q"}}
+	var pool []Doc
+	for i := range 2*checkpointEvery + 7 {
+		pool = append(pool, Doc{Key: fmt.Sprintf("k%d", i), URL: fmt.Sprintf("https://x.test/%d", i), Title: "t"})
+	}
+	var calls []int
+	n, err := JudgeAll(context.Background(), &fakeGrader{}, newTestJudgments(t), queries, map[string][]Doc{"q": pool}, 4,
+		func(graded int) error { calls = append(calls, graded); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != len(pool) || len(calls) != 2 || calls[0] != checkpointEvery || calls[1] != 2*checkpointEvery {
+		t.Fatalf("graded %d, checkpoints %v", n, calls)
 	}
 }

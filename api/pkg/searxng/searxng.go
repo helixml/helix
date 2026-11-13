@@ -33,6 +33,10 @@ const (
 	TimeRangeYear  = "year"
 )
 
+// requestTimeout bounds one SearXNG call, so a hung instance cannot hold a
+// search open (the API server itself has no write timeout).
+const requestTimeout = 15 * time.Second
+
 // Client queries one SearXNG instance.
 type Client struct {
 	httpClient *http.Client
@@ -44,7 +48,7 @@ type Client struct {
 // engines general web queries run on; empty means SearXNG's defaults.
 func NewClient(baseURL string, engines []string) *Client {
 	return &Client{
-		httpClient: http.DefaultClient,
+		httpClient: &http.Client{Timeout: requestTimeout},
 		baseURL:    strings.TrimSuffix(baseURL, "/"),
 		engines:    engines,
 	}
@@ -84,7 +88,10 @@ type UnresponsiveEngine struct {
 }
 
 // Search runs one query for one page. Zero results with every queried
-// engine unresponsive is an upstream failure and returns an error.
+// engine unresponsive is an upstream failure and returns an error. A field
+// an engine filled in malformed is dropped rather than failing the page: a
+// date that does not parse becomes no date, an empty unresponsive_engines
+// entry is skipped.
 func (c *Client) Search(ctx context.Context, q Query) (*Response, error) {
 	if strings.TrimSpace(q.Q) == "" {
 		return nil, errors.New("searxng: empty query")
@@ -140,8 +147,8 @@ func (c *Client) Search(ctx context.Context, q Query) (*Response, error) {
 		UnresponsiveEngines: make([]UnresponsiveEngine, 0, len(raw.UnresponsiveEngines)),
 	}
 	for _, e := range raw.UnresponsiveEngines {
-		if len(e) == 0 {
-			return nil, errors.New("searxng: empty unresponsive_engines entry")
+		if len(e) == 0 || e[0] == "" {
+			continue
 		}
 		u := UnresponsiveEngine{Name: e[0]}
 		if len(e) > 1 {
@@ -150,15 +157,11 @@ func (c *Client) Search(ctx context.Context, q Query) (*Response, error) {
 		out.UnresponsiveEngines = append(out.UnresponsiveEngines, u)
 	}
 	for _, r := range raw.Results {
-		published, err := parsePublishedDate(r.PublishedDate)
-		if err != nil {
-			return nil, fmt.Errorf("searxng: result %s: %w", r.URL, err)
-		}
 		out.Results = append(out.Results, Result{
 			URL:           r.URL,
 			Title:         r.Title,
 			Content:       r.Content,
-			PublishedDate: published,
+			PublishedDate: parsePublishedDate(r.PublishedDate),
 			Thumbnail:     r.Thumbnail,
 			ImgSrc:        r.ImgSrc,
 			Score:         r.Score,
@@ -219,14 +222,15 @@ var publishedDateLayouts = []string{
 	"2006-01-02",
 }
 
-func parsePublishedDate(s *string) (*time.Time, error) {
-	if s == nil || *s == "" {
-		return nil, nil
+// parsePublishedDate returns nil for a missing or unrecognised date.
+func parsePublishedDate(s *string) *time.Time {
+	if s == nil {
+		return nil
 	}
 	for _, layout := range publishedDateLayouts {
 		if t, err := time.Parse(layout, *s); err == nil {
-			return &t, nil
+			return &t
 		}
 	}
-	return nil, fmt.Errorf("unrecognised publishedDate %q", *s)
+	return nil
 }

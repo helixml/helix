@@ -74,6 +74,32 @@ func Collect(ctx context.Context, provider string, queries []Query, search Searc
 	return run, nil
 }
 
+// ExtendReference captures search results for the queries ref has none
+// for, leaving every existing entry as it was: queries added to the set
+// grow the reference without re-capturing (and re-paying for) the rest.
+// It returns how many queries it captured.
+func ExtendReference(ctx context.Context, ref *Run, queries []Query, search SearchFunc) (int, error) {
+	have := make(map[string]bool, len(ref.Queries))
+	for _, qr := range ref.Queries {
+		have[qr.QueryID] = true
+	}
+	var missing []Query
+	for _, q := range queries {
+		if !have[q.ID] {
+			missing = append(missing, q)
+		}
+	}
+	if len(missing) == 0 {
+		return 0, nil
+	}
+	added, err := Collect(ctx, ref.Provider, missing, search)
+	if err != nil {
+		return 0, err
+	}
+	ref.Queries = append(ref.Queries, added.Queries...)
+	return len(missing), nil
+}
+
 func LoadRun(path string) (*Run, error) {
 	var run Run
 	if err := readJSON(path, &run); err != nil {

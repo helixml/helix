@@ -91,7 +91,7 @@ func TestReportEndToEnd(t *testing.T) {
 
 	judgments, err := eval.LoadJudgments(filepath.Join(t.TempDir(), eval.JudgmentsFile), "m")
 	require.NoError(t, err)
-	_, err = eval.JudgeAll(context.Background(), constGrader{"good.test": 3, "ok.test": 2}, judgments, queries, pools, 1)
+	_, err = eval.JudgeAll(context.Background(), constGrader{"good.test": 3, "ok.test": 2}, judgments, queries, pools, 1, func(int) error { return nil })
 	require.NoError(t, err)
 
 	rep, err := eval.BuildReport(queries, judgments, candidate, reference)
@@ -109,4 +109,31 @@ func TestReportEndToEnd(t *testing.T) {
 	missing := &eval.Run{Provider: "helix"}
 	_, err = eval.BuildReport(queries, judgments, missing, reference)
 	require.ErrorContains(t, err, "start a new series")
+}
+
+// Growing the query set captures only the new queries; what was captured
+// before (and paid for) is not searched again or changed.
+func TestExtendReferenceCapturesOnlyNewQueries(t *testing.T) {
+	ref := &eval.Run{Provider: "exa", Queries: []eval.QueryRun{
+		{QueryID: "a", Hits: []eval.Hit{{URL: "https://old.example/", Title: "kept"}}},
+	}}
+	var searched []string
+	search := func(_ context.Context, req *websearch.SearchRequest) (*websearch.SearchResponse, error) {
+		searched = append(searched, req.Query)
+		return &websearch.SearchResponse{Results: []websearch.Result{{URL: "https://new.example/" + req.Query, Title: req.Query}}}, nil
+	}
+	queries := []eval.Query{{ID: "a", Query: "qa", NumResults: 10}, {ID: "b", Query: "qb", NumResults: 10}}
+
+	added, err := eval.ExtendReference(context.Background(), ref, queries, search)
+	require.NoError(t, err)
+	require.Equal(t, 1, added)
+	require.Equal(t, []string{"qb"}, searched)
+	require.Len(t, ref.Queries, 2)
+	require.Equal(t, "kept", ref.Queries[0].Hits[0].Title)
+	require.Equal(t, "b", ref.Queries[1].QueryID)
+
+	added, err = eval.ExtendReference(context.Background(), ref, queries, search)
+	require.NoError(t, err)
+	require.Zero(t, added)
+	require.Len(t, searched, 1, "a complete reference searches nothing")
 }

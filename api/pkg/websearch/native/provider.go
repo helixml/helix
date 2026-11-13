@@ -112,22 +112,18 @@ func (p *Provider) forEach(ctx context.Context, n int, fn func(ctx context.Conte
 	return g.Wait()
 }
 
-func candidateHits(candidates []Candidate) ([]hit, error) {
+func candidateHits(candidates []Candidate) []hit {
 	hits := make([]hit, len(candidates))
 	for i, c := range candidates {
-		u, err := websearch.NormalizeURL(c.URL)
-		if err != nil {
-			return nil, fmt.Errorf("discovered URL %q: %w", c.URL, err)
-		}
 		hits[i].result = websearch.Result{
-			ID:            u,
-			URL:           u,
+			ID:            c.URL,
+			URL:           c.URL,
 			Title:         c.Title,
 			PublishedDate: c.PublishedDate,
 			Image:         c.Image,
 		}
 	}
-	return hits, nil
+	return hits
 }
 
 func newResult(d *doc) websearch.Result {

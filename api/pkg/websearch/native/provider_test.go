@@ -50,7 +50,14 @@ func newEnv(t *testing.T) *env {
 		pages:  map[string]*Page{},
 	}
 	e.opts = Options{Discoverer: e.disc, Fetcher: e.fetch, Extractor: e.ext, Cache: e.cache,
-		Ranker: e.rank, Synthesizer: e.synth, FetchConcurrency: 4}
+		Synthesizer: e.synth, FetchConcurrency: 4}
+	return e
+}
+
+// withRanker configures the embedding Ranker, which reranks search results
+// and enables highlights and findSimilar.
+func (e *env) withRanker() *env {
+	e.opts.Ranker = e.rank
 	return e
 }
 

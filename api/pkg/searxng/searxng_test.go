@@ -101,16 +101,28 @@ func TestSearch_EmptyWithSomeEnginesUpIsEmpty(t *testing.T) {
 	require.Empty(t, resp.Results)
 }
 
+// One engine's malformed field must not cost the page its other results.
+func TestSearch_MalformedFieldsAreDroppedNotFatal(t *testing.T) {
+	srv := serve(t, http.StatusOK, `{"results": [
+		{"url": "https://a.example/", "title": "A", "publishedDate": "yesterday"},
+		{"url": "https://b.example/", "title": "B", "publishedDate": "2024-12-18"}
+	], "unresponsive_engines": [[], ["", "x"], ["bing", "timeout"]]}`, nil)
+	resp, err := NewClient(srv.URL, nil).Search(context.Background(), Query{Q: "x"})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 2)
+	require.Nil(t, resp.Results[0].PublishedDate)
+	require.NotNil(t, resp.Results[1].PublishedDate)
+	require.Equal(t, []UnresponsiveEngine{{Name: "bing", Reason: "timeout"}}, resp.UnresponsiveEngines)
+}
+
 func TestSearch_Errors(t *testing.T) {
 	for name, tc := range map[string]struct {
 		status int
 		body   string
 		want   string
 	}{
-		"non-200":     {http.StatusTooManyRequests, "Too Many Requests", "status 429: Too Many Requests"},
-		"bad json":    {http.StatusOK, "<html>", "decode response"},
-		"bad date":    {http.StatusOK, `{"results": [{"url": "https://a/", "publishedDate": "yesterday"}]}`, `unrecognised publishedDate "yesterday"`},
-		"bad engines": {http.StatusOK, `{"results": [], "unresponsive_engines": [[]]}`, "empty unresponsive_engines entry"},
+		"non-200":  {http.StatusTooManyRequests, "Too Many Requests", "status 429: Too Many Requests"},
+		"bad json": {http.StatusOK, "<html>", "decode response"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			srv := serve(t, tc.status, tc.body, nil)

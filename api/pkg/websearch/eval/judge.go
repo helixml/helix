@@ -243,9 +243,15 @@ func (j *Judgments) needs(queryID string, d Doc) bool {
 	return !ok || (!have.HadText && d.Text != "")
 }
 
+// checkpointEvery is how many new grades JudgeAll collects between calls to
+// its checkpoint, so an interrupted run loses at most that many.
+const checkpointEvery = 50
+
 // JudgeAll grades every pooled page the cache lacks and returns how many it
-// graded. Pages graded before an error stay in the cache.
-func JudgeAll(ctx context.Context, grader Grader, cache *Judgments, queries []Query, pools map[string][]Doc, concurrency int) (int, error) {
+// graded. Pages graded before an error stay in the cache. checkpoint is
+// called with the running count every checkpointEvery grades; its error
+// stops the run.
+func JudgeAll(ctx context.Context, grader Grader, cache *Judgments, queries []Query, pools map[string][]Doc, concurrency int, checkpoint func(graded int) error) (int, error) {
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(concurrency)
 	var (
@@ -264,8 +270,11 @@ func JudgeAll(ctx context.Context, grader Grader, cache *Judgments, queries []Qu
 				}
 				cache.put(Judgment{QueryID: q.ID, Key: d.Key, URL: d.URL, Title: d.Title, HadText: d.Text != "", Verdict: v})
 				mu.Lock()
+				defer mu.Unlock()
 				count++
-				mu.Unlock()
+				if count%checkpointEvery == 0 {
+					return checkpoint(count)
+				}
 				return nil
 			})
 		}
