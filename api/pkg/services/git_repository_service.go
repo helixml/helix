@@ -499,7 +499,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		LastActivity:            time.Now(),
 		CreatedAt:               time.Now(),
 		UpdatedAt:               time.Now(),
-		Metadata:                request.Metadata,
+		Metadata:                withoutServerOwnedMetadata(request.Metadata),
 		AzureDevOps:             request.AzureDevOps,
 		GitHub:                  request.GitHub,
 		GitLab:                  request.GitLab,
@@ -965,6 +965,9 @@ func (s *GitRepositoryService) UpdateRepository(
 			existing.Metadata = make(map[string]interface{})
 		}
 		for k, v := range request.Metadata {
+			if isServerOwnedMetadataKey(k) {
+				continue
+			}
 			existing.Metadata[k] = v
 		}
 	}
@@ -2979,4 +2982,27 @@ func stripCredentialsFromURL(rawURL string) string {
 	// Clear the user info (username/password)
 	parsed.User = nil
 	return parsed.String()
+}
+
+// isServerOwnedMetadataKey reports whether a repository metadata key is
+// written only by the server. kodit_repo_id selects which Kodit index the
+// repository's code-intelligence routes read, so a caller must never set it.
+func isServerOwnedMetadataKey(key string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(key)), "kodit_")
+}
+
+// withoutServerOwnedMetadata copies caller-supplied metadata without the
+// server-owned keys.
+func withoutServerOwnedMetadata(in map[string]interface{}) map[string]interface{} {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]interface{}, len(in))
+	for k, v := range in {
+		if isServerOwnedMetadataKey(k) {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }

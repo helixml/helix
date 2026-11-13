@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"image/jpeg"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -147,8 +148,38 @@ func (s *KoditService) RegisterRepository(ctx context.Context, params *RegisterR
 		return 0, false, fmt.Errorf("kodit returned zero source ID for clone URL (is_new=%v, status=%s)", isNew, source.Status())
 	}
 
+	// Kodit dedupes registrations by upstream URL, so an existing source may
+	// have been registered for a different Helix repository (another tenant
+	// importing the same upstream). Only adopt one cloned from this exact
+	// Helix repository.
+	if !isNew && !sameKoditCloneSource(source.RemoteURL(), params.CloneURL) {
+		log.Warn().
+			Str("clone_url", RedactURLCredentials(params.CloneURL)).
+			Str("remote_url", RedactURLCredentials(source.RemoteURL())).
+			Int64("kodit_repo_id", source.ID()).
+			Msg("Kodit returned a source registered for a different repository; refusing to adopt it")
+		return 0, false, ErrKoditSourceOwnedElsewhere
+	}
+
 	log.Info().Str("clone_url", RedactURLCredentials(params.CloneURL)).Int64("kodit_repo_id", source.ID()).Bool("is_new", isNew).Msg("Registered repository with Kodit")
 	return source.ID(), isNew, nil
+}
+
+// ErrKoditSourceOwnedElsewhere is returned when Kodit already indexes the
+// same upstream for a different Helix repository.
+var ErrKoditSourceOwnedElsewhere = errors.New("this upstream is already indexed for another repository")
+
+// sameKoditCloneSource reports whether two clone URLs name the same host and
+// path, ignoring credentials (each registration embeds its own key).
+func sameKoditCloneSource(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	if errA != nil || errB != nil || ua.Host == "" {
+		return false
+	}
+	return strings.EqualFold(ua.Scheme, ub.Scheme) &&
+		strings.EqualFold(ua.Host, ub.Host) &&
+		strings.TrimSuffix(ua.Path, "/") == strings.TrimSuffix(ub.Path, "/")
 }
 
 // GetRepositoryEnrichments fetches enrichments for a repository from Kodit,
