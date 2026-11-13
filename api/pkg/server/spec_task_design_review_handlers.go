@@ -437,8 +437,12 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 	} else {
 		err = s.gitRepositoryService.WithRepoLock(repo.ID, writeDocument)
 	}
-	if errors.Is(err, errDesignReviewDocumentChanged) {
+	if errors.Is(err, errDesignReviewDocumentChanged) || errors.Is(err, services.ErrBranchMoved) {
 		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if errors.Is(err, services.ErrRepoPathBlocked) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err != nil {
