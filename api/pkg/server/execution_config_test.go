@@ -83,7 +83,7 @@ func TestApplySpecTaskExecutionConfigDoesNotRestartInactivePhase(t *testing.T) {
 	memoryStore.SeedSpecTask(task)
 
 	changed, restarted, httpErr := server.applySpecTaskExecutionConfig(
-		context.Background(), &types.User{ID: "user_a"}, task, session,
+		context.Background(), &types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, task, session,
 		types.SpecTaskPhaseImplementation, newImplementer, "test handoff",
 	)
 
@@ -110,7 +110,7 @@ func TestApplyPlanningConfigPreservesLegacyImplementationSource(t *testing.T) {
 	memoryStore.SeedSpecTask(task)
 
 	changed, restarted, httpErr := server.applySpecTaskExecutionConfig(
-		context.Background(), &types.User{ID: "user_a"}, task, nil,
+		context.Background(), &types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, task, nil,
 		types.SpecTaskPhasePlanning, planner, "test handoff",
 	)
 

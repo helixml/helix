@@ -160,7 +160,7 @@ func TestApproveImplementationRefusesExternalReposAndDoneTasks(t *testing.T) {
 		st.EXPECT().GetProject(gomock.Any(), "prj_1").Return(project, nil)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/spt_1/approve-implementation", nil)
 		req = mux.SetURLVars(req, map[string]string{"spec_task_id": "spt_1"})
-		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID}))
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID, TokenType: types.TokenTypeOIDC}))
 		rec := httptest.NewRecorder()
 		s.approveImplementation(rec, req)
 		return rec

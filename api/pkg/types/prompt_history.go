@@ -28,6 +28,10 @@ type PromptHistoryEntry struct {
 	// same routing the old direct send set up synchronously.
 	NotifyUserID string `json:"notify_user_id,omitempty" gorm:"size:255"`
 
+	// Provenance records who caused this prompt. Server-set at creation and
+	// never updated; the interaction created from it copies it.
+	Provenance TurnProvenance `json:"provenance" gorm:"type:jsonb"`
+
 	// Status tracks whether this was successfully sent
 	// Values: "pending", "sent", "failed"
 	Status string `json:"status" gorm:"size:50;not null;default:sent"`

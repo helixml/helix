@@ -14,6 +14,7 @@ type stageEnqueue struct {
 	message      string
 	interrupt    bool
 	notifyUserID string
+	provenance   types.TurnProvenance
 }
 
 // newStageService builds a SpecDrivenTaskService wired to the suite's real git repo and
@@ -27,8 +28,8 @@ func (s *GitIntegrationSuite) newStageService(captured *[]stageEnqueue) *SpecDri
 	svc.ReadAttachmentBlob = func(_ context.Context, path string) ([]byte, error) {
 		return []byte("fake-bytes-for-" + path), nil
 	}
-	svc.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, message string, interrupt bool, notifyUserID string) error {
-		*captured = append(*captured, stageEnqueue{message: message, interrupt: interrupt, notifyUserID: notifyUserID})
+	svc.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, message string, interrupt bool, notifyUserID string, provenance types.TurnProvenance) error {
+		*captured = append(*captured, stageEnqueue{message: message, interrupt: interrupt, notifyUserID: notifyUserID, provenance: provenance})
 		return nil
 	}
 	return svc
@@ -80,7 +81,7 @@ func (s *GitIntegrationSuite) TestStageUploadedAttachments_RacingUploadAfterPlan
 	var enqueued []stageEnqueue
 	svc := s.newStageService(&enqueued)
 
-	err := svc.StageUploadedAttachments(s.ctx, "task-1")
+	err := svc.StageUploadedAttachments(s.ctx, "task-1", testUploader)
 	require.NoError(err)
 
 	// (a) file reached the pushed upstream repo under the task's attachments dir
@@ -95,6 +96,8 @@ func (s *GitIntegrationSuite) TestStageUploadedAttachments_RacingUploadAfterPlan
 	require.Len(enqueued, 1, "agent must be notified about the late attachment")
 	require.False(enqueued[0].interrupt, "note must not interrupt in-flight work")
 	require.Equal("test-user", enqueued[0].notifyUserID)
+	require.Equal(types.TriggeredBySystemTurn(types.SystemTurnAttachmentAdded, testUploader), enqueued[0].provenance,
+		"the note names whoever uploaded the file, not Helix alone")
 	require.Contains(enqueued[0].message, "design/tasks/000123_racing-task/attachments/screenshot.png")
 }
 
@@ -131,7 +134,7 @@ func (s *GitIntegrationSuite) TestStageUploadedAttachments_BacklogNoSession() {
 	var enqueued []stageEnqueue
 	svc := s.newStageService(&enqueued)
 
-	err := svc.StageUploadedAttachments(s.ctx, "task-2")
+	err := svc.StageUploadedAttachments(s.ctx, "task-2", testUploader)
 	require.NoError(err)
 
 	_, ok := s.upstreamFileOnBranch(SpecsBranchName, "design/tasks/000124_backlog-task/attachments/notes.md")
@@ -173,14 +176,14 @@ func (s *GitIntegrationSuite) TestStageUploadedAttachments_Idempotent() {
 	svc := s.newStageService(&enqueued)
 
 	// First call stages + notifies.
-	require.NoError(svc.StageUploadedAttachments(s.ctx, "task-3"))
+	require.NoError(svc.StageUploadedAttachments(s.ctx, "task-3", testUploader))
 	require.Len(enqueued, 1)
 	firstSHA := att.CommittedSHA
 	require.NotEmpty(firstSHA)
 
 	// Second call: nothing pending → no re-commit, no re-notify. The note branch is gated
 	// on there being un-staged work, so a fully-committed set is a no-op for notification.
-	require.NoError(svc.StageUploadedAttachments(s.ctx, "task-3"))
+	require.NoError(svc.StageUploadedAttachments(s.ctx, "task-3", testUploader))
 	require.Equal(firstSHA, att.CommittedSHA, "CommittedSHA must not change on re-stage")
 	require.Len(enqueued, 1, "a fully-staged attachment must not re-notify the agent")
 }

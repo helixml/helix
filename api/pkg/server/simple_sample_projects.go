@@ -856,6 +856,10 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	if err := denyTaskCreationToConfinedKey(user); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	taskCreator, creatorErr := requestTurnProvenance(r.Context(), user)
+	if creatorErr != nil {
+		return nil, system.NewHTTPError403(creatorErr.Error())
+	}
 
 	var req types.ForkSimpleProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1283,6 +1287,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 					taskPrompt := sampleProject.TaskPrompts[i]
 					task := &types.SpecTask{
 						ID:             system.GenerateSpecTaskID(),
+						QueuedBy:       taskCreator,
 						UserID:         user.ID,
 						OrganizationID: createdShapeProject.OrganizationID,
 						Name:           generateTaskNameFromPrompt(taskPrompt.Prompt),
@@ -1600,6 +1605,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		taskPrompt := sampleProject.TaskPrompts[i]
 		task := &types.SpecTask{
 			ID:             system.GenerateSpecTaskID(),
+			QueuedBy:       taskCreator,
 			ProjectID:      createdProject.ID,
 			UserID:         user.ID,
 			OrganizationID: createdProject.OrganizationID,

@@ -2897,6 +2897,10 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 	if err := denyTaskCreationToConfinedKey(user); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	taskCreator, creatorErr := requestTurnProvenance(r.Context(), user)
+	if creatorErr != nil {
+		return nil, system.NewHTTPError403(creatorErr.Error())
+	}
 
 	var req types.ProjectApplyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -3172,6 +3176,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			}
 			task := &types.SpecTask{
 				ID:             system.GenerateUUID(),
+				QueuedBy:       taskCreator,
 				ProjectID:      project.ID,
 				UserID:         user.ID,
 				CreatedBy:      user.ID,

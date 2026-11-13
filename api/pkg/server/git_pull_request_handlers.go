@@ -474,7 +474,12 @@ func (apiServer *HelixAPIServer) requestGitRepositoryPullRebase(w http.ResponseW
 		writeInternalPRError(w, err)
 		return
 	}
-	if err := apiServer.enqueueSpecTaskAgentMessage(r.Context(), task, message, false, user.ID); err != nil {
+	provenance, err := types.SystemTurnTriggeredBy(types.SystemTurnRebaseRequired, user)
+	if err != nil {
+		writeInternalPRError(w, statusErr(http.StatusForbidden, "%s", err.Error()))
+		return
+	}
+	if err := apiServer.enqueueSpecTaskAgentMessage(r.Context(), task, message, false, user.ID, provenance); err != nil {
 		writeInternalPRError(w, err)
 		return
 	}

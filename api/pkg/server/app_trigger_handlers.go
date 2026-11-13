@@ -441,7 +441,11 @@ func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Reques
 		return nil, system.NewHTTPError400("only scheduled (cron) triggers can be run manually")
 	}
 
-	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, s.specDrivenTaskService, s, app, user.ID, triggerID, triggerConfig.Trigger.Cron, triggerConfig.Name)
+	actor, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, s.specDrivenTaskService, s, app, user.ID, triggerID, triggerConfig.Trigger.Cron, triggerConfig.Name, actor)
 	if err != nil {
 		log.Error().Err(err).Str("trigger_id", triggerID).Str("app_id", app.ID).Msg("manual trigger execution failed")
 		if isModelResolutionError(err) {
