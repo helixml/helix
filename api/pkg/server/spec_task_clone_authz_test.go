@@ -149,12 +149,13 @@ func (s *SpecTaskCloneAuthzSuite) TestQuickCreateOwnRepoCreatesProjectInRepoOrg(
 	s.Equal("usr_alice", project.UserID)
 }
 
-func (s *SpecTaskCloneAuthzSuite) TestCloneForeignSourceTaskIsForbidden() {
+func (s *SpecTaskCloneAuthzSuite) TestCloneForeignSourceTaskIsNotFound() {
 	s.expectNoWrites()
 
 	rr := s.clone(s.bob, "spt_a", types.CloneTaskRequest{TargetProjectIDs: []string{"prj_b"}})
 
-	s.Equal(http.StatusForbidden, rr.Code)
+	// Another tenant's task answers like an unknown task.
+	s.Equal(http.StatusNotFound, rr.Code)
 }
 
 func (s *SpecTaskCloneAuthzSuite) TestCloneIntoForeignProjectIsForbidden() {
@@ -200,13 +201,14 @@ func (s *SpecTaskCloneAuthzSuite) TestCloneOwnTaskIntoOwnProjectSucceeds() {
 	s.Equal(0, resp.TotalFailed)
 }
 
-func (s *SpecTaskCloneAuthzSuite) TestListCloneGroupsForeignTaskIsForbidden() {
+func (s *SpecTaskCloneAuthzSuite) TestListCloneGroupsForeignTaskIsNotFound() {
 	s.store.EXPECT().ListCloneGroupsForTask(gomock.Any(), gomock.Any()).Times(0)
 
 	rr := s.do(s.server.listCloneGroups, s.bob, http.MethodGet, "/api/v1/spec-tasks/spt_a/clone-groups",
 		map[string]string{"taskId": "spt_a"}, nil)
 
-	s.Equal(http.StatusForbidden, rr.Code)
+	s.Equal(http.StatusNotFound, rr.Code)
+	s.Equal("task not found\n", rr.Body.String())
 }
 
 func (s *SpecTaskCloneAuthzSuite) TestListCloneGroupsOwnTask() {

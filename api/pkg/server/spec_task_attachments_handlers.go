@@ -337,7 +337,7 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		return
 	}
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -459,7 +459,7 @@ func (s *HelixAPIServer) listSpecTaskAttachments(w http.ResponseWriter, r *http.
 		return
 	}
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	attachments, err := s.Store.ListSpecTaskAttachments(ctx, taskID)
@@ -516,7 +516,7 @@ func (s *HelixAPIServer) getSpecTaskAttachmentContent(w http.ResponseWriter, r *
 			return
 		}
 		if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}
@@ -569,7 +569,7 @@ func (s *HelixAPIServer) deleteSpecTaskAttachment(w http.ResponseWriter, r *http
 		return
 	}
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {

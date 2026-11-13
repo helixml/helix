@@ -359,7 +359,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to get task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -714,7 +714,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to approve specs in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, existingTask.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -930,7 +930,7 @@ func (s *HelixAPIServer) getTaskSpecs(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to get specs in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -991,7 +991,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 
 	// Authorize user to get progress in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -1220,7 +1220,7 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 
 	// Authorize user to start planning in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -1402,7 +1402,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 
 	// Authorize user to update task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -1641,7 +1641,7 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 
 	// Authorize user to delete task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -1729,7 +1729,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 
 	// Authorize user to archive task in the project
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
