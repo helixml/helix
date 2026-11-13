@@ -4,7 +4,8 @@ package types
 type VCSConnectionState string
 
 const (
-	// VCSConnectionVerified — connected and the account can reach the project's repos.
+	// VCSConnectionVerified means no access failure was detected. Check each
+	// repo's Verified flag before presenting access as verified.
 	VCSConnectionVerified VCSConnectionState = "verified"
 	// VCSConnectionNeedsAttention — connected but the account can't reach a repo
 	// (or is missing scopes). The lozenge prompts to switch/grant.
@@ -19,7 +20,8 @@ type VCSActingUser struct {
 	Name string `json:"name"`
 }
 
-// VCSPushingAs is the VCS account a user-initiated push would be attributed to.
+// VCSPushingAs is the repository OAuth account used by background sync. The
+// JSON name is retained for compatibility with existing clients.
 type VCSPushingAs struct {
 	Username     string `json:"username"`      // e.g. "@tonychapman-prog"
 	ConnectionID string `json:"connection_id"` // OAuthConnection ID (for switch/disconnect)
@@ -33,8 +35,8 @@ type VCSRepoAccess struct {
 }
 
 // VCSConnectionInfo is one lozenge: a distinct VCS provider present among the
-// project's external repos, with the acting user, the account pushes go as, and
-// per-repo verified access. One entry is returned per provider the project uses.
+// project's external repos, with the acting user, the repository sync account,
+// and per-repo access status. One entry is returned per provider the project uses.
 type VCSConnectionInfo struct {
 	Provider      ExternalRepositoryType `json:"provider"`
 	State         VCSConnectionState     `json:"state"`

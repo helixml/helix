@@ -243,28 +243,8 @@ func sharedPullRequestCredentials(repo *types.GitRepository) (string, string, bo
 	if repo.GitProviderConnectionID == "" && repo.OAuthConnectionID != "" {
 		return "", "", false
 	}
-	switch repo.ExternalType {
-	case types.ExternalRepositoryTypeGitHub:
-		if repo.GitHub != nil && repo.GitHub.PersonalAccessToken != "" {
-			return "x-access-token", repo.GitHub.PersonalAccessToken, true
-		}
-	case types.ExternalRepositoryTypeGitLab:
-		if repo.GitLab != nil && repo.GitLab.PersonalAccessToken != "" {
-			return "oauth2", repo.GitLab.PersonalAccessToken, true
-		}
-	case types.ExternalRepositoryTypeADO:
-		if repo.AzureDevOps != nil && repo.AzureDevOps.PersonalAccessToken != "" {
-			return "PAT", repo.AzureDevOps.PersonalAccessToken, true
-		}
-	case types.ExternalRepositoryTypeBitbucket:
-		if repo.Bitbucket != nil && repo.Bitbucket.Username != "" && repo.Bitbucket.AppPassword != "" {
-			return repo.Bitbucket.Username, repo.Bitbucket.AppPassword, true
-		}
-	}
-	if repo.Username != "" && repo.Password != "" {
-		return repo.Username, repo.Password, true
-	}
-	return "", "", false
+	username, password, _ := RepositoryStaticCredentials(repo)
+	return username, password, username != "" && password != ""
 }
 
 func (s *GitRepositoryService) actingUserPAT(ctx context.Context, repo *types.GitRepository, userID string) (string, string, error) {
