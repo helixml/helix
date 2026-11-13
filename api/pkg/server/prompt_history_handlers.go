@@ -1065,7 +1065,7 @@ func (apiServer *HelixAPIServer) unifiedSearch(_ http.ResponseWriter, req *http.
 
 	// Add Kodit code search results if requested and service is available
 	if searchCode && apiServer.koditService != nil && apiServer.koditService.IsEnabled() {
-		codeResults := apiServer.searchCodeAcrossRepositories(ctx, user.ID, searchQuery, limit)
+		codeResults := apiServer.searchCodeAcrossRepositories(ctx, user, searchQuery, limit)
 		response.Results = append(response.Results, codeResults...)
 		response.Total = len(response.Results)
 	}
@@ -1073,22 +1073,27 @@ func (apiServer *HelixAPIServer) unifiedSearch(_ http.ResponseWriter, req *http.
 	return response, nil
 }
 
-// searchCodeAcrossRepositories searches code snippets across all user's Kodit-enabled repositories
-func (apiServer *HelixAPIServer) searchCodeAcrossRepositories(ctx context.Context, userID, query string, limit int) []types.UnifiedSearchResult {
+// searchCodeAcrossRepositories searches code snippets across the Kodit-enabled
+// repositories the user owns and may still read through the REST API (owning
+// a repository of an organization the user has left is not enough), so the
+// search never reaches further than the repository endpoints would.
+func (apiServer *HelixAPIServer) searchCodeAcrossRepositories(ctx context.Context, user *types.User, query string, limit int) []types.UnifiedSearchResult {
 	results := make([]types.UnifiedSearchResult, 0)
 
-	// Get all repositories the user owns with Kodit indexing enabled
 	repos, err := apiServer.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		OwnerID: userID,
+		OwnerID: user.ID,
 	})
 	if err != nil {
-		log.Error().Err(err).Str("user_id", userID).Msg("Failed to list repositories for code search")
+		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to list repositories for code search")
 		return results
 	}
 
 	// Search each Kodit-enabled repository
 	for _, repo := range repos {
 		if !repo.KoditIndexing {
+			continue
+		}
+		if apiServer.authorizeUserToRepository(ctx, user, repo, types.ActionGet) != nil {
 			continue
 		}
 

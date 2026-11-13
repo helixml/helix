@@ -46,7 +46,7 @@ func (k *koditSvcE2E) EnrichmentCount(context.Context, int64) (int64, error)    
 func (k *koditSvcE2E) DeleteTask(context.Context, int64) error                                                       { return nil }
 func (k *koditSvcE2E) UpdateTaskPriority(context.Context, int64, int) error                                          { return nil }
 func (k *koditSvcE2E) GetRepositoryEnrichments(context.Context, int64, string, string) ([]enrichment.Enrichment, error) { return nil, nil }
-func (k *koditSvcE2E) GetEnrichment(context.Context, string) (enrichment.Enrichment, error)                          { return enrichment.Enrichment{}, nil }
+func (k *koditSvcE2E) GetRepositoryEnrichment(context.Context, int64, string) (enrichment.Enrichment, error) { return enrichment.Enrichment{}, nil }
 func (k *koditSvcE2E) GetRepositoryCommits(context.Context, int64, int) ([]repository.Commit, error)                 { return nil, nil }
 func (k *koditSvcE2E) SearchSnippets(context.Context, int64, string, int) ([]enrichment.Enrichment, error)           { return nil, nil }
 func (k *koditSvcE2E) GetRepositoryStatus(context.Context, int64) (tracking.RepositoryStatusSummary, error) {

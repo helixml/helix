@@ -216,6 +216,9 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 	}
 
 	if commitSHA != "" {
+		if err := s.requireRepositoryCommit(ctx, koditRepoID, commitSHA); err != nil {
+			return nil, err
+		}
 		params.CommitSHA = commitSHA
 	} else {
 		// If no commit SHA provided, get enrichments for latest commits of this repo.
@@ -255,8 +258,11 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 	return filtered, nil
 }
 
-// GetEnrichment fetches a single enrichment by ID from Kodit
-func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (enrichment.Enrichment, error) {
+// GetRepositoryEnrichment fetches one enrichment of a repository. Kodit
+// enrichment ids are global across repositories, so the enrichment must be
+// attached to one of this repository's commits; any other id is reported as
+// not found.
+func (s *KoditService) GetRepositoryEnrichment(ctx context.Context, koditRepoID int64, enrichmentID string) (enrichment.Enrichment, error) {
 	if !s.IsEnabled() {
 		return enrichment.Enrichment{}, fmt.Errorf("kodit service not enabled")
 	}
@@ -266,12 +272,52 @@ func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (
 		return enrichment.Enrichment{}, fmt.Errorf("invalid enrichment ID %q: %w", enrichmentID, err)
 	}
 
-	e, err := s.client.Load().Enrichments.Get(ctx, repository.WithID(id))
+	client := s.client.Load()
+	commits, err := client.Commits.Find(ctx, repository.WithRepoID(koditRepoID))
 	if err != nil {
-		return enrichment.Enrichment{}, wrapNotFound(err)
+		return enrichment.Enrichment{}, fmt.Errorf("failed to list commits for repo: %w", err)
+	}
+	shas := make([]string, len(commits))
+	for i, c := range commits {
+		shas[i] = c.SHA()
+	}
+	if len(shas) == 0 {
+		return enrichment.Enrichment{}, fmt.Errorf("%w: enrichment %d", ErrKoditNotFound, id)
 	}
 
-	return e, nil
+	// The commit filter joins enrichment_associations, which has its own id
+	// column, so the id condition names the enrichment table explicitly.
+	found, err := client.Enrichments.Find(ctx,
+		repository.WithCondition("enrichments_v2.id", id),
+		enrichment.WithCommitSHAs(shas),
+		repository.WithLimit(1),
+	)
+	if err != nil {
+		return enrichment.Enrichment{}, fmt.Errorf("failed to fetch enrichment: %w", err)
+	}
+	if len(found) == 0 {
+		return enrichment.Enrichment{}, fmt.Errorf("%w: enrichment %d", ErrKoditNotFound, id)
+	}
+	return found[0], nil
+}
+
+// requireRepositoryCommit reports ErrKoditNotFound unless commitSHA is a
+// commit of the repository. Enrichments and indexed files are keyed by commit
+// SHA alone, so a SHA from another repository would otherwise reach that
+// repository's data.
+func (s *KoditService) requireRepositoryCommit(ctx context.Context, koditRepoID int64, commitSHA string) error {
+	commits, err := s.client.Load().Commits.Find(ctx,
+		repository.WithRepoID(koditRepoID),
+		repository.WithSHA(commitSHA),
+		repository.WithLimit(1),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to look up commit: %w", err)
+	}
+	if len(commits) == 0 {
+		return fmt.Errorf("%w: commit %s is not part of repository %d", ErrKoditNotFound, commitSHA, koditRepoID)
+	}
+	return nil
 }
 
 // GetRepositoryCommits fetches commits for a repository from Kodit
@@ -1071,6 +1117,11 @@ func (s *KoditService) RescanCommit(ctx context.Context, koditRepoID int64, comm
 
 	if commitSHA == "" {
 		return fmt.Errorf("commit SHA is required")
+	}
+	// A rescan deletes every enrichment and file recorded for the SHA, so it
+	// must be one of this repository's commits.
+	if err := s.requireRepositoryCommit(ctx, koditRepoID, commitSHA); err != nil {
+		return err
 	}
 
 	err := s.client.Load().Repositories.Rescan(ctx, &service.RescanParams{
