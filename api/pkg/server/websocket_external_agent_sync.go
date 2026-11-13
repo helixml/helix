@@ -2336,6 +2336,9 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 // Zed e2e server which passes its own request_id and asserts routing on it).
 func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string, interrupt bool, provenance types.TurnProvenance) (interactionID string, err error) {
 	ctx := context.Background()
+	if err := provenance.Validate(); err != nil {
+		return "", fmt.Errorf("send chat message to session %s: %w", sessionID, err)
+	}
 
 	// Look up the session to get its ZedThreadID and agent name
 	var acpThreadID interface{} = nil
@@ -2371,34 +2374,36 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 
 		createdInteraction, createErr := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
 		if createErr != nil {
-			log.Warn().Err(createErr).Str("session_id", sessionID).Msg("Failed to create interaction for chat message")
-		} else {
-			interactionID = createdInteraction.ID
-			// Notify frontend immediately so the chat updates without waiting for poll
-			apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
-			// Map request_id → interaction_id so handleMessageCompleted can
-			// route responses to the correct interaction.
-			apiServer.contextMappingsMutex.Lock()
-			if apiServer.requestToInteractionMapping == nil {
-				apiServer.requestToInteractionMapping = make(map[string]string)
-			}
-			apiServer.requestToInteractionMapping[requestID] = interactionID
-			// When there is no existing Zed thread (acpThreadID == nil), the agent
-			// will create a NEW thread and emit thread_created. Register
-			// request_id → session so handleThreadCreated (PRIORITY 1) reattaches
-			// that new thread to THIS session instead of spawning an orphan
-			// session — which is what happens after a session is cleared
-			// (ClearSession resets ZedThreadID to ""). Only registered for the
-			// new-thread case so we don't leak entries on normal same-thread
-			// continuations, which emit no thread_created to consume the mapping.
-			if acpThreadID == nil {
-				if apiServer.requestToSessionMapping == nil {
-					apiServer.requestToSessionMapping = make(map[string]string)
-				}
-				apiServer.requestToSessionMapping[requestID] = sessionID
-			}
-			apiServer.contextMappingsMutex.Unlock()
+			// Without the interaction the agent's reply has nowhere to land;
+			// sending anyway would leave the caller waiting on a turn that
+			// can never complete.
+			return "", fmt.Errorf("create interaction for chat message to session %s: %w", sessionID, createErr)
 		}
+		interactionID = createdInteraction.ID
+		// Notify frontend immediately so the chat updates without waiting for poll
+		apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
+		// Map request_id → interaction_id so handleMessageCompleted can
+		// route responses to the correct interaction.
+		apiServer.contextMappingsMutex.Lock()
+		if apiServer.requestToInteractionMapping == nil {
+			apiServer.requestToInteractionMapping = make(map[string]string)
+		}
+		apiServer.requestToInteractionMapping[requestID] = interactionID
+		// When there is no existing Zed thread (acpThreadID == nil), the agent
+		// will create a NEW thread and emit thread_created. Register
+		// request_id → session so handleThreadCreated (PRIORITY 1) reattaches
+		// that new thread to THIS session instead of spawning an orphan
+		// session — which is what happens after a session is cleared
+		// (ClearSession resets ZedThreadID to ""). Only registered for the
+		// new-thread case so we don't leak entries on normal same-thread
+		// continuations, which emit no thread_created to consume the mapping.
+		if acpThreadID == nil {
+			if apiServer.requestToSessionMapping == nil {
+				apiServer.requestToSessionMapping = make(map[string]string)
+			}
+			apiServer.requestToSessionMapping[requestID] = sessionID
+		}
+		apiServer.contextMappingsMutex.Unlock()
 
 		// Update session timestamp so findConnectedSessionForSpecTask
 		// picks the most recently active session.
