@@ -53,7 +53,8 @@ if [ "${1:-} ${2:-}" = "compose pull" ] && [ "${3:-}" = "${TERM_ON_PULL_SERVICE:
 fi
 if [ "${1:-} ${2:-}" = "compose up" ] && [ -n "${FAIL_UP_ONCE:-}" ] && [ ! -e "$FAIL_UP_ONCE" ]; then
   : > "$FAIL_UP_ONCE"
-  [ "${LOCK_ENV_ON_UP_FAILURE:-false}" = "true" ] && chmod 400 .env
+  # A dangling symlink makes the restore's write fail even as root.
+  [ "${BREAK_ENV_ON_UP_FAILURE:-false}" = "true" ] && ln -sfn /nonexistent-deploy-test-dir/.env .env
   exit 1
 fi
 if [ "${1:-}" = "pull" ] && [ "${FAIL_PULL:-false}" = "true" ]; then
@@ -321,11 +322,10 @@ assert_rolled_back "TERM mid-deploy"
 setup_stack "$work/old-compose.yaml"
 cp -p "$stack/.env" "$work/env.before"
 reset_calls
-if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true FAIL_UP_ONCE="$work/up-failed" LOCK_ENV_ON_UP_FAILURE=true 2>&1); then
+if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true FAIL_UP_ONCE="$work/up-failed" BREAK_ENV_ON_UP_FAILURE=true 2>&1); then
   fail "failed rollback did not fail the deploy"
 fi
-rm "$work/up-failed"
-chmod 600 "$stack/.env"
+rm "$work/up-failed" "$stack/.env"
 grep -q 'ROLLBACK FAILED' <<<"$out" || fail "failed rollback not reported"
 [ "$(compose_calls | grep -c '^compose up')" = 1 ] || fail "failed rollback reconverged against half-restored config"
 kept=$(sed -n 's/^controlplane: previous docker-compose.yaml and .env kept in //p' <<<"$out")
