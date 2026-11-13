@@ -31,6 +31,7 @@ type env struct {
 	fetched []string // URLs fetched, in order
 	puts    []string
 	bodies  map[string]string // page text overrides
+	finals  map[string]string // URL a page redirects to, when it does
 	pages   map[string]*Page  // extracted page overrides
 }
 
@@ -45,6 +46,7 @@ func newEnv(t *testing.T) *env {
 		synth:  NewMockSynthesizer(ctrl),
 		cached: map[string]*RawPage{},
 		bodies: map[string]string{},
+		finals: map[string]string{},
 		pages:  map[string]*Page{},
 	}
 	e.opts = Options{Discoverer: e.disc, Fetcher: e.fetch, Extractor: e.ext, Cache: e.cache,
@@ -75,7 +77,11 @@ func (e *env) web(fail map[string]error) {
 			if !ok {
 				body = bodyOf(u)
 			}
-			return &RawPage{URL: u, FinalURL: u, StatusCode: 200, ContentType: "text/html", Body: []byte(body), FetchedAt: time.Now()}, nil
+			final, ok := e.finals[u]
+			if !ok {
+				final = u
+			}
+			return &RawPage{URL: u, FinalURL: final, StatusCode: 200, ContentType: "text/html", Body: []byte(body), FetchedAt: time.Now()}, nil
 		}).AnyTimes()
 }
 
@@ -143,9 +149,14 @@ func cands(urls ...string) []Candidate {
 
 func requireTag(t *testing.T, err error, tag string) {
 	t.Helper()
+	requireError(t, err, http.StatusBadRequest, tag)
+}
+
+func requireError(t *testing.T, err error, status int, tag string) {
+	t.Helper()
 	require.Error(t, err)
 	e := websearch.AsError(err)
-	assert.Equal(t, http.StatusBadRequest, e.Status, e.Message)
+	assert.Equal(t, status, e.Status, e.Message)
 	assert.Equal(t, tag, e.Tag, e.Message)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -315,6 +316,23 @@ func TestSearchOutputSchemaError(t *testing.T) {
 	require.ErrorContains(t, err, "llm down")
 }
 
+func TestSearchOutputSchemaWithoutSources(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		e := newEnv(t)
+		e.pipeline(map[string]error{"https://a.com/": &FetchError{Tag: websearch.TagCrawlTimeout, Err: errors.New("slow")}})
+		e.discover(cands("https://a.com/")...)
+		// No Synthesize expectation: output grounded in nothing is never generated.
+		req := &websearch.SearchRequest{Query: "q", OutputSchema: json.RawMessage(`{"type":"text"}`)}
+		var err error
+		if stream {
+			err = e.provider(t).StreamSearch(context.Background(), req, func(websearch.SearchEvent) error { return nil })
+		} else {
+			_, err = e.provider(t).Search(context.Background(), req)
+		}
+		requireError(t, err, http.StatusBadGateway, websearch.TagUpstreamError)
+	}
+}
+
 func TestStreamSearch(t *testing.T) {
 	e := newEnv(t)
 	e.pipeline(nil)
@@ -342,12 +360,13 @@ func TestStreamSearch(t *testing.T) {
 	}
 	assert.Equal(t, []string{"results", "text-delta", "text-delta", "grounding", "done"}, types)
 	assert.Equal(t, "https://a.com/", events[0].Results[0].URL)
+	require.Len(t, events[0].Warnings, 1, "Exa carries warnings on the results event")
+	assert.Equal(t, "startCrawlDate", events[0].Warnings[0].Path)
 	assert.Equal(t, "a", events[1].Delta)
 	assert.Equal(t, out.Grounding, events[3].Grounding)
 	done := events[4]
 	assert.Equal(t, out, done.Output)
-	require.Len(t, done.Warnings, 1)
-	assert.Equal(t, "startCrawlDate", done.Warnings[0].Path)
+	assert.Empty(t, done.Warnings)
 }
 
 func TestStreamSearchEmitErrorStops(t *testing.T) {

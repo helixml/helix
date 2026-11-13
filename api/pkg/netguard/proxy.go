@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -24,6 +25,10 @@ import (
 const BlockedHeader = "X-Helix-Egress-Blocked"
 
 const proxyRealm = "helix-egress"
+
+// blockedLogSampler rate-limits block logs: one fetched page can make Chrome
+// request hundreds of blocked subresources.
+var blockedLogSampler = &zerolog.BurstSampler{Burst: 10, Period: time.Second, NextSampler: &zerolog.BasicSampler{N: 100}}
 
 // Proxy is an authenticated HTTP forward proxy (CONNECT for https,
 // absolute-URI requests for http) whose every upstream connection is made by
@@ -58,9 +63,14 @@ func NewProxy(policy Policy) (*Proxy, error) {
 	}
 	p := &Proxy{policy: policy, username: username, password: password}
 	p.forwarder = &httputil.ReverseProxy{
-		Rewrite:      func(*httputil.ProxyRequest) {}, // Out.URL is already the absolute target
-		Transport:    transport,
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) { writeDialError(w, err) },
+		Rewrite:   func(*httputil.ProxyRequest) {}, // Out.URL is already the absolute target
+		Transport: transport,
+		// Only the proxy may say a destination is blocked.
+		ModifyResponse: func(resp *http.Response) error {
+			resp.Header.Del(BlockedHeader)
+			return nil
+		},
+		ErrorHandler: writeDialError,
 	}
 	return p, nil
 }
@@ -118,7 +128,7 @@ func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 	upstream, err := p.policy.DialContext(ctx, "tcp", r.Host)
 	cancel()
 	if err != nil {
-		writeDialError(w, err)
+		writeDialError(w, r, err)
 		return
 	}
 	hijacker, ok := w.(http.Hijacker)
@@ -147,13 +157,16 @@ func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	splice(client, upstream)
+	splice(r.Context(), client, upstream)
 }
 
-// splice copies both ways until either side ends, then closes both.
-func splice(a, b net.Conn) {
+// splice copies both ways until either side ends or ctx is done, then
+// closes both.
+func splice(ctx context.Context, a, b net.Conn) {
 	var once sync.Once
 	closeBoth := func() { a.Close(); b.Close() }
+	stop := context.AfterFunc(ctx, func() { once.Do(closeBoth) })
+	defer stop()
 	done := make(chan struct{}, 2)
 	go func() { _, _ = io.Copy(a, b); once.Do(closeBoth); done <- struct{}{} }()
 	go func() { _, _ = io.Copy(b, a); once.Do(closeBoth); done <- struct{}{} }()
@@ -161,22 +174,28 @@ func splice(a, b net.Conn) {
 	<-done
 }
 
-func writeDialError(w http.ResponseWriter, err error) {
+func writeDialError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, ErrBlockedDestination) {
+		blockedLog := log.Sample(blockedLogSampler)
+		blockedLog.Warn().Str("method", r.Method).Str("host", r.Host).Err(err).Msg("egress proxy: destination blocked")
 		w.Header().Set(BlockedHeader, "1")
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	log.Debug().Str("method", r.Method).Str("host", r.Host).Err(err).Msg("egress proxy: upstream unavailable")
 	http.Error(w, "upstream unavailable", http.StatusBadGateway)
 }
 
-// Serve runs the proxy on ln until ctx is cancelled.
+// Serve runs the proxy on ln until ctx is cancelled. Cancelling ctx also
+// closes open CONNECT tunnels, which http.Server.Close does not track.
 func (p *Proxy) Serve(ctx context.Context, ln net.Listener) error {
-	srv := &http.Server{Handler: p, ReadHeaderTimeout: 30 * time.Second}
-	go func() {
-		<-ctx.Done()
-		_ = srv.Close()
-	}()
+	srv := &http.Server{
+		Handler:           p,
+		ReadHeaderTimeout: 30 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
+	}
+	stop := context.AfterFunc(ctx, func() { _ = srv.Close() })
+	defer stop()
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("egress proxy: %w", err)
 	}

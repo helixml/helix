@@ -380,6 +380,21 @@ func TestContentsSubpages(t *testing.T) {
 	assert.Equal(t, []websearch.Warning{{Code: websearch.WarningPartialResults, Message: "1 of 4 subpages could not be fetched"}}, resp.Warnings)
 }
 
+// Links are relative to where the page landed, so subpages follow a redirect.
+func TestContentsSubpagesAfterRedirect(t *testing.T) {
+	e := newEnv(t)
+	e.pipeline(nil)
+	e.finals["https://a.com/"] = "https://www.a.com/"
+	e.pages["https://a.com/"] = &Page{Title: "Home", Links: []Link{
+		{URL: "https://www.a.com/"}, // the landing page itself
+		{URL: "https://www.a.com/docs"},
+	}}
+	resp, err := e.provider(t).Contents(context.Background(), contentsReq(websearch.ContentsOptions{Subpages: 2}, "https://a.com/"))
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, []string{"https://www.a.com/docs"}, resultURLs(resp.Results[0].Subpages))
+}
+
 func TestContentsContext(t *testing.T) {
 	e := newEnv(t)
 	e.pipeline(nil)

@@ -152,14 +152,18 @@ func (s *HelixAPIServer) webSearchAnswer(rw http.ResponseWriter, r *http.Request
 	if req.Stream {
 		stream := newSSEStream(rw)
 		err := s.webSearch.StreamAnswer(call.ctx, req, func(ev websearch.AnswerEvent) error {
-			ev.RequestID = call.requestID
+			if ev.CostDollars != nil { // Exa allows requestId only on the cost chunk
+				ev.RequestID = call.requestID
+			}
 			return stream.send(ev)
 		})
 		stream.finish(call, err, func(e *websearch.Error) any {
 			return websearch.AnswerErrorEvent{
-				Tag:       websearch.AnswerErrorTag,
-				Payload:   websearch.AnswerErrorPayload{Error: websearch.AnswerErrorDetail{Code: e.Status, Message: e.Message}},
-				RequestID: call.requestID,
+				Tag: websearch.AnswerErrorTag,
+				Payload: websearch.AnswerErrorPayload{
+					Error:     websearch.AnswerErrorDetail{Code: e.Status, Message: e.Message},
+					RequestID: call.requestID,
+				},
 			}
 		})
 		return

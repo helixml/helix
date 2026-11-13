@@ -55,6 +55,7 @@ func (p *Provider) FindSimilar(ctx context.Context, req *websearch.FindSimilarRe
 	if err != nil {
 		return nil, err
 	}
+	landing := landingURL(source.raw)
 	sourceHost := siteHost(sourceURL)
 	var candidates []Candidate
 	for _, c := range found.Candidates {
@@ -62,7 +63,7 @@ func (p *Provider) FindSimilar(ctx context.Context, req *websearch.FindSimilarRe
 		if err != nil {
 			return nil, fmt.Errorf("discovered URL %q: %w", c.URL, err)
 		}
-		if u == sourceURL || (req.ExcludeSourceDomain && siteHost(u) == sourceHost) {
+		if u == sourceURL || u == landing || (req.ExcludeSourceDomain && siteHost(u) == sourceHost) {
 			continue
 		}
 		candidates = append(candidates, c)

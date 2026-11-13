@@ -22,7 +22,11 @@ func (p *Provider) Search(ctx context.Context, req *websearch.SearchRequest) (*w
 		return nil, err
 	}
 	if len(req.OutputSchema) > 0 {
-		if resp.Output, err = p.opts.Synthesizer.Synthesize(ctx, searchSynthesis(req, hits), nil); err != nil {
+		synthesis, err := searchSynthesis(req, hits)
+		if err != nil {
+			return nil, err
+		}
+		if resp.Output, err = p.opts.Synthesizer.Synthesize(ctx, synthesis, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -40,14 +44,20 @@ func (p *Provider) StreamSearch(ctx context.Context, req *websearch.SearchReques
 	if err != nil {
 		return err
 	}
-	if err := emit(websearch.SearchEvent{Type: websearch.SearchEventResults, Results: resp.Results}); err != nil {
+	var synthesis *SearchSynthesis
+	if len(req.OutputSchema) > 0 {
+		if synthesis, err = searchSynthesis(req, hits); err != nil {
+			return err
+		}
+	}
+	if err := emit(websearch.SearchEvent{Type: websearch.SearchEventResults, Results: resp.Results, Warnings: resp.Warnings}); err != nil {
 		return err
 	}
-	if len(req.OutputSchema) > 0 {
+	if synthesis != nil {
 		onDelta := func(d string) error {
 			return emit(websearch.SearchEvent{Type: websearch.SearchEventTextDelta, Delta: d})
 		}
-		if resp.Output, err = p.opts.Synthesizer.Synthesize(ctx, searchSynthesis(req, hits), onDelta); err != nil {
+		if resp.Output, err = p.opts.Synthesizer.Synthesize(ctx, synthesis, onDelta); err != nil {
 			return err
 		}
 		if err := emit(websearch.SearchEvent{Type: websearch.SearchEventGrounding, Grounding: resp.Output.Grounding}); err != nil {
@@ -57,7 +67,6 @@ func (p *Provider) StreamSearch(ctx context.Context, req *websearch.SearchReques
 	return emit(websearch.SearchEvent{
 		Type:       websearch.SearchEventDone,
 		Output:     resp.Output,
-		Warnings:   resp.Warnings,
 		SearchTime: elapsedMs(start),
 	})
 }
@@ -69,7 +78,7 @@ func (p *Provider) runSearch(ctx context.Context, req *websearch.SearchRequest) 
 		return nil, nil, err
 	}
 	typ := websearch.NormalizeSearchType(req.Type)
-	deep := typ == websearch.SearchTypeDeep || typ == websearch.SearchTypeDeepLite
+	deep := websearch.IsDeepSearchType(typ)
 	switch {
 	case typ != websearch.SearchTypeAuto && typ != websearch.SearchTypeLite && !deep:
 		return nil, nil, websearch.FeatureDisabled("type", fmt.Sprintf("search type %q is not supported", req.Type))
@@ -174,12 +183,16 @@ func searchWarnings(req *websearch.SearchRequest, typ string, deep bool) []webse
 	return append(w, contentsWarnings(req.Contents, "contents.")...)
 }
 
-func searchSynthesis(req *websearch.SearchRequest, hits []hit) *SearchSynthesis {
+func searchSynthesis(req *websearch.SearchRequest, hits []hit) (*SearchSynthesis, error) {
+	srcs, err := sources(hits)
+	if err != nil {
+		return nil, err
+	}
 	return &SearchSynthesis{
 		Query:        req.Query,
 		Objective:    req.Objective,
 		SystemPrompt: req.SystemPrompt,
 		OutputSchema: req.OutputSchema,
-		Sources:      sources(hits),
-	}
+		Sources:      srcs,
+	}, nil
 }

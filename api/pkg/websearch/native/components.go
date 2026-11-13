@@ -56,7 +56,10 @@ type RawPage struct {
 	FetchedAt   time.Time
 }
 
-// Fetcher retrieves a page from the web. Failures are *FetchError.
+// Fetcher retrieves a page from the web. A failure to load this page (the
+// origin, the network, the egress policy, the timeout) is *FetchError and is
+// reported for that URL alone; any other error (the browser is unavailable,
+// ctx is cancelled) fails the request.
 type Fetcher interface {
 	Fetch(ctx context.Context, url string, timeout time.Duration) (*RawPage, error)
 }

@@ -67,10 +67,13 @@ var (
 		"::1/128",        // IPv6 loopback
 		"fc00::/7",       // IPv6 unique-local
 	)
-	// Prefixes that embed an IPv4 address in the low 32 bits. The embedded
-	// address is checked too, so ::ffff:169.254.169.254 or a NAT64-mapped
-	// metadata address is treated like the IPv4 address it reaches.
-	nat64 = mustCIDRs("64:ff9b::/96", "64:ff9b:1::/48")
+	// Prefixes that embed an IPv4 address in the low 32 bits: NAT64 and the
+	// deprecated IPv4-compatible ::a.b.c.d. The embedded address is checked
+	// too, so a NAT64-mapped metadata address is treated like the IPv4
+	// address it reaches. (::ffff:a.b.c.d is handled by To4.)
+	embedsIPv4Low = mustCIDRs("64:ff9b::/96", "64:ff9b:1::/48", "::/96")
+	// 6to4 embeds the IPv4 address in bits 16-47.
+	sixToFour = mustCIDRs("2002::/16")
 )
 
 func mustCIDRs(cidrs ...string) []*net.IPNet {
@@ -130,8 +133,8 @@ func (p Policy) classify(ip net.IP) error {
 	}
 	if v4 := ip.To4(); v4 != nil {
 		ip = v4
-	} else if inAny(ip, nat64) {
-		if err := p.classify(net.IP(ip[12:16])); err != nil {
+	} else if v4 := embeddedIPv4(ip); v4 != nil {
+		if err := p.classify(v4); err != nil {
 			return err
 		}
 	}
@@ -140,6 +143,20 @@ func (p Policy) classify(ip net.IP) error {
 	}
 	if !p.AllowPrivate && inAny(ip, privateRanges) {
 		return errPrivate
+	}
+	return nil
+}
+
+// embeddedIPv4 returns the IPv4 address a 16-byte IPv6 address reaches
+// through NAT64, IPv4-compatible or 6to4 addressing, or nil.
+func embeddedIPv4(ip net.IP) net.IP {
+	switch {
+	case ip.Equal(net.IPv6unspecified) || ip.Equal(net.IPv6loopback):
+		return nil // inside ::/96, but not IPv4-compatible addresses
+	case inAny(ip, embedsIPv4Low):
+		return ip[12:16]
+	case inAny(ip, sixToFour):
+		return ip[2:6]
 	}
 	return nil
 }
@@ -220,13 +237,29 @@ func isLocalhostName(host string) bool {
 // as-is, but the request destination is still checked before the proxy is
 // used. If the destination does not resolve locally (proxy-only DNS), the
 // request is passed to the proxy, which is then the egress control point.
+//
+// It panics if t has a dialer it cannot guard (Dial, DialTLS,
+// DialTLSContext), which http.Transport would use instead of DialContext.
 func (p Policy) GuardTransport(t *http.Transport) {
+	if t.Dial != nil || t.DialTLS != nil || t.DialTLSContext != nil { //nolint:staticcheck // checking the deprecated hooks is the point
+		panic("netguard: GuardTransport cannot guard a transport with Dial, DialTLS or DialTLSContext set")
+	}
 	var proxyAddrs sync.Map // host:port of operator-configured proxies
 	if origProxy := t.Proxy; origProxy != nil {
 		t.Proxy = func(req *http.Request) (*url.URL, error) {
 			proxyURL, err := origProxy(req)
-			if err != nil || proxyURL == nil {
-				return proxyURL, err
+			if err != nil {
+				return nil, err
+			}
+			if proxyURL == nil {
+				// A direct request to a proxy's own address (NO_PROXY covers
+				// it) would hit the dial exemption below, so check it here.
+				if _, isProxy := proxyAddrs.Load(canonicalProxyAddr(req.URL)); isProxy {
+					if _, err := p.resolve(req.Context(), req.URL.Hostname()); err != nil {
+						return nil, err
+					}
+				}
+				return nil, nil
 			}
 			if err := p.checkProxiedDestination(req.Context(), req.URL.Hostname()); err != nil {
 				return nil, err

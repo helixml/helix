@@ -112,6 +112,9 @@ func TestValidate(t *testing.T) {
 		// /contents
 		{"contents urls", decode[ContentsRequest](t, `{"urls":["https://a.com"]}`), ""},
 		{"contents ids", decode[ContentsRequest](t, `{"ids":["https://a.com/"]}`), ""},
+		{"contents summary schema", decode[ContentsRequest](t, `{"urls":["https://a.com"],"summary":{"schema":{"type":"object"}}}`), ""},
+		{"contents summary schema not object", decode[ContentsRequest](t, `{"urls":["https://a.com"],"summary":{"schema":[1]}}`), "summary.schema must be a JSON object"},
+		{"search contents summary schema null", decode[SearchRequest](t, `{"query":"q","contents":{"summary":{"schema":null}}}`), "contents.summary.schema must be a JSON object"},
 		{"contents neither", decode[ContentsRequest](t, `{}`), "exactly one of ids or urls"},
 		{"contents both", decode[ContentsRequest](t, `{"ids":["https://a.com/"],"urls":["https://a.com"]}`), "exactly one of ids or urls"},
 		{"contents 100 urls", decode[ContentsRequest](t, `{"urls":`+list(100, "https://a.com")+`}`), ""},
@@ -155,6 +158,7 @@ func TestValidate(t *testing.T) {
 		{"answer bad model", decode[AnswerRequest](t, `{"query":"q","model":"gpt-4"}`), "model must be one of"},
 		{"answer schema object", decode[AnswerRequest](t, `{"query":"q","outputSchema":{"type":"object","properties":{"a":{"type":"string"}}}}`), ""},
 		{"answer schema not object", decode[AnswerRequest](t, `{"query":"q","outputSchema":"x"}`), "outputSchema"},
+		{"answer schema null", decode[AnswerRequest](t, `{"query":"q","outputSchema":null}`), "outputSchema"},
 		{"answer userIdentifier", decode[AnswerRequest](t, `{"query":"q","userIdentifier":"a/b"}`), "userIdentifier"},
 	}
 	for _, tc := range tests {

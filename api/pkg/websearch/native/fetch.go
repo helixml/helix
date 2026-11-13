@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/net/html"
 
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
@@ -32,6 +33,10 @@ const (
 	// so client-side rendering can finish, but never longer than settleMax.
 	settleQuiet = 500 * time.Millisecond
 	settleMax   = 3 * time.Second
+
+	// cleanupTimeout bounds closing a page and disposing its browser
+	// context, which run even after the fetch's ctx is done.
+	cleanupTimeout = 5 * time.Second
 )
 
 var (
@@ -105,6 +110,24 @@ func NewFetcher(opts FetcherOptions) (*HTTPChromeFetcher, error) {
 // leaves ctx as the only bound). HTML that NeedsRendering is then loaded in
 // Chrome and its rendered DOM returned instead.
 func (f *HTTPChromeFetcher) Fetch(ctx context.Context, rawURL string, timeout time.Duration) (*RawPage, error) {
+	start := time.Now()
+	page, err := f.fetch(ctx, rawURL, timeout)
+	var fe *FetchError
+	if !errors.As(err, &fe) {
+		return page, err
+	}
+	if fe.Tag == websearch.TagBlockedDestination {
+		caller := websearch.CallerFrom(ctx)
+		log.Warn().Str("user_id", caller.UserID).Str("org_id", caller.OrgID).Str("url", rawURL).
+			Err(err).Msg("websearch: fetch blocked by egress policy")
+	} else {
+		log.Debug().Str("url", rawURL).Str("tag", fe.Tag).Dur("elapsed", time.Since(start)).
+			Err(err).Msg("websearch: page fetch failed")
+	}
+	return page, err
+}
+
+func (f *HTTPChromeFetcher) fetch(ctx context.Context, rawURL string, timeout time.Duration) (*RawPage, error) {
 	if _, err := netguard.ValidateHTTPURL(rawURL); err != nil {
 		return nil, classifyFetchError(ctx, err)
 	}
@@ -182,9 +205,13 @@ func statusError(code int) error {
 	return nil
 }
 
-func classifyFetchError(ctx context.Context, err error) *FetchError {
+// classifyFetchError tags a failure to reach or load a page. A request the
+// caller cancelled is not a page failure and is returned as ctx.Err().
+func classifyFetchError(ctx context.Context, err error) error {
 	var netErr net.Error
 	switch {
+	case errors.Is(ctx.Err(), context.Canceled):
+		return ctx.Err()
 	case errors.Is(err, netguard.ErrBlockedDestination):
 		return &FetchError{Tag: websearch.TagBlockedDestination, Err: err}
 	case errors.Is(err, errTooManyRedirects):
@@ -205,12 +232,23 @@ func isHTML(contentType string) bool {
 // traffic (navigation, redirects, subresources, scripts' requests) through
 // the egress proxy, and returns the rendered DOM. The context is always
 // disposed, closing its pages and discarding its cookies and cache.
+//
+// Failures of Chrome itself are returned as plain errors so they fail the
+// request; only failures to load this page are *FetchError.
 func (f *HTTPChromeFetcher) render(ctx context.Context, pageURL string) (*RawPage, error) {
-	b, err := f.browser.GetBrowser()
+	pooled, err := f.browser.GetBrowser(ctx)
 	if err != nil {
-		return nil, &FetchError{Tag: websearch.TagSourceNotAvailable, Err: fmt.Errorf("get browser: %w", err)}
+		return nil, fmt.Errorf("get browser: %w", err)
 	}
-	defer func() { _ = f.browser.PutBrowser(b) }()
+	broken := false
+	defer func() {
+		if broken {
+			f.browser.DiscardBrowser(pooled)
+			return
+		}
+		_ = f.browser.PutBrowser(pooled)
+	}()
+	b := pooled.Context(ctx)
 
 	bctx, err := proto.TargetCreateBrowserContext{
 		ProxyServer: f.proxyURL,
@@ -221,51 +259,66 @@ func (f *HTTPChromeFetcher) render(ctx context.Context, pageURL string) (*RawPag
 		DisposeOnDetach: true,
 	}.Call(b)
 	if err != nil {
-		return nil, &FetchError{Tag: websearch.TagSourceNotAvailable, Err: fmt.Errorf("create browser context: %w", err)}
+		// Within the deadline, this failing means the connection is dead.
+		broken = ctx.Err() == nil
+		return nil, fmt.Errorf("create browser context: %w", err)
 	}
 	defer func() {
-		_ = proto.TargetDisposeBrowserContext{BrowserContextID: bctx.BrowserContextID}.Call(b)
+		// Dispose even when ctx is done: the context holds the pages' memory.
+		_ = proto.TargetDisposeBrowserContext{BrowserContextID: bctx.BrowserContextID}.
+			Call(pooled.Context(context.WithoutCancel(ctx)).Timeout(cleanupTimeout))
 	}()
 
 	target, err := proto.TargetCreateTarget{URL: "about:blank", BrowserContextID: bctx.BrowserContextID}.Call(b)
 	if err != nil {
-		return nil, &FetchError{Tag: websearch.TagSourceNotAvailable, Err: fmt.Errorf("create page: %w", err)}
+		return nil, fmt.Errorf("create page: %w", err)
 	}
 	page, err := b.PageFromTarget(target.TargetID)
 	if err != nil {
-		return nil, &FetchError{Tag: websearch.TagSourceNotAvailable, Err: fmt.Errorf("attach page: %w", err)}
+		return nil, fmt.Errorf("attach page: %w", err)
 	}
-	defer func() { _ = page.Context(context.Background()).Timeout(5 * time.Second).Close() }()
+	defer func() { _ = page.Context(context.WithoutCancel(ctx)).Timeout(cleanupTimeout).Close() }()
 
 	pageCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	page = page.Context(pageCtx)
 
-	doc, err := f.navigate(page, pageURL)
+	mainDoc, err := f.navigate(page, pageURL)
 	if err != nil {
 		return nil, classifyFetchError(ctx, err)
 	}
-	if doc.blocked {
-		return nil, &FetchError{Tag: websearch.TagBlockedDestination, Err: fmt.Errorf("%w: %s", netguard.ErrBlockedDestination, doc.url)}
+	if mainDoc.blocked {
+		return nil, &FetchError{Tag: websearch.TagBlockedDestination, Err: fmt.Errorf("%w: %s", netguard.ErrBlockedDestination, mainDoc.url)}
 	}
-	if err := statusError(doc.status); err != nil {
+	if err := statusError(mainDoc.status); err != nil {
 		return nil, err
+	}
+	// Measure in Chrome first so an oversized DOM is never sent to us.
+	size, err := page.Eval(`() => document.documentElement ? document.documentElement.outerHTML.length : 0`)
+	if err != nil {
+		return nil, classifyFetchError(ctx, fmt.Errorf("measure rendered HTML: %w", err))
+	}
+	if size.Value.Int() > maxBodyBytes {
+		return nil, &FetchError{Tag: websearch.TagUnsupportedDocument, Err: errBodyTooLarge}
 	}
 	content, err := page.HTML()
 	if err != nil {
 		return nil, classifyFetchError(ctx, fmt.Errorf("read rendered HTML: %w", err))
 	}
+	if len(content) > maxBodyBytes { // the length above counts UTF-16 units, not bytes
+		return nil, &FetchError{Tag: websearch.TagUnsupportedDocument, Err: errBodyTooLarge}
+	}
 	return &RawPage{
-		FinalURL:    doc.url,
-		StatusCode:  doc.status,
+		FinalURL:    mainDoc.url,
+		StatusCode:  mainDoc.status,
 		ContentType: "text/html; charset=utf-8",
 		Body:        []byte(content),
 		FetchedAt:   time.Now(),
 	}, nil
 }
 
-// documentResponse is the main frame's last document response.
-type documentResponse struct {
+// mainFrameResponse is the main frame's last document response.
+type mainFrameResponse struct {
 	url     string
 	status  int
 	blocked bool
@@ -273,22 +326,22 @@ type documentResponse struct {
 
 // navigate loads pageURL, answering the proxy's auth challenges, and waits
 // for the page to load and briefly settle.
-func (f *HTTPChromeFetcher) navigate(page *rod.Page, pageURL string) (documentResponse, error) {
+func (f *HTTPChromeFetcher) navigate(page *rod.Page, pageURL string) (mainFrameResponse, error) {
 	if err := page.SetUserAgent(&proto.NetworkSetUserAgentOverride{UserAgent: f.userAgent}); err != nil {
-		return documentResponse{}, fmt.Errorf("set user agent: %w", err)
+		return mainFrameResponse{}, fmt.Errorf("set user agent: %w", err)
 	}
 	if err := (proto.NetworkEnable{}).Call(page); err != nil {
-		return documentResponse{}, fmt.Errorf("enable network events: %w", err)
+		return mainFrameResponse{}, fmt.Errorf("enable network events: %w", err)
 	}
 	// With the Fetch domain enabled every request pauses and must be
 	// continued; that is the price of answering proxy auth challenges.
 	if err := (proto.FetchEnable{HandleAuthRequests: true}).Call(page); err != nil {
-		return documentResponse{}, fmt.Errorf("enable proxy auth: %w", err)
+		return mainFrameResponse{}, fmt.Errorf("enable proxy auth: %w", err)
 	}
 
 	var (
-		mu  sync.Mutex
-		doc documentResponse
+		mu   sync.Mutex
+		last mainFrameResponse
 	)
 	wait := page.EachEvent(
 		func(e *proto.FetchRequestPaused) {
@@ -311,29 +364,38 @@ func (f *HTTPChromeFetcher) navigate(page *rod.Page, pageURL string) (documentRe
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			doc = documentResponse{
+			last = mainFrameResponse{
 				url:     e.Response.URL,
 				status:  e.Response.Status,
-				blocked: hasHeader(e.Response.Headers, netguard.BlockedHeader),
+				blocked: proxyBlocked(e.Response),
 			}
 		},
 	)
 	go wait()
 
 	if err := page.Navigate(pageURL); err != nil {
-		return documentResponse{}, fmt.Errorf("navigate: %w", err)
+		return mainFrameResponse{}, fmt.Errorf("navigate: %w", err)
 	}
 	if err := page.WaitLoad(); err != nil {
-		return documentResponse{}, fmt.Errorf("wait for load: %w", err)
+		return mainFrameResponse{}, fmt.Errorf("wait for load: %w", err)
 	}
 	page.Timeout(settleMax).WaitRequestIdle(settleQuiet, nil, nil, nil)()
 
 	mu.Lock()
 	defer mu.Unlock()
-	if doc.url == "" {
-		return documentResponse{}, errors.New("no document response received")
+	if last.url == "" {
+		return mainFrameResponse{}, errors.New("no document response received")
 	}
-	return doc, nil
+	return last, nil
+}
+
+// proxyBlocked reports whether the egress proxy refused this response's
+// destination. Only a plain-http 403 can come from the proxy (a refused
+// CONNECT never yields a response), and the proxy strips the header from
+// origin responses, so an origin cannot fake it.
+func proxyBlocked(r *proto.NetworkResponse) bool {
+	return r.Status == http.StatusForbidden && strings.HasPrefix(r.URL, "http:") &&
+		hasHeader(r.Headers, netguard.BlockedHeader)
 }
 
 func hasHeader(headers proto.NetworkHeaders, name string) bool {

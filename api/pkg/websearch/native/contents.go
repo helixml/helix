@@ -296,7 +296,7 @@ func extras(page *Page, e *websearch.ExtrasOptions) *websearch.Extras {
 // subpageTarget match first. Subpages that fail to fetch are left out and
 // counted in the tally.
 func (p *Provider) subpages(ctx context.Context, d *doc, o *websearch.ContentsOptions, rc renderConfig) ([]websearch.Result, subpageTally, error) {
-	links := subpageLinks(d.raw.URL, d.page.Links, o.SubpageTarget, o.Subpages)
+	links := subpageLinks(landingURL(d.raw), d.page.Links, o.SubpageTarget, o.Subpages)
 	sub := *o
 	sub.Subpages = 0
 	pol, textOpts := policyFor(o), textOptions(o)

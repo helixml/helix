@@ -18,7 +18,7 @@ func (p *Provider) Answer(ctx context.Context, req *websearch.AnswerRequest) (*w
 }
 
 // StreamAnswer emits the answer as OpenAI-style chunks (an outputSchema
-// answer as one chunk of JSON), then the citations, then the requestId.
+// answer as one chunk of JSON), then the citations.
 func (p *Provider) StreamAnswer(ctx context.Context, req *websearch.AnswerRequest, emit func(websearch.AnswerEvent) error) error {
 	role := "assistant"
 	onDelta := func(d string) error {
@@ -26,11 +26,16 @@ func (p *Provider) StreamAnswer(ctx context.Context, req *websearch.AnswerReques
 		role = ""
 		return emit(ev)
 	}
-	resp, err := p.answer(ctx, req, onDelta)
+	structured := len(req.OutputSchema) > 0
+	stream := onDelta
+	if structured {
+		stream = nil // partial JSON is not streamed; the whole object is sent below
+	}
+	resp, err := p.answer(ctx, req, stream)
 	if err != nil {
 		return err
 	}
-	if len(req.OutputSchema) > 0 {
+	if structured {
 		b, err := json.Marshal(resp.Answer)
 		if err != nil {
 			return fmt.Errorf("encode answer: %w", err)
@@ -39,10 +44,7 @@ func (p *Provider) StreamAnswer(ctx context.Context, req *websearch.AnswerReques
 			return err
 		}
 	}
-	if err := emit(websearch.AnswerEvent{Citations: resp.Citations}); err != nil {
-		return err
-	}
-	return emit(websearch.AnswerEvent{RequestID: resp.RequestID})
+	return emit(websearch.AnswerEvent{Citations: resp.Citations})
 }
 
 // answer searches, then answers from the fetched results. onDelta receives
@@ -66,13 +68,17 @@ func (p *Provider) answer(ctx context.Context, req *websearch.AnswerRequest, onD
 	if err != nil {
 		return nil, err
 	}
+	srcs, err := sources(hits)
+	if err != nil {
+		return nil, err
+	}
 	hits = slices.DeleteFunc(hits, func(h hit) bool { return h.doc == nil })
 	answer, err := p.opts.Synthesizer.Answer(ctx, &AnswerSynthesis{
 		Tier:         tier,
 		Query:        req.Query,
 		SystemPrompt: req.SystemPrompt,
 		OutputSchema: req.OutputSchema,
-		Sources:      sources(hits),
+		Sources:      srcs,
 	}, onDelta)
 	if err != nil {
 		return nil, err

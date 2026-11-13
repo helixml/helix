@@ -39,6 +39,18 @@ func TestFindSimilar(t *testing.T) {
 	assert.True(t, strings.HasPrefix(resp.RequestID, "req_"))
 }
 
+func TestFindSimilarDropsRedirectedSource(t *testing.T) {
+	e := newEnv(t)
+	e.pipeline(nil)
+	e.finals["https://src.com/old"] = "https://src.com/new"
+	e.synth.EXPECT().Describe(gomock.Any(), gomock.Any(), gomock.Any()).Return("d", nil)
+	e.discover(cands("https://src.com/new", "https://b.com/")...)
+	e.rank.EXPECT().Rank(gomock.Any(), "d", gomock.Len(1)).Return([]float64{0.1}, nil)
+	resp, err := e.provider(t).FindSimilar(context.Background(), &websearch.FindSimilarRequest{URL: "https://src.com/old"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://b.com/"}, resultURLs(resp.Results), "the page the source redirects to is the source")
+}
+
 func TestFindSimilarKeepsSourceDomainByDefault(t *testing.T) {
 	e := newEnv(t)
 	e.pipeline(nil)

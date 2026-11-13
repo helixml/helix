@@ -1,7 +1,7 @@
 # Exa-style search compatibility API
 
 **Date:** 2026-11-13
-**Status:** Draft, for discussion
+**Status:** Phases 0–3 implemented on branch `feature/exa-compatible-websearch` (see §12). §1–§6 are the original gap analysis.
 **Goal:** Give internal customers a web search, contents, and answer API with the same wire format as the Exa API. Behind it there is one Go interface, so each deployment can run either Helix's own SearXNG + Chrome stack or Exa without changes for the callers.
 
 Scale is out of scope. This doc covers functional parity, the interface boundary, and the work to get there.
@@ -82,7 +82,7 @@ Exa reference: OpenAPI spec `exa-labs/openapi-spec` version `2.0.0`, read 2026-1
 |---|---|---|
 | `requestId` | — | ULID. Also send the `x-request-id` header. |
 | `results[].url`, `title` | ✅ | |
-| `results[].id` | — | Content-cache key, `doc_<sha256(normalised url)>`, which `/contents` can resolve. Exa calls its IDs temporary, so we're free to choose the format. |
+| `results[].id` | — | The page's normalised URL. `/contents` resolves any id, whether or not search fetched the page. (A hashed cache key was tried first: plain `search()` then handed out ids for pages never fetched, which `/contents` could not resolve.) |
 | `results[].publishedDate` | Sometimes, from SearXNG | Fill from page metadata (`article:published_time`, JSON-LD) when the page has been fetched. |
 | `results[].author` | — | From the readability byline or JSON-LD. Fetch only. |
 | `results[].image` | SearXNG `thumbnail` / `img_src` | Otherwise `og:image` after fetch. |
@@ -161,8 +161,8 @@ This is semantic similarity layered over keyword engines. It is not Exa's embedd
 ### 7.1 External API: Exa wire format, Helix auth
 
 - **Base path:** `/api/v1/websearch`, with routes `/search`, `/contents`, `/answer`, `/findSimilar`. Exa SDKs take a `base_url` and append these paths, so `exa-py` / `exa-js` work against Helix with only the URL and key changed: `Exa(api_key=HELIX_KEY, base_url="https://helix.example/api/v1/websearch")`.
-- **Auth:** accept `x-api-key` (what Exa SDKs send) **and** `Authorization: Bearer`. Both resolve to a normal Helix API key, which gives the org, quota, and audit trail. The `x-api-key` header is accepted only on these routes.
-- **Errors:** Exa's envelope `{requestId, error, tag}` with Exa's status codes (400/401/402/403/429/500/503). For example, quota exhausted → 402, and a feature we can't honour → 403 `FEATURE_DISABLED`. A recognised field we deliberately don't support → 400 with `tag: "FEATURE_DISABLED"` and the field path. **We never silently ignore a field that changes the meaning of the results.** Fields that are only hints, and fields Exa itself ignores, produce a `warnings[]` entry instead.
+- **Auth:** accept `x-api-key` (what Exa SDKs send) **and** `Authorization: Bearer`. Both resolve to a normal Helix API key, which gives the org, quota, and audit trail. (Helix already accepted `x-api-key` on every route, for Anthropic-SDK clients.)
+- **Errors:** Exa's envelope `{requestId, error, tag}` with Exa's status codes (400/401/402/403/429/500/503). For example, quota exhausted → 402. A recognised field we deliberately don't support → 400 with `tag: "FEATURE_DISABLED"` and the field path. **We never silently ignore a field that changes the meaning of the results.** Fields that are only hints, and fields Exa itself ignores, produce a `warnings[]` entry instead.
 - **Headers:** `x-request-id` always.
 - **Schema:** Go structs generated from, or hand-mirrored against, the pinned Exa OpenAPI version, plus swagger annotations so `./stack update_openapi` gives the frontend and CLI a client. One request/response type set is used by both providers.
 
@@ -191,15 +191,15 @@ So once phases 1–3 are done, `search`, `search_and_contents`, `get_contents`, 
 // package websearch — the only thing handlers, agent skills and the CLI depend on.
 type Provider interface {
     Search(ctx context.Context, req *SearchRequest) (*SearchResponse, error)
+    StreamSearch(ctx context.Context, req *SearchRequest, emit func(SearchEvent) error) error
     Contents(ctx context.Context, req *ContentsRequest) (*ContentsResponse, error)
-    Answer(ctx context.Context, req *AnswerRequest, stream AnswerSink) (*AnswerResponse, error)
     FindSimilar(ctx context.Context, req *FindSimilarRequest) (*FindSimilarResponse, error)
-    // Capabilities reports which fields/values this provider honours natively,
-    // approximately, or not at all. The handler uses it to produce
-    // FEATURE_DISABLED errors and warnings[] identically for every provider.
-    Capabilities() Capabilities
+    Answer(ctx context.Context, req *AnswerRequest) (*AnswerResponse, error)
+    StreamAnswer(ctx context.Context, req *AnswerRequest, emit func(AnswerEvent) error) error
 }
 ```
+
+Each provider rejects what it cannot honour itself (`*websearch.Error`, `FEATURE_DISABLED`) and reports approximations in `warnings[]`; there is no separate capabilities table to keep in sync.
 
 Two implementations:
 
@@ -211,14 +211,14 @@ native.Provider
  ├─ Discoverer   (SearXNG)              query → candidate URLs + snippets
  ├─ Fetcher      (HTTP → Chrome → extract)  url → raw doc (html/pdf), status, timings
  ├─ Extractor    (readability, md, DOM)  raw doc → text/sections/links/metadata
- ├─ Ranker       (embeddings | BM25)    highlights, rerank, findSimilar score
- ├─ Synthesiser  (Helix LLM)            summary, outputSchema, answer, deep query expansion
- └─ ContentCache (Postgres + filestore) url → versioned doc, fetched_at, ids
+ ├─ Ranker       (embeddings)           highlights, findSimilar score
+ ├─ Synthesizer  (Helix LLM)            summary, outputSchema, answer, deep query expansion
+ └─ PageCache    (Postgres web_pages)   normalised url → raw page, fetched_at
 ```
 
 `Answer` and `FindSimilar` in `native` are built only from the other parts. The `exa` provider forwards them.
 
-**Provider selection** is server config (`WEBSEARCH_PROVIDER=native|exa`, `WEBSEARCH_EXA_API_KEY`), and later possibly per org. It is not a request parameter, so customers never see which provider served them.
+**Provider selection** is server config (`SEARCH_PROVIDER=native|exa`, `SEARCH_EXA_API_KEY`; all settings are in `config.WebSearch`), and later possibly per org. It is not a request parameter, so customers never see which provider served them.
 
 ### 7.3 Consolidate internal consumers
 
@@ -269,4 +269,38 @@ Today `searxng.SearchProvider` is used directly by `agent/skill/web_search.go`. 
 2. **Content cache storage.** A Postgres row per URL (metadata, `fetched_at`) plus the body in filestore, or the body in Postgres? How long do we keep it, and should cached content be shared across orgs? Sharing is efficient but leaks fetch timing between tenants.
 3. **Chargeback.** Do we populate `costDollars` from an internal price table, or always send zero and rely on Helix usage records?
 4. **Model mapping** for `/answer` `model` values. Is it per deployment, or does it come from the org's default provider?
-5. **Scope of `x-api-key`.** Accept it only on `/api/v1/websearch/*` (proposed), or treat it as a general Helix auth header?
+5. ~~Scope of `x-api-key`.~~ Already a general Helix auth header before this work.
+
+---
+
+## 12. Implementation notes (2026-11-13)
+
+**Where things live.** Contract: `api/pkg/websearch` (`types.go` wire types, `provider.go`, `validate.go`). Providers: `websearch/native` (discover, fetch, extract/metadata/pagetext, rank, synth, and the search/contents/load/similar/answer orchestration), `websearch/exa` (passthrough). Assembly from config: `websearch/setup`. Cache: `websearch/pagecache` over `store` (`web_pages`, keyed by URL, shared across orgs: public content only). HTTP: `server/websearch_handlers.go`. Egress guard: `netguard` (`Policy.DialContext`, `Proxy`). CLI: `helix websearch search|contents|answer`.
+
+**Invariants.**
+- Every server-side page fetch goes through `Provider.Contents`: the API, the agent `WebSearch` and `Browser` skills. Chrome runs each fetch in a fresh browser context proxied through the in-process egress proxy, whose per-process credentials are generated by `netguard.NewProxy`.
+- A document id is the normalised page URL.
+- Warning paths are dotted internally and JSON Pointers on the wire (`Warning.MarshalJSON`).
+- `requestId` appears in an `/answer` stream only on the cost chunk and inside the error payload, per Exa's spec.
+- LLM features (summary, outputSchema, deep, answer, findSimilar) need `SEARCH_LLM_*`; highlights and findSimilar need `SEARCH_EMBEDDINGS_*`. Without them the request gets `FEATURE_DISABLED`.
+
+**Verification.**
+- `server/websearch_integration_test.go` runs the real handlers and native stack against fake SearXNG, web and OpenAI servers, and validates every request, response and SSE event against Exa's OpenAPI spec (pinned in `server/testdata/exa-openapi`). It relaxes two things: `warnings` on `/contents` and `/findSimilar`, and contents on subpages.
+- `integration-test/websearch-sdk/run.sh` drives pinned `exa-py` and `exa-js`, unmodified, against a live Helix: 20/20 checks pass locally.
+
+**Engine evidence (dev network, 2026-11-13).** For "go generics type parameters tutorial":
+- Yandex returned relevant results.
+- Bing returned unrelated pages on every query and language setting, so it was dropped from the default engines.
+- Google returned nothing.
+- DuckDuckGo, Startpage, Brave and Qwant were CAPTCHA'd or suspended.
+
+Open question 1 (engine policy) is now the main quality limit.
+
+**Still open (from the backend-council review).**
+- Per-request or per-org fetch budgets. One `/contents` call can queue about 10k fetches on the shared slots.
+- IPv6 dial fallback can consume a whole fetch timeout.
+- Chrome ignores the operator's `HTTP(S)_PROXY`.
+- A bounded load wait for hung subresources.
+- Fetch and block metrics.
+- LLM and embedding calls made by the provider are not billed to the caller's usage records.
+

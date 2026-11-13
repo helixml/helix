@@ -218,7 +218,7 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 
 	ctx := context.Background()
 
-	b, err := browserManager.GetBrowser()
+	b, err := browserManager.GetBrowser(context.Background())
 	require.NoError(t, err)
 
 	fixtureURL := "data:text/html;charset=utf-8," + url.PathEscape(deterministicHTML)

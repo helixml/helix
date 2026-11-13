@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -89,6 +90,21 @@ func TestAnswerFailures(t *testing.T) {
 		_, err := e.provider(t).Answer(context.Background(), &websearch.AnswerRequest{Query: "q", Model: "gpt"})
 		requireTag(t, err, websearch.TagInvalidRequest)
 	})
+	t.Run("no page could be fetched", func(t *testing.T) {
+		e := newEnv(t)
+		timeout := &FetchError{Tag: websearch.TagCrawlTimeout, Err: errors.New("slow")}
+		e.pipeline(map[string]error{"https://a.com/": timeout, "https://b.com/": timeout})
+		e.discover(cands("https://a.com/", "https://b.com/")...)
+		// No Synthesizer.Answer expectation: an answer grounded in nothing is never generated.
+		_, err := e.provider(t).Answer(context.Background(), &websearch.AnswerRequest{Query: "q"})
+		requireError(t, err, http.StatusBadGateway, websearch.TagUpstreamError)
+	})
+	t.Run("no results", func(t *testing.T) {
+		e := newEnv(t)
+		e.discover()
+		_, err := e.provider(t).Answer(context.Background(), &websearch.AnswerRequest{Query: "q"})
+		requireError(t, err, http.StatusNotFound, websearch.TagNotFound)
+	})
 	t.Run("search fails", func(t *testing.T) {
 		e := newEnv(t)
 		e.disc.EXPECT().Discover(gomock.Any(), gomock.Any()).Return(nil, errors.New("searxng down"))
@@ -114,22 +130,20 @@ func TestStreamAnswer(t *testing.T) {
 			return nil
 		})
 	require.NoError(t, err)
-	require.Len(t, events, 4)
+	require.Len(t, events, 3)
 	assert.Equal(t, websearch.AnswerDelta{Role: "assistant", Content: "4"}, events[0].Choices[0].Delta)
 	assert.Equal(t, websearch.AnswerDelta{Content: "2"}, events[1].Choices[0].Delta)
 	assert.Equal(t, "https://a.com/", events[2].Citations[0].URL)
 	assert.Nil(t, events[2].Citations[0].Text)
 	assert.Empty(t, events[2].Choices)
-	assert.True(t, strings.HasPrefix(events[3].RequestID, "req_"))
-	assert.Nil(t, events[3].CostDollars)
-	assert.Empty(t, events[3].Citations)
 }
 
 func TestStreamAnswerOutputSchema(t *testing.T) {
 	e := newEnv(t)
 	e.pipeline(nil)
 	e.discover(cands("https://a.com/")...)
-	e.synth.EXPECT().Answer(gomock.Any(), gomock.Any(), gomock.Any()).Return(map[string]any{"x": 1}, nil)
+	// The object is sent whole, so the synthesizer gets no delta callback.
+	e.synth.EXPECT().Answer(gomock.Any(), gomock.Any(), gomock.Nil()).Return(map[string]any{"x": 1}, nil)
 	var events []websearch.AnswerEvent
 	err := e.provider(t).StreamAnswer(context.Background(), &websearch.AnswerRequest{Query: "q", OutputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ev websearch.AnswerEvent) error {
@@ -137,8 +151,7 @@ func TestStreamAnswerOutputSchema(t *testing.T) {
 			return nil
 		})
 	require.NoError(t, err)
-	require.Len(t, events, 3)
+	require.Len(t, events, 2)
 	assert.Equal(t, `{"x":1}`, events[0].Choices[0].Delta.Content)
 	assert.NotEmpty(t, events[1].Citations)
-	assert.NotEmpty(t, events[2].RequestID)
 }

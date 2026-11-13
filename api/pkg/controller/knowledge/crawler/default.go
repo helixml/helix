@@ -130,7 +130,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 	collector := colly.NewCollector(collyOptions...)
 
-	b, err := d.browser.GetBrowser()
+	b, err := d.browser.GetBrowser(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting browser: %w", err)
 	}

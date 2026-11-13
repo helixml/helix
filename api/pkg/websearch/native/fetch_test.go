@@ -2,6 +2,7 @@ package native
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-rod/rod/lib/proto"
+
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/websearch"
@@ -160,6 +164,63 @@ func TestFetchBlocksForbiddenDestinations(t *testing.T) {
 	fetchErr(t, err, websearch.TagBlockedDestination)
 }
 
+// A page that needs rendering while Chrome is unreachable fails the request:
+// it is not this page's fault, so it must not become a per-URL status.
+func TestFetchBrowserUnavailableFailsRequest(t *testing.T) {
+	spa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><body><div id="root"></div><script src="/app.js"></script></body></html>`))
+	}))
+	defer spa.Close()
+	// Answers the launcher's handshake, then refuses the CDP websocket.
+	manager := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"flags":{}}`))
+	}))
+	defer manager.Close()
+
+	cfg := &config.ServerConfig{}
+	cfg.RAG.Crawler.LauncherEnabled = true
+	cfg.RAG.Crawler.LauncherURL = manager.URL
+	cfg.RAG.Crawler.BrowserPoolSize = 1
+	b, err := browser.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := NewFetcher(FetcherOptions{
+		Policy:  netguard.Policy{AllowPrivate: true},
+		Browser: b, ProxyURL: "http://proxy:1", ProxyUsername: "u", ProxyPassword: "p",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Repeated failures must not drain the browser pool: each attempt fails
+	// on connect, never by waiting for a slot until the fetch times out.
+	for i := range 3 {
+		_, err = f.Fetch(context.Background(), spa.URL, 2*time.Second)
+		var fe *FetchError
+		if err == nil || errors.As(err, &fe) || errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("attempt %d: err = %v, want a browser connect failure", i, err)
+		}
+	}
+}
+
+func TestFetchCallerCancellationFailsRequest(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancel)
+	_, err := newTestFetcher(t).Fetch(ctx, srv.URL, 5*time.Second)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	var fe *FetchError
+	if errors.As(err, &fe) {
+		t.Fatalf("err = %v is a *FetchError; a cancelled request is not a page failure", err)
+	}
+}
+
 func TestNewFetcherRequiresProxyForBrowser(t *testing.T) {
 	// A non-nil Browser is all that matters; it is never dialled here.
 	_, err := NewFetcher(FetcherOptions{Browser: &browser.Browser{}})
@@ -186,6 +247,28 @@ func TestNeedsRendering(t *testing.T) {
 	for _, tc := range cases {
 		if got := NeedsRendering([]byte(tc.html)); got != tc.want {
 			t.Errorf("%s: NeedsRendering = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestProxyBlocked(t *testing.T) {
+	var blockedHeader proto.NetworkHeaders
+	if err := json.Unmarshal([]byte(`{"`+netguard.BlockedHeader+`":"1"}`), &blockedHeader); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		resp proto.NetworkResponse
+		want bool
+	}{
+		{"proxy 403 over http", proto.NetworkResponse{URL: "http://10.0.0.1/", Status: 403, Headers: blockedHeader}, true},
+		{"https origin cannot claim a block", proto.NetworkResponse{URL: "https://evil.example/", Status: 403, Headers: blockedHeader}, false},
+		{"403 without the header", proto.NetworkResponse{URL: "http://a.com/", Status: 403}, false},
+		{"header on a 200", proto.NetworkResponse{URL: "http://a.com/", Status: 200, Headers: blockedHeader}, false},
+	}
+	for _, tc := range cases {
+		if got := proxyBlocked(&tc.resp); got != tc.want {
+			t.Errorf("%s: proxyBlocked = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

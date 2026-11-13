@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -293,11 +294,30 @@ type ImageLink struct {
 	Alt string `json:"alt,omitempty"`
 }
 
-// Warning is developer-facing: a field Helix ignored or approximated.
+// Warning is developer-facing: a field Helix ignored or approximated. Path
+// names the request field in dotted form ("contents.text",
+// "additionalQueries[1]"), or is empty for the request as a whole; on the
+// wire it is a JSON Pointer, as Exa sends.
 type Warning struct {
 	Code    string `json:"code"`
-	Path    string `json:"path,omitempty"`
+	Path    string `json:"path"`
 	Message string `json:"message"`
+}
+
+func (w Warning) MarshalJSON() ([]byte, error) {
+	type wire Warning
+	w.Path = jsonPointer(w.Path)
+	return json.Marshal(wire(w))
+}
+
+// jsonPointer turns a dotted field path into a JSON Pointer. Paths that are
+// already pointers (from Exa) pass through.
+func jsonPointer(path string) string {
+	if path == "" || strings.HasPrefix(path, "/") {
+		return path
+	}
+	path = strings.NewReplacer("[", ".", "]", "").Replace(path)
+	return "/" + strings.ReplaceAll(path, ".", "/")
 }
 
 // Warning codes.
@@ -460,15 +480,15 @@ type AnswerEvent struct {
 // AnswerErrorEvent is the event a streamed /answer ends with when it fails
 // after streaming started: {"tag":"ERROR","payload":{"error":{...}}}.
 type AnswerErrorEvent struct {
-	Tag       string             `json:"tag"` // AnswerErrorTag
-	Payload   AnswerErrorPayload `json:"payload"`
-	RequestID string             `json:"requestId"`
+	Tag     string             `json:"tag"` // AnswerErrorTag
+	Payload AnswerErrorPayload `json:"payload"`
 }
 
 const AnswerErrorTag = "ERROR"
 
 type AnswerErrorPayload struct {
-	Error AnswerErrorDetail `json:"error"`
+	Error     AnswerErrorDetail `json:"error"`
+	RequestID string            `json:"requestId,omitempty"`
 }
 
 type AnswerErrorDetail struct {

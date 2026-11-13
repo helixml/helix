@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -34,8 +35,9 @@ type Options struct {
 	// Synthesizer is optional; without it summaries, outputSchema, deep
 	// search, findSimilar and answer are disabled.
 	Synthesizer Synthesizer
-	// FetchConcurrency bounds the pages fetched at once across all requests,
-	// and the pages one request processes at once.
+	// FetchConcurrency bounds the pages fetched at once across all
+	// requests. Within a request, each level (results, then each result's
+	// subpages) processes up to FetchConcurrency pages at once.
 	FetchConcurrency int
 }
 
@@ -141,15 +143,25 @@ func results(hits []hit) []websearch.Result {
 }
 
 // sources are the fetched hits as LLM context. The Synthesizer owns the
-// prompt budget and truncates them.
-func sources(hits []hit) []Source {
+// prompt budget and truncates them. With no page to ground it in, nothing
+// is generated: no results is NOT_FOUND, results none of which could be
+// fetched is an upstream error.
+func sources(hits []hit) ([]Source, error) {
+	if len(hits) == 0 {
+		return nil, &websearch.Error{Status: http.StatusNotFound, Tag: websearch.TagNotFound,
+			Message: "the search found no results to answer from"}
+	}
 	var out []Source
 	for _, h := range hits {
 		if h.doc != nil {
 			out = append(out, Source{URL: h.result.URL, Title: h.result.Title, Text: h.doc.page.Text})
 		}
 	}
-	return out
+	if len(out) == 0 {
+		return nil, &websearch.Error{Status: http.StatusBadGateway, Tag: websearch.TagUpstreamError,
+			Message: fmt.Sprintf("none of the %d search results could be fetched", len(hits))}
+	}
+	return out, nil
 }
 
 // ignoredCrawlDates warns about crawl date filters, which Exa ignores too.
@@ -191,6 +203,15 @@ func numResults(n int) int {
 		return websearch.DefaultNumResults
 	}
 	return n
+}
+
+// landingURL is the normalised URL a page was served from after redirects,
+// which its links are relative to.
+func landingURL(raw *RawPage) string {
+	if u, err := websearch.NormalizeURL(raw.FinalURL); err == nil {
+		return u
+	}
+	return raw.URL
 }
 
 // hostOf is the host of a normalised URL.

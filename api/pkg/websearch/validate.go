@@ -89,7 +89,9 @@ func NormalizeSearchType(t string) string {
 	}
 }
 
-func isDeep(t string) bool {
+// IsDeepSearchType reports whether a normalised search type expands the
+// query with an LLM.
+func IsDeepSearchType(t string) bool {
 	return t == SearchTypeDeep || t == SearchTypeDeepLite
 }
 
@@ -101,7 +103,7 @@ func (r *SearchRequest) Validate() error {
 	}
 	typ := NormalizeSearchType(r.Type)
 	if len(r.AdditionalQueries) > 0 {
-		if !isDeep(typ) {
+		if !IsDeepSearchType(typ) {
 			return InvalidRequest("additionalQueries is only supported with type deep or deep-lite")
 		}
 		if len(r.AdditionalQueries) > maxAdditionalQueries {
@@ -227,12 +229,20 @@ func (r *AnswerRequest) Validate() error {
 		return InvalidRequest("model must be one of %v", answerModels)
 	}
 	if len(r.OutputSchema) > 0 {
-		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(r.OutputSchema, &obj); err != nil {
-			return InvalidRequest("outputSchema must be a JSON object")
+		if err := requireJSONObject("outputSchema", r.OutputSchema); err != nil {
+			return err
 		}
 	}
 	return validateUserIdentifier(r.UserIdentifier)
+}
+
+// requireJSONObject checks that raw is a JSON object (not null).
+func requireJSONObject(field string, raw json.RawMessage) error {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+		return InvalidRequest("%s must be a JSON object", field)
+	}
+	return nil
 }
 
 type searchFilters struct {
@@ -246,7 +256,7 @@ type searchFilters struct {
 
 func validateFilters(f searchFilters) error {
 	if f.numResults < 0 || f.numResults > maxNumResults {
-		return InvalidRequest("numResults must be between 1 and %d", maxNumResults)
+		return InvalidRequest("numResults must be between 0 (the default, %d) and %d", DefaultNumResults, maxNumResults)
 	}
 	if len(f.includeDomains) > maxDomains {
 		return InvalidRequest("includeDomains must have at most %d items", maxDomains)
@@ -311,16 +321,24 @@ func (o *ContentsOptions) validate(prefix string, maxTextChars int) error {
 			return InvalidRequest("%shighlights.maxCharacters and numSentences must not be negative", prefix)
 		}
 	}
+	if s := o.Summary; s.Requested() && len(s.Schema) > 0 {
+		if err := requireJSONObject(prefix+"summary.schema", s.Schema); err != nil {
+			return err
+		}
+	}
 	if o.Subpages < 0 || o.Subpages > maxSubpages {
 		return InvalidRequest("%ssubpages must be between 0 and %d", prefix, maxSubpages)
 	}
 	if e := o.Extras; e != nil {
-		for name, n := range map[string]int{
-			"links": e.Links, "imageLinks": e.ImageLinks, "richImageLinks": e.RichImageLinks,
-			"richLinks": e.RichLinks, "codeBlocks": e.CodeBlocks,
+		for _, f := range []struct {
+			name string
+			n    int
+		}{
+			{"links", e.Links}, {"imageLinks", e.ImageLinks}, {"richImageLinks", e.RichImageLinks},
+			{"richLinks", e.RichLinks}, {"codeBlocks", e.CodeBlocks},
 		} {
-			if n < 0 || n > maxExtras {
-				return InvalidRequest("%sextras.%s must be between 0 and %d", prefix, name, maxExtras)
+			if f.n < 0 || f.n > maxExtras {
+				return InvalidRequest("%sextras.%s must be between 0 and %d", prefix, f.name, maxExtras)
 			}
 		}
 	}

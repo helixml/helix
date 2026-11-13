@@ -33,6 +33,10 @@ func TestCheckIP(t *testing.T) {
 		{"::ffff:169.254.169.254", false, false},
 		{"64:ff9b::a9fe:a9fe", false, false}, // NAT64 → 169.254.169.254
 		{"64:ff9b::7f00:1", false, true},     // NAT64 → 127.0.0.1
+		{"::a9fe:a9fe", false, false},        // IPv4-compatible → 169.254.169.254
+		{"::a00:1", false, true},             // IPv4-compatible → 10.0.0.1
+		{"2002:a9fe:a9fe::1", false, false},  // 6to4 → 169.254.169.254
+		{"2002:808:808::1", true, true},      // 6to4 → 8.8.8.8
 		{"fd00:ec2::254", false, false},
 		{"fe80::1", false, false},
 		{"0.0.0.0", false, false},
@@ -120,12 +124,22 @@ func TestGuardedClientBlocksLoopbackAtDial(t *testing.T) {
 // Non-canonical IPv4 literals either fail to resolve or resolve to an address
 // that CheckIP then rejects; either way no connection is made.
 func TestGuardedClientRejectsObscureIPv4Literals(t *testing.T) {
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
+	defer srv.Close()
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+
 	client := Policy{}.NewClient(2 * time.Second)
-	for _, raw := range []string{"http://2852039166/", "http://0x7f.0.0.1/", "http://017700000001/"} {
+	// Each spells 127.0.0.1, where srv listens.
+	for _, host := range []string{"2130706433", "0x7f.0.0.1", "017700000001", "127.1"} {
+		raw := "http://" + net.JoinHostPort(host, port) + "/"
 		if resp, err := client.Get(raw); err == nil {
 			resp.Body.Close()
 			t.Errorf("Get(%q) succeeded, want error", raw)
 		}
+	}
+	if hit {
+		t.Fatal("loopback server was reached through a non-canonical IPv4 literal")
 	}
 }
 
@@ -190,5 +204,82 @@ func TestErrorClasses(t *testing.T) {
 		if !errors.Is(err, ErrBlockedDestination) || errors.Is(err, ErrPrivateNetwork) {
 			t.Fatalf("%s: %v should be blocked but not private", raw, err)
 		}
+	}
+}
+
+// The proxy's own address is exempt from the policy only as a proxy: a
+// request sent directly to it (e.g. NO_PROXY covers it) is still checked.
+func TestGuardTransportDirectRequestToProxyAddress(t *testing.T) {
+	var direct int
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !r.URL.IsAbs() {
+			direct++
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer proxy.Close()
+	proxyURL, _ := url.Parse(proxy.URL)
+
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = func(req *http.Request) (*url.URL, error) {
+		if req.URL.Host == proxyURL.Host { // NO_PROXY covers the proxy's own address
+			return nil, nil
+		}
+		return proxyURL, nil
+	}
+	Policy{}.GuardTransport(tr)
+	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+
+	resp, err := client.Get("http://8.8.8.8/")
+	if err != nil {
+		t.Fatalf("public destination via proxy: %v", err)
+	}
+	resp.Body.Close()
+
+	if _, err := client.Get(proxy.URL + "/admin"); !errors.Is(err, ErrBlockedDestination) {
+		t.Fatalf("direct request to the proxy address err = %v, want ErrBlockedDestination", err)
+	}
+	if direct != 0 {
+		t.Fatalf("proxy served %d direct requests, want 0", direct)
+	}
+}
+
+func TestGuardTransportRejectsUnguardableDialers(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("GuardTransport accepted a transport with DialTLSContext set")
+		}
+	}()
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.DialTLSContext = func(context.Context, string, string) (net.Conn, error) { return nil, errors.New("unused") }
+	Policy{}.GuardTransport(tr)
+}
+
+func TestDialContext(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	ctx := context.Background()
+
+	if _, err := (Policy{}).DialContext(ctx, "tcp", ln.Addr().String()); !errors.Is(err, ErrBlockedDestination) {
+		t.Fatalf("strict dial loopback err = %v, want ErrBlockedDestination", err)
+	}
+	if _, err := (Policy{AllowPrivate: true}).DialContext(ctx, "tcp", "169.254.169.254:80"); !errors.Is(err, ErrBlockedDestination) {
+		t.Fatalf("dial metadata err = %v, want ErrBlockedDestination", err)
+	}
+	conn, err := Policy{AllowPrivate: true}.DialContext(ctx, "tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("AllowPrivate dial loopback: %v", err)
+	}
+	conn.Close()
+}
+
+// Deployments that resolve names only through their egress proxy must still
+// pass up-front validation; the dial-time guard enforces the policy later.
+func TestValidateURLAllowsUnresolvableHost(t *testing.T) {
+	if err := (Policy{}).ValidateURL(context.Background(), "https://proxy-only-dns.invalid/"); err != nil {
+		t.Fatalf("ValidateURL(unresolvable host) = %v, want nil", err)
 	}
 }

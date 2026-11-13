@@ -180,11 +180,10 @@ func (s *WebSearchHandlersSuite) TestStreamAnswerSSE() {
 
 	rec := s.post("/api/v1/websearch/answer", `{"query":"q","stream":true}`)
 
-	requestID := rec.Header().Get("x-request-id")
 	s.Equal(http.StatusOK, rec.Code)
 	s.Equal("text/event-stream", rec.Header().Get("Content-Type"))
-	s.Equal(`data: {"choices":[{"index":0,"delta":{"content":"42"},"finish_reason":null}],"requestId":"`+requestID+`"}`+"\n\n"+
-		"data: [DONE]\n\n", rec.Body.String())
+	s.Equal(`data: {"choices":[{"index":0,"delta":{"content":"42"},"finish_reason":null}]}`+"\n\n"+
+		"data: [DONE]\n\n", rec.Body.String(), "Exa allows requestId only on the cost chunk")
 }
 
 func (s *WebSearchHandlersSuite) TestStreamAnswerErrorAfterStart() {
@@ -199,6 +198,6 @@ func (s *WebSearchHandlersSuite) TestStreamAnswerErrorAfterStart() {
 	requestID := rec.Header().Get("x-request-id")
 	events := strings.Split(strings.TrimSuffix(rec.Body.String(), "\n\n"), "\n\n")
 	s.Require().Len(events, 3)
-	s.Equal(`data: {"tag":"ERROR","payload":{"error":{"code":503,"message":"searxng down"}},"requestId":"`+requestID+`"}`, events[1])
+	s.Equal(`data: {"tag":"ERROR","payload":{"error":{"code":503,"message":"searxng down"},"requestId":"`+requestID+`"}}`, events[1])
 	s.Equal("data: [DONE]", events[2])
 }

@@ -3,7 +3,6 @@ package netguard
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -185,23 +184,81 @@ func TestProxyBlocksForbiddenDestinations(t *testing.T) {
 	}
 }
 
-func TestDialContext(t *testing.T) {
+// Stopping the proxy closes its CONNECT tunnels, even idle ones.
+func TestProxyServeCancelClosesTunnels(t *testing.T) {
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upstream.Close()
+	go func() {
+		for {
+			c, err := upstream.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close() // accept and stay silent
+		}
+	}()
+
+	p, err := NewProxy(Policy{AllowPrivate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	served := make(chan error, 1)
+	go func() { served <- p.Serve(ctx, ln) }()
 
-	if _, err := (Policy{}).DialContext(ctx, "tcp", ln.Addr().String()); !errors.Is(err, ErrBlockedDestination) {
-		t.Fatalf("strict dial loopback err = %v, want ErrBlockedDestination", err)
-	}
-	if _, err := (Policy{AllowPrivate: true}).DialContext(ctx, "tcp", "169.254.169.254:80"); !errors.Is(err, ErrBlockedDestination) {
-		t.Fatalf("dial metadata err = %v, want ErrBlockedDestination", err)
-	}
-	conn, err := Policy{AllowPrivate: true}.DialContext(ctx, "tcp", ln.Addr().String())
+	conn, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
-		t.Fatalf("AllowPrivate dial loopback: %v", err)
+		t.Fatal(err)
 	}
-	conn.Close()
+	defer conn.Close()
+	user, pass := p.Credentials()
+	req := &http.Request{Method: http.MethodConnect, URL: &url.URL{Opaque: upstream.Addr().String()},
+		Host: upstream.Addr().String(), Header: http.Header{}}
+	req.SetBasicAuth(user, pass)
+	req.Header.Set("Proxy-Authorization", req.Header.Get("Authorization"))
+	req.Header.Del("Authorization")
+	if err := req.Write(conn); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	head := make([]byte, len("HTTP/1.1 200"))
+	if _, err := io.ReadFull(conn, head); err != nil || string(head) != "HTTP/1.1 200" {
+		t.Fatalf("CONNECT response %q, %v", head, err)
+	}
+
+	cancel()
+	if err := <-served; err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	_, err = io.ReadAll(conn) // drains the rest of the response head, then must see EOF
+	if err != nil {
+		t.Fatalf("tunnel not closed after Serve returned: %v", err)
+	}
+}
+
+func TestProxyStripsSpoofedBlockedHeader(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set(BlockedHeader, "1")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer origin.Close()
+	proxyURL := withCreds(startProxy(t, Policy{AllowPrivate: true}), "user", "secret")
+
+	resp, err := clientVia(proxyURL).Get(origin.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden || resp.Header.Get(BlockedHeader) != "" {
+		t.Fatalf("origin's 403 came through as %d with %s=%q; only the proxy may set it",
+			resp.StatusCode, BlockedHeader, resp.Header.Get(BlockedHeader))
+	}
 }
