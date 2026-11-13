@@ -1,5 +1,3 @@
-//go:build !nokodit
-
 package server
 
 import (
@@ -14,8 +12,9 @@ import (
 
 // koditRepoScope holds the set of Kodit repositories allowed for a session.
 type koditRepoScope struct {
-	repoIDs map[int64]bool // allowed Kodit repo IDs (for validation)
-	idSlice []int64        // same IDs as a slice (for search filtering)
+	repoIDs map[int64]bool         // allowed Kodit repo IDs (for validation)
+	idSlice []int64                // same IDs as a slice (for search filtering)
+	repos   []*types.GitRepository // the Helix repositories behind idSlice, in the same order
 }
 
 // resolveKoditRepoScope resolves which Kodit repositories user may search
@@ -60,6 +59,7 @@ func resolveKoditRepoScope(ctx context.Context, s store.Store, authorizeRepo Rep
 		}
 		scope.repoIDs[koditID] = true
 		scope.idSlice = append(scope.idSlice, koditID)
+		scope.repos = append(scope.repos, repo)
 	}
 
 	log.Debug().
@@ -124,4 +124,24 @@ func sessionProjectID(session *types.Session) string {
 		return session.ProjectID
 	}
 	return session.Metadata.ProjectID
+}
+
+// koditAgentRepos lists the indexed repositories a spec-task agent of project
+// can reach through the Kodit MCP server. The agent authenticates with a
+// session key that belongs to userID and is confined to the project
+// (GetOrCreateSessionAPIKey), so the scope is resolved for that identity.
+func (apiServer *HelixAPIServer) koditAgentRepos(ctx context.Context, project *types.Project, userID string) ([]*types.GitRepository, error) {
+	session := &types.Session{Owner: userID, OrganizationID: project.OrganizationID, ProjectID: project.ID}
+	agent := &types.User{
+		ID:             userID,
+		OrganizationID: project.OrganizationID,
+		ProjectID:      project.ID,
+		TokenType:      types.TokenTypeAPIKey,
+		APIKeyType:     types.APIkeytypeAPI,
+	}
+	scope, err := resolveKoditRepoScope(ctx, apiServer.Store, apiServer.authorizeUserToRepository, session, agent)
+	if err != nil {
+		return nil, err
+	}
+	return scope.repos, nil
 }

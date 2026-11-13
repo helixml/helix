@@ -642,6 +642,7 @@ func NewServer(
 	apiServer.kodit = kr
 	apiServer.koditService = kr.Service
 	apiServer.specDrivenTaskService.SetKoditService(kr.Service)
+	apiServer.specDrivenTaskService.SetKoditRepoLister(apiServer.koditAgentRepos)
 
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
