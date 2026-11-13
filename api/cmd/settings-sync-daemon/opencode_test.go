@@ -21,12 +21,14 @@ import (
 )
 
 // TestMain stands in for the version marker the desktop image writes, which
-// every opencode session needs to choose its state directory.
+// every opencode session needs to choose its state directory, and keeps state
+// migration away from a real ~/work when tests run inside a desktop.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "opencode-version-")
 	if err != nil {
 		panic(err)
 	}
+	OpenCodeStateRoot = filepath.Join(dir, "state")
 	OpenCodeBakedVersionFile = filepath.Join(dir, "opencode.version")
 	if err := os.WriteFile(OpenCodeBakedVersionFile, []byte("1.18.18\n"), 0o644); err != nil {
 		panic(err)
@@ -586,4 +588,59 @@ func TestOpenCodeFailedInstallIsReportedToSession(t *testing.T) {
 	assert.Nil(t, d.generateAgentServerConfig())
 	require.Len(t, reports, 1, "a backed-off retry must not report the same failure again")
 	assert.Contains(t, reports[0], "opencode agent unavailable: install opencode 1.19.0")
+}
+
+func withOpenCodeStateRoot(t *testing.T) string {
+	t.Helper()
+	original := OpenCodeStateRoot
+	OpenCodeStateRoot = t.TempDir()
+	t.Cleanup(func() { OpenCodeStateRoot = original })
+	return OpenCodeStateRoot
+}
+
+// A desktop image rollout during a long opencode thread must not orphan it:
+// state from before version keying moves under the running version.
+func TestOpenCodeMigratesLegacyStateToRunningVersion(t *testing.T) {
+	root := withOpenCodeStateRoot(t)
+	legacyDB := filepath.Join(root, "opencode", "opencode.db")
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacyDB), 0o755))
+	require.NoError(t, os.WriteFile(legacyDB, []byte("legacy"), 0o644))
+
+	cfg := openCodeDaemon().generateAgentServerConfig()
+
+	dataHome := openCodeDataHome(t, cfg)
+	assert.Equal(t, filepath.Join(root, "1.18.18"), dataHome)
+	body, err := os.ReadFile(filepath.Join(dataHome, "opencode", "opencode.db"))
+	require.NoError(t, err)
+	assert.Equal(t, "legacy", string(body))
+	_, err = os.Stat(filepath.Join(root, "opencode"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestOpenCodeLeavesLegacyStateWhenVersionedStateExists(t *testing.T) {
+	root := withOpenCodeStateRoot(t)
+	legacyDB := filepath.Join(root, "opencode", "opencode.db")
+	currentDB := filepath.Join(root, "1.18.18", "opencode", "opencode.db")
+	for path, body := range map[string]string{legacyDB: "legacy", currentDB: "current"} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+	}
+
+	require.NotNil(t, openCodeDaemon().generateAgentServerConfig())
+
+	for path, want := range map[string]string{legacyDB: "legacy", currentDB: "current"} {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, want, string(body))
+	}
+}
+
+func TestOpenCodeMigrationWithoutLegacyStateDoesNothing(t *testing.T) {
+	root := withOpenCodeStateRoot(t)
+
+	require.NotNil(t, openCodeDaemon().generateAgentServerConfig())
+
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
 }

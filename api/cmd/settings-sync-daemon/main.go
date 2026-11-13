@@ -498,6 +498,9 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		// back to the bundled binary would silently undo the admin's rollout,
 		// so the failure is reported to the session's waiting turn instead.
 		openCode, err := d.resolveOpenCodeRuntime()
+		if err == nil {
+			err = migrateLegacyOpenCodeState(openCode.version)
+		}
 		if err != nil {
 			log.Printf("ERROR: opencode agent server cannot be registered: %v", err)
 			if !errors.Is(err, errOpenCodeInstallBackoff) {

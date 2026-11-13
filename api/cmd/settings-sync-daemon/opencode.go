@@ -57,6 +57,39 @@ func (r openCodeRuntime) dataHome() string {
 	return filepath.Join(OpenCodeStateRoot, r.version)
 }
 
+// migrateLegacyOpenCodeState moves state written before it was keyed by
+// version — XDG_DATA_HOME was OpenCodeStateRoot itself, so opencode kept it
+// in OpenCodeStateRoot/opencode — under the running version. That version is
+// the one that would have opened the legacy database before the change, so a
+// session whose desktop image is rolled out mid-thread can still resume. It
+// runs on every config generation; once the move is done there is no legacy
+// directory left and it is a no-op.
+func migrateLegacyOpenCodeState(version string) error {
+	legacy := filepath.Join(OpenCodeStateRoot, "opencode")
+	if _, err := os.Lstat(legacy); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect legacy opencode state: %w", err)
+	}
+
+	target := filepath.Join(OpenCodeStateRoot, version, "opencode")
+	if _, err := os.Lstat(target); err == nil {
+		log.Printf("opencode: leaving legacy state %s in place; %s already exists", legacy, target)
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect opencode state %s: %w", target, err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create opencode state dir: %w", err)
+	}
+	if err := os.Rename(legacy, target); err != nil {
+		return fmt.Errorf("migrate legacy opencode state: %w", err)
+	}
+	log.Printf("opencode: migrated legacy state %s to %s", legacy, target)
+	return nil
+}
+
 // openCodeDownloadTimeout bounds a single artifact download. The archive is
 // ~60MB, so this is generous for a slow link while still failing a hung
 // transfer quickly enough that it does not wedge a settings sync.
