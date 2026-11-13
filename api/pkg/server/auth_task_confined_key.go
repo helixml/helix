@@ -31,6 +31,8 @@ import (
 //     (404);
 //   - clone groups, which span tasks (404);
 //   - every task creation route (403);
+//   - every helix-org route under /api/v1/orgs/{org}/ and the org MCP
+//     (403): org Bots act across the organization on their own authority;
 //   - every change to its project other than adding artifacts (403).
 
 var errTaskConfinedKeyNotFound = errors.New("not found")
@@ -96,6 +98,10 @@ func (auth *authMiddleware) taskConfinedKeyCheck(user *types.User, r *http.Reque
 		if err := enforceKeyTaskScope(user, query.Get("spec_task_id")); err != nil {
 			return http.StatusNotFound, errTaskConfinedKeyNotFound
 		}
+	}
+
+	if strings.HasPrefix(path, "/api/v1/orgs/") || path == "/api/v1/mcp/helix-org" || strings.HasPrefix(path, "/api/v1/mcp/helix-org/") {
+		return http.StatusForbidden, errTaskConfinedKeyOrg
 	}
 
 	if strings.HasPrefix(path, "/api/v1/clone-groups/") {

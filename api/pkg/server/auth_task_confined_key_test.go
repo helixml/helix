@@ -154,3 +154,65 @@ func TestTaskConfinedKey_GuardPassesOwnTaskAndOtherKeys(t *testing.T) {
 		assert.Zero(t, status)
 	}
 }
+
+// Every helix-org route (each declared org-graph route, the Slack routes and
+// the org MCP) refuses a task-confined key with 403 before its handler runs.
+// The strict store has no expectation beyond authentication, so nothing is
+// looked up or written.
+func TestTaskConfinedKey_RouterRefusesHelixOrg(t *testing.T) {
+	st := store.NewMockStore(gomock.NewController(t))
+	expectFinderKeyAuth(st, true)
+	srv := newRouteTestServer(t, st)
+
+	targets := []struct{ method, target string }{
+		{http.MethodGet, "/api/v1/orgs/acme/slack/apps"},
+		{http.MethodGet, "/api/v1/orgs/acme/slack/oauth/start"},
+		{http.MethodGet, "/api/v1/orgs/acme/slack/workspaces"},
+		{http.MethodPost, "/api/v1/orgs/acme/slack/workspaces"},
+		{http.MethodDelete, "/api/v1/orgs/acme/slack/workspaces/x1"},
+		{http.MethodGet, "/api/v1/orgs/acme/settings"},
+		{http.MethodPost, "/api/v1/mcp/helix-org/acme"},
+	}
+	for pattern := range helixOrgRoutePolicies {
+		method, path, _ := strings.Cut(pattern, " ")
+		targets = append(targets, struct{ method, target string }{method, APIPrefix + "/orgs/acme" + helixOrgPathVarRE.ReplaceAllString(path, "x1")})
+	}
+	for _, p := range targets {
+		t.Run(p.method+" "+p.target, func(t *testing.T) {
+			req := httptest.NewRequest(p.method, p.target, strings.NewReader(`{}`))
+			req.Header.Set("Authorization", "Bearer "+finderKeySecret)
+			rec := httptest.NewRecorder()
+			srv.router.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+			assert.Equal(t, errTaskConfinedKeyOrg.Error()+"\n", rec.Body.String())
+		})
+	}
+}
+
+// The helix-org helpers refuse a task-confined key on their own, without the
+// route guard: the org-scope middleware, the org MCP backend and the Slack
+// handlers.
+func TestTaskConfinedKey_HelixOrgHelpersRefuse(t *testing.T) {
+	srv, _ := sessionHandlerServer(t)
+	reached := false
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })
+	cases := map[string]http.HandlerFunc{
+		"org identity middleware": srv.withHelixOrgIdentity(next).ServeHTTP,
+		"org MCP backend": func(w http.ResponseWriter, r *http.Request) {
+			NewHelixOrgMCPBackend(srv, &helixOrgHandlers{}).ServeHTTP(w, r, finderKeyUser())
+		},
+		"slack apps":             srv.listOrgSlackApps,
+		"slack oauth start":      srv.slackOAuthStart,
+		"slack workspaces":       srv.listSlackWorkspaces,
+		"slack connect":          srv.connectSlackWorkspace,
+		"slack delete workspace": srv.deleteSlackWorkspace,
+	}
+	for name, handler := range cases {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler(rec, confinedRequest(http.MethodPost, "/api/v1/orgs/acme/bots", `{}`, map[string]string{"org": "acme"}))
+			assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+			assert.False(t, reached)
+		})
+	}
+}

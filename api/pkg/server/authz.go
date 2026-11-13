@@ -281,6 +281,20 @@ func denyProjectMutationToConfinedKey(user *types.User) error {
 	return nil
 }
 
+// errTaskConfinedKeyOrg refuses the helix-org surface to a task-confined key.
+var errTaskConfinedKeyOrg = errors.New("a task-confined key cannot use helix-org")
+
+// denyHelixOrgToConfinedKey refuses the org graph (bots, chat, activations,
+// topics, processors, settings, Slack, the org MCP) to a task-confined key:
+// an org Bot acts on its own authority across the organization, so reaching
+// one would carry the key past its task.
+func denyHelixOrgToConfinedKey(user *types.User) error {
+	if user != nil && user.TaskConfined {
+		return errTaskConfinedKeyOrg
+	}
+	return nil
+}
+
 // authorizeUserToSpecTask checks access to a spec task through its project;
 // a task-confined key reaches only its own task.
 func (apiServer *HelixAPIServer) authorizeUserToSpecTask(ctx context.Context, user *types.User, specTask *types.SpecTask, action types.Action) error {

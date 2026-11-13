@@ -487,6 +487,10 @@ func (s *HelixAPIServer) listOrgSlackApps(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if err := denyHelixOrgToConfinedKey(user); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	org, err := s.lookupOrg(r.Context(), mux.Vars(r)["org"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -526,6 +530,10 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := denyHelixOrgToConfinedKey(user); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	org, err := s.lookupOrg(r.Context(), mux.Vars(r)["org"])
@@ -720,6 +728,10 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if err := denyHelixOrgToConfinedKey(user); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	org, err := s.lookupOrg(r.Context(), mux.Vars(r)["org"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -881,6 +893,10 @@ func (s *HelixAPIServer) listSlackWorkspaces(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if err := denyHelixOrgToConfinedKey(user); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	org, err := s.lookupOrg(r.Context(), mux.Vars(r)["org"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -919,6 +935,10 @@ func (s *HelixAPIServer) deleteSlackWorkspace(w http.ResponseWriter, r *http.Req
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := denyHelixOrgToConfinedKey(user); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	org, err := s.lookupOrg(r.Context(), mux.Vars(r)["org"])
