@@ -2402,6 +2402,21 @@ func (mr *MockStoreMockRecorder) DeleteUserSession(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserSession", reflect.TypeOf((*MockStore)(nil).DeleteUserSession), ctx, id)
 }
 
+// DeleteUserSessionWithRefreshToken mocks base method.
+func (m *MockStore) DeleteUserSessionWithRefreshToken(ctx context.Context, id, refreshToken string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUserSessionWithRefreshToken", ctx, id, refreshToken)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteUserSessionWithRefreshToken indicates an expected call of DeleteUserSessionWithRefreshToken.
+func (mr *MockStoreMockRecorder) DeleteUserSessionWithRefreshToken(ctx, id, refreshToken any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserSessionWithRefreshToken", reflect.TypeOf((*MockStore)(nil).DeleteUserSessionWithRefreshToken), ctx, id, refreshToken)
+}
+
 // DeleteUserSessionsByUser mocks base method.
 func (m *MockStore) DeleteUserSessionsByUser(ctx context.Context, userID string) error {
 	m.ctrl.T.Helper()
@@ -6528,6 +6543,21 @@ func (mr *MockStoreMockRecorder) MarkUserOnboarded(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkUserOnboarded", reflect.TypeOf((*MockStore)(nil).MarkUserOnboarded), ctx, id)
 }
 
+// MarkUserSessionOIDCRefreshDead mocks base method.
+func (m *MockStore) MarkUserSessionOIDCRefreshDead(ctx context.Context, id, refreshToken string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkUserSessionOIDCRefreshDead", ctx, id, refreshToken)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkUserSessionOIDCRefreshDead indicates an expected call of MarkUserSessionOIDCRefreshDead.
+func (mr *MockStoreMockRecorder) MarkUserSessionOIDCRefreshDead(ctx, id, refreshToken any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkUserSessionOIDCRefreshDead", reflect.TypeOf((*MockStore)(nil).MarkUserSessionOIDCRefreshDead), ctx, id, refreshToken)
+}
+
 // MarkVHostRouteVerified mocks base method.
 func (m *MockStore) MarkVHostRouteVerified(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -8392,21 +8422,6 @@ func (mr *MockStoreMockRecorder) UpdateUserSession(ctx, session any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserSession", reflect.TypeOf((*MockStore)(nil).UpdateUserSession), ctx, session)
 }
 
-// UpdateWalletSubscription mocks base method.
-func (m *MockStore) UpdateWalletSubscription(ctx context.Context, walletID string, state types.WalletSubscriptionState) (*types.Wallet, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateWalletSubscription", ctx, walletID, state)
-	ret0, _ := ret[0].(*types.Wallet)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UpdateWalletSubscription indicates an expected call of UpdateWalletSubscription.
-func (mr *MockStoreMockRecorder) UpdateWalletSubscription(ctx, walletID, state any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletSubscription", reflect.TypeOf((*MockStore)(nil).UpdateWalletSubscription), ctx, walletID, state)
-}
-
 // UpdateWalletBalance mocks base method.
 func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
 	m.ctrl.T.Helper()
@@ -8420,6 +8435,21 @@ func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, am
 func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount, meta)
+}
+
+// UpdateWalletSubscription mocks base method.
+func (m *MockStore) UpdateWalletSubscription(ctx context.Context, walletID string, state types.WalletSubscriptionState) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWalletSubscription", ctx, walletID, state)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateWalletSubscription indicates an expected call of UpdateWalletSubscription.
+func (mr *MockStoreMockRecorder) UpdateWalletSubscription(ctx, walletID, state any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletSubscription", reflect.TypeOf((*MockStore)(nil).UpdateWalletSubscription), ctx, walletID, state)
 }
 
 // UpdateWebServiceDeploy mocks base method.

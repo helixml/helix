@@ -574,6 +574,10 @@ type Store interface {
 	GetUserSessionsByUser(ctx context.Context, userID string) ([]*types.UserSession, error)
 	UpdateUserSession(ctx context.Context, session *types.UserSession) (*types.UserSession, error)
 	DeleteUserSession(ctx context.Context, id string) error
+	// MarkUserSessionOIDCRefreshDead and DeleteUserSessionWithRefreshToken act
+	// only while the session still holds refreshToken, and report whether they did.
+	MarkUserSessionOIDCRefreshDead(ctx context.Context, id, refreshToken string) (bool, error)
+	DeleteUserSessionWithRefreshToken(ctx context.Context, id, refreshToken string) (bool, error)
 	DeleteUserSessionsByUser(ctx context.Context, userID string) error
 	GetUserSessionsNearOIDCExpiry(ctx context.Context, expiresBefore time.Time) ([]*types.UserSession, error)
 	DeleteExpiredUserSessions(ctx context.Context) error
