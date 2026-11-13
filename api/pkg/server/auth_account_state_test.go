@@ -40,6 +40,11 @@ func apiKeyCase(name string, direct bool, method, path string, key types.ApiKey)
 		st.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: key.Key}).Return(&key, nil)
 		st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).Return(user, nil).AnyTimes()
 		st.EXPECT().EnsureUserMeta(gomock.Any(), gomock.Any()).Return(&types.UserMeta{ID: user.ID}, nil).AnyTimes()
+		if key.SessionID != "" {
+			// A session key is confined to its own session's routes, which
+			// looks the session up.
+			st.EXPECT().GetSession(gomock.Any(), key.SessionID).Return(&types.Session{ID: key.SessionID}, nil).AnyTimes()
+		}
 		r := httptest.NewRequest(method, path, nil)
 		r.Header.Set("Authorization", "Bearer "+key.Key)
 		return newAuthMiddleware(nil, nil, st, authMiddlewareConfig{}, nil, nil), r

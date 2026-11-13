@@ -2074,8 +2074,13 @@ type SessionAPIKeyRequest struct {
 // GetOrCreateSessionAPIKey gets or creates an ephemeral API key for a session.
 // Keys are scoped to the session for lifecycle management (minted on start, revoked on stop).
 // The key capabilities vary based on session type:
-// - SpecTask sessions: git push rights to specific branch, LLM calls
-// - Non-SpecTask sessions: LLM calls only
+//   - sessions in a project (spec tasks, exploratory desktops): confined to
+//     that project; a spec task's key pushes only to its branch;
+//   - bot instances: the restricted bot instance key type;
+//   - sessions outside any project (a plain chat's desktop): confined by the
+//     API auth middleware to its own session's desktop routes and the LLM
+//     proxy (server.desktopKeyRefusal), and refused by git;
+//   - helix-org workers: their hiring user's access, by design.
 func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, req *SessionAPIKeyRequest) (string, error) {
 	if req.SessionID == "" {
 		return "", fmt.Errorf("session ID is required for session-scoped API key")

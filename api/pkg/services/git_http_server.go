@@ -333,8 +333,15 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 //     operator-authored, so pushing and every other repository are denied.
 //   - A key bound to a sandbox outside any project has no repositories of
 //     its own, so it would otherwise reach every repository of its owner.
+//   - So has a session key for a session outside any project (a plain chat's
+//     desktop): its desktop clones only a project's repositories. A helix-org
+//     worker's session key is the exception: the worker registers and
+//     attaches its organization's repositories as its hiring user.
 func (s *GitHTTPServer) keyTypeAllowsGit(r *http.Request, key *types.ApiKey) bool {
 	if key.ProjectID == "" && system.IsSandboxID(key.SessionID) {
+		return false
+	}
+	if s.isConfinedSessionKey(r.Context(), key) {
 		return false
 	}
 	switch key.Type {
@@ -345,6 +352,26 @@ func (s *GitHTTPServer) keyTypeAllowsGit(r *http.Request, key *types.ApiKey) boo
 	default:
 		return true
 	}
+}
+
+// isConfinedSessionKey reports whether key is an ordinary API key bound to a
+// session with no project, other than a helix-org worker's. It fails closed:
+// a key whose session cannot be loaded is confined.
+func (s *GitHTTPServer) isConfinedSessionKey(ctx context.Context, key *types.ApiKey) bool {
+	if key.ProjectID != "" || key.SessionID == "" || system.IsSandboxID(key.SessionID) {
+		return false
+	}
+	if key.AppID != nil && key.AppID.Valid && key.AppID.String != "" {
+		return false
+	}
+	if key.Type != types.APIkeytypeAPI && key.Type != "" {
+		return false
+	}
+	session, err := s.store.GetSession(ctx, key.SessionID)
+	if err != nil || session == nil {
+		return true
+	}
+	return session.Metadata.OrgWorkerID == ""
 }
 
 func (s *GitHTTPServer) botInstanceGitAllows(r *http.Request, key *types.ApiKey) bool {
