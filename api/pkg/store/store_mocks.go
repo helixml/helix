@@ -1490,6 +1490,20 @@ func (mr *MockStoreMockRecorder) CreateWallet(ctx, wallet any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWallet", reflect.TypeOf((*MockStore)(nil).CreateWallet), ctx, wallet)
 }
 
+// CreateWebSearchRequest mocks base method.
+func (m *MockStore) CreateWebSearchRequest(ctx context.Context, request *types.WebSearchRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWebSearchRequest", ctx, request)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateWebSearchRequest indicates an expected call of CreateWebSearchRequest.
+func (mr *MockStoreMockRecorder) CreateWebSearchRequest(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWebSearchRequest", reflect.TypeOf((*MockStore)(nil).CreateWebSearchRequest), ctx, request)
+}
+
 // CreateWebServiceDeploy mocks base method.
 func (m *MockStore) CreateWebServiceDeploy(ctx context.Context, d *types.WebServiceDeploy) error {
 	m.ctrl.T.Helper()
@@ -4748,6 +4762,21 @@ func (mr *MockStoreMockRecorder) GetWebPage(ctx, url any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebPage", reflect.TypeOf((*MockStore)(nil).GetWebPage), ctx, url)
 }
 
+// GetWebSearchUsage mocks base method.
+func (m *MockStore) GetWebSearchUsage(ctx context.Context, q *WebSearchRequestsQuery) (*types.WebSearchUsage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWebSearchUsage", ctx, q)
+	ret0, _ := ret[0].(*types.WebSearchUsage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWebSearchUsage indicates an expected call of GetWebSearchUsage.
+func (mr *MockStoreMockRecorder) GetWebSearchUsage(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWebSearchUsage", reflect.TypeOf((*MockStore)(nil).GetWebSearchUsage), ctx, q)
+}
+
 // GetWebhookDelivery mocks base method.
 func (m *MockStore) GetWebhookDelivery(ctx context.Context, endpointID, deliveryID string) (*types.WebhookDelivery, error) {
 	m.ctrl.T.Helper()
@@ -6264,6 +6293,21 @@ func (m *MockStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([]*ty
 func (mr *MockStoreMockRecorder) ListWallets(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWallets", reflect.TypeOf((*MockStore)(nil).ListWallets), ctx, q)
+}
+
+// ListWebSearchRequests mocks base method.
+func (m *MockStore) ListWebSearchRequests(ctx context.Context, q *WebSearchRequestsQuery) (*types.WebSearchRequestList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWebSearchRequests", ctx, q)
+	ret0, _ := ret[0].(*types.WebSearchRequestList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWebSearchRequests indicates an expected call of ListWebSearchRequests.
+func (mr *MockStoreMockRecorder) ListWebSearchRequests(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWebSearchRequests", reflect.TypeOf((*MockStore)(nil).ListWebSearchRequests), ctx, q)
 }
 
 // ListWebServiceDeploys mocks base method.

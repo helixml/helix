@@ -229,6 +229,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.Token = token
 		user.TokenType = types.TokenTypeAPIKey
 		user.APIKeyType = apiKey.Type
+		user.APIKeyName = apiKey.Name
 		user.ID = apiKey.Owner
 		user.Type = apiKey.OwnerType
 		// An org-labelled key is scoped to its organization: the bearer acts as

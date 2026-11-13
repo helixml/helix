@@ -11420,6 +11420,158 @@
                 }
             }
         },
+        "/api/v1/organizations/{org_id}/websearch/requests": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The organization's web search calls, newest first, successful and failed. Any member of the organization may read them.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "List organization web search requests",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "search",
+                            "contents",
+                            "findSimilar",
+                            "answer"
+                        ],
+                        "type": "string",
+                        "description": "Only calls to this endpoint",
+                        "name": "endpoint",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "First day, YYYY-MM-DD (UTC). Defaults to 29 days before to.",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Last day, YYYY-MM-DD (UTC), inclusive. Defaults to today.",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size, at most 200. Defaults to 50.",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Rows to skip",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebSearchRequestList"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/organizations/{org_id}/websearch/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Web search calls made with the organization's API keys and by its agents, per UTC day and endpoint, per endpoint, and in total. Any member of the organization may read it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Get organization web search usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "First day, YYYY-MM-DD (UTC). Defaults to 29 days before to.",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Last day, YYYY-MM-DD (UTC), inclusive. Defaults to today.",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WebSearchUsage"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/assets": {
             "get": {
                 "security": [
@@ -45788,6 +45940,189 @@
                 },
                 "user_id": {
                     "type": "string"
+                }
+            }
+        },
+        "types.WebSearchEndpoint": {
+            "type": "string",
+            "enum": [
+                "search",
+                "contents",
+                "findSimilar",
+                "answer"
+            ],
+            "x-enum-varnames": [
+                "WebSearchEndpointSearch",
+                "WebSearchEndpointContents",
+                "WebSearchEndpointFindSimilar",
+                "WebSearchEndpointAnswer"
+            ]
+        },
+        "types.WebSearchEndpointUsage": {
+            "type": "object",
+            "properties": {
+                "costDollars": {
+                    "type": "number"
+                },
+                "endpoint": {
+                    "$ref": "#/definitions/types.WebSearchEndpoint"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "outOfCredits": {
+                    "type": "integer"
+                },
+                "requests": {
+                    "type": "integer"
+                },
+                "succeeded": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.WebSearchRequest": {
+            "type": "object",
+            "properties": {
+                "apiKeyName": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "type": "number"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "durationMs": {
+                    "type": "integer"
+                },
+                "endpoint": {
+                    "$ref": "#/definitions/types.WebSearchEndpoint"
+                },
+                "errorTag": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "organizationId": {
+                    "description": "OrganizationID is empty for a call billed to a user's own wallet (a\npersonal API key, an agent session outside an organization).",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Query is the search or answer query, the findSimilar URL, or the first\ncontents URL with how many more were asked for.",
+                    "type": "string"
+                },
+                "results": {
+                    "type": "integer"
+                },
+                "searchType": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/types.WebSearchSource"
+                },
+                "status": {
+                    "description": "Status is the HTTP status the call ended with; an error event after a\nstream started counts with the error's status.",
+                    "type": "integer"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WebSearchRequestList": {
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WebSearchRequest"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.WebSearchSource": {
+            "type": "string",
+            "enum": [
+                "api",
+                "agent"
+            ],
+            "x-enum-varnames": [
+                "WebSearchSourceAPI",
+                "WebSearchSourceAgent"
+            ]
+        },
+        "types.WebSearchUsage": {
+            "type": "object",
+            "properties": {
+                "byEndpoint": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WebSearchEndpointUsage"
+                    }
+                },
+                "days": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WebSearchUsageDay"
+                    }
+                },
+                "totals": {
+                    "$ref": "#/definitions/types.WebSearchUsageCounts"
+                }
+            }
+        },
+        "types.WebSearchUsageCounts": {
+            "type": "object",
+            "properties": {
+                "costDollars": {
+                    "type": "number"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "outOfCredits": {
+                    "type": "integer"
+                },
+                "requests": {
+                    "type": "integer"
+                },
+                "succeeded": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.WebSearchUsageDay": {
+            "type": "object",
+            "properties": {
+                "costDollars": {
+                    "type": "number"
+                },
+                "date": {
+                    "description": "YYYY-MM-DD",
+                    "type": "string"
+                },
+                "endpoint": {
+                    "$ref": "#/definitions/types.WebSearchEndpoint"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "outOfCredits": {
+                    "type": "integer"
+                },
+                "requests": {
+                    "type": "integer"
+                },
+                "succeeded": {
+                    "type": "integer"
                 }
             }
         },

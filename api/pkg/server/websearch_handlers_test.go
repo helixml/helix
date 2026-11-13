@@ -68,7 +68,7 @@ func (s *WebSearchHandlersSuite) TestSearchReturnsJSONWithRequestID() {
 			return &websearch.SearchResponse{RequestID: "upstream", Results: []websearch.Result{{URL: "https://go.dev/", Title: "Go"}}}, nil
 		})
 
-	rec := s.post("/api/v1/websearch/search", `{"query":"golang","numResults":3}`)
+	rec := s.postAs(types.User{ID: "user_1", OrganizationID: "org_1", APIKeyName: "ci key"}, "/api/v1/websearch/search", `{"query":"golang","numResults":3}`)
 
 	s.Equal(http.StatusOK, rec.Code)
 	requestID := rec.Header().Get("x-request-id")
@@ -77,8 +77,8 @@ func (s *WebSearchHandlersSuite) TestSearchReturnsJSONWithRequestID() {
 	s.Require().NoError(json.Unmarshal(rec.Body.Bytes(), &resp))
 	s.Equal(requestID, resp.RequestID)
 	s.Equal("https://go.dev/", resp.Results[0].URL)
-	s.Equal(websearch.Caller{UserID: "user_1", OrgID: "org_1", RequestID: requestID}, caller,
-		"the provider bills the request under the requestId the client sees")
+	s.Equal(websearch.Caller{UserID: "user_1", OrgID: "org_1", RequestID: requestID, Source: types.WebSearchSourceAPI, APIKeyName: "ci key"}, caller,
+		"the provider bills and logs the request under the requestId the client sees, as an API call with its key")
 }
 
 func (s *WebSearchHandlersSuite) TestRunnerTokenIsSystemCaller() {
@@ -131,13 +131,6 @@ func (s *WebSearchHandlersSuite) TestUnknownFieldIs400() {
 	s.Equal(websearch.TagInvalidRequest, body.Tag)
 	s.Contains(body.Error, "numResultz")
 	s.NotEmpty(rec.Header().Get("x-request-id"))
-}
-
-func (s *WebSearchHandlersSuite) TestContractViolationIs400() {
-	rec := s.post("/api/v1/websearch/search", `{"query":""}`)
-
-	s.Equal(http.StatusBadRequest, rec.Code)
-	s.Equal(websearch.TagInvalidRequest, s.decodeError(rec).Tag)
 }
 
 func (s *WebSearchHandlersSuite) TestStreamSearchSSE() {

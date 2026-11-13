@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 //go:generate mockgen -source $GOFILE -destination provider_mocks.go -package $GOPACKAGE
@@ -74,13 +76,16 @@ func AsError(err error) *Error {
 }
 
 // Caller identifies a request and who it is made for, so it is billed to
-// them and the LLM and embedding calls a provider makes are attributed to
-// them. RequestID is the id the client sees and the credit transaction
-// records.
+// them, recorded in their usage log, and the LLM and embedding calls a
+// provider makes are attributed to them. RequestID is the id the client
+// sees and the credit transaction and usage log record.
 type Caller struct {
 	UserID    string
 	OrgID     string
 	RequestID string
+	Source    types.WebSearchSource
+	// APIKeyName names the API key an API call authenticated with, if any.
+	APIKeyName string
 	// System marks Helix's own runner token, which is never billed, as with
 	// inference.
 	System bool

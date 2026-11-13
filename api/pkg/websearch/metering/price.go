@@ -1,4 +1,4 @@
-package billing
+package metering
 
 import (
 	"fmt"

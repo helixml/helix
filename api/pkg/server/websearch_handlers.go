@@ -191,41 +191,34 @@ type webSearchCall struct {
 	rw        http.ResponseWriter
 }
 
-// webSearchRequest is a request body that checks itself against Exa's
-// contract.
-type webSearchRequest[T any] interface {
-	*T
-	Validate() error
-}
-
-// startWebSearchCall assigns the request id, attributes the request (and
-// its charge) to the caller, and decodes and validates the body. An unknown field is a 400,
-// never silently dropped.
-func startWebSearchCall[T any, P webSearchRequest[T]](rw http.ResponseWriter, r *http.Request) (*webSearchCall, P, bool) {
+// startWebSearchCall assigns the request id, attributes the request (its
+// charge and usage log entry) to the caller, and decodes the body. An
+// unknown field is a 400, never silently dropped. A body that does not
+// decode is not a call to the provider and is not recorded; the provider
+// checks the decoded request against the contract.
+func startWebSearchCall[T any](rw http.ResponseWriter, r *http.Request) (*webSearchCall, *T, bool) {
 	call := &webSearchCall{requestID: system.GenerateRequestID(), rw: rw}
 	rw.Header().Set("x-request-id", call.requestID)
 
 	user := getRequestUser(r)
 	call.ctx = websearch.WithCaller(r.Context(), websearch.Caller{
-		UserID:    user.ID,
-		OrgID:     user.OrganizationID,
-		RequestID: call.requestID,
-		System:    user.TokenType == types.TokenTypeRunner,
+		UserID:     user.ID,
+		OrgID:      user.OrganizationID,
+		RequestID:  call.requestID,
+		Source:     types.WebSearchSourceAPI,
+		APIKeyName: user.APIKeyName,
+		System:     user.TokenType == types.TokenTypeRunner,
 	})
 
 	dec := json.NewDecoder(http.MaxBytesReader(rw, r.Body, maxWebSearchRequestBody))
 	dec.DisallowUnknownFields()
-	req := P(new(T))
+	req := new(T)
 	if err := dec.Decode(req); err != nil {
 		call.fail(websearch.InvalidRequest("invalid request body: %s", err))
 		return nil, nil, false
 	}
 	if dec.More() {
 		call.fail(websearch.InvalidRequest("invalid request body: unexpected data after the JSON object"))
-		return nil, nil, false
-	}
-	if err := req.Validate(); err != nil {
-		call.fail(err)
 		return nil, nil, false
 	}
 	return call, req, true

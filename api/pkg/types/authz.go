@@ -265,6 +265,8 @@ type User struct {
 	// it authenticated with one. Carried so the auth middleware can apply the
 	// per-type restrictions (app keys: chat paths only; embed keys: one spec task).
 	APIKeyType APIKeyType `json:"api_key_type" gorm:"-"`
+	// APIKeyName is the name of that API key, for usage logs.
+	APIKeyName string `json:"-" gorm:"-"`
 	// EmbedInteractive: an embed key that may drive its bound session's desktop.
 	EmbedInteractive bool `json:"embed_interactive,omitempty" gorm:"-"`
 	// if the token is associated with an app

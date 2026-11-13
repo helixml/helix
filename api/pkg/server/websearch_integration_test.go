@@ -25,7 +25,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/websearch"
-	"github.com/helixml/helix/api/pkg/websearch/billing"
+	"github.com/helixml/helix/api/pkg/websearch/metering"
 	"github.com/helixml/helix/api/pkg/websearch/native"
 )
 
@@ -54,6 +54,8 @@ type WebSearchIntegrationSuite struct {
 	mu sync.Mutex
 	// debits are the wallet debits made, by web search request id.
 	debits map[string]float64
+	// logged are the usage log rows written, by request id.
+	logged map[string]types.WebSearchRequest
 }
 
 func TestWebSearchIntegrationSuite(t *testing.T) {
@@ -89,6 +91,7 @@ func (s *WebSearchIntegrationSuite) SetupTest() {
 	s.extractor = newWSExtractor(t)
 	s.cache = newWSPageCache()
 	s.debits = map[string]float64{}
+	s.logged = map[string]types.WebSearchRequest{}
 	s.api = s.startAPI(wsStack{policy: netguard.Policy{AllowPrivate: true}, cache: s.cache, llm: true})
 }
 
@@ -124,7 +127,7 @@ func (s *WebSearchIntegrationSuite) startAPI(stack wsStack) *httptest.Server {
 	provider, err := native.New(opts)
 	s.Require().NoError(err)
 
-	apiServer := &HelixAPIServer{webSearch: billing.New(provider, wsPrices,
+	apiServer := &HelixAPIServer{webSearch: metering.New(provider, wsPrices,
 		config.Stripe{BillingEnabled: true, MinimumInferenceBalance: 0.01}, s.walletStore(stack.broke))}
 	router := mux.NewRouter()
 	apiServer.registerWebSearchRoutes(router.PathPrefix(APIPrefix).Subrouter())
@@ -154,7 +157,24 @@ func (s *WebSearchIntegrationSuite) walletStore(broke bool) store.Store {
 			s.debits[meta.WebSearchRequestID] = amount
 			return &types.Wallet{ID: wsWalletID, Balance: balance + amount}, nil
 		})
+	st.EXPECT().CreateWebSearchRequest(gomock.Any(), gomock.Any()).AnyTimes().
+		DoAndReturn(func(_ context.Context, row *types.WebSearchRequest) error {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.NotContains(s.logged, row.ID, "one usage log row per request")
+			s.logged[row.ID] = *row
+			return nil
+		})
 	return st
+}
+
+// loggedRow is the usage log row written for a response.
+func (s *WebSearchIntegrationSuite) loggedRow(resp wsResponse) types.WebSearchRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	row, ok := s.logged[resp.header.Get("x-request-id")]
+	s.Require().True(ok, "a usage log row under the response's requestId")
+	return row
 }
 
 // requireCharged checks a response reported cost and that exactly that was
@@ -167,6 +187,12 @@ func (s *WebSearchIntegrationSuite) requireCharged(resp wsResponse, cost *websea
 	debit, ok := s.debits[resp.header.Get("x-request-id")]
 	s.Require().True(ok, "a debit under the response's requestId")
 	s.InDelta(-total, debit, 1e-9, "the debit is costDollars.total")
+	row, ok := s.logged[resp.header.Get("x-request-id")]
+	s.Require().True(ok, "a usage log row under the response's requestId")
+	s.Equal(http.StatusOK, row.Status)
+	s.InDelta(total, row.CostDollars, 1e-9, "the log records what was charged")
+	s.Equal(wsOrgID, row.OrganizationID)
+	s.Equal(types.WebSearchSourceAPI, row.Source)
 }
 
 // requireNotCharged checks nothing was debited.
@@ -598,6 +624,10 @@ func (s *WebSearchIntegrationSuite) TestStreamSearchFailure() {
 	s.Require().NotNil(last.Error)
 	s.Contains(last.Error.Message, "upstream model overloaded")
 	s.requireNotCharged()
+	row := s.loggedRow(resp)
+	s.True(row.Stream)
+	s.NotEqual(http.StatusOK, row.Status, "the HTTP status was 200, the call failed")
+	s.Zero(row.CostDollars)
 }
 
 // TestSearchEngineOutageWarning: one engine timing out while another answers
@@ -905,6 +935,7 @@ func (s *WebSearchIntegrationSuite) TestErrorEnvelopes() {
 		resp := s.call(s.api, "/search", body)
 		errBody := s.requireError(resp, http.StatusBadRequest, websearch.TagInvalidRequest)
 		s.Contains(errBody.Error, "numResultz")
+		s.NotContains(s.logged, resp.header.Get("x-request-id"), "a body that does not decode is not a call")
 	})
 	s.Run("numResults out of range", func() {
 		body := `{"query":"go generics","numResults":500}`
@@ -912,6 +943,9 @@ func (s *WebSearchIntegrationSuite) TestErrorEnvelopes() {
 		resp := s.send(s.api, "/search", body)
 		errBody := s.requireError(resp, http.StatusBadRequest, websearch.TagInvalidRequest)
 		s.Contains(errBody.Error, "numResults")
+		row := s.loggedRow(resp)
+		s.Equal(http.StatusBadRequest, row.Status, "a request that breaks the contract is recorded")
+		s.Equal("go generics", row.Query)
 	})
 	s.Run("compliance", func() {
 		resp := s.call(s.api, "/search", `{"query":"go generics","compliance":"hipaa"}`)
@@ -940,7 +974,12 @@ func (s *WebSearchIntegrationSuite) TestNoMoreCredits() {
 		{"/answer", `{"query":"When did Go get generics?"}`},
 		{"/answer", `{"query":"When did Go get generics?","stream":true}`},
 	} {
-		s.requireError(s.call(api, tc.path, tc.body), http.StatusPaymentRequired, websearch.TagNoMoreCredits)
+		resp := s.call(api, tc.path, tc.body)
+		s.requireError(resp, http.StatusPaymentRequired, websearch.TagNoMoreCredits)
+		row := s.loggedRow(resp)
+		s.Equal(http.StatusPaymentRequired, row.Status, "%s", tc.path)
+		s.Equal(websearch.TagNoMoreCredits, row.ErrorTag)
+		s.Zero(row.CostDollars)
 	}
 	s.Empty(s.searx.requests(), "nothing is searched")
 	s.Zero(s.web.hitCount(s.genericsURL()), "nothing is fetched")

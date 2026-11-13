@@ -16,8 +16,8 @@ import (
 	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/websearch"
-	"github.com/helixml/helix/api/pkg/websearch/billing"
 	"github.com/helixml/helix/api/pkg/websearch/exa"
+	"github.com/helixml/helix/api/pkg/websearch/metering"
 	"github.com/helixml/helix/api/pkg/websearch/native"
 	"github.com/helixml/helix/api/pkg/websearch/pagecache"
 )
@@ -48,18 +48,18 @@ type Result struct {
 	EgressProxy *netguard.Proxy
 }
 
-// NewProvider builds the configured provider, billed to callers' Helix
-// credits whichever provider it is.
+// NewProvider builds the configured provider, metered (charged to callers'
+// Helix credits and recorded in the usage log) whichever provider it is.
 func NewProvider(cfg config.WebSearch, stripe config.Stripe, deps Deps) (*Result, error) {
-	res, err := newUnbilled(cfg, deps)
+	res, err := newUnmetered(cfg, deps)
 	if err != nil {
 		return nil, err
 	}
-	res.Provider = billing.New(res.Provider, cfg.Prices, stripe, deps.Store)
+	res.Provider = metering.New(res.Provider, cfg.Prices, stripe, deps.Store)
 	return res, nil
 }
 
-func newUnbilled(cfg config.WebSearch, deps Deps) (*Result, error) {
+func newUnmetered(cfg config.WebSearch, deps Deps) (*Result, error) {
 	switch cfg.Provider {
 	case ProviderExa:
 		p, err := exa.New(cfg.ExaAPIKey, cfg.ExaBaseURL)
