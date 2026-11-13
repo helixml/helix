@@ -192,6 +192,10 @@ func (p *policy) handler(m *launcher.Manager, logger *log.Logger) http.Handler {
 			return
 		}
 		r.Header.Set(string(launcher.HeaderName), string(l.JSON()))
+		// The Manager proxies this request to the browser's own DevTools
+		// server, which only accepts an IP or localhost Host header; clients
+		// reach the manager by service name (http://chrome:7317).
+		r.Host = "localhost"
 		m.ServeHTTP(w, r)
 	})
 }
