@@ -160,6 +160,10 @@ func TestWriteChatCompletionError(t *testing.T) {
 	require.Equal(t, http.StatusPaymentRequired, status)
 	require.Contains(t, body.Message, "insufficient balance")
 
+	status, body = answer(fmt.Errorf("failed to load RAG: %w", controller.ErrRAGSourceNotFound), chatCompletionErrorScope{})
+	require.Equal(t, http.StatusNotFound, status)
+	require.Equal(t, "rag_source_id not found", body.Message)
+
 	status, body = answer(&controller.InferenceQuotaExceededError{Tier: "free", Used: 11, Limit: 10}, chatCompletionErrorScope{})
 	require.Equal(t, http.StatusPaymentRequired, status)
 	require.Contains(t, body.Message, "monthly token limit exceeded for free tier")

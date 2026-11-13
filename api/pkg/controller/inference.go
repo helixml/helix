@@ -594,6 +594,10 @@ func (c *Controller) getClient(ctx context.Context, organizationID, userID, prov
 	return client, nil
 }
 
+// ErrRAGSourceNotFound refuses a rag_source_id that does not exist or that
+// the caller does not own.
+var ErrRAGSourceNotFound = errors.New("rag source not found")
+
 // ErrInsufficientBalance refuses an inference request because the paying
 // wallet cannot cover it.
 var ErrInsufficientBalance = errors.New(types.ErrorInsufficientBalance)
@@ -1245,12 +1249,17 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 	}
 
 	entity, err := c.Options.Store.GetDataEntity(ctx, opts.RAGSourceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, ErrRAGSourceNotFound
+	}
 	if err != nil {
 		return nil, fmt.Errorf("error getting data entity: %w", err)
 	}
 
+	// Another user's source is answered like a missing one, so its existence
+	// is not disclosed.
 	if entity.Owner != user.ID {
-		return nil, fmt.Errorf("you do not have access to the data entity with the id: %s", entity.ID)
+		return nil, ErrRAGSourceNotFound
 	}
 
 	prompt := getLastMessage(req)

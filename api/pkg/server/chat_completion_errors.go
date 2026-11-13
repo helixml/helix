@@ -73,6 +73,12 @@ func classifyChatCompletionError(err error, scope chatCompletionErrorScope) chat
 			Type:    errorTypeInvalidRequest,
 			Code:    "model_not_found",
 		}}
+	case errors.Is(err, controller.ErrRAGSourceNotFound):
+		return chatCompletionFailure{status: http.StatusNotFound, body: chatCompletionErrorBody{
+			Message: "rag_source_id not found",
+			Type:    errorTypeInvalidRequest,
+			Code:    "rag_source_not_found",
+		}}
 	case errors.Is(err, controller.ErrInsufficientBalance):
 		return chatCompletionFailure{status: http.StatusPaymentRequired, body: chatCompletionErrorBody{
 			Message: "insufficient balance; top up the wallet to continue",

@@ -194,7 +194,7 @@ func peerRoutes() []route {
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appP}",
 			Body:          map[string]any{"model": "global/helix/authz-matrix-missing-model", "messages": []map[string]string{{"role": "user", "content": "hi"}}, "max_tokens": 1},
 			Expect:        peer(expect{aPeer: reached, aMember: deny}),
-			ReachedMarker: "authz-matrix.invalid",
+			ReachedMarker: providerReachedMarker,
 		},
 		{
 			// An app key is minted only for an agent the caller may use.
