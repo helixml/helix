@@ -41,6 +41,7 @@ var (
 	ErrBotInstanceKeyNotAllowed = errors.New("this bot instance key is scoped to its own sandbox and may not access this resource")
 	ErrSandboxKeyNotAllowed     = errors.New("this sandbox key is scoped to its own sandbox and may not access this resource")
 	ErrSessionKeyNotAllowed     = errors.New("this session key is scoped to its own session and may not access this resource")
+	ErrProjectKeyNotAllowed     = errors.New("this API key is scoped to its project and may not access this resource")
 	// ErrHelixTokenWithOIDC is returned when a Helix-issued JWT is used while OIDC authentication
 	// is configured. This can happen when a user has stale cookies from when the server was using
 	// regular auth. The user needs to clear their cookies and log in again via OIDC.

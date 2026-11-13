@@ -37,6 +37,10 @@ const (
 	AuditEventProjectDeleted           AuditEventType = "project_deleted"            // Project was deleted
 	AuditEventProjectSettingsUpdated   AuditEventType = "project_settings_updated"   // Project settings were modified
 	AuditEventProjectGuidelinesUpdated AuditEventType = "project_guidelines_updated" // Project guidelines were modified
+
+	// Credential events
+	AuditEventAPIKeyCreated AuditEventType = "api_key_created" // A project API key was minted
+	AuditEventAPIKeyRevoked AuditEventType = "api_key_revoked" // A project API key was revoked
 )
 
 // AuditMetadata contains additional context for audit log entries
@@ -74,6 +78,10 @@ type AuditMetadata struct {
 	ClonedFromID        string `json:"cloned_from_id,omitempty"`         // Source task ID if this was cloned
 	ClonedFromProjectID string `json:"cloned_from_project_id,omitempty"` // Source project ID if cloned from another project
 	CloneGroupID        string `json:"clone_group_id,omitempty"`         // Group ID linking related cloned tasks
+
+	// API key events: the key's non-secret id and name, never the secret
+	APIKeyID   string `json:"api_key_id,omitempty"`
+	APIKeyName string `json:"api_key_name,omitempty"`
 }
 
 // ProjectAuditLog represents an audit trail entry for a project

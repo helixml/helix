@@ -2491,6 +2491,23 @@ export interface TypesAPIError {
   type?: string;
 }
 
+export interface TypesAPIKeySummary {
+  app_id?: string;
+  created?: string;
+  /**
+   * ID is a stable, non-secret handle for the key, derived from a hash of
+   * the secret. Use it to delete a key you did not create.
+   */
+  id?: string;
+  key_prefix?: string;
+  name?: string;
+  organization_id?: string;
+  owner?: string;
+  owner_type?: TypesOwnerType;
+  project_id?: string;
+  type?: TypesAPIKeyType;
+}
+
 export enum TypesAPIKeyType {
   APIkeytypeNone = "",
   APIkeytypeAPI = "api",
@@ -3122,9 +3139,14 @@ export enum TypesAuditEventType {
   AuditEventProjectDeleted = "project_deleted",
   AuditEventProjectSettingsUpdated = "project_settings_updated",
   AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
+  AuditEventAPIKeyCreated = "api_key_created",
+  AuditEventAPIKeyRevoked = "api_key_revoked",
 }
 
 export interface TypesAuditMetadata {
+  /** API key events: the key's non-secret id and name, never the secret */
+  api_key_id?: string;
+  api_key_name?: string;
   branch_name?: string;
   /** Group ID linking related cloned tasks */
   clone_group_id?: string;
@@ -11677,7 +11699,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a new API key
+     * @description Create a new API key. With project_id (and type "api"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization.
      *
      * @tags api-keys
      * @name V1ApiKeysCreate
@@ -17220,6 +17242,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List the caller's own API keys scoped to the project. Key secrets are never returned; each key has a non-secret id and key_prefix. Requires a browser session, a personal API key, or an API key of the project's organization.
+     *
+     * @tags projects
+     * @name V1ProjectsApiKeysDetail
+     * @summary List project API keys
+     * @request GET:/api/v1/projects/{id}/api_keys
+     * @secure
+     */
+    v1ProjectsApiKeysDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAPIKeySummary[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/api_keys`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Revoke one of the caller's own API keys scoped to the project. The key stops authenticating immediately. To rotate a key, create a new one and revoke the old one.
+     *
+     * @tags projects
+     * @name V1ProjectsApiKeysDelete
+     * @summary Revoke a project API key
+     * @request DELETE:/api/v1/projects/{id}/api_keys/{key_id}
+     * @secure
+     */
+    v1ProjectsApiKeysDelete: (id: string, keyId: string, params: RequestParams = {}) =>
+      this.request<TypesAPIKeySummary, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/api_keys/${keyId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 

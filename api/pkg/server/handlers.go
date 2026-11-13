@@ -1111,9 +1111,9 @@ func (apiServer *HelixAPIServer) approveWaitlistedUser(ctx context.Context, targ
 
 // createAPIKey godoc
 // @Summary Create a new API key
-// @Description Create a new API key
+// @Description Create a new API key. With project_id (and type "api"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization.
 // @Tags    api-keys
-// @Param request body map[string]interface{} true "Request body with name and type"
+// @Param request body map[string]interface{} true "Request body with name, type, and app_id (app keys) or project_id (project keys)"
 // @Success 200 {string} string "API key"
 // @Router /api/v1/api_keys [post]
 func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
@@ -1145,6 +1145,23 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		typeStr, httpErr := requiredJSONStringField(objmap, "type")
 		if httpErr != nil {
 			return "", httpErr
+		}
+		if _, ok := objmap["project_id"]; ok {
+			projectID, httpErr := requiredJSONStringField(objmap, "project_id")
+			if httpErr != nil {
+				return "", httpErr
+			}
+			if projectID == "" || types.APIKeyType(typeStr) != types.APIkeytypeAPI {
+				return "", system.NewHTTPError400(`a project API key needs a project_id and type "api"`)
+			}
+			if appID, ok := objmap["app_id"]; ok && string(appID) != `""` && string(appID) != "null" {
+				return "", system.NewHTTPError400("a project API key cannot name an app_id")
+			}
+			createdKey, err := apiServer.createProjectAPIKey(ctx, user, nameStr, projectID)
+			if err != nil {
+				return "", err
+			}
+			return createdKey.Key, nil
 		}
 		apiKeyStr, httpErr := requiredJSONStringField(objmap, "app_id")
 		if httpErr != nil {
