@@ -165,7 +165,7 @@ air-gapped/proxied enterprise installs, and it re-downloads per container. Use
    | `OPENCODE_CONFIG_CONTENT` | the JSON below, marshalled |
    | `HELIX_API_KEY` | `d.userAPIKey` (referenced as `{env:HELIX_API_KEY}`) |
    | `XDG_CONFIG_HOME` | `/home/retro/.config/helix-opencode` |
-   | `XDG_DATA_HOME` | `/home/retro/work/.opencode-state` (persists across restarts, like `QWEN_HOME`) |
+   | `XDG_DATA_HOME` | `/home/retro/work/.opencode-state/<version>` (persists across restarts, like `QWEN_HOME`; keyed by release because opencode migrates its SQLite schema in place and a DB touched by 1.2.3 made 1.18.18 exit with `no such column: name`) |
    | `OPENCODE_DISABLE_AUTOUPDATE` | belt-and-braces alongside the config flag |
 
    The config content (built in Go with a struct, not `map[string]interface{}`,
@@ -389,9 +389,12 @@ Manual, run once during development:
   rejects every real value today; the install path is covered only by tests
   using a synthetic tarball and an httptest server. The first real bump is the
   first true test.
-- **The shared host cache mount is untested at runtime.** `/data/agent-cache`
-  is created by the bind mount; no sandbox host has actually been through it,
-  and nothing GCs it yet (see Phase 2).
+- **The shared host cache mount.** Docker's bind-mount auto-create left
+  `/data/agent-cache` root:root 0755, so the daemon (uid 1000) could not
+  install a pin. Hydra's `prepareMountSources` now creates it and hands it to
+  uid 1000 before every container start. A failed install is reported to the
+  session's waiting turn via `agent-startup-error`. Nothing GCs the cache yet
+  (see Phase 2).
 - [ ] Version override: blank setting → session uses the baked binary, no network
 - [ ] Version override: set a newer version → new session runs it (check
       `agent_servers.opencode.command` points at the cache path and the agent

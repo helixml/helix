@@ -99,14 +99,10 @@ func TestPostgresConcurrentBotPortraitAllocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := OpenWithDB(db, Options{})
-	if err != nil {
+	if err := Migrate(db, Options{}); err != nil {
 		t.Fatal(err)
 	}
-	second, err := OpenWithDB(db, Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	first, second := Open(db), Open(db)
 	orgID := fmt.Sprintf("org-portrait-%d", time.Now().UnixNano())
 	repos := []orgstore.Nodes{first.Nodes, second.Nodes}
 

@@ -55,6 +55,9 @@ const (
 	AttentionEventOrgMessage AttentionEventType = "org_message"
 	AttentionEventCIPassed   AttentionEventType = "ci_passed"
 	AttentionEventCIFailed   AttentionEventType = "ci_failed"
+	// AttentionEventProjectSecretUndecryptable warns that a task's desktop
+	// started without project secrets that could not be decrypted.
+	AttentionEventProjectSecretUndecryptable AttentionEventType = "project_secret_undecryptable"
 )
 
 // AttentionEventFilters controls optional filtering when listing attention events.

@@ -121,7 +121,7 @@ steps:
   - name: shell-script-tests
     image: alpine:3.21
     commands:
-      - apk add --no-cache bash git procps
+      - apk add --no-cache bash git procps docker-cli-compose
       - git config --global user.email "ci@helix.ml"
       - git config --global user.name "CI"
       - chmod +x ./desktop/shared/test-helix-specs-creation.sh
@@ -382,10 +382,8 @@ steps:
   # Cross-tenant authorization matrix (integration-test/api/README.md,
   # "Authorization matrix"). No secrets: the server it starts has no LLM
   # provider credentials, so no row can reach a real, paid upstream.
-  # It runs alongside api-integration-test on its own database: the
-  # helix-org store auto-migrates on every server start (it does not honour
-  # HELIX_SKIP_AUTOMIGRATE), and two servers migrating one database at once
-  # collide on Postgres type creation.
+  # It runs alongside api-integration-test on its own database so the two
+  # suites' rows stay apart.
   - name: api-authz-matrix
     image: golang:1.25-bookworm
     volumes:
@@ -2898,8 +2896,12 @@ steps:
         from_secret: JANITOR_SLACK_WEBHOOK_URL
     commands:
       - apt-get update -qq
-      - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
-      - DEPLOY_RUNNER=false scripts/deploy-prod.sh "$DRONE_TAG"
+      - apt-get install -y -qq curl ca-certificates openssh-client git > /dev/null
+      # The tag clone checks out FETCH_HEAD; deploy-prod.sh resolves the tag itself.
+      - git fetch --no-tags origin "+refs/tags/$DRONE_TAG:refs/tags/$DRONE_TAG"
+      # Opt-ins arrive as build params (`drone build restart --param COMPOSE_SYNC=true …`,
+      # see the runbook); only these two are passed through.
+      - COMPOSE_SYNC="$${COMPOSE_SYNC:-false}" RECREATE_POSTGRES="$${RECREATE_POSTGRES:-false}" DEPLOY_RUNNER=false scripts/deploy-prod.sh "$DRONE_TAG"
 
   - name: prod runner code.helix.ml
     image: debian:bookworm-slim

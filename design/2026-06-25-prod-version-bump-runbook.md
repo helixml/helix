@@ -19,6 +19,35 @@ upgrade step.
 - The two move **together**: the runner pulls desktop images by heartbeat version, so a version
   mismatch between controlplane and runner means stale desktop/sandbox images. Always bump both.
 
+## Automated path: `scripts/deploy-prod.sh`
+The release tag's `deploy-prod` pipeline runs this runbook. It can also be run by hand from a
+checkout of the version being deployed, which may be a release tag or the 7-character SHA of
+a green `main` build. Principles:
+- **The compose file is part of the release.** The deploy diffs the host's
+  `docker-compose.yaml` and every service's resolved image against the release's, and prints
+  the image-pin diff. Drift fails the deploy. `COMPOSE_SYNC=true` installs the release's file
+  after a timestamped backup; the host's `docker-compose.override.yaml` and `.env` stay.
+- **Nothing changes until everything checks out.** Every image the deploy will pull must be
+  pullable on the host first, so a private ghcr package fails here and names the package.
+- **The stack converges, the databases don't.** Every non-database service is brought to the
+  new config, so `api` and `chrome` both follow `HELIX_VERSION`. Postgres moves only with
+  `RECREATE_POSTGRES=true`, after the ZFS snapshot, and never to a new major (that is a
+  dump/restore: `docs/postgres-upgrade.md`).
+- Secrets the new compose needs and only this host uses, such as `CHROME_LAUNCHER_TOKEN`, are
+  generated on the host into `.env`. They never pass through CI.
+- Any failure after the snapshot (pull, recreate or health-check) restores the exact previous
+  `.env` and compose file and brings the previous services back.
+- Database services (by name or PostgreSQL-family image) are never created or recreated
+  without `RECREATE_POSTGRES=true`.
+
+To deploy a tag with an opt-in from CI, restart its build with the param; the
+`prod control plane` step passes only `COMPOSE_SYNC` and `RECREATE_POSTGRES` through:
+```bash
+drone build restart --param COMPOSE_SYNC=true helixml/helix <tag build number>
+```
+
+The manual steps below remain the reference and the fallback when CI is unavailable.
+
 ## Step 1 — build & publish images (no prod impact)
 1. Land all PRs for the release on `main`.
 2. Cut release tag **`<NEW_VERSION>`** → Drone builds and pushes `controlplane:<NEW_VERSION>`,
@@ -32,13 +61,15 @@ gcloud compute ssh --zone europe-west2-a helix-cloud-london --project helixml --
 ```
 
 ## Step 3 — upgrade the controlplane (london) — HIGHEST RISK (customer-facing)
-1. SSH to london. Confirm the version-pin location (compose vs. install script) — typically the
-   `image: ghcr.io/helixml/controlplane:<OLD_VERSION>` line in `/data/helix-app/docker-compose.yaml`.
-2. Bump the tag → `<NEW_VERSION>`, then:
+1. SSH to london. The version pin is `HELIX_VERSION` in `/data/helix-app/helix/.env`. Diff
+   `/data/helix-app/helix/docker-compose.yaml` against the release's first: compose-level fixes
+   (image pins, new env, log rotation) only reach prod if that file is current.
+2. Bump `HELIX_VERSION` → `<NEW_VERSION>`, then pull and recreate every service whose image
+   follows it (never postgres):
    ```bash
-   cd /data/helix-app
-   docker compose pull api
-   docker compose up -d api
+   cd /data/helix-app/helix
+   docker compose pull api chrome
+   docker compose up -d --no-deps api chrome
    ```
 3. **Watch GORM AutoMigrate** on start: `docker logs -f helix-api-1` (look for migrate
    completion, no panics).

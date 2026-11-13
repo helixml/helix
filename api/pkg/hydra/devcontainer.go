@@ -996,6 +996,12 @@ func prepareMountSources(req *CreateDevContainerRequest) error {
 			log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
 			continue
 		}
+		if m.Destination == instanceAgentCacheDir && !m.ReadOnly {
+			if err := prepareAgentCacheMount(m.Source); err != nil {
+				return fmt.Errorf("prepare agent cache mount %s: %w", m.Source, err)
+			}
+			continue
+		}
 		if err := os.MkdirAll(m.Source, 0o755); err != nil {
 			log.Warn().Err(err).Str("path", m.Source).Msg("Failed to create mount source directory")
 			continue

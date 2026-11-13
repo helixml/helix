@@ -298,6 +298,8 @@ func buildTitle(eventType types.AttentionEventType, task *types.SpecTask) string
 		return "CI passed"
 	case types.AttentionEventCIFailed:
 		return "CI failed"
+	case types.AttentionEventProjectSecretUndecryptable:
+		return "Project secrets could not be decrypted"
 	default:
 		return "Attention needed"
 	}
@@ -331,6 +333,8 @@ func buildDescription(eventType types.AttentionEventType, task *types.SpecTask) 
 		return fmt.Sprintf("CI passed for \"%s\"", name)
 	case types.AttentionEventCIFailed:
 		return fmt.Sprintf("CI failed for \"%s\" — needs investigation", name)
+	case types.AttentionEventProjectSecretUndecryptable:
+		return fmt.Sprintf("\"%s\" started without some project secrets because they were saved under a different encryption key — re-enter them in project settings", name)
 	default:
 		return fmt.Sprintf("Task \"%s\" needs your attention", name)
 	}
@@ -342,7 +346,7 @@ func eventEmoji(eventType types.AttentionEventType) string {
 		return "📋"
 	case types.AttentionEventAgentInteractionCompleted:
 		return "🛑"
-	case types.AttentionEventSpecFailed, types.AttentionEventImplementationFailed, types.AttentionEventCIFailed:
+	case types.AttentionEventSpecFailed, types.AttentionEventImplementationFailed, types.AttentionEventCIFailed, types.AttentionEventProjectSecretUndecryptable:
 		return "❌"
 	case types.AttentionEventPRReady:
 		return "🔀"

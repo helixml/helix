@@ -7,6 +7,7 @@ import (
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/setting"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 )
 
 // TestMain initializes the gitea git module before running tests
@@ -22,5 +23,7 @@ func TestMain(m *testing.M) {
 	if err := giteagit.InitSimple(); err != nil {
 		panic("failed to initialize git module: " + err.Error())
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	store.DropTestDB()
+	os.Exit(code)
 }
