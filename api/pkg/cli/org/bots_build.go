@@ -577,12 +577,12 @@ func newBotsDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			deleteCtx, cancel := callCtx(cmd.Context(), 120*time.Second)
+			deleteCtx, cancel := callCtx(cmd.Context(), 60*time.Second)
 			defer cancel()
 			if err := c.DeleteOrgBot(deleteCtx, orgID, args[0]); err != nil {
 				return err
 			}
-			fmt.Println("deleted", args[0])
+			fmt.Println("deleting", args[0], "in the background")
 			return nil
 		},
 	}

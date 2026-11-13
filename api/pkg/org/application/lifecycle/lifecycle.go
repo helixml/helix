@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -181,6 +182,11 @@ type Service struct {
 	// Create; Delete does not use them.
 	Now   func() time.Time
 	NewID func() string
+
+	// In-flight background deletes started by StartDelete.
+	deleteMu sync.Mutex
+	deleting map[deleteKey]struct{}
+	deletes  sync.WaitGroup
 }
 
 // CreateParams describes a new Node. ID is optional - when empty the

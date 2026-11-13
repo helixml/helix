@@ -389,3 +389,79 @@ func triggerMembers(t *testing.T, st *store.Store, orgID, id string) []orgchart.
 	}
 	return out
 }
+
+// TestStartDelete_RunsInBackground pins that StartDelete returns while the
+// teardown is still running and that the Node is deleted once it finishes.
+func TestStartDelete_RunsInBackground(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-start-delete"
+	seedBot(t, st, orgID, "w-async")
+
+	release := make(chan struct{})
+	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{release: release}}
+	if err := svc.StartDelete(ctx, orgID, "w-async"); err != nil {
+		t.Fatalf("StartDelete: %v", err)
+	}
+	if !svc.Deleting(orgID, "w-async") {
+		t.Fatal("node should be marked as deleting while teardown runs")
+	}
+	if err := svc.StartDelete(ctx, orgID, "w-async"); err != nil {
+		t.Fatalf("repeat StartDelete: %v", err)
+	}
+	close(release)
+	svc.WaitDeletes()
+	if svc.Deleting(orgID, "w-async") {
+		t.Fatal("deleting marker not cleared")
+	}
+	if _, err := st.Nodes.Get(ctx, orgID, "w-async"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("node after delete: err=%v, want ErrNotFound", err)
+	}
+}
+
+// TestStartDelete_FailureKeepsNodeAndClearsMarker pins that a failed
+// background delete leaves the Node visible and deletable again.
+func TestStartDelete_FailureKeepsNodeAndClearsMarker(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-start-delete-fail"
+	seedBot(t, st, orgID, "w-fail")
+
+	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{err: errors.New("host unreachable")}}
+	if err := svc.StartDelete(ctx, orgID, "w-fail"); err != nil {
+		t.Fatalf("StartDelete: %v", err)
+	}
+	svc.WaitDeletes()
+	if svc.Deleting(orgID, "w-fail") {
+		t.Fatal("deleting marker not cleared after failure")
+	}
+	if _, err := st.Nodes.Get(ctx, orgID, "w-fail"); err != nil {
+		t.Fatalf("node should survive failed delete: %v", err)
+	}
+}
+
+func TestStartDelete_MissingNodeErrors(t *testing.T) {
+	t.Parallel()
+	st := orggorm.GetOrgTestDB(t)
+	svc := &lifecycle.Service{Store: st}
+	if err := svc.StartDelete(context.Background(), "org", "w-missing"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("StartDelete missing: err=%v, want ErrNotFound", err)
+	}
+	if svc.Deleting("org", "w-missing") {
+		t.Fatal("missing node must not be marked deleting")
+	}
+}
+
+type blockingDeleter struct {
+	release chan struct{}
+	err     error
+}
+
+func (b blockingDeleter) DeleteAll(ctx context.Context, _ string, _ orgchart.NodeID) error {
+	if b.release != nil {
+		<-b.release
+	}
+	return b.err
+}
