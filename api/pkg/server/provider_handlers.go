@@ -1003,7 +1003,8 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	// If endpoint is org endpoint, authorize org owner
+	// An org endpoint belongs to its org's owners; any other endpoint to
+	// its user (or an admin).
 	if existingEndpoint.OwnerType == types.OwnerTypeOrg {
 		_, err := s.authorizeOrgOwner(r.Context(), user, existingEndpoint.Owner)
 		if err != nil {
@@ -1011,11 +1012,8 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 			return
 		}
-	}
-
-	// Check ownership - only allow updates to owned endpoints or if user is admin
-	if existingEndpoint.Owner != user.ID && !user.Admin {
-		http.Error(rw, "Unauthorized", http.StatusUnauthorized)
+	} else if err := authorizePersonalProviderEndpoint(user, existingEndpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1249,8 +1247,8 @@ func (s *HelixAPIServer) loadEditableProviderEndpoint(rw http.ResponseWriter, r 
 			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 			return nil, false
 		}
-	} else if endpoint.Owner != user.ID && !user.Admin {
-		http.Error(rw, "Unauthorized", http.StatusUnauthorized)
+	} else if err := authorizePersonalProviderEndpoint(user, endpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return nil, false
 	}
 
@@ -1400,12 +1398,9 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 			return
 		}
-	} else {
-		// Check ownership - only allow deletion of owned endpoints or if user is admin
-		if existingEndpoint.Owner != user.ID && !user.Admin {
-			http.Error(rw, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
+	} else if err := authorizePersonalProviderEndpoint(user, existingEndpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
 	}
 
 	if err := s.Store.DeleteProviderEndpoint(ctx, endpointID); err != nil {
@@ -1710,9 +1705,8 @@ func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, 
 
 	// If it's an org provider, authorize as org member to this org
 	if providerEndpoint.OwnerType == types.OwnerTypeOrg {
-		_, err := s.authorizeOrgMember(ctx, user, providerEndpoint.Owner)
-		if err != nil {
-			return false, fmt.Errorf("error authorizing org member: %w", err)
+		if _, err := s.authorizeOrgMember(ctx, user, providerEndpoint.Owner); err != nil {
+			return false, nil
 		}
 		return true, nil
 	}
@@ -1847,4 +1841,20 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 		Int("error_count", errorCount).
 		Dur("duration", time.Since(startTime)).
 		Msg("completed model cache refresh")
+}
+
+// authorizePersonalProviderEndpoint allows changing a non-org endpoint to its
+// owner and to admins. A project- or session-scoped key acts for its owner
+// only inside its scope; the owner's own provider credentials are outside it.
+func authorizePersonalProviderEndpoint(user *types.User, endpoint *types.ProviderEndpoint) error {
+	if isAgentScopedKey(user) {
+		return errors.New("project- and session-scoped credentials cannot change provider endpoints")
+	}
+	if user.Admin {
+		return nil
+	}
+	if endpoint.Owner != user.ID {
+		return errors.New("not authorized to change this provider endpoint")
+	}
+	return nil
 }

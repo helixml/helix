@@ -198,8 +198,11 @@ func TestCreateAPIKey_AllowedCallers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{
+		Store:      mockStore,
 		Controller: &controller.Controller{Options: controller.Options{Store: mockStore}},
 	}
+	// The app key's agent belongs to the caller.
+	mockStore.EXPECT().GetApp(gomock.Any(), "app_1").Return(&types.App{ID: "app_1", Owner: "user_1"}, nil)
 	mockStore.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) { return key, nil },
 	).Times(3)

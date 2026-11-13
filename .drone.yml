@@ -300,12 +300,60 @@ steps:
       # Debug: verify binary was copied and test server startup
       - which helix && helix version
       - timeout 5 helix serve 2>&1 || echo "Server exited (expected - checking for startup errors)"
-      # Run tests
-      - pwd && ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v ./integration-test/api/...
+      # Run tests. The authorization matrix runs in its own step below,
+      # without provider credentials.
+      - pwd && ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v -skip '^TestAuthzMatrix$' ./integration-test/api/...
     when:
       event:
         - push
     depends_on: [run-migrations]
+
+  # Cross-tenant authorization matrix (integration-test/api/README.md,
+  # "Authorization matrix"). No secrets: the server it starts has no LLM
+  # provider credentials, so no row can reach a real, paid upstream.
+  # It runs alongside api-integration-test on its own database: the
+  # helix-org store auto-migrates on every server start (it does not honour
+  # HELIX_SKIP_AUTOMIGRATE), and two servers migrating one database at once
+  # collide on Postgres type creation.
+  - name: api-authz-matrix
+    image: golang:1.25-bookworm
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      LOG_LEVEL: "warn"
+      HELIX_SKIP_AUTOMIGRATE: "1"
+      HELIX_INTEGRATION_NO_PROVIDER_ENV: "true"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: authz_matrix
+      RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+      START_HELIX_TEST_SERVER: "true"
+      DEV_SUBDOMAIN: "dev"
+    commands:
+      - apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
+      - PGPASSWORD=postgres psql -h postgres -U postgres -d postgres -c 'CREATE DATABASE authz_matrix'
+      # The pre-built binary links the ONNX runtime.
+      - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
+      - git config --global user.email "ci@helix.ml"
+      - git config --global user.name "CI"
+      - chmod +x ./scripts/run-tests-with-timeout.sh
+      # A step-local copy of the binary: $GOPATH/bin is on the workspace
+      # volume shared with api-integration-test, which runs its own copy
+      # there at the same time ("Text file busy").
+      - mkdir -p /opt/authz-bin && cp ./helix-bin /opt/authz-bin/helix && export PATH=/opt/authz-bin:$PATH
+      - which helix
+      - helix serve --migrate-only
+      - ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v -run '^TestAuthzMatrix$' ./integration-test/api/
+    when:
+      event:
+        - push
+    depends_on: [build-api-binary]
 
   # - name: oauth-github-integration-test
   #   image: golang:1.25

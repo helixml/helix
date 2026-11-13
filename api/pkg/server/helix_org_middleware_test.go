@@ -431,6 +431,7 @@ func TestHelixOrgAssetRBAC(t *testing.T) {
 		path       string
 		role       types.OrganizationRole
 		admin      bool
+		scope      string // "project" or "session": the caller's key scope
 		wantStatus int
 	}{
 		{name: "member can list", method: http.MethodGet, path: "/api/v1/orgs/acme/assets", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
@@ -455,6 +456,10 @@ func TestHelixOrgAssetRBAC(t *testing.T) {
 		{name: "owner can create trigger", method: http.MethodPost, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleOwner, wantStatus: http.StatusNoContent},
 		{name: "admin can create processor", method: http.MethodPost, path: "/api/v1/orgs/acme/processors", role: types.OrganizationRoleMember, admin: true, wantStatus: http.StatusNoContent},
 		{name: "member keeps other bot mutations", method: http.MethodPost, path: "/api/v1/orgs/acme/bots/b-1/activate", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
+		{name: "owner's project key cannot change settings", method: http.MethodPut, path: "/api/v1/orgs/acme/settings/agent.default", role: types.OrganizationRoleOwner, scope: "project", wantStatus: http.StatusForbidden},
+		{name: "owner's session key cannot create trigger", method: http.MethodPost, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleOwner, scope: "session", wantStatus: http.StatusForbidden},
+		{name: "owner's project key keeps reads", method: http.MethodGet, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleOwner, scope: "project", wantStatus: http.StatusNoContent},
+		{name: "admin's session key cannot change settings", method: http.MethodPut, path: "/api/v1/orgs/acme/settings/agent.default", role: types.OrganizationRoleOwner, admin: true, scope: "session", wantStatus: http.StatusForbidden},
 	}
 
 	for _, tt := range tests {
@@ -465,7 +470,14 @@ func TestHelixOrgAssetRBAC(t *testing.T) {
 			handler := server.withHelixOrgIdentity(next)
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			req = mux.SetURLVars(req, map[string]string{"org": "acme"})
-			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1", Admin: tt.admin}))
+			caller := types.User{ID: "user-1", Admin: tt.admin}
+			switch tt.scope {
+			case "project":
+				caller.ProjectID, caller.SessionID = "prj-1", "ses-1"
+			case "session":
+				caller.SessionID = "ses-1"
+			}
+			req = req.WithContext(setRequestUser(req.Context(), caller))
 			rec := httptest.NewRecorder()
 
 			handler.ServeHTTP(rec, req)
