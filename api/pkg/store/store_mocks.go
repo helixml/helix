@@ -6675,6 +6675,21 @@ func (mr *MockStoreMockRecorder) RecordSessionAgentConfigApplied(ctx, sessionID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordSessionAgentConfigApplied", reflect.TypeOf((*MockStore)(nil).RecordSessionAgentConfigApplied), ctx, sessionID, appliedAt, handoffDelivered)
 }
 
+// RecoverFailedPrompt mocks base method.
+func (m *MockStore) RecoverFailedPrompt(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecoverFailedPrompt", ctx, sessionID, promptID, interactionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecoverFailedPrompt indicates an expected call of RecoverFailedPrompt.
+func (mr *MockStoreMockRecorder) RecoverFailedPrompt(ctx, sessionID, promptID, interactionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverFailedPrompt", reflect.TypeOf((*MockStore)(nil).RecoverFailedPrompt), ctx, sessionID, promptID, interactionID)
+}
+
 // RecoverProviderPrompt mocks base method.
 func (m *MockStore) RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error) {
 	m.ctrl.T.Helper()
@@ -6688,21 +6703,6 @@ func (m *MockStore) RecoverProviderPrompt(ctx context.Context, sessionID, prompt
 func (mr *MockStoreMockRecorder) RecoverProviderPrompt(ctx, sessionID, promptID, now, nextCheckAt, maxAttempts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverProviderPrompt", reflect.TypeOf((*MockStore)(nil).RecoverProviderPrompt), ctx, sessionID, promptID, now, nextCheckAt, maxAttempts)
-}
-
-// RecoverProviderPromptForConfigChange mocks base method.
-func (m *MockStore) RecoverProviderPromptForConfigChange(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RecoverProviderPromptForConfigChange", ctx, sessionID, promptID, interactionID)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// RecoverProviderPromptForConfigChange indicates an expected call of RecoverProviderPromptForConfigChange.
-func (mr *MockStoreMockRecorder) RecoverProviderPromptForConfigChange(ctx, sessionID, promptID, interactionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverProviderPromptForConfigChange", reflect.TypeOf((*MockStore)(nil).RecoverProviderPromptForConfigChange), ctx, sessionID, promptID, interactionID)
 }
 
 // RedeemSecretIntakeInvitation mocks base method.

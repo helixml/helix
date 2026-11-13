@@ -1135,6 +1135,8 @@ func interactionCompleted(interaction *types.Interaction) bool {
 	return interaction != nil && interaction.State == types.InteractionStateComplete
 }
 
+const externalAgentStoppedTurnError = "External agent stopped before completing the turn"
+
 func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimehelix.StartSessionParams) (runtimehelix.DeliveryResult, error) {
 	if params.Prompt == "" {
 		return runtimehelix.DeliveryResult{}, errors.New("StartSession: Prompt is required")
@@ -1222,6 +1224,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			return runtimehelix.DeliveryResult{}, fmt.Errorf("load activation interaction: %w", err)
 		}
 		promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+		var previousInteractionID string
 		entry, err := c.server.Store.GetPromptHistoryEntry(ctx, promptID)
 		if err != nil {
 			return runtimehelix.DeliveryResult{}, fmt.Errorf("load activation prompt: %w", err)
@@ -1259,6 +1262,13 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
 		}
 		defer c.server.lockPromptDrain(sessionID)()
+		if entry != nil && entry.Status == "sent" && interaction != nil &&
+			interaction.State == types.InteractionStateError && interaction.Error == externalAgentStoppedTurnError {
+			_, recoverErr := c.server.Store.RecoverFailedPrompt(ctx, sessionID, promptID, interaction.ID)
+			if recoverErr != nil {
+				return runtimehelix.DeliveryResult{}, fmt.Errorf("recover interrupted activation: %w", recoverErr)
+			}
+		}
 		entry = &types.PromptHistoryEntry{
 			ID:        promptID,
 			UserID:    session.Owner,
@@ -1287,6 +1297,13 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		if err != nil {
 			return runtimehelix.DeliveryResult{}, err
 		}
+		if interactionCompleted(interaction) {
+			return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interaction.ID, PromptID: promptID, Completed: true}, nil
+		}
+		if interaction != nil && interaction.State == types.InteractionStateError &&
+			interaction.Error == externalAgentStoppedTurnError && entry.Status != "sent" {
+			previousInteractionID = interaction.ID
+		}
 		if entry.Status == "reserved" {
 			if resetSession {
 				if err := c.ClearSession(ctx, sessionID); err != nil {
@@ -1312,10 +1329,12 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			c.server.nudgeSessionQueue(sessionID)
 		}
 		queuedInteractionID := ""
-		if interaction != nil {
+		if interaction != nil && interaction.ID != previousInteractionID {
 			queuedInteractionID = interaction.ID
 		}
-		return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: queuedInteractionID, PromptID: promptID, Completed: interactionCompleted(interaction)}, nil
+		return runtimehelix.DeliveryResult{
+			SessionID: sessionID, InteractionID: queuedInteractionID, PromptID: promptID, PreviousInteractionID: previousInteractionID,
+		}, nil
 	}
 	if resetSession {
 		if err := c.ClearSession(ctx, sessionID); err != nil {
@@ -1346,6 +1365,9 @@ func (c *inProcHelixClient) GetDeliveryOutput(ctx context.Context, delivery runt
 	}
 	if err != nil || interaction == nil {
 		return types.SessionOutputResponse{}, err
+	}
+	if interaction.ID == delivery.PreviousInteractionID {
+		return types.SessionOutputResponse{}, nil
 	}
 	output := interaction.ResponseMessage
 	if interaction.State == types.InteractionStateError {

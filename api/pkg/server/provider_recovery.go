@@ -80,7 +80,7 @@ func (s *HelixAPIServer) recoverProviderFailedActivationAfterConfigChange(ctx co
 				providerFailure = failure != nil
 			}
 			if providerFailure {
-				recovered, err = s.Store.RecoverProviderPromptForConfigChange(ctx, session.ID, entry.ID, interaction.ID)
+				recovered, err = s.Store.RecoverFailedPrompt(ctx, session.ID, entry.ID, interaction.ID)
 				if err != nil {
 					return false, err
 				}

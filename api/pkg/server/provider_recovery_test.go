@@ -154,7 +154,7 @@ func TestRecoverExplicitProviderFailedActivationAfterRepeatedConfigSwitch(t *tes
 			st.EXPECT().GetLatestInteractionByPromptID(gomock.Any(), promptID).Return(&types.Interaction{
 				ID: interactionID, SessionID: session.ID, PromptID: promptID, State: types.InteractionStateError, Error: test.error,
 			}, nil)
-			st.EXPECT().RecoverProviderPromptForConfigChange(gomock.Any(), session.ID, promptID, interactionID).Return(true, nil)
+			st.EXPECT().RecoverFailedPrompt(gomock.Any(), session.ID, promptID, interactionID).Return(true, nil)
 
 			recovered, err := server.recoverProviderFailedActivationAfterConfigChange(context.Background(), session)
 			require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestRecoverOpaqueProviderFailureWithMatchingRecoveryMetadata(t *testing.T) 
 		ID: interactionID, SessionID: session.ID, PromptID: promptID,
 		State: types.InteractionStateError, Error: genericACPAbortMarker,
 	}, nil)
-	st.EXPECT().RecoverProviderPromptForConfigChange(gomock.Any(), session.ID, promptID, interactionID).Return(true, nil)
+	st.EXPECT().RecoverFailedPrompt(gomock.Any(), session.ID, promptID, interactionID).Return(true, nil)
 	st.EXPECT().ClearSessionProviderRecovery(gomock.Any(), session.ID, promptID, interactionID).Return(true, nil)
 
 	recovered, err := server.recoverProviderFailedActivationAfterConfigChange(context.Background(), session)
@@ -266,7 +266,7 @@ func TestSuccessfulRequeuePreservesRecoveryWhenCompareAndClearLosesRace(t *testi
 		ID: interactionID, SessionID: session.ID, PromptID: promptID,
 		State: types.InteractionStateError, Error: genericACPAbortMarker,
 	}, nil)
-	st.EXPECT().RecoverProviderPromptForConfigChange(gomock.Any(), session.ID, promptID, interactionID).Return(true, nil)
+	st.EXPECT().RecoverFailedPrompt(gomock.Any(), session.ID, promptID, interactionID).Return(true, nil)
 	st.EXPECT().ClearSessionProviderRecovery(gomock.Any(), session.ID, promptID, interactionID).Return(false, nil)
 
 	recovered, err := server.recoverProviderFailedActivationAfterConfigChange(context.Background(), session)
