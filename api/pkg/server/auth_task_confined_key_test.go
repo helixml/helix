@@ -216,3 +216,16 @@ func TestTaskConfinedKey_HelixOrgHelpersRefuse(t *testing.T) {
 		})
 	}
 }
+
+// The route guard itself refuses helix-org, independently of the helpers.
+func TestTaskConfinedKey_GuardRefusesHelixOrg(t *testing.T) {
+	auth := newAuthMiddleware(nil, nil, store.NewMockStore(gomock.NewController(t)), authMiddlewareConfig{}, nil, nil)
+	for _, target := range []string{"/api/v1/orgs/acme/bots", "/api/v1/orgs/acme/bots/x1/chat", "/api/v1/mcp/helix-org/acme"} {
+		status, err := auth.taskConfinedKeyRefusal(finderKeyUser(), httptest.NewRequest(http.MethodPost, target, http.NoBody))
+		assert.Equal(t, http.StatusForbidden, status, target)
+		assert.ErrorIs(t, err, errTaskConfinedKeyOrg, target)
+		status, err = auth.taskConfinedKeyRefusal(unconfinedFinderKeyUser(), httptest.NewRequest(http.MethodPost, target, http.NoBody))
+		assert.Zero(t, status, target)
+		assert.NoError(t, err, target)
+	}
+}
