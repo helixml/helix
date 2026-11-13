@@ -13,5 +13,6 @@ import (
 func TestSessionHasKoditRepositories(t *testing.T) {
 	require.False(t, sessionHasKoditRepositories(&types.Session{ID: "ses_chat"}))
 	require.True(t, sessionHasKoditRepositories(&types.Session{ID: "ses_p", ProjectID: "prj_1"}))
+	require.True(t, sessionHasKoditRepositories(&types.Session{ID: "ses_m", Metadata: types.SessionMetadata{ProjectID: "prj_1"}}))
 	require.True(t, sessionHasKoditRepositories(&types.Session{ID: "ses_w", Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"}}))
 }

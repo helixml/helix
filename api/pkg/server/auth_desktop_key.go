@@ -29,7 +29,8 @@ import (
 // Both may reach:
 //
 //   - the LLM proxy (a session key only with its session's own agent, when
-//     the request names one; neither may name a RAG source or assistant);
+//     the request names one, a sandbox key with no agent; neither may name a
+//     RAG source or assistant);
 //   - its own session plumbing under /api/v1/sessions/{id} (zed-config and
 //     the agent startup reports), the user websocket for its id and the
 //     desktop bridge's RevDial tunnel for its id;
@@ -46,7 +47,9 @@ import (
 // credentials, open the agent sync websocket for its session, and use the
 // session and external MCP backends for its session and the Helix tools MCP
 // backend for its session's agent. Those backends scope themselves to the
-// key's session. Kodit is refused: the session has no repositories. On the
+// key's session. Kodit is refused: the session is not in a project, so it
+// has no repositories of its own to search (resolveKoditRepoScope would
+// otherwise scope it to its owner's or organization's). On the
 // LLM proxy it may not name a RAG source or assistant (rag_source_id,
 // assistant_id), which are authorized by owner only.
 //
@@ -165,7 +168,8 @@ var desktopKeyMCPBackends = map[desktopKeyKind]map[string]bool{
 		// confines the key to its own session.
 		"session": true,
 		// Kodit is not listed: a session outside any project has no
-		// repositories to search.
+		// repositories of its own, and resolveKoditRepoScope would scope it
+		// to everything its owner's organization has indexed.
 	},
 }
 
@@ -206,13 +210,15 @@ func (key *desktopKey) allows(r *http.Request) bool {
 		if query.Has("rag_source_id") || query.Has("assistant_id") {
 			return false
 		}
-		// The handlers pin a session key's calls to its session's agent
-		// when it has one; without one, the key may not pick another.
+		// An agent brings its owner's knowledge, RAG and API tools. The
+		// handlers pin a session key's calls to its session's agent when
+		// it has one; without one the key may not pick another. A sandbox
+		// has no agent, so its key may name none.
+		appID := query.Get("app_id")
 		if key.kind == desktopKeySession {
-			appID := query.Get("app_id")
 			return appID == "" || appID == key.parentApp
 		}
-		return true
+		return appID == ""
 	}
 
 	if key.kind == desktopKeySandbox && key.orgID != "" {

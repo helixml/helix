@@ -150,6 +150,12 @@ func TestSandboxKeyDeniesOwnerAuthority(t *testing.T) {
 		{"POST", "/api/v1/mcp/external/crm"},
 		{"POST", "/v1/chat/completions?rag_source_id=rag_1"},
 		{"POST", "/v1/chat/completions?assistant_id=0"},
+		// A sandbox has no agent: it may not run one of its owner's.
+		{"POST", "/v1/chat/completions?app_id=app_A"},
+		{"POST", "/v1/responses?app_id=app_A"},
+		{"POST", "/v1/messages?app_id=app_A"},
+		{"POST", "/v1/embeddings?app_id=app_A"},
+		{"GET", "/v1/models?app_id=app_A"},
 		{"GET", "/v1/chat/completions"},
 	} {
 		extract, wrapped := serveWithKey(auth, c.method, c.target)

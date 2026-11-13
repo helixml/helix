@@ -189,6 +189,11 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	// minted the way the desktop gets it, and carries projA.
 	f.vars["sessProjChat"] = f.createSession(t, "sessProjChat", orgA.ID, f.vars["projA"], "")
 	f.keys[projChatKey] = f.mintSessionKey(t, orgA.ID, f.vars["sessProjChat"])
+	f.keys[sandboxKey] = f.createScopedKey(t, &types.ApiKey{
+		Name:           "Sandbox key - authz matrix",
+		OrganizationID: orgA.ID,
+		SessionID:      system.GenerateSandboxID(),
+	})
 	f.keys[aOwnerBrowser] = f.createBrowserSession(t)
 	// A helix-org worker's key: its session names the bot it runs as.
 	f.vars["sessWorker"] = f.createWorkerSession(t, orgA.ID, "chief-of-staff")

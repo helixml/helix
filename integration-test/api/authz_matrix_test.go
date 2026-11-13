@@ -45,6 +45,9 @@ const (
 	// no spec task or desktop role, minted by GetOrCreateSessionAPIKey: it
 	// carries projA.
 	projChatKey actor = "a-project-chat-key"
+	// sandboxKey is the key of a sandbox outside any project, as
+	// ensureSandboxAPIToken mints it: A's owner, org A, bound to a sandbox id.
+	sandboxKey actor = "a-sandbox-key"
 	// appKey is an app key for agent appA minted by A's owner.
 	appKey actor = "a-app-key"
 	// workerKey is a helix-org worker's session key: A's owner, org A,

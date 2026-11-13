@@ -1149,8 +1149,9 @@ func llmProxyRoutes() []route {
 		{
 			// Choosing an agent you cannot use must be refused before any
 			// provider is selected.
+			// A sandbox has no agent: its key may not run one of its owner's.
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appA}", Body: chat,
-			Expect:        strangers(expect{aOwner: reached, aMember: reached, projKey: deny}),
+			Expect:        strangers(expect{aOwner: reached, aMember: reached, projKey: deny, sandboxKey: deny}),
 			ReachedMarker: "authz-matrix.invalid",
 		},
 		{
@@ -1161,7 +1162,7 @@ func llmProxyRoutes() []route {
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appPersonal}", Body: chat,
-			Expect:        strangers(expect{aOwner: reached, aMember: deny, sessKey: deny}),
+			Expect:        strangers(expect{aOwner: reached, aMember: deny, sessKey: deny, sandboxKey: deny}),
 			ReachedMarker: "authz-matrix.invalid",
 		},
 		{
@@ -1201,7 +1202,7 @@ func llmProxyRoutes() []route {
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/messages", Body: chat,
-			Expect: expect{aOwner: reached, projKey: reached, sessKey: reached, waitlisted: deny, anonymous: deny},
+			Expect: expect{aOwner: reached, projKey: reached, sessKey: reached, sandboxKey: reached, waitlisted: deny, anonymous: deny},
 		},
 		{
 			// The embeddings provider is server-wide; this placeholder model
