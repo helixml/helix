@@ -1408,203 +1408,11 @@ steps:
 
 ---
 # ====================================================================
-# Sandbox Build Pipeline
-# ====================================================================
-# Builds the complete sandbox stack:
-#   1. Zed binary (Rust, from helixml/zed)
-#   2. Qwen Code (pinned official npm release)
-#   3. Desktop image (helix-ubuntu)
-#   4. Sandbox image (embeds desktop tarballs)
+# Zed e2e, on every push and tag.
 #
-# Versioning:
-#   - Tags: use git tag (e.g., v1.2.3)
-#   - Branches: use commit hash (e.g., abc123f)
-#
-# Caching:
-#   Zed and Qwen Code builds use Docker BuildKit layers for cargo/npm
-#   dependencies. No shared host volumes for build artifacts.
-#
-# No GPU required - builds work on standard runners.
-# ====================================================================
-kind: pipeline
-type: docker
-name: build-sandbox-amd64
-
-depends_on:
-  - default
-  - zed-e2e-amd64
-
-platform:
-  os: linux
-  arch: amd64
-
-# Runs on main + tags only, once zed-e2e-amd64 has passed.
-trigger:
-  event:
-    - push
-    - tag
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-  - name: sandbox-build-cache
-    host:
-      path: /var/cache/drone/sandbox-build
-
-steps:
-  - name: clone-zed-source
-    image: alpine/git:latest
-    commands:
-      - sh scripts/clone-zed-source.sh
-
-  - name: build-qwen-code
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-    commands:
-      - sh scripts/build-qwen-code.sh
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-
-  - name: build-zed
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-    commands:
-      - sh scripts/build-zed-binary.sh cache
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-      - name: sandbox-build-cache
-        path: /drone/src/cache
-    depends_on:
-      - clone-zed-source
-
-  # Build and push desktop images to registry
-  - name: build-desktops
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - |
-        # Determine version tag
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        echo "Building desktop images with version: $${VERSION}"
-      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-      # Build and push helix-ubuntu
-      - |
-        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
-        GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
-        SKILLS_COMMIT=$$(awk -F= '$$1 == "SKILLS_COMMIT" { print $$2 }' sandbox-versions.txt)
-        echo "Building helix-ubuntu..."
-        docker build --pull --provenance=false \
-          -f Dockerfile.ubuntu-helix \
-          --build-arg CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:2c8193530ecc423e0f123d0c85b68a15d1395adcddabfc943e2523dbfde172e1 \
-          --build-arg GO_VERSION=$${GO_VERSION} \
-          --build-arg SKILLS_COMMIT=$${SKILLS_COMMIT} \
-          -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
-          .
-        scripts/publish-image.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
-        echo "helix-ubuntu:$${VERSION}-linux-amd64 pushed to registry"
-      # Write version refs for sandbox
-      - |
-        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
-        mkdir -p sandbox-images
-        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
-        echo "$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.version
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    depends_on:
-      - build-qwen-code
-      - build-zed
-
-  # Build sandbox image
-  - name: build-sandbox
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-    commands:
-      - |
-        # Determine version tag
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        fi
-        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        echo "Building sandbox with version: $${VERSION}, commit: $${COMMIT}"
-        docker build --pull -f Dockerfile.sandbox \
-          --build-arg APP_VERSION="$${VERSION}" \
-          -t helix-sandbox:$${VERSION}-linux-amd64 \
-          -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64 \
-          -t registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64 \
-          .
-        echo "Sandbox image built successfully"
-        docker images helix-sandbox
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    depends_on:
-      - build-desktops
-
-  # Push to registry
-  - name: push-sandbox
-    image: docker:cli
-    environment:
-      DOCKER_HOST: unix:///var/run/docker.sock
-      REGISTRY_PASSWORD:
-        from_secret: helix_registry_password
-      GITHUB_TOKEN:
-        from_secret: github_token
-    commands:
-      - |
-        # Determine version tag
-        if [ -n "${DRONE_TAG}" ]; then
-          VERSION="${DRONE_TAG}"
-          IS_RELEASE="true"
-        else
-          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-          IS_RELEASE="false"
-        fi
-        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
-        echo "Logging in to registry..."
-        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
-        echo "Pushing helix-sandbox:$${COMMIT}-linux-amd64..."
-        scripts/publish-image.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
-        if [ "$${IS_RELEASE}" = "true" ]; then
-          echo "Pushing release tag: $${VERSION}-linux-amd64..."
-          scripts/publish-image.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
-        fi
-        echo "Push complete!"
-    volumes:
-      - name: dockersocket
-        path: /var/run/docker.sock
-    depends_on:
-      - build-sandbox
-
----
-# ====================================================================
-# Zed e2e lane for non-main pushes (PR branches).
-#
-# Same source-build and Zed e2e steps as build-sandbox-amd64, but with no
-# depends_on: the lifecycle e2e is the longest push lane, so it starts at
-# once instead of after `default`. On main and tags these steps run in
-# build-sandbox-amd64, where they gate push-sandbox. Keep the two in sync.
+# No depends_on: it starts at once, alongside `default`. On main and tags
+# build-sandbox-amd64 depends on it, so images publish only after it passes.
+# Drone requires a pipeline's dependencies to be defined above it.
 #
 # The e2e image is tagged per build: the docker daemon is shared, and
 # concurrent builds at the same ZED_COMMIT would otherwise overwrite each
@@ -1842,6 +1650,198 @@ steps:
       status:
         - success
         - failure
+
+---
+# ====================================================================
+# Sandbox Build Pipeline
+# ====================================================================
+# Builds the complete sandbox stack:
+#   1. Zed binary (Rust, from helixml/zed)
+#   2. Qwen Code (pinned official npm release)
+#   3. Desktop image (helix-ubuntu)
+#   4. Sandbox image (embeds desktop tarballs)
+#
+# Versioning:
+#   - Tags: use git tag (e.g., v1.2.3)
+#   - Branches: use commit hash (e.g., abc123f)
+#
+# Caching:
+#   Zed and Qwen Code builds use Docker BuildKit layers for cargo/npm
+#   dependencies. The Zed binary is cached per commit in the
+#   sandbox-build-cache host volume (scripts/build-zed-binary.sh).
+#
+# No GPU required - builds work on standard runners.
+# ====================================================================
+kind: pipeline
+type: docker
+name: build-sandbox-amd64
+
+depends_on:
+  - default
+  - zed-e2e-amd64
+
+platform:
+  os: linux
+  arch: amd64
+
+# Runs on main + tags only, once zed-e2e-amd64 has passed.
+trigger:
+  event:
+    - push
+    - tag
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+  - name: sandbox-build-cache
+    host:
+      path: /var/cache/drone/sandbox-build
+
+steps:
+  - name: clone-zed-source
+    image: alpine/git:latest
+    commands:
+      - sh scripts/clone-zed-source.sh
+
+  - name: build-qwen-code
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - sh scripts/build-qwen-code.sh
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+  - name: build-zed
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - sh scripts/build-zed-binary.sh cache
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: sandbox-build-cache
+        path: /drone/src/cache
+    depends_on:
+      - clone-zed-source
+
+  # Build and push desktop images to registry
+  - name: build-desktops
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - |
+        # Determine version tag
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        echo "Building desktop images with version: $${VERSION}"
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      # Build and push helix-ubuntu
+      - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        GO_VERSION=$$(awk '/^go [0-9]/ {print $$2; exit}' go.mod)
+        SKILLS_COMMIT=$$(awk -F= '$$1 == "SKILLS_COMMIT" { print $$2 }' sandbox-versions.txt)
+        echo "Building helix-ubuntu..."
+        docker build --pull --provenance=false \
+          -f Dockerfile.ubuntu-helix \
+          --build-arg CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:2c8193530ecc423e0f123d0c85b68a15d1395adcddabfc943e2523dbfde172e1 \
+          --build-arg GO_VERSION=$${GO_VERSION} \
+          --build-arg SKILLS_COMMIT=$${SKILLS_COMMIT} \
+          -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
+          .
+        scripts/publish-image.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
+        echo "helix-ubuntu:$${VERSION}-linux-amd64 pushed to registry"
+      # Write version refs for sandbox
+      - |
+        VERSION=$$(if [ -n "${DRONE_TAG}" ]; then echo ${DRONE_TAG}; else echo ${DRONE_COMMIT_SHA} | head -c 7; fi)
+        mkdir -p sandbox-images
+        echo "ghcr.io/helixml/helix-ubuntu:$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.ref
+        echo "$${VERSION}-linux-amd64" > sandbox-images/helix-ubuntu.version
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-qwen-code
+      - build-zed
+
+  # Build sandbox image
+  - name: build-sandbox
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - |
+        # Determine version tag
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        echo "Building sandbox with version: $${VERSION}, commit: $${COMMIT}"
+        docker build --pull -f Dockerfile.sandbox \
+          --build-arg APP_VERSION="$${VERSION}" \
+          -t helix-sandbox:$${VERSION}-linux-amd64 \
+          -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64 \
+          -t registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64 \
+          .
+        echo "Sandbox image built successfully"
+        docker images helix-sandbox
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-desktops
+
+  # Push to registry
+  - name: push-sandbox
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - |
+        # Determine version tag
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+          IS_RELEASE="true"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+          IS_RELEASE="false"
+        fi
+        COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        echo "Logging in to registry..."
+        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+        echo "Pushing helix-sandbox:$${COMMIT}-linux-amd64..."
+        scripts/publish-image.sh registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64
+        if [ "$${IS_RELEASE}" = "true" ]; then
+          echo "Pushing release tag: $${VERSION}-linux-amd64..."
+          scripts/publish-image.sh registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64
+        fi
+        echo "Push complete!"
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    depends_on:
+      - build-sandbox
 
 ---
 # ====================================================================
