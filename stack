@@ -35,31 +35,13 @@ detect_tls_overlay
 
 # docker-compose.dev.yaml defaults postgres to 17, which refuses a data
 # directory created by an older major. Keep an existing dev database on its
-# major by pinning HELIX_POSTGRES_IMAGE in .env (docs/postgres-upgrade.md
-# upgrades it).
+# major by pinning HELIX_POSTGRES_IMAGE in .env, with install.sh's
+# postgres-pin block (docs/postgres-upgrade.md upgrades it).
 function pin_dev_postgres_major() {
-  local env_file="$DIR/.env" data project volume major
-  if [[ -n "${HELIX_POSTGRES_IMAGE:-}" ]] || grep -qE '^[[:space:]]*HELIX_POSTGRES_IMAGE[[:space:]]*=' "$env_file" 2>/dev/null; then
-    return 0
-  fi
-  data=$(grep -E '^[[:space:]]*POSTGRES_DATA[[:space:]]*=' "$env_file" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
-  data="${data:-helix-postgres-db}"
-  if [[ "$data" == */* ]]; then
-    [[ "$data" == /* ]] || data="$DIR/$data"
-    major=$(cat "$data/PG_VERSION" 2>/dev/null || true)
-  else
-    project="${COMPOSE_PROJECT_NAME:-$(basename "$DIR")}"
-    project=$(echo "$project" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
-    volume="${project}_${data}"
-    docker volume inspect "$volume" >/dev/null 2>&1 || return 0
-    major=$(docker run --rm -v "$volume:/pgdata:ro" --entrypoint cat postgres:12.22-alpine /pgdata/PG_VERSION 2>/dev/null || true)
-  fi
-  major=$(echo "$major" | tr -d '[:space:]')
-  [[ "$major" =~ ^[0-9]+$ ]] && (( major < 17 )) || return 0
-  local image="postgres:${major}-alpine"
-  [[ "$major" == 12 ]] && image="postgres:12.22-alpine"
-  printf '\n# Existing PostgreSQL %s dev database (docs/postgres-upgrade.md to upgrade).\nHELIX_POSTGRES_IMAGE=%s\n' "$major" "$image" >> "$env_file"
-  echo "🐘 Existing PostgreSQL $major dev database: pinned HELIX_POSTGRES_IMAGE=$image in .env"
+  # shellcheck disable=SC2034 # read by the eval'd block
+  local INSTALL_DIR="$DIR" DOCKER_CMD=docker ENVIRONMENT=linux
+  eval "$(sed -n '/^# BEGIN postgres-pin/,/^# END postgres-pin/p' "$DIR/install.sh")"
+  pin_postgres_for_existing_data
 }
 
 # Smart --load logic has been consolidated into the docker wrapper
