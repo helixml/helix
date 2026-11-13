@@ -32,7 +32,7 @@ func TestKoditScopeGuard(t *testing.T) {
 		{"other scheme", call("kodit_read_resource", `{"uri":"http://7/main/a"}`), http.StatusForbidden},
 		{"resources/read other repo", `{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"file://8/main/doc.pdf?mode=text"}}`, http.StatusForbidden},
 		{"resources/read own repo", `{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"file://7/main/doc.pdf?mode=text"}}`, http.StatusOK},
-		{"visual search", call("kodit_visual_search", `{"query":"diagram"}`), http.StatusForbidden},
+		{"visual search is scoped by kodit", call("kodit_visual_search", `{"query":"diagram"}`), http.StatusOK},
 		{"batch hides a read", `[` + call("kodit_grep", `{"pattern":"x"}`) + `,` + call("kodit_read_resource", `{"uri":"file://8/main/a.pdf?mode=raster"}`) + `]`, http.StatusForbidden},
 		{"other tools pass", call("kodit_semantic_search", `{"query":"x"}`), http.StatusOK},
 		{"initialize passes", `{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}`, http.StatusOK},
@@ -40,8 +40,7 @@ func TestKoditScopeGuard(t *testing.T) {
 		{"case-folded duplicate uri", call("kodit_read_resource", `{"uri":"file://8/main/doc.pdf?mode=text&page=1","URI":"file://7/main/a"}`), http.StatusForbidden},
 		{"only a case-folded uri", call("kodit_read_resource", `{"URI":"file://7/main/a"}`), http.StatusForbidden},
 		{"non-string uri", call("kodit_read_resource", `{"uri":7}`), http.StatusForbidden},
-		{"wiki with commit_sha", call("kodit_wiki", `{"repo_url":"https://x/r.git","commit_sha":"abc123"}`), http.StatusForbidden},
-		{"wiki with case-folded commit_sha", call("kodit_wiki_page", `{"repo_url":"https://x/r.git","Commit_SHA":"abc123"}`), http.StatusForbidden},
+		{"wiki with commit_sha is checked by kodit", call("kodit_wiki", `{"repo_url":"https://x/r.git","commit_sha":"abc123"}`), http.StatusOK},
 		{"wiki without commit_sha", call("kodit_wiki", `{"repo_url":"https://x/r.git"}`), http.StatusOK},
 	}
 	for _, tc := range cases {

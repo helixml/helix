@@ -252,9 +252,9 @@ var emptyKoditMCPHandler = sync.OnceValue(func() http.Handler {
 var errNoKoditRepositories = errors.New("no code-intelligence repositories are available to this session")
 
 // scopedKoditMCPHandler builds the Kodit MCP handler for a fixed set of
-// repositories. kodit.NewScopedMCPHandler treats an empty set as unscoped
-// (every repository on the instance), so an empty set is refused here
-// rather than passed on.
+// repositories. Before kodit v1.4.0 an empty set meant unscoped (every
+// repository on the instance); v1.4.0 sees nothing for an empty set, and an
+// empty set is still refused here so the answer never depends on the library.
 func scopedKoditMCPHandler(client *kodit.Client, repoIDs []int64) (http.Handler, error) {
 	if len(repoIDs) == 0 {
 		return nil, errNoKoditRepositories
