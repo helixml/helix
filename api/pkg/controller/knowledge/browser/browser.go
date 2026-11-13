@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/launcher/flags"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/rs/zerolog/log"
 
@@ -22,6 +23,8 @@ const (
 	defaultBrowserPoolSize = 3
 	defaultPagePoolSize    = 50
 )
+
+const webRTCIPHandlingPolicy flags.Flag = "force-webrtc-ip-handling-policy"
 
 type Browser struct {
 	ctx context.Context
@@ -65,6 +68,8 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error initializing launcher: %w", err)
 		}
+		// WebRTC can send UDP around the egress proxy; keep it on the proxy.
+		l.Set(webRTCIPHandlingPolicy, "disable_non_proxied_udp")
 		b.launcher = l
 
 	} else {

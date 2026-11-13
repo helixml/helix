@@ -198,7 +198,7 @@ func classifyFetchError(ctx context.Context, err error) *FetchError {
 
 func isHTML(contentType string) bool {
 	mediaType, _, err := mime.ParseMediaType(contentType)
-	return err == nil && (mediaType == "text/html" || mediaType == "application/xhtml+xml")
+	return err == nil && isHTMLMediaType(mediaType)
 }
 
 // render loads pageURL in a new Chrome browser context that sends all its
@@ -388,7 +388,7 @@ func (s *htmlStats) walk(n *html.Node, hidden bool) {
 		case "head", "style", "noscript", "template":
 			hidden = true
 		}
-		if spaMountIDs[attr(n, "id")] && isEmpty(n) {
+		if spaMountIDs[nodeAttr(n, "id")] && isEmpty(n) {
 			s.emptyMount = true
 		}
 	}
@@ -398,15 +398,6 @@ func (s *htmlStats) walk(n *html.Node, hidden bool) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		s.walk(c, hidden)
 	}
-}
-
-func attr(n *html.Node, key string) string {
-	for _, a := range n.Attr {
-		if a.Key == key {
-			return a.Val
-		}
-	}
-	return ""
 }
 
 func isEmpty(n *html.Node) bool {

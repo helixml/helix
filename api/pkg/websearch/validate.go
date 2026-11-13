@@ -37,6 +37,42 @@ const (
 	LivecrawlAuto      = "auto"
 )
 
+// Text verbosity levels: compact is the main content, standard the whole
+// body minus header, navigation, banner, sidebar and footer, full every
+// section of the body.
+const (
+	VerbosityCompact  = "compact"
+	VerbosityStandard = "standard"
+	VerbosityFull     = "full"
+)
+
+var verbosities = []string{VerbosityCompact, VerbosityStandard, VerbosityFull}
+
+// Link styles for Markdown text.
+const (
+	LinkStyleFull     = "full"
+	LinkStyleCitation = "citation"
+)
+
+var linkStyles = []string{LinkStyleFull, LinkStyleCitation}
+
+// Page sections accepted by text.includeSections and text.excludeSections.
+const (
+	SectionHeader     = "header"
+	SectionNavigation = "navigation"
+	SectionBanner     = "banner"
+	SectionBody       = "body"
+	SectionSidebar    = "sidebar"
+	SectionFooter     = "footer"
+	SectionMetadata   = "metadata"
+)
+
+// Sections lists every page section.
+var Sections = []string{
+	SectionHeader, SectionNavigation, SectionBanner, SectionBody,
+	SectionSidebar, SectionFooter, SectionMetadata,
+}
+
 var userIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // NormalizeSearchType maps the default and legacy search types onto the ones
@@ -112,11 +148,11 @@ func (r *SearchRequest) validateLite() error {
 		{len(r.OutputSchema) > 0, "outputSchema"},
 		{r.SystemPrompt != "", "systemPrompt"},
 		{r.Stream, "stream"},
-		{r.Context != nil, "context"},
+		{r.Context.Requested(), "context"},
 	}
 	if c := r.Contents; c != nil {
 		fields = append(fields,
-			field{c.Summary != nil, "contents.summary"},
+			field{c.Summary.Requested(), "contents.summary"},
 			field{c.Extras != nil, "contents.extras"},
 			field{c.Livecrawl != "", "contents.livecrawl"},
 			field{c.LivecrawlTimeout != 0, "contents.livecrawlTimeout"},
@@ -124,7 +160,7 @@ func (r *SearchRequest) validateLite() error {
 			field{c.CrawledBefore != "", "contents.crawledBeforeDate"},
 			field{c.Subpages != 0, "contents.subpages"},
 			field{len(c.SubpageTarget) > 0, "contents.subpageTarget"},
-			field{c.Context != nil, "contents.context"},
+			field{c.Context.Requested(), "contents.context"},
 		)
 	}
 	for _, f := range fields {
@@ -262,10 +298,12 @@ func (o *ContentsOptions) validate(prefix string, maxTextChars int) error {
 	if o.LivecrawlTimeout < 0 || o.LivecrawlTimeout > maxLivecrawlTimeoutMs {
 		return InvalidRequest("%slivecrawlTimeout must be between 0 and %d", prefix, maxLivecrawlTimeoutMs)
 	}
-	if o.Text != nil && (o.Text.MaxCharacters < 0 || o.Text.MaxCharacters > maxTextChars) {
-		return InvalidRequest("%stext.maxCharacters must be at most %d", prefix, maxTextChars)
+	if o.Text.Requested() {
+		if err := o.Text.validate(prefix+"text.", maxTextChars); err != nil {
+			return err
+		}
 	}
-	if h := o.Highlights; h != nil {
+	if h := o.Highlights; h.Requested() {
 		if h.Dynamic && h.MaxCharacters > 0 {
 			return InvalidRequest("%shighlights.dynamic and %shighlights.maxCharacters cannot be used together", prefix, prefix)
 		}
@@ -283,6 +321,29 @@ func (o *ContentsOptions) validate(prefix string, maxTextChars int) error {
 		} {
 			if n < 0 || n > maxExtras {
 				return InvalidRequest("%sextras.%s must be between 0 and %d", prefix, name, maxExtras)
+			}
+		}
+	}
+	return nil
+}
+
+func (t *TextOption) validate(prefix string, maxTextChars int) error {
+	if t.MaxCharacters < 0 || t.MaxCharacters > maxTextChars {
+		return InvalidRequest("%smaxCharacters must be at most %d", prefix, maxTextChars)
+	}
+	if t.Verbosity != "" && !slices.Contains(verbosities, t.Verbosity) {
+		return InvalidRequest("%sverbosity must be one of %v", prefix, verbosities)
+	}
+	if t.LinkStyle != "" && !slices.Contains(linkStyles, t.LinkStyle) {
+		return InvalidRequest("%slinkStyle must be one of %v", prefix, linkStyles)
+	}
+	for _, f := range []struct {
+		name  string
+		items []string
+	}{{"includeSections", t.IncludeSections}, {"excludeSections", t.ExcludeSections}} {
+		for i, s := range f.items {
+			if !slices.Contains(Sections, s) {
+				return InvalidRequest("%s%s[%d] must be one of %v", prefix, f.name, i, Sections)
 			}
 		}
 	}

@@ -29,12 +29,14 @@ type fakeResult struct {
 }
 
 // fakeSearXNG serves pages keyed by "q|pageno"; a missing key is an empty
-// page, and a key in fail returns a 500.
+// page, and a key in fail returns a 500. unresponsive lists engines reported
+// as failed on every page.
 type fakeSearXNG struct {
-	mu       sync.Mutex
-	pages    map[string][]fakeResult
-	fail     map[string]bool
-	requests []url.Values
+	mu           sync.Mutex
+	pages        map[string][]fakeResult
+	fail         map[string]bool
+	unresponsive [][]string
+	requests     []url.Values
 }
 
 func (f *fakeSearXNG) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +48,7 @@ func (f *fakeSearXNG) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := q.Get("q") + "|" + page
 	f.mu.Lock()
 	f.requests = append(f.requests, q)
-	results, failing := f.pages[key], f.fail[key]
+	results, failing, unresponsive := f.pages[key], f.fail[key], f.unresponsive
 	f.mu.Unlock()
 	if failing {
 		http.Error(w, "boom", http.StatusInternalServerError)
@@ -55,7 +57,10 @@ func (f *fakeSearXNG) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if results == nil {
 		results = []fakeResult{}
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"results": results, "unresponsive_engines": [][]string{}})
+	if unresponsive == nil {
+		unresponsive = [][]string{}
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"results": results, "unresponsive_engines": unresponsive})
 }
 
 func (f *fakeSearXNG) queries() []url.Values {
@@ -297,8 +302,11 @@ func TestDiscover_PartialFailureWarnsAndTotalFailureErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"https://a.com/1", "https://a.com/2"}, urls(out.Candidates))
 	require.Len(t, out.Warnings, 2)
+	for _, w := range out.Warnings {
+		require.Equal(t, websearch.WarningPartialResults, w.Code)
+	}
 	paths := []string{out.Warnings[0].Path, out.Warnings[1].Path}
-	require.ElementsMatch(t, []string{"additionalQueries[0]", "numResults"}, paths)
+	require.ElementsMatch(t, []string{"additionalQueries[0]", "query"}, paths, "a failed query, and a later page of one")
 
 	_, err = d.Discover(context.Background(), &DiscoverRequest{Queries: []string{"bad", "bad2"}, NumResults: 5})
 	var apiErr *websearch.Error
@@ -306,6 +314,29 @@ func TestDiscover_PartialFailureWarnsAndTotalFailureErrors(t *testing.T) {
 	require.Equal(t, websearch.TagUpstreamError, apiErr.Tag)
 	require.Equal(t, http.StatusServiceUnavailable, apiErr.Status)
 	require.ErrorContains(t, err, "status 500")
+}
+
+func TestDiscover_WithoutCountrySearchesInQueryLanguage(t *testing.T) {
+	f := &fakeSearXNG{}
+	d := newTestDiscoverer(t, f)
+	_, err := d.Discover(context.Background(), &DiscoverRequest{Queries: []string{"golang generics"}, NumResults: 1})
+	require.NoError(t, err)
+	require.Equal(t, "auto", f.queries()[0].Get("language"))
+}
+
+func TestDiscover_UnresponsiveEnginesWarn(t *testing.T) {
+	f := &fakeSearXNG{
+		pages:        map[string][]fakeResult{"q|1": {res("https://a.com/1")}},
+		unresponsive: [][]string{{"duckduckgo", "CAPTCHA"}},
+	}
+	d := newTestDiscoverer(t, f)
+	out, err := d.Discover(context.Background(), &DiscoverRequest{Queries: []string{"q"}, NumResults: 5})
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://a.com/1"}, urls(out.Candidates))
+	require.Equal(t, []websearch.Warning{{
+		Code:    websearch.WarningPartialResults,
+		Message: "results are from the other engines; these did not respond: duckduckgo (CAPTCHA)",
+	}}, out.Warnings)
 }
 
 func TestDiscover_ApproximatedCategoryRewritesQuery(t *testing.T) {
@@ -320,7 +351,7 @@ func TestDiscover_ApproximatedCategoryRewritesQuery(t *testing.T) {
 	require.Equal(t, "jane doe linkedin", q.Get("q"))
 	require.Empty(t, q.Get("categories"))
 	require.Equal(t, "bing,duckduckgo", q.Get("engines"))
-	require.Empty(t, q.Get("language"))
+	require.Equal(t, "auto", q.Get("language"), "an unknown country searches in the query's language")
 	require.Len(t, out.Warnings, 2)
 	require.Equal(t, websearch.Warning{
 		Code: websearch.WarningApproximatedField, Path: "category",

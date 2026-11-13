@@ -30392,24 +30392,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "gitlab",
-                "cron",
                 "github",
-                "slack",
                 "helix_events",
                 "webhook",
-                "local",
-                "email"
+                "cron",
+                "slack",
+                "gitlab",
+                "email",
+                "local"
             ],
             "x-enum-varnames": [
-                "KindGitLab",
-                "KindCron",
                 "KindGitHub",
-                "KindSlack",
                 "KindHelixEvents",
                 "KindWebhook",
-                "KindLocal",
-                "KindEmail"
+                "KindCron",
+                "KindSlack",
+                "KindGitLab",
+                "KindEmail",
+                "KindLocal"
             ]
         },
         "transport.ResolvedActivation": {
@@ -31250,19 +31250,7 @@ const docTemplate = `{
         "types.AssistantBrowser": {
             "type": "object",
             "properties": {
-                "cache": {
-                    "description": "If true, the browser will cache the results of the tool call",
-                    "type": "boolean"
-                },
                 "enabled": {
-                    "type": "boolean"
-                },
-                "markdown_post_processing": {
-                    "description": "If true, the browser will return the HTML as markdown",
-                    "type": "boolean"
-                },
-                "no_browser": {
-                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {
@@ -43714,19 +43702,7 @@ const docTemplate = `{
         "types.ToolBrowserConfig": {
             "type": "object",
             "properties": {
-                "cache": {
-                    "description": "If true, the browser will cache the results of the tool call",
-                    "type": "boolean"
-                },
                 "enabled": {
-                    "type": "boolean"
-                },
-                "markdown_post_processing": {
-                    "description": "If true, the browser will return the HTML as markdown",
-                    "type": "boolean"
-                },
-                "no_browser": {
-                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {
@@ -45862,6 +45838,20 @@ const docTemplate = `{
                 }
             }
         },
+        "websearch.ContentsCost": {
+            "type": "object",
+            "properties": {
+                "highlights": {
+                    "type": "number"
+                },
+                "summary": {
+                    "type": "number"
+                },
+                "text": {
+                    "type": "number"
+                }
+            }
+        },
         "websearch.ContentsOptions": {
             "type": "object",
             "properties": {
@@ -45899,7 +45889,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "summary": {
-                    "$ref": "#/definitions/websearch.SummaryOptions"
+                    "$ref": "#/definitions/websearch.SummaryOption"
                 },
                 "text": {
                     "$ref": "#/definitions/websearch.TextOption"
@@ -45952,7 +45942,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "summary": {
-                    "$ref": "#/definitions/websearch.SummaryOptions"
+                    "$ref": "#/definitions/websearch.SummaryOption"
                 },
                 "text": {
                     "$ref": "#/definitions/websearch.TextOption"
@@ -45994,6 +45984,12 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/websearch.ContentStatus"
                     }
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Warning"
+                    }
                 }
             }
         },
@@ -46011,6 +46007,15 @@ const docTemplate = `{
         "websearch.CostDollars": {
             "type": "object",
             "properties": {
+                "contents": {
+                    "$ref": "#/definitions/websearch.ContentsCost"
+                },
+                "search": {
+                    "$ref": "#/definitions/websearch.SearchCost"
+                },
+                "summary": {
+                    "type": "number"
+                },
                 "total": {
                     "type": "number"
                 }
@@ -46154,6 +46159,12 @@ const docTemplate = `{
                 },
                 "searchTime": {
                     "type": "number"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Warning"
+                    }
                 }
             }
         },
@@ -46216,11 +46227,41 @@ const docTemplate = `{
                 }
             }
         },
+        "websearch.Notice": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "websearch.Result": {
             "type": "object",
             "properties": {
                 "author": {
                     "type": "string"
+                },
+                "entities": {
+                    "description": "Entities are Exa's structured company/person records; only the exa\nprovider returns them.",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
                 },
                 "extras": {
                     "$ref": "#/definitions/websearch.Extras"
@@ -46271,6 +46312,17 @@ const docTemplate = `{
                 },
                 "url": {
                     "type": "string"
+                }
+            }
+        },
+        "websearch.SearchCost": {
+            "type": "object",
+            "properties": {
+                "keyword": {
+                    "type": "number"
+                },
+                "neural": {
+                    "type": "number"
                 }
             }
         },
@@ -46387,6 +46439,12 @@ const docTemplate = `{
                 "costDollars": {
                     "$ref": "#/definitions/websearch.CostDollars"
                 },
+                "notices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Notice"
+                    }
+                },
                 "output": {
                     "$ref": "#/definitions/websearch.SearchOutput"
                 },
@@ -46413,9 +46471,12 @@ const docTemplate = `{
                 }
             }
         },
-        "websearch.SummaryOptions": {
+        "websearch.SummaryOption": {
             "type": "object",
             "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
                 "query": {
                     "type": "string"
                 },
@@ -46449,14 +46510,14 @@ const docTemplate = `{
                     }
                 },
                 "linkStyle": {
-                    "description": "\"full\" | \"citation\"",
+                    "description": "LinkStyle*",
                     "type": "string"
                 },
                 "maxCharacters": {
                     "type": "integer"
                 },
                 "verbosity": {
-                    "description": "\"compact\" | \"standard\" | \"full\"",
+                    "description": "Verbosity*",
                     "type": "string"
                 }
             }

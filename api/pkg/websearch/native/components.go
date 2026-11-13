@@ -6,6 +6,7 @@ package native
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/websearch"
@@ -70,10 +71,18 @@ type FetchError struct {
 func (e *FetchError) Error() string { return e.Tag + ": " + e.Err.Error() }
 func (e *FetchError) Unwrap() error { return e.Err }
 
-// Extractor turns a raw page into text and metadata.
+// Extractor turns a raw page into text and metadata. opts have been
+// validated by the request. A failure caused by the page itself (a type it
+// cannot read, content that does not parse as its type) wraps
+// ErrUnsupportedDocument and is reported for that URL alone; any other error
+// (the document service is down, ctx is done) fails the request.
 type Extractor interface {
 	Extract(ctx context.Context, page *RawPage, opts websearch.TextOptions) (*Page, error)
 }
+
+// ErrUnsupportedDocument is an Extractor failure specific to one page,
+// reported as websearch.TagUnsupportedDocument.
+var ErrUnsupportedDocument = errors.New("unsupported document")
 
 type Page struct {
 	Title         string

@@ -22,6 +22,9 @@ const (
 	SafeSearchStrict   = 2
 )
 
+// LanguageAuto has SearXNG detect the query's language and search in it.
+const LanguageAuto = "auto"
+
 // Time ranges.
 const (
 	TimeRangeDay   = "day"
@@ -53,7 +56,7 @@ type Query struct {
 	// those categories: SearXNG unions `engines` with `categories`, so
 	// sending both would mix general web results into e.g. news.
 	Categories []string
-	Language   string // e.g. "en-US"; empty for SearXNG's default
+	Language   string // e.g. "en-US" or LanguageAuto; empty for SearXNG's default
 	SafeSearch int    // SafeSearch*
 	TimeRange  string // TimeRange*, or empty for no limit
 	PageNo     int    // 1-based; 0 means 1

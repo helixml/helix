@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/dgraph-io/ristretto/v2"
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -41,7 +39,6 @@ type Options struct {
 	ProviderManager       manager.ProviderManager // OpenAI client provider
 	ModelInfoProvider     model.ModelInfoProvider // Model capability/pricing catalog
 	OAuthManager          *oauth.Manager
-	Browser               *browser.Browser
 	WebSearch             websearch.Provider
 	MCPClientGetter       mcp.ClientGetter
 }
@@ -67,10 +64,6 @@ type Controller struct {
 	// this is done in-memory to ensure the status is always live
 	triggerStatuses   map[TriggerStatusKey]types.TriggerStatus
 	triggerStatusesMu *sync.RWMutex
-
-	// Memory estimation service for calculating model memory requirements
-
-	browserCache *ristretto.Cache[string, string]
 
 	externalAgentHooks   ExternalAgentHooks
 	externalAgentHooksMu sync.RWMutex
@@ -113,15 +106,6 @@ func NewController(
 		return nil, err
 	}
 
-	browserCache, err := ristretto.NewCache(&ristretto.Config[string, string]{
-		NumCounters: 1e7,     // number of keys to track frequency of (10M).
-		MaxCost:     1 << 30, // maximum cost of cache (1GB).
-		BufferItems: 64,      // number of keys per Get buffer.
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create browser cache: %w", err)
-	}
-
 	controller := &Controller{
 		Ctx:                  ctx,
 		Options:              options,
@@ -134,7 +118,6 @@ func NewController(
 		stepInfoEmitter:   agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
 		triggerStatuses:   make(map[TriggerStatusKey]types.TriggerStatus),
 		triggerStatusesMu: &sync.RWMutex{},
-		browserCache:      browserCache,
 	}
 
 	// Default provider — boot-time client used by the tools planner for
@@ -170,11 +153,6 @@ func (c *Controller) Initialize() error {
 
 // Close cleans up all resources used by the controller
 func (c *Controller) Close() error {
-	// Close browser if present
-	if c.Options.Browser != nil {
-		c.Options.Browser.Close()
-	}
-
 	// Close PubSub connections if present
 	if c.Options.PubSub != nil {
 		if natsClient, ok := c.Options.PubSub.(*pubsub.Nats); ok {

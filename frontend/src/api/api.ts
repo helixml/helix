@@ -2452,14 +2452,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitLab = "gitlab",
-  KindCron = "cron",
   KindGitHub = "github",
-  KindSlack = "slack",
   KindHelixEvents = "helix_events",
   KindWebhook = "webhook",
-  KindLocal = "local",
+  KindCron = "cron",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
   KindEmail = "email",
+  KindLocal = "local",
 }
 
 export interface TransportResolvedActivation {
@@ -2806,13 +2806,7 @@ export interface TypesAssistantAzureDevOps {
 }
 
 export interface TypesAssistantBrowser {
-  /** If true, the browser will cache the results of the tool call */
-  cache?: boolean;
   enabled?: boolean;
-  /** If true, the browser will return the HTML as markdown */
-  markdown_post_processing?: boolean;
-  /** If true, the browser will not be used to open URLs, it will be a simple GET request */
-  no_browser?: boolean;
   /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
   process_output?: boolean;
 }
@@ -8738,13 +8732,7 @@ export interface TypesToolAzureDevOpsConfig {
 }
 
 export interface TypesToolBrowserConfig {
-  /** If true, the browser will cache the results of the tool call */
-  cache?: boolean;
   enabled?: boolean;
-  /** If true, the browser will return the HTML as markdown */
-  markdown_post_processing?: boolean;
-  /** If true, the browser will not be used to open URLs, it will be a simple GET request */
-  no_browser?: boolean;
   /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
   process_output?: boolean;
 }
@@ -9652,6 +9640,12 @@ export interface WebsearchContentStatus {
   status?: string;
 }
 
+export interface WebsearchContentsCost {
+  highlights?: number;
+  summary?: number;
+  text?: number;
+}
+
 export interface WebsearchContentsOptions {
   context?: WebsearchContextOption;
   crawledBeforeDate?: string;
@@ -9663,7 +9657,7 @@ export interface WebsearchContentsOptions {
   snapshotAsOf?: string;
   subpageTarget?: string[];
   subpages?: number;
-  summary?: WebsearchSummaryOptions;
+  summary?: WebsearchSummaryOption;
   text?: WebsearchTextOption;
 }
 
@@ -9680,7 +9674,7 @@ export interface WebsearchContentsRequest {
   snapshotAsOf?: string;
   subpageTarget?: string[];
   subpages?: number;
-  summary?: WebsearchSummaryOptions;
+  summary?: WebsearchSummaryOption;
   text?: WebsearchTextOption;
   urls?: string[];
   userIdentifier?: string;
@@ -9693,6 +9687,7 @@ export interface WebsearchContentsResponse {
   results?: WebsearchResult[];
   searchTime?: number;
   statuses?: WebsearchContentStatus[];
+  warnings?: WebsearchWarning[];
 }
 
 export interface WebsearchContextOption {
@@ -9701,6 +9696,9 @@ export interface WebsearchContextOption {
 }
 
 export interface WebsearchCostDollars {
+  contents?: WebsearchContentsCost;
+  search?: WebsearchSearchCost;
+  summary?: number;
   total?: number;
 }
 
@@ -9749,6 +9747,7 @@ export interface WebsearchFindSimilarResponse {
   requestId?: string;
   results?: WebsearchResult[];
   searchTime?: number;
+  warnings?: WebsearchWarning[];
 }
 
 export interface WebsearchGrounding {
@@ -9777,8 +9776,20 @@ export interface WebsearchImageLink {
   url?: string;
 }
 
+export interface WebsearchNotice {
+  code?: string;
+  details?: number[];
+  message?: string;
+  path?: string;
+}
+
 export interface WebsearchResult {
   author?: string;
+  /**
+   * Entities are Exa's structured company/person records; only the exa
+   * provider returns them.
+   */
+  entities?: number[][];
   extras?: WebsearchExtras;
   favicon?: string;
   /** findSimilar only */
@@ -9794,6 +9805,11 @@ export interface WebsearchResult {
   text?: string;
   title?: string;
   url?: string;
+}
+
+export interface WebsearchSearchCost {
+  keyword?: number;
+  neural?: number;
 }
 
 export interface WebsearchSearchOutput {
@@ -9830,6 +9846,7 @@ export interface WebsearchSearchRequest {
 export interface WebsearchSearchResponse {
   context?: string;
   costDollars?: WebsearchCostDollars;
+  notices?: WebsearchNotice[];
   output?: WebsearchSearchOutput;
   requestId?: string;
   resolvedSearchType?: string;
@@ -9838,7 +9855,8 @@ export interface WebsearchSearchResponse {
   warnings?: WebsearchWarning[];
 }
 
-export interface WebsearchSummaryOptions {
+export interface WebsearchSummaryOption {
+  enabled?: boolean;
   query?: string;
   schema?: number[];
 }
@@ -9848,10 +9866,10 @@ export interface WebsearchTextOption {
   excludeSections?: string[];
   includeHtmlTags?: boolean;
   includeSections?: string[];
-  /** "full" | "citation" */
+  /** LinkStyle* */
   linkStyle?: string;
   maxCharacters?: number;
-  /** "compact" | "standard" | "full" */
+  /** Verbosity* */
   verbosity?: string;
 }
 

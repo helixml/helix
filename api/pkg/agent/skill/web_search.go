@@ -5,10 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/helixml/helix/api/pkg/agent"
-	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
-	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
 	"github.com/helixml/helix/api/pkg/websearch"
@@ -16,7 +13,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func NewSearchSkill(config *types.ToolWebSearchConfig, provider websearch.Provider, browser *browser.Browser) agent.Skill {
+func NewSearchSkill(config *types.ToolWebSearchConfig, provider websearch.Provider) agent.Skill {
 	return agent.Skill{
 		Name:        "WebSearch",
 		Description: "Search the web for current information and recent data, can open URLs, look for information in the page and return the results.",
@@ -30,17 +27,7 @@ func NewSearchSkill(config *types.ToolWebSearchConfig, provider websearch.Provid
 				config:   config,
 				provider: provider,
 			},
-			&browserTool{
-				browser: browser,
-				config: &types.ToolBrowserConfig{
-					Enabled:                true,
-					MarkdownPostProcessing: true,
-					NoBrowser:              false,
-					Cache:                  false,
-				},
-				parser:    readability.NewParser(), // TODO: add config for this
-				converter: md.NewConverter("", true, nil),
-			},
+			&browserTool{provider: provider},
 		},
 	}
 }

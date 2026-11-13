@@ -873,7 +873,7 @@ const Skills: React.FC<SkillsProps> = ({
         if (skill.name === 'Browser') {
           await onUpdate({
             ...app,
-            browserTool: { enabled: false, markdown_post_processing: false },
+            browserTool: { enabled: false },
           });
           return
         }

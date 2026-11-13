@@ -408,7 +408,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Notifier:              notifier,
 		ProviderManager:       providerManager,
 		ModelInfoProvider:     dynamicInfoProvider,
-		Browser:               browserPool,
 		WebSearch:             webSearch.Provider,
 		GitRepositoryService:  gitRepositoryService,
 	}

@@ -194,17 +194,17 @@ func TestExtractHTMLLinksAndImages(t *testing.T) {
 
 func TestExtractVerbosity(t *testing.T) {
 	compact := extractArticleText(t, websearch.TextOptions{})
-	if explicit := extractArticleText(t, websearch.TextOptions{Verbosity: VerbosityCompact}); explicit != compact {
+	if explicit := extractArticleText(t, websearch.TextOptions{Verbosity: websearch.VerbosityCompact}); explicit != compact {
 		t.Error("default verbosity differs from compact")
 	}
 	assertContains(t, compact, markBody, "![A flooded street in the harbour district](https://news.example.com/world/2026/images/flooded-street.jpg)\n\nFlooding in the harbour district")
 	assertLacks(t, compact, markNav, markBanner, markSidebar, markFooter, markScript, "data:image")
 
-	standard := extractArticleText(t, websearch.TextOptions{Verbosity: VerbosityStandard})
+	standard := extractArticleText(t, websearch.TextOptions{Verbosity: websearch.VerbosityStandard})
 	assertContains(t, standard, markHeadline, markBody, markTable, "Additional reporting")
 	assertLacks(t, standard, markNav, markBanner, markSidebar, markFooter, markScript, "tracking comment", "Accept")
 
-	full := extractArticleText(t, websearch.TextOptions{Verbosity: VerbosityFull})
+	full := extractArticleText(t, websearch.TextOptions{Verbosity: websearch.VerbosityFull})
 	assertContains(t, full, markBody, markNav, markBanner, markSidebar, markFooter)
 	assertLacks(t, full, markScript, "font-family", "tracking comment", "- title:")
 }
@@ -218,49 +218,49 @@ func TestExtractSections(t *testing.T) {
 	}{
 		{
 			name:    "include navigation",
-			opts:    websearch.TextOptions{IncludeSections: []string{SectionNavigation}},
+			opts:    websearch.TextOptions{IncludeSections: []string{websearch.SectionNavigation}},
 			want:    []string{"[World](https://news.example.com/world)", markNav},
 			unwants: []string{markBody, markBanner, "Example News logo", markFooter},
 		},
 		{
 			name:    "a nav inside the header is navigation, not header",
-			opts:    websearch.TextOptions{IncludeSections: []string{SectionHeader}},
+			opts:    websearch.TextOptions{IncludeSections: []string{websearch.SectionHeader}},
 			want:    []string{"Example News logo"},
 			unwants: []string{markNav, markBody, markBanner, markFooter},
 		},
 		{
 			name:    "header and navigation",
-			opts:    websearch.TextOptions{IncludeSections: []string{SectionHeader, SectionNavigation}},
+			opts:    websearch.TextOptions{IncludeSections: []string{websearch.SectionHeader, websearch.SectionNavigation}},
 			want:    []string{"Example News logo", markNav},
 			unwants: []string{markBody},
 		},
 		{
 			name:    "include banner",
-			opts:    websearch.TextOptions{IncludeSections: []string{SectionBanner}},
+			opts:    websearch.TextOptions{IncludeSections: []string{websearch.SectionBanner}},
 			want:    []string{markBanner},
 			unwants: []string{markBody, markFooter},
 		},
 		{
 			name:    "include body keeps the article header and footer",
-			opts:    websearch.TextOptions{IncludeSections: []string{SectionBody}},
+			opts:    websearch.TextOptions{IncludeSections: []string{websearch.SectionBody}},
 			want:    []string{markHeadline, markBody, markTable, "Additional reporting"},
 			unwants: []string{markNav, markBanner, markSidebar, markFooter},
 		},
 		{
 			name:    "include sidebar and footer",
-			opts:    websearch.TextOptions{IncludeSections: []string{SectionSidebar, SectionFooter}},
+			opts:    websearch.TextOptions{IncludeSections: []string{websearch.SectionSidebar, websearch.SectionFooter}},
 			want:    []string{markSidebar, markFooter},
 			unwants: []string{markBody, markNav},
 		},
 		{
 			name:    "exclude only",
-			opts:    websearch.TextOptions{ExcludeSections: []string{SectionFooter, SectionSidebar, SectionBanner}},
+			opts:    websearch.TextOptions{ExcludeSections: []string{websearch.SectionFooter, websearch.SectionSidebar, websearch.SectionBanner}},
 			want:    []string{markBody, markNav, "- title: Storm hits the coast"},
 			unwants: []string{markFooter, markSidebar, markBanner},
 		},
 		{
 			name: "include metadata",
-			opts: websearch.TextOptions{IncludeSections: []string{SectionMetadata}},
+			opts: websearch.TextOptions{IncludeSections: []string{websearch.SectionMetadata}},
 			want: []string{
 				"- title: Storm hits the coast",
 				"- description: A powerful storm made landfall overnight.",
@@ -272,7 +272,7 @@ func TestExtractSections(t *testing.T) {
 		},
 		{
 			name:    "sections override verbosity",
-			opts:    websearch.TextOptions{Verbosity: VerbosityFull, IncludeSections: []string{SectionFooter}},
+			opts:    websearch.TextOptions{Verbosity: websearch.VerbosityFull, IncludeSections: []string{websearch.SectionFooter}},
 			want:    []string{markFooter},
 			unwants: []string{markBody},
 		},
@@ -287,7 +287,7 @@ func TestExtractSections(t *testing.T) {
 }
 
 func TestExtractIncludeHTMLTags(t *testing.T) {
-	for _, verbosity := range []string{VerbosityCompact, VerbosityStandard} {
+	for _, verbosity := range []string{websearch.VerbosityCompact, websearch.VerbosityStandard} {
 		text := extractArticleText(t, websearch.TextOptions{IncludeHTMLTags: true, Verbosity: verbosity})
 		assertContains(t, text, "<p>", markBody,
 			`<a href="https://news.example.com/world/2026/evacuation-centres.html">twelve towns</a>`,
@@ -297,7 +297,7 @@ func TestExtractIncludeHTMLTags(t *testing.T) {
 }
 
 func TestExtractLinkStyles(t *testing.T) {
-	full := extractArticleText(t, websearch.TextOptions{Verbosity: VerbosityStandard, LinkStyle: LinkStyleFull})
+	full := extractArticleText(t, websearch.TextOptions{Verbosity: websearch.VerbosityStandard, LinkStyle: websearch.LinkStyleFull})
 	assertContains(t, full,
 		"[twelve towns](https://news.example.com/world/2026/evacuation-centres.html)",
 		"[full forecast](https://weather.example.org/forecast?region=north#today)")
@@ -306,7 +306,7 @@ func TestExtractLinkStyles(t *testing.T) {
 		t.Errorf("non-http links should keep their text:\n%s", full)
 	}
 
-	cited := extractArticleText(t, websearch.TextOptions{Verbosity: VerbosityStandard, LinkStyle: LinkStyleCitation})
+	cited := extractArticleText(t, websearch.TextOptions{Verbosity: websearch.VerbosityStandard, LinkStyle: websearch.LinkStyleCitation})
 	assertContains(t, cited,
 		"[twelve towns][1]",
 		"[full forecast][2]",
@@ -319,7 +319,7 @@ func TestExtractLinkStyles(t *testing.T) {
 		FinalURL:    "https://a.example.com/",
 		ContentType: "text/html",
 		Body:        []byte(`<body><main><p><a href="/x">one</a> <a href="/y">two</a> <a href="/x">again</a></p></main></body>`),
-	}, websearch.TextOptions{Verbosity: VerbosityFull, LinkStyle: LinkStyleCitation}).Text
+	}, websearch.TextOptions{Verbosity: websearch.VerbosityFull, LinkStyle: websearch.LinkStyleCitation}).Text
 	want := "[one][1] [two][2] [again][1]\n\n[1]: https://a.example.com/x\n[2]: https://a.example.com/y"
 	if repeated != want {
 		t.Errorf("citation text = %q, want %q", repeated, want)
@@ -330,24 +330,10 @@ func TestExtractBaseHrefAndCharset(t *testing.T) {
 	// "café" in windows-1252, with a <base> that relative links resolve against.
 	body := []byte("<html><head><base href=\"https://cdn.example.com/docs/\"></head><body><main><p>caf\xe9 <a href=\"intro\">intro</a></p></main></body></html>")
 	page := extractPage(t, &RawPage{FinalURL: "https://www.example.com/x", ContentType: "text/html; charset=windows-1252", Body: body},
-		websearch.TextOptions{Verbosity: VerbosityStandard})
+		websearch.TextOptions{Verbosity: websearch.VerbosityStandard})
 	assertContains(t, page.Text, "café", "[intro](https://cdn.example.com/docs/intro)")
 	if page.Favicon != "https://www.example.com/favicon.ico" {
 		t.Errorf("Favicon = %q, want it derived from the page URL", page.Favicon)
-	}
-}
-
-func TestExtractInvalidOptions(t *testing.T) {
-	for _, opts := range []websearch.TextOptions{
-		{Verbosity: "verbose"},
-		{LinkStyle: "footnote"},
-		{IncludeSections: []string{"main"}},
-		{ExcludeSections: []string{"ads"}},
-	} {
-		page := extractFixture(t, "extract_article.html", extractArticleURL)
-		if _, err := NewExtractor(nil).Extract(context.Background(), page, opts); err == nil {
-			t.Errorf("opts %+v: want error", opts)
-		}
 	}
 }
 
@@ -405,11 +391,9 @@ func TestExtractDocumentErrors(t *testing.T) {
 	documents.EXPECT().Extract(gomock.Any(), gomock.Any()).Return("", failure)
 
 	page := &RawPage{FinalURL: "https://x.example.com/a.pdf", ContentType: "application/pdf", Body: []byte("%PDF-")}
-	if _, err := NewExtractor(documents).Extract(context.Background(), page, websearch.TextOptions{}); !errors.Is(err, failure) {
-		t.Errorf("err = %v, want the extractor error", err)
-	}
-	if _, err := NewExtractor(nil).Extract(context.Background(), page, websearch.TextOptions{}); err == nil {
-		t.Error("want an error when document extraction is not configured")
+	_, err := NewExtractor(documents).Extract(context.Background(), page, websearch.TextOptions{})
+	if !errors.Is(err, failure) || errors.Is(err, ErrUnsupportedDocument) {
+		t.Errorf("err = %v, want the document service error, not a page failure", err)
 	}
 }
 
@@ -433,7 +417,7 @@ func TestExtractUnsupported(t *testing.T) {
 
 func TestExtractMalformedContentTypeParameter(t *testing.T) {
 	page := extractPage(t, &RawPage{FinalURL: "https://x.example.com/", ContentType: "text/html; charset", Body: []byte("<main><p>hello</p></main>")},
-		websearch.TextOptions{Verbosity: VerbosityStandard})
+		websearch.TextOptions{Verbosity: websearch.VerbosityStandard})
 	if page.Text != "hello" {
 		t.Errorf("Text = %q", page.Text)
 	}

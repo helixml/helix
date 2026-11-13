@@ -36,11 +36,17 @@ type Proxy struct {
 	forwarder *httputil.ReverseProxy
 }
 
-// NewProxy returns a Proxy that admits only requests carrying
-// Proxy-Authorization: Basic username:password.
-func NewProxy(policy Policy, username, password string) (*Proxy, error) {
-	if username == "" || password == "" {
-		return nil, errors.New("egress proxy requires a username and password")
+// NewProxy returns a Proxy that admits only requests carrying its
+// Credentials, generated per process so nothing else on the network can use
+// it.
+func NewProxy(policy Policy) (*Proxy, error) {
+	username, err := randomCredential()
+	if err != nil {
+		return nil, err
+	}
+	password, err := randomCredential()
+	if err != nil {
+		return nil, err
 	}
 	transport := &http.Transport{
 		DialContext:           policy.DialContext,
@@ -59,9 +65,12 @@ func NewProxy(policy Policy, username, password string) (*Proxy, error) {
 	return p, nil
 }
 
-// RandomCredential returns a random token for use as a Proxy username or
-// password.
-func RandomCredential() (string, error) {
+// Credentials are the Basic auth username and password clients must send.
+func (p *Proxy) Credentials() (username, password string) {
+	return p.username, p.password
+}
+
+func randomCredential() (string, error) {
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate proxy credential: %w", err)

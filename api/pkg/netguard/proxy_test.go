@@ -16,10 +16,11 @@ import (
 
 func startProxy(t *testing.T, policy Policy) *url.URL {
 	t.Helper()
-	p, err := NewProxy(policy, "user", "secret")
+	p, err := NewProxy(policy)
 	if err != nil {
 		t.Fatal(err)
 	}
+	p.username, p.password = "user", "secret"
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -48,12 +49,19 @@ func withCreds(u *url.URL, user, pass string) *url.URL {
 	return &c
 }
 
-func TestNewProxyRequiresCredentials(t *testing.T) {
-	if _, err := NewProxy(Policy{}, "", "x"); err == nil {
-		t.Fatal("NewProxy with empty username succeeded")
+func TestNewProxyGeneratesDistinctCredentials(t *testing.T) {
+	a, err := NewProxy(Policy{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := NewProxy(Policy{}, "x", ""); err == nil {
-		t.Fatal("NewProxy with empty password succeeded")
+	b, err := NewProxy(Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	au, ap := a.Credentials()
+	bu, _ := b.Credentials()
+	if len(au) < 32 || len(ap) < 32 || au == ap || au == bu {
+		t.Fatalf("weak or repeated credentials: %q %q %q", au, ap, bu)
 	}
 }
 

@@ -80,7 +80,7 @@ func (l *UserLocation) UnmarshalJSON(b []byte) error {
 type ContentsOptions struct {
 	Text             *TextOption       `json:"text,omitempty"`
 	Highlights       *HighlightsOption `json:"highlights,omitempty"`
-	Summary          *SummaryOptions   `json:"summary,omitempty"`
+	Summary          *SummaryOption    `json:"summary,omitempty"`
 	Extras           *ExtrasOptions    `json:"extras,omitempty"`
 	Livecrawl        string            `json:"livecrawl,omitempty"`
 	LivecrawlTimeout int               `json:"livecrawlTimeout,omitempty"`
@@ -101,8 +101,8 @@ type TextOption struct {
 type TextOptions struct {
 	MaxCharacters   int      `json:"maxCharacters,omitempty"`
 	IncludeHTMLTags bool     `json:"includeHtmlTags,omitempty"`
-	LinkStyle       string   `json:"linkStyle,omitempty"` // "full" | "citation"
-	Verbosity       string   `json:"verbosity,omitempty"` // "compact" | "standard" | "full"
+	LinkStyle       string   `json:"linkStyle,omitempty"` // LinkStyle*
+	Verbosity       string   `json:"verbosity,omitempty"` // Verbosity*
 	IncludeSections []string `json:"includeSections,omitempty"`
 	ExcludeSections []string `json:"excludeSections,omitempty"`
 }
@@ -114,6 +114,9 @@ func (o *TextOption) UnmarshalJSON(b []byte) error {
 func (o TextOption) MarshalJSON() ([]byte, error) {
 	return marshalBoolOrObject(o.Enabled, o.TextOptions)
 }
+
+// Requested reports whether text is asked for: set and not `false`.
+func (o *TextOption) Requested() bool { return o != nil && o.Enabled }
 
 // HighlightsOption is `true` or a HighlightsOptions object.
 type HighlightsOption struct {
@@ -138,6 +141,9 @@ func (o HighlightsOption) MarshalJSON() ([]byte, error) {
 	return marshalBoolOrObject(o.Enabled, o.HighlightsOptions)
 }
 
+// Requested reports whether highlights are asked for: set and not `false`.
+func (o *HighlightsOption) Requested() bool { return o != nil && o.Enabled }
+
 // ContextOption is `true` or {maxCharacters}. Deprecated upstream.
 type ContextOption struct {
 	Enabled bool
@@ -155,6 +161,26 @@ func (o *ContextOption) UnmarshalJSON(b []byte) error {
 func (o ContextOption) MarshalJSON() ([]byte, error) {
 	return marshalBoolOrObject(o.Enabled, o.ContextOptions)
 }
+
+// Requested reports whether context is asked for: set and not `false`.
+func (o *ContextOption) Requested() bool { return o != nil && o.Enabled }
+
+// SummaryOption is `true` or a SummaryOptions object.
+type SummaryOption struct {
+	Enabled bool
+	SummaryOptions
+}
+
+func (o *SummaryOption) UnmarshalJSON(b []byte) error {
+	return unmarshalBoolOrObject(b, &o.Enabled, &o.SummaryOptions)
+}
+
+func (o SummaryOption) MarshalJSON() ([]byte, error) {
+	return marshalBoolOrObject(o.Enabled, o.SummaryOptions)
+}
+
+// Requested reports whether a summary is asked for: set and not `false`.
+func (o *SummaryOption) Requested() bool { return o != nil && o.Enabled }
 
 type SummaryOptions struct {
 	Query  string          `json:"query,omitempty"`
@@ -251,6 +277,9 @@ type Result struct {
 	Subpages        []Result   `json:"subpages,omitempty"`
 	Extras          *Extras    `json:"extras,omitempty"`
 	Score           *float64   `json:"score,omitempty"` // findSimilar only
+	// Entities are Exa's structured company/person records; only the exa
+	// provider returns them.
+	Entities []json.RawMessage `json:"entities,omitempty"`
 }
 
 type Extras struct {
@@ -275,10 +304,35 @@ type Warning struct {
 const (
 	WarningIgnoredField      = "IGNORED_FIELD"
 	WarningApproximatedField = "APPROXIMATED_FIELD"
+	// WarningPartialResults: some queries, pages or engines failed and the
+	// results are what the rest returned.
+	WarningPartialResults = "PARTIAL_RESULTS"
 )
 
+// Notice is model-facing context about the results (exa provider only).
+type Notice struct {
+	Code    string          `json:"code"`
+	Path    string          `json:"path,omitempty"`
+	Message string          `json:"message"`
+	Details json.RawMessage `json:"details,omitempty"`
+}
+
 type CostDollars struct {
-	Total float64 `json:"total"`
+	Total    float64       `json:"total"`
+	Search   *SearchCost   `json:"search,omitempty"`
+	Contents *ContentsCost `json:"contents,omitempty"`
+	Summary  *float64      `json:"summary,omitempty"`
+}
+
+type SearchCost struct {
+	Neural  *float64 `json:"neural,omitempty"`
+	Keyword *float64 `json:"keyword,omitempty"`
+}
+
+type ContentsCost struct {
+	Text       *float64 `json:"text,omitempty"`
+	Highlights *float64 `json:"highlights,omitempty"`
+	Summary    *float64 `json:"summary,omitempty"`
 }
 
 type SearchResponse struct {
@@ -287,6 +341,7 @@ type SearchResponse struct {
 	ResolvedSearchType string        `json:"resolvedSearchType,omitempty"`
 	SearchTime         float64       `json:"searchTime"`
 	Warnings           []Warning     `json:"warnings,omitempty"`
+	Notices            []Notice      `json:"notices,omitempty"`
 	Context            string        `json:"context,omitempty"`
 	Output             *SearchOutput `json:"output,omitempty"`
 	CostDollars        *CostDollars  `json:"costDollars,omitempty"`
@@ -315,6 +370,7 @@ type ContentsResponse struct {
 	Results     []Result        `json:"results"`
 	Statuses    []ContentStatus `json:"statuses"`
 	SearchTime  float64         `json:"searchTime"`
+	Warnings    []Warning       `json:"warnings,omitempty"`
 	Context     string          `json:"context,omitempty"`
 	CostDollars *CostDollars    `json:"costDollars,omitempty"`
 }
@@ -354,6 +410,7 @@ type FindSimilarResponse struct {
 	RequestID   string       `json:"requestId"`
 	Results     []Result     `json:"results"`
 	SearchTime  float64      `json:"searchTime"`
+	Warnings    []Warning    `json:"warnings,omitempty"`
 	Context     string       `json:"context,omitempty"`
 	CostDollars *CostDollars `json:"costDollars,omitempty"`
 }

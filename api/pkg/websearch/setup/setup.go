@@ -4,8 +4,6 @@
 package setup
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -61,20 +59,11 @@ func NewProvider(cfg config.WebSearch, deps Deps) (*Result, error) {
 func newNative(cfg config.WebSearch, deps Deps) (*Result, error) {
 	policy := netguard.Policy{AllowPrivate: cfg.AllowPrivateNetworks}
 
-	// Chrome authenticates to the in-process egress proxy with credentials
-	// generated per process, so nothing else on the network can use it.
-	username, err := randomToken()
-	if err != nil {
-		return nil, err
-	}
-	password, err := randomToken()
-	if err != nil {
-		return nil, err
-	}
-	proxy, err := netguard.NewProxy(policy, username, password)
+	proxy, err := netguard.NewProxy(policy)
 	if err != nil {
 		return nil, fmt.Errorf("web search egress proxy: %w", err)
 	}
+	username, password := proxy.Credentials()
 
 	fetcher, err := native.NewFetcher(native.FetcherOptions{
 		Policy:        policy,
@@ -126,12 +115,4 @@ func llmModels(cfg config.WebSearch) map[native.Tier]string {
 		}
 	}
 	return models
-}
-
-func randomToken() (string, error) {
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate egress proxy credentials: %w", err)
-	}
-	return hex.EncodeToString(b), nil
 }

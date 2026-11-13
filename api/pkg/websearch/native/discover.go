@@ -96,25 +96,20 @@ func (d *SearXNGDiscoverer) Discover(ctx context.Context, req *DiscoverRequest) 
 	warnings := plan.warnings
 	ranked := make([][]Candidate, len(req.Queries))
 	var failed []error
+	unresponsive := map[string]string{} // engine → reason
 	for i, err := range errs {
-		path := "query"
-		if i > 0 {
-			path = fmt.Sprintf("additionalQueries[%d]", i-1)
-		}
+		path := queryPath(i)
 		if err != nil {
 			failed = append(failed, fmt.Errorf("%s: %w", path, err))
-			warnings = append(warnings, websearch.Warning{
-				Code: websearch.WarningApproximatedField, Path: path,
-				Message: "this query failed and its results are missing: " + err.Error(),
-			})
+			warnings = append(warnings, partialResults(path, "this query failed and its results are missing: "+err.Error()))
 			continue
 		}
 		ranked[i] = runs[i].candidates
 		if runs[i].pageErr != nil {
-			warnings = append(warnings, websearch.Warning{
-				Code: websearch.WarningApproximatedField, Path: "numResults",
-				Message: fmt.Sprintf("%s: stopped paging early: %v", path, runs[i].pageErr),
-			})
+			warnings = append(warnings, partialResults(path, fmt.Sprintf("stopped paging early: %v", runs[i].pageErr)))
+		}
+		for _, e := range runs[i].unresponsive {
+			unresponsive[e.Name] = e.Reason
 		}
 	}
 	if len(failed) == len(req.Queries) {
@@ -123,12 +118,38 @@ func (d *SearXNGDiscoverer) Discover(ctx context.Context, req *DiscoverRequest) 
 			Message: "search engines unavailable: " + errors.Join(failed...).Error(),
 		}
 	}
+	if len(unresponsive) > 0 {
+		warnings = append(warnings, unresponsiveWarning(unresponsive))
+	}
 
 	candidates := mergeRanked(ranked, req.NumResults)
 	if w, ok := plan.filter.undatedWarning(candidates); ok {
 		warnings = append(warnings, w)
 	}
 	return &DiscoverResult{Candidates: candidates, Warnings: warnings}, nil
+}
+
+// queryPath is the request path of the i-th query: the user's query, then
+// additionalQueries and LLM expansions, which are reported alike.
+func queryPath(i int) string {
+	if i == 0 {
+		return "query"
+	}
+	return fmt.Sprintf("additionalQueries[%d]", i-1)
+}
+
+// unresponsiveWarning lists the engines that failed while others answered.
+func unresponsiveWarning(engines map[string]string) websearch.Warning {
+	names := make([]string, 0, len(engines))
+	for name := range engines {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, len(names))
+	for i, name := range names {
+		parts[i] = fmt.Sprintf("%s (%s)", name, engines[name])
+	}
+	return partialResults("", "results are from the other engines; these did not respond: "+strings.Join(parts, ", "))
 }
 
 func (d *SearXNGDiscoverer) plan(req *DiscoverRequest) (*discoverPlan, error) {
@@ -170,14 +191,17 @@ func (d *SearXNGDiscoverer) plan(req *DiscoverRequest) (*discoverPlan, error) {
 		plan.base.TimeRange = timeRangeSince(d.now().Sub(*req.StartPublishedDate))
 	}
 
+	// Without a known country the query's own language is searched in;
+	// SearXNG's default mixes every language in, and keyword engines then
+	// return pages in unrelated languages.
+	plan.base.Language = searxng.LanguageAuto
 	if req.Country != "" {
-		lang, ok := countryLanguages[strings.ToUpper(req.Country)]
-		if ok {
+		if lang, ok := countryLanguages[strings.ToUpper(req.Country)]; ok {
 			plan.base.Language = lang
 		} else {
 			plan.warnings = append(plan.warnings, websearch.Warning{
 				Code: websearch.WarningIgnoredField, Path: "userLocation.country",
-				Message: fmt.Sprintf("no search locale for country %q; searching without one", req.Country),
+				Message: fmt.Sprintf("no search locale for country %q; searching in the query's language", req.Country),
 			})
 		}
 	}
@@ -206,8 +230,9 @@ func timeRangeSince(age time.Duration) string {
 }
 
 type queryRun struct {
-	candidates []Candidate // filtered, deduplicated, in SearXNG rank order
-	pageErr    error       // a later page failed; candidates are from earlier pages
+	candidates   []Candidate // filtered, deduplicated, in SearXNG rank order
+	pageErr      error       // a later page failed; candidates are from earlier pages
+	unresponsive []searxng.UnresponsiveEngine
 }
 
 // runQuery pages through SearXNG until numResults candidates survive the
@@ -229,6 +254,7 @@ func (d *SearXNGDiscoverer) runQuery(ctx context.Context, plan *discoverPlan, q 
 			run.pageErr = fmt.Errorf("page %d: %w", page, err)
 			break
 		}
+		run.unresponsive = append(run.unresponsive, resp.UnresponsiveEngines...)
 		added := 0
 		for _, r := range resp.Results {
 			norm, err := websearch.NormalizeURL(r.URL)

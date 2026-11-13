@@ -3791,24 +3791,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - gitlab
-    - cron
     - github
-    - slack
     - helix_events
     - webhook
-    - local
+    - cron
+    - slack
+    - gitlab
     - email
+    - local
     type: string
     x-enum-varnames:
-    - KindGitLab
-    - KindCron
     - KindGitHub
-    - KindSlack
     - KindHelixEvents
     - KindWebhook
-    - KindLocal
+    - KindCron
+    - KindSlack
+    - KindGitLab
     - KindEmail
+    - KindLocal
   transport.ResolvedActivation:
     properties:
       address:
@@ -4391,17 +4391,7 @@ definitions:
     type: object
   types.AssistantBrowser:
     properties:
-      cache:
-        description: If true, the browser will cache the results of the tool call
-        type: boolean
       enabled:
-        type: boolean
-      markdown_post_processing:
-        description: If true, the browser will return the HTML as markdown
-        type: boolean
-      no_browser:
-        description: If true, the browser will not be used to open URLs, it will be
-          a simple GET request
         type: boolean
       process_output:
         description: If true, the browser will process the output of the tool call
@@ -13778,17 +13768,7 @@ definitions:
     type: object
   types.ToolBrowserConfig:
     properties:
-      cache:
-        description: If true, the browser will cache the results of the tool call
-        type: boolean
       enabled:
-        type: boolean
-      markdown_post_processing:
-        description: If true, the browser will return the HTML as markdown
-        type: boolean
-      no_browser:
-        description: If true, the browser will not be used to open URLs, it will be
-          a simple GET request
         type: boolean
       process_output:
         description: If true, the browser will process the output of the tool call
@@ -15281,6 +15261,15 @@ definitions:
         description: success | error
         type: string
     type: object
+  websearch.ContentsCost:
+    properties:
+      highlights:
+        type: number
+      summary:
+        type: number
+      text:
+        type: number
+    type: object
   websearch.ContentsOptions:
     properties:
       context:
@@ -15306,7 +15295,7 @@ definitions:
       subpages:
         type: integer
       summary:
-        $ref: '#/definitions/websearch.SummaryOptions'
+        $ref: '#/definitions/websearch.SummaryOption'
       text:
         $ref: '#/definitions/websearch.TextOption'
     type: object
@@ -15341,7 +15330,7 @@ definitions:
       subpages:
         type: integer
       summary:
-        $ref: '#/definitions/websearch.SummaryOptions'
+        $ref: '#/definitions/websearch.SummaryOption'
       text:
         $ref: '#/definitions/websearch.TextOption'
       urls:
@@ -15369,6 +15358,10 @@ definitions:
         items:
           $ref: '#/definitions/websearch.ContentStatus'
         type: array
+      warnings:
+        items:
+          $ref: '#/definitions/websearch.Warning'
+        type: array
     type: object
   websearch.ContextOption:
     properties:
@@ -15379,6 +15372,12 @@ definitions:
     type: object
   websearch.CostDollars:
     properties:
+      contents:
+        $ref: '#/definitions/websearch.ContentsCost'
+      search:
+        $ref: '#/definitions/websearch.SearchCost'
+      summary:
+        type: number
       total:
         type: number
     type: object
@@ -15474,6 +15473,10 @@ definitions:
         type: array
       searchTime:
         type: number
+      warnings:
+        items:
+          $ref: '#/definitions/websearch.Warning'
+        type: array
     type: object
   websearch.Grounding:
     properties:
@@ -15515,10 +15518,32 @@ definitions:
       url:
         type: string
     type: object
+  websearch.Notice:
+    properties:
+      code:
+        type: string
+      details:
+        items:
+          type: integer
+        type: array
+      message:
+        type: string
+      path:
+        type: string
+    type: object
   websearch.Result:
     properties:
       author:
         type: string
+      entities:
+        description: |-
+          Entities are Exa's structured company/person records; only the exa
+          provider returns them.
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
       extras:
         $ref: '#/definitions/websearch.Extras'
       favicon:
@@ -15553,6 +15578,13 @@ definitions:
         type: string
       url:
         type: string
+    type: object
+  websearch.SearchCost:
+    properties:
+      keyword:
+        type: number
+      neural:
+        type: number
     type: object
   websearch.SearchOutput:
     properties:
@@ -15629,6 +15661,10 @@ definitions:
         type: string
       costDollars:
         $ref: '#/definitions/websearch.CostDollars'
+      notices:
+        items:
+          $ref: '#/definitions/websearch.Notice'
+        type: array
       output:
         $ref: '#/definitions/websearch.SearchOutput'
       requestId:
@@ -15646,8 +15682,10 @@ definitions:
           $ref: '#/definitions/websearch.Warning'
         type: array
     type: object
-  websearch.SummaryOptions:
+  websearch.SummaryOption:
     properties:
+      enabled:
+        type: boolean
       query:
         type: string
       schema:
@@ -15670,12 +15708,12 @@ definitions:
           type: string
         type: array
       linkStyle:
-        description: '"full" | "citation"'
+        description: LinkStyle*
         type: string
       maxCharacters:
         type: integer
       verbosity:
-        description: '"compact" | "standard" | "full"'
+        description: Verbosity*
         type: string
     type: object
   websearch.UserLocation:

@@ -166,20 +166,13 @@ func (p *Provider) post(ctx context.Context, path string, body any) (*http.Respo
 	return nil, decodeError(resp)
 }
 
-// errorEnvelope is Exa's {requestId, error, tag} error body.
-type errorEnvelope struct {
-	RequestID string `json:"requestId"`
-	Error     string `json:"error"`
-	Tag       string `json:"tag"`
-}
-
 func decodeError(resp *http.Response) *websearch.Error {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 	if err != nil {
 		return &websearch.Error{Status: resp.StatusCode, Tag: websearch.TagUpstreamError,
 			Message: fmt.Sprintf("exa returned %d; reading body: %v", resp.StatusCode, err)}
 	}
-	var env errorEnvelope
+	var env websearch.ErrorResponse
 	if json.Unmarshal(body, &env) == nil && env.Error != "" {
 		tag := env.Tag
 		if tag == "" {
