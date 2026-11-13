@@ -913,13 +913,13 @@ steps:
 
 services:
   - name: postgres
-    image: postgres:12.13-alpine
+    image: postgres:12.22-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
   - name: chrome
-    image: ghcr.io/go-rod/rod:v0.115.0
+    image: ghcr.io/go-rod/rod:v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107
 
 volumes:
   - name: oauth-github-test-results
@@ -1146,7 +1146,7 @@ volumes:
 
 services:
   - name: chrome
-    image: ghcr.io/go-rod/rod:v0.115.0
+    image: ghcr.io/go-rod/rod:v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107
     volumes:
       - name: integration-test
         path: /integration-test

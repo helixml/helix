@@ -331,7 +331,12 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 //   - A bot instance key may only clone and fetch its own project's
 //     repositories: its sandbox reads untrusted input, and the repository is
 //     operator-authored, so pushing and every other repository are denied.
+//   - A key bound to a sandbox outside any project has no repositories of
+//     its own, so it would otherwise reach every repository of its owner.
 func (s *GitHTTPServer) keyTypeAllowsGit(r *http.Request, key *types.ApiKey) bool {
+	if key.ProjectID == "" && system.IsSandboxID(key.SessionID) {
+		return false
+	}
 	switch key.Type {
 	case types.APIkeytypeEmbed:
 		return false

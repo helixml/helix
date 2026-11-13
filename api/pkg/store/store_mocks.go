@@ -6908,6 +6908,20 @@ func (mr *MockStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
 }
 
+// RevokeUserAPIKeys mocks base method.
+func (m *MockStore) RevokeUserAPIKeys(ctx context.Context, userID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeUserAPIKeys", ctx, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeUserAPIKeys indicates an expected call of RevokeUserAPIKeys.
+func (mr *MockStoreMockRecorder) RevokeUserAPIKeys(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeUserAPIKeys", reflect.TypeOf((*MockStore)(nil).RevokeUserAPIKeys), ctx, userID)
+}
+
 // RotateOrganizationInvitationToken mocks base method.
 func (m *MockStore) RotateOrganizationInvitationToken(ctx context.Context, id string) (*types.OrganizationInvitation, error) {
 	m.ctrl.T.Helper()

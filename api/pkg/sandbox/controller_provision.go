@@ -128,14 +128,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		}
 	}
 
-	envMap := map[string]string{}
-	if len(sandbox.Env) > 0 {
-		_ = json.Unmarshal(sandbox.Env, &envMap)
-	}
-	if envMap == nil {
-		// JSON `null` unmarshals into a nil map; re-init so writes succeed.
-		envMap = map[string]string{}
-	}
+	envMap := creatorEnv(sandbox.Env)
 	envMap["HELIX_DISABLE_AGENT"] = "1"
 	// Web-service sandboxes host a docker-compose app, not a GUI — skip booting
 	// GNOME + the video-streaming stack (desktop-bridge, settings-sync). Only
@@ -279,6 +272,27 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		log.Warn().Err(err).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to persist sandbox status; deleting provisioned container")
 		rollbackOnFailure("status")
 	}
+}
+
+// creatorEnv returns the environment the sandbox's creator supplied, minus
+// every HELIX_* variable: those carry the platform's identity and wiring for
+// the container (HELIX_SESSION_ID, HELIX_API_URL, ...), and only the
+// provisioner may set them.
+func creatorEnv(raw []byte) map[string]string {
+	env := map[string]string{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &env)
+	}
+	if env == nil {
+		// JSON `null` unmarshals into a nil map; re-init so writes succeed.
+		env = map[string]string{}
+	}
+	for key := range env {
+		if strings.HasPrefix(strings.ToUpper(key), "HELIX_") {
+			delete(env, key)
+		}
+	}
+	return env
 }
 
 // buildMounts assembles the host-side bind/volume mounts for a sandbox.
@@ -580,7 +594,10 @@ func resolveImage(host *types.SandboxInstance, imageName, versionKey string) (st
 // existing GORM filters Just Work — sandbox IDs are globally unique and don't
 // collide with real session IDs. The token grants the desktop-bridge enough
 // auth to register a RevDial connection back to the API; it's revoked when
-// the sandbox is deleted.
+// the sandbox is deleted. The key never carries the owner's full authority:
+// in a project it is confined to the project, and outside one the API auth
+// middleware confines it by route to the sandbox's own needs
+// (server.sandboxKeyAllows) and git refuses it.
 func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.Sandbox) (string, error) {
 	existing, err := c.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: sandbox.OrganizationID,

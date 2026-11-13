@@ -988,7 +988,9 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 		if token, source := getRequestTokenWithSource(r); token != "" && source != "cookie" {
 			user, err := s.authMiddleware.getUserFromToken(ctx, token)
 			if err == nil && hasUser(user) {
-				if isDelegatedAPIKey(user.APIKeyType) {
+				// A sandbox key is held by code in the container, not by its
+				// owner: like a delegated key it gets the owner's id only.
+				if isDelegatedAPIKey(user.APIKeyType) || sandboxSessionKeyID(user) != "" {
 					writeResponse(w, delegatedKeyUserResponse(user), http.StatusOK)
 					return
 				}

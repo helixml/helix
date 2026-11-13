@@ -444,6 +444,7 @@ type Store interface {
 	// complete now, and off the waitlist.
 	MarkUserOnboarded(ctx context.Context, id string) error
 	DeleteUser(ctx context.Context, id string) error
+	RevokeUserAPIKeys(ctx context.Context, userID string) error
 	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error)
 	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
 	CountUsers(ctx context.Context) (int64, error)
