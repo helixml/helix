@@ -46,13 +46,13 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 	// Get source task
 	sourceTask, err := s.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Source task not found: %v", err), http.StatusNotFound)
+		http.Error(w, "Source task not found", http.StatusNotFound)
 		return
 	}
 	// Cloning copies the source task's prompt and specs, so the caller must
 	// be able to read it.
 	if err := s.authorizeUserToProjectByID(ctx, user, sourceTask.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, "not authorized to access the source task", http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, sourceTask) {
@@ -359,7 +359,7 @@ func (s *HelixAPIServer) listCloneGroups(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, "not authorized to access this task", http.StatusForbidden)
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 

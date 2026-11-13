@@ -160,6 +160,9 @@ func (t *UpdateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 	var updatedFields []string
 
 	if name, ok := args["name"].(string); ok && name != "" {
+		if err := types.ValidateSpecTaskName(name); err != nil {
+			return "", err
+		}
 		task.Name = name
 		updatedFields = append(updatedFields, "name")
 	}

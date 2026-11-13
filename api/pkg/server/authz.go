@@ -320,8 +320,8 @@ func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, use
 			return nil
 		}
 
-		// Otherwise the user is not allowed to access the app
-		return fmt.Errorf("user is not the owner of the app")
+		// Otherwise the user is not allowed to access the project
+		return errNotProjectOwner
 	}
 
 	// If organization ID is set, authorize the user against the organization
@@ -347,6 +347,34 @@ func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, use
 	return apiServer.authorizeUserToResource(ctx, user, project.OrganizationID, project.ID, types.ResourceProject, action)
 }
 
+// errNotProjectOwner refuses a personal (org-less) project to anyone but its
+// owner.
+var errNotProjectOwner = errors.New("user is not the owner of the project")
+
+// isOutsideTenant reports whether an authorization error means the caller is
+// outside the resource's tenant: not a member of its organization, holding a
+// key scoped to another organization or project, or not the owner of a
+// personal resource. Such callers get the same 404 as for a resource that
+// does not exist, so a status code cannot reveal that another tenant's ID is
+// real. Members refused by role or grant are inside the tenant and get 403.
+func isOutsideTenant(err error) bool {
+	return errors.Is(err, store.ErrNotFound) || errors.Is(err, orgstore.ErrKeyOrgScope) ||
+		errors.Is(err, errProjectScopedKey) || errors.Is(err, errNotProjectOwner) ||
+		errors.Is(err, errNotRepositoryOwner)
+}
+
+// writeSpecTaskAuthzError answers a failed project authorization for a spec
+// task the caller addressed by ID: 404 "task not found" from outside the
+// tenant (as for an unknown ID), 403 for a member without access.
+func writeSpecTaskAuthzError(w http.ResponseWriter, err error) {
+	if isOutsideTenant(err) {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+	log.Debug().Err(err).Msg("spec task access refused")
+	http.Error(w, "not authorized to access this task", http.StatusForbidden)
+}
+
 // errNotRepositoryOwner refuses a personal (org-less) repository to anyone but
 // its owner.
 var errNotRepositoryOwner = errors.New("user is not the owner of the repository")
@@ -358,8 +386,7 @@ var errNotRepositoryOwner = errors.New("user is not the owner of the repository"
 // without a grant gets 403. Neither carries the internal error text.
 func writeRepositoryAuthzError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, store.ErrNotFound), errors.Is(err, orgstore.ErrKeyOrgScope),
-		errors.Is(err, errProjectScopedKey), errors.Is(err, errNotRepositoryOwner):
+	case isOutsideTenant(err):
 		http.Error(w, "repository not found", http.StatusNotFound)
 	default:
 		log.Debug().Err(err).Msg("repository access refused")

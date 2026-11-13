@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -399,4 +400,46 @@ func TestPopulateQueueReasonsUsesProImplementationLimit(t *testing.T) {
 
 	server.populateQueueReasons(ctx, project.ID, []*types.SpecTask{queued})
 	require.Contains(t, queued.QueueReason, "limit 30")
+}
+
+func TestSpecTaskTitlesAreLengthCapped(t *testing.T) {
+	long := strings.Repeat("x", types.SpecTaskNameMaxRunes+1)
+
+	t.Run("create", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		server := &HelixAPIServer{Store: mockStore}
+		user := types.User{ID: "user1"}
+		mockStore.EXPECT().GetProject(gomock.Any(), "project1").Return(&types.Project{ID: "project1", UserID: user.ID}, nil)
+
+		body, err := json.Marshal(map[string]any{"project_id": "project1", "prompt": "x", "name": long})
+		require.NoError(t, err)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/from-prompt", bytes.NewReader(body))
+		req = req.WithContext(setRequestUser(req.Context(), user))
+		rec := httptest.NewRecorder()
+
+		server.createTaskFromPrompt(rec, req)
+
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Contains(t, rec.Body.String(), "at most 255 characters")
+	})
+
+	for _, field := range []string{"name", "user_short_title"} {
+		t.Run("update "+field, func(t *testing.T) {
+			// No store expectations: the request is refused before the task
+			// is loaded.
+			server := &HelixAPIServer{Store: store.NewMockStore(gomock.NewController(t))}
+			body, err := json.Marshal(map[string]any{field: long})
+			require.NoError(t, err)
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/spec-tasks/task1", bytes.NewReader(body))
+			req = mux.SetURLVars(req, map[string]string{"taskId": "task1"})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user1"}))
+			rec := httptest.NewRecorder()
+
+			server.updateSpecTask(rec, req)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Contains(t, rec.Body.String(), "at most 255 characters")
+		})
+	}
 }

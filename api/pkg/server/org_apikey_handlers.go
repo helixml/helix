@@ -39,8 +39,7 @@ func (apiServer *HelixAPIServer) listOrgAPIKeys(rw http.ResponseWriter, r *http.
 
 	membership, err := apiServer.authorizeOrgMember(ctx, user, orgID)
 	if err != nil {
-		log.Err(err).Msg("error authorizing org member")
-		http.Error(rw, "Not a member of this organization: "+err.Error(), http.StatusForbidden)
+		writeOrgMemberAuthzError(rw, err)
 		return
 	}
 
@@ -58,7 +57,7 @@ func (apiServer *HelixAPIServer) listOrgAPIKeys(rw http.ResponseWriter, r *http.
 	apiKeys, err := apiServer.Store.ListAPIKeys(ctx, query)
 	if err != nil {
 		log.Err(err).Msg("error listing org API keys")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -122,8 +121,7 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 
 	_, err = apiServer.authorizeOrgMember(ctx, user, orgID)
 	if err != nil {
-		log.Err(err).Msg("error authorizing org member")
-		http.Error(rw, "Not a member of this organization: "+err.Error(), http.StatusForbidden)
+		writeOrgMemberAuthzError(rw, err)
 		return
 	}
 	// An org key is a durable credential. Minting one takes a personal key
@@ -138,7 +136,11 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Organization keys have no expiry or other options: refuse fields such
+	// as expires_at instead of silently creating a key without them.
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
@@ -151,7 +153,7 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 	keyStr, err := system.GenerateAPIKey()
 	if err != nil {
 		log.Err(err).Msg("error generating API key")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -167,7 +169,7 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 	created, err := apiServer.Store.CreateAPIKey(ctx, apiKey)
 	if err != nil {
 		log.Err(err).Msg("error creating org API key")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -195,8 +197,7 @@ func (apiServer *HelixAPIServer) deleteOrgAPIKey(rw http.ResponseWriter, r *http
 
 	membership, err := apiServer.authorizeOrgMember(ctx, user, orgID)
 	if err != nil {
-		log.Err(err).Msg("error authorizing org member")
-		http.Error(rw, "Not a member of this organization: "+err.Error(), http.StatusForbidden)
+		writeOrgMemberAuthzError(rw, err)
 		return
 	}
 
@@ -207,7 +208,7 @@ func (apiServer *HelixAPIServer) deleteOrgAPIKey(rw http.ResponseWriter, r *http
 			return
 		}
 		log.Err(err).Msg("error getting API key")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -227,7 +228,7 @@ func (apiServer *HelixAPIServer) deleteOrgAPIKey(rw http.ResponseWriter, r *http
 
 	if err := apiServer.Store.DeleteAPIKey(ctx, fetchedKey.Key); err != nil {
 		log.Err(err).Msg("error deleting org API key")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
