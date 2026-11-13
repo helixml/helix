@@ -275,7 +275,7 @@ You can use the ` + "`chrome-devtools`" + ` MCP server to search the web via Duc
 
 - "Start a container" → docker-compose.yaml, NOT a Python wrapper
 - "Create sample data" → write files directly, NOT a generator script
-- "Run X at startup" → /home/retro/work/helix-specs/.helix/startup.sh (idempotent), NOT a service framework
+- "Run X at startup" → /home/retro/work/helix-specs/.helix/startup.sh (idempotent; runs once a person pushes helix-specs or saves it in Project Settings), NOT a service framework
 - If it can be a one-liner, use a one-liner
 
 ## Update Design Docs As You Go (CRITICAL)

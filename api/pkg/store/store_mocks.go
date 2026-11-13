@@ -7083,6 +7083,20 @@ func (mr *MockStoreMockRecorder) SetActiveWebServiceSandbox(ctx, projectID, sand
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActiveWebServiceSandbox", reflect.TypeOf((*MockStore)(nil).SetActiveWebServiceSandbox), ctx, projectID, sandboxID)
 }
 
+// SetGitRepositoryTrustedStartupSHA mocks base method.
+func (m *MockStore) SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetGitRepositoryTrustedStartupSHA", ctx, id, sha)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetGitRepositoryTrustedStartupSHA indicates an expected call of SetGitRepositoryTrustedStartupSHA.
+func (mr *MockStoreMockRecorder) SetGitRepositoryTrustedStartupSHA(ctx, id, sha any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGitRepositoryTrustedStartupSHA", reflect.TypeOf((*MockStore)(nil).SetGitRepositoryTrustedStartupSHA), ctx, id, sha)
+}
+
 // SetInteractionPendingQuestion mocks base method.
 func (m *MockStore) SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error) {
 	m.ctrl.T.Helper()

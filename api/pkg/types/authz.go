@@ -399,6 +399,24 @@ func (u *User) AccountAccessError() error {
 	return nil
 }
 
+// IsHumanCredential reports whether the request authenticated as a person: a
+// browser session, an OIDC token, or a personal or org API key. Agent-bound
+// keys (ApiKey.IsAgentBound), runner tokens and other system identities are
+// not human.
+func (u *User) IsHumanCredential() bool {
+	if u == nil {
+		return false
+	}
+	switch u.TokenType {
+	case TokenTypeOIDC, TokenTypeSession:
+		return true
+	case TokenTypeAPIKey:
+		key := ApiKey{Type: u.APIKeyType, SessionID: u.SessionID, ProjectID: u.ProjectID, SpecTaskID: u.SpecTaskID}
+		return u.AppID == "" && !key.IsAgentBound()
+	}
+	return false
+}
+
 type UserSearchResponse struct {
 	Users      []*User `json:"users"`
 	TotalCount int64   `json:"total_count"`

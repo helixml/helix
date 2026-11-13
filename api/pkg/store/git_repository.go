@@ -100,10 +100,24 @@ func (s *PostgresStore) UpdateGitRepository(ctx context.Context, repo *types.Git
 	}
 
 	repo.UpdatedAt = time.Now()
-	// Sync state is written concurrently by background git operations; a
-	// whole-row save from a stale copy must not overwrite it.
+	// Sync state is written concurrently by background git operations, and the
+	// trusted startup commit only by SetGitRepositoryTrustedStartupSHA; a
+	// whole-row save from a stale or request-built copy must not overwrite them.
 	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", repo.ID).
-		Omit("last_sync_at", "last_sync_error", "sync_in_progress_since").Save(repo).Error
+		Omit("last_sync_at", "last_sync_error", "sync_in_progress_since", "trusted_startup_sha").Save(repo).Error
+}
+
+// SetGitRepositoryTrustedStartupSHA records the helix-specs commit sandboxes
+// may run the startup script from.
+func (s *PostgresStore) SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+	if sha == "" {
+		return fmt.Errorf("sha not specified")
+	}
+	return s.gdb.WithContext(ctx).Model(&types.GitRepository{}).Where("id = ?", id).
+		UpdateColumn("trusted_startup_sha", sha).Error
 }
 
 // MarkGitRepositorySyncStarted records that an upstream fetch or push began.

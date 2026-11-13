@@ -136,18 +136,20 @@ func (s *ProjectRepoService) GetStartupScriptHistoryFromCodeRepo(codeRepoPath st
 // InitializeStartupScriptInCodeRepo creates the initial .helix/startup.sh file in helix-specs branch
 // This is used when a project is created and a primary repo is selected
 // userName and userEmail are required - must be the actual user's credentials for enterprise deployments
-func (s *ProjectRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath string, projectName string, startupScript string, userName string, userEmail string) error {
+// Returns the helix-specs commit it wrote, or "" when a script already existed
+// and was left alone.
+func (s *ProjectRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath string, projectName string, startupScript string, userName string, userEmail string) (string, error) {
 	if userName == "" || userEmail == "" {
-		return fmt.Errorf("userName and userEmail are required for commits")
+		return "", fmt.Errorf("userName and userEmail are required for commits")
 	}
 	if codeRepoPath == "" {
-		return fmt.Errorf("code repo path not set")
+		return "", fmt.Errorf("code repo path not set")
 	}
 
 	// Check if startup script already exists in helix-specs branch
 	existingScript, err := s.LoadStartupScriptFromHelixSpecs(codeRepoPath)
 	if err != nil {
-		return fmt.Errorf("failed to check existing startup script: %w", err)
+		return "", fmt.Errorf("failed to check existing startup script: %w", err)
 	}
 
 	// If startup script already exists and is not empty, don't overwrite
@@ -155,7 +157,7 @@ func (s *ProjectRepoService) InitializeStartupScriptInCodeRepo(codeRepoPath stri
 		log.Info().
 			Str("code_repo_path", codeRepoPath).
 			Msg("Startup script already exists in helix-specs, not overwriting")
-		return nil
+		return "", nil
 	}
 
 	// Use default startup script if none provided
@@ -178,8 +180,8 @@ echo "✅ Project startup complete"
 	}
 
 	// Save to helix-specs branch (not main) to avoid protected branch issues
-	_, err = s.SaveStartupScriptToHelixSpecs(codeRepoPath, startupScript, userName, userEmail)
-	return err
+	commitSHA, _, err := s.SaveStartupScriptToHelixSpecs(codeRepoPath, startupScript, userName, userEmail)
+	return commitSHA, err
 }
 
 // InitializeCodeRepoFromSample creates a code repository with sample code
@@ -488,15 +490,16 @@ func (s *ProjectRepoService) CloneSampleProject(ctx context.Context, project *ty
 // SaveStartupScriptToHelixSpecs saves the startup script to the helix-specs branch.
 // This avoids modifying main branch which may be protected on external repos.
 // userName and userEmail are required - must be the actual user's credentials for enterprise deployments.
-// Returns (changed bool, err error) where changed indicates if a commit was made.
+// Returns the helix-specs commit holding the script (the existing tip when the
+// script was unchanged) and whether a commit was made.
 //
 // This commits directly to the bare repo without creating a working copy (fast path).
-func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, script string, userName string, userEmail string) (bool, error) {
+func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, script string, userName string, userEmail string) (string, bool, error) {
 	if userName == "" || userEmail == "" {
-		return false, fmt.Errorf("userName and userEmail are required for commits")
+		return "", false, fmt.Errorf("userName and userEmail are required for commits")
 	}
 	if codeRepoPath == "" {
-		return false, fmt.Errorf("code repo path not set")
+		return "", false, fmt.Errorf("code repo path not set")
 	}
 
 	ctx := context.Background()
@@ -504,7 +507,7 @@ func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, 
 	// Check if helix-specs branch exists
 	branches, err := ListBranches(ctx, codeRepoPath)
 	if err != nil {
-		return false, fmt.Errorf("failed to list branches: %w", err)
+		return "", false, fmt.Errorf("failed to list branches: %w", err)
 	}
 
 	helixSpecsExists := false
@@ -519,7 +522,7 @@ func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, 
 		// Branch doesn't exist - we need to create it as orphan
 		log.Info().Str("repo_path", codeRepoPath).Msg("helix-specs branch doesn't exist, creating orphan branch")
 		if err := s.createHelixSpecsBranch(ctx, codeRepoPath, userName, userEmail); err != nil {
-			return false, fmt.Errorf("failed to create helix-specs branch: %w", err)
+			return "", false, fmt.Errorf("failed to create helix-specs branch: %w", err)
 		}
 	}
 
@@ -538,12 +541,12 @@ func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, 
 		commitMsg,
 	)
 	if err != nil {
-		return false, fmt.Errorf("failed to commit startup script: %w", err)
+		return "", false, fmt.Errorf("failed to commit startup script: %w", err)
 	}
 
 	if !changed {
 		log.Debug().Msg("Startup script unchanged in helix-specs, skipping commit")
-		return false, nil
+		return commitSHA, false, nil
 	}
 
 	log.Info().
@@ -551,7 +554,7 @@ func (s *ProjectRepoService) SaveStartupScriptToHelixSpecs(codeRepoPath string, 
 		Str("commit", ShortHash(commitSHA)).
 		Msg("Startup script saved to helix-specs branch")
 
-	return true, nil
+	return commitSHA, true, nil
 }
 
 // createHelixSpecsBranch creates an orphan helix-specs branch in the bare repo

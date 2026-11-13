@@ -1058,7 +1058,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in code repo
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.GitAuthorName(), user.GitAuthorEmail()); err != nil {
+		if err := s.initializeTrustedStartupScript(ctx, user, codeRepoID, codeRepoPath, createdProject.Name, startupScript); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	} else if req.SampleProjectID == "jupyter-financial-analysis" {
@@ -1155,7 +1155,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in primary code repo (notebooks)
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(notebooksPath, createdProject.Name, startupScript, user.GitAuthorName(), user.GitAuthorEmail()); err != nil {
+		if err := s.initializeTrustedStartupScript(ctx, user, notebooksRepoID, notebooksPath, createdProject.Name, startupScript); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	} else if req.SampleProjectID == "clone-demo-shapes" {
@@ -1268,7 +1268,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			}
 
 			// Initialize startup script
-			if scriptErr := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdShapeProject.Name, shapeSampleCode.StartupScript, user.GitAuthorName(), user.GitAuthorEmail()); scriptErr != nil {
+			if scriptErr := s.initializeTrustedStartupScript(ctx, user, codeRepo.ID, codeRepoPath, createdShapeProject.Name, shapeSampleCode.StartupScript); scriptErr != nil {
 				log.Warn().Err(scriptErr).Msg("Failed to initialize startup script in shape repo")
 			}
 
@@ -1593,7 +1593,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in code repo
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.GitAuthorName(), user.GitAuthorEmail()); err != nil {
+		if err := s.initializeTrustedStartupScript(ctx, user, codeRepoID, codeRepoPath, createdProject.Name, startupScript); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	}
