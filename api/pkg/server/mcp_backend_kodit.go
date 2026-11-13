@@ -177,6 +177,10 @@ func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 	}
 
 	handler, err := b.handlerForSession(r.Context(), sessionID, user)
+	if errors.Is(err, errNoKoditRepositories) {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("failed to resolve Kodit MCP scope")
 		http.Error(w, "failed to initialize Kodit MCP: "+err.Error(), http.StatusInternalServerError)
@@ -221,7 +225,11 @@ func (b *KoditMCPBackend) handlerForSession(ctx context.Context, sessionID strin
 		return nil, err
 	}
 
-	handler := kodit.NewScopedMCPHandler(b.koditClient, scope.idSlice)
+	handler, err := scopedKoditMCPHandler(b.koditClient, scope.idSlice)
+	if err != nil {
+		return nil, err
+	}
+	handler = koditScopeGuard(scope.repoIDs, handler)
 
 	now := time.Now()
 	b.handlersMu.Lock()
@@ -237,4 +245,19 @@ func (b *KoditMCPBackend) handlerForSession(ctx context.Context, sessionID strin
 		Msg("created session-scoped Kodit MCP handler")
 
 	return handler, nil
+}
+
+// errNoKoditRepositories is returned when a session may see no indexed
+// repositories.
+var errNoKoditRepositories = errors.New("no code-intelligence repositories are available to this session")
+
+// scopedKoditMCPHandler builds the Kodit MCP handler for a fixed set of
+// repositories. kodit.NewScopedMCPHandler treats an empty set as unscoped
+// (every repository on the instance), so an empty set is refused here
+// rather than passed on.
+func scopedKoditMCPHandler(client *kodit.Client, repoIDs []int64) (http.Handler, error) {
+	if len(repoIDs) == 0 {
+		return nil, errNoKoditRepositories
+	}
+	return kodit.NewScopedMCPHandler(client, repoIDs), nil
 }
