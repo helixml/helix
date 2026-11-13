@@ -35,7 +35,16 @@ a green `main` build. Principles:
   dump/restore: `docs/postgres-upgrade.md`).
 - Secrets the new compose needs and only this host uses, such as `CHROME_LAUNCHER_TOKEN`, are
   generated on the host into `.env`. They never pass through CI.
-- A failed health-check restores `HELIX_VERSION` and the previous compose file in place.
+- Any failure after the snapshot (pull, recreate or health-check) restores the exact previous
+  `.env` and compose file and brings the previous services back.
+- Database services (by name or PostgreSQL-family image) are never created or recreated
+  without `RECREATE_POSTGRES=true`.
+
+To deploy a tag with an opt-in from CI, restart its build with the param; the
+`prod control plane` step passes only `COMPOSE_SYNC` and `RECREATE_POSTGRES` through:
+```bash
+drone build restart --param COMPOSE_SYNC=true helixml/helix <tag build number>
+```
 
 The manual steps below remain the reference and the fallback when CI is unavailable.
 

@@ -44,6 +44,13 @@ printf '%s\n' "$*" >> "$DOCKER_CALLS"
 if [ "${1:-} ${2:-}" = "manifest inspect" ]; then
   case " ${UNPULLABLE:-} " in *" $3 "*) exit 1 ;; esac
 fi
+if [ "${1:-} ${2:-}" = "compose pull" ] && [ "${3:-}" = "${FAIL_PULL_SERVICE:-}" ]; then
+  exit 1
+fi
+if [ "${1:-} ${2:-}" = "compose up" ] && [ -n "${FAIL_UP_ONCE:-}" ] && [ ! -e "$FAIL_UP_ONCE" ]; then
+  : > "$FAIL_UP_ONCE"
+  exit 1
+fi
 if [ "${1:-}" = "pull" ] && [ "${FAIL_PULL:-false}" = "true" ]; then
   exit 1
 fi
@@ -133,7 +140,7 @@ reset_calls() {
 stack="$work/stack"
 
 # An older compose file of the shape still running on London: rod's chrome
-# image, an older searxng, a hard-coded postgres.
+# image, an older searxng, the release's vectorchord-kodit (kept last).
 # old_compose <postgres image>
 old_compose() {
   cat <<EOF
@@ -148,6 +155,8 @@ services:
     image: searxng/searxng:2025.7.24-1b4c5ab
   chrome:
     image: ghcr.io/go-rod/rod:v0.115.0
+  vectorchord-kodit:
+    image: tensorchord/vchord-suite:pg17-20250601
 EOF
 }
 
@@ -166,6 +175,22 @@ mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 compose_calls() { grep '^compose ' "$work/docker-calls" || true; }
 
 old_compose "\${HELIX_POSTGRES_IMAGE:-postgres:12.13-alpine}" > "$work/old-compose.yaml"
+converge_calls="compose pull api
+compose pull chrome
+compose pull searxng
+compose up -d --no-deps api chrome searxng"
+
+# assert_rolled_back <label> — the host holds exactly what it held before.
+assert_rolled_back() {
+  grep -q 'rolling back to 9.8.6' <<<"$out" || fail "$1: rollback not reported"
+  cmp -s "$stack/.env" "$work/env.before" || fail "$1: .env not restored byte-for-byte"
+  [ "$(mode_of "$stack/.env")" = 600 ] || fail "$1: .env lost mode 600"
+  cmp -s "$stack/docker-compose.yaml" "$work/old-compose.yaml" || fail "$1: compose file not restored"
+  [ "$(compose_calls | tail -1)" = "compose up -d --no-deps api chrome searxng" ] ||
+    fail "$1: previous services not reconverged: $(compose_calls)"
+  grep -q 'DB snapshot for manual restore if a migration was incompatible: data/helix-postgres@pre-9.8.7-' <<<"$out" ||
+    fail "$1: rollback omitted the snapshot"
+}
 
 # No drift: version-following images move, databases stay, override is kept.
 setup_stack "$repo/docker-compose.yaml"
@@ -176,9 +201,8 @@ out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true 2>&1) || fail "no-dr
 grep -q '^HELIX_VERSION="9.8.7"$' "$stack/.env" || fail "no-drift deploy did not bump HELIX_VERSION"
 grep -q 'chrome: ghcr.io/helixml/chrome:9.8.6 -> ghcr.io/helixml/chrome:9.8.7' <<<"$out" || fail "chrome pin change not printed"
 grep -q 'postgres: postgres:12.13-alpine (unchanged)' <<<"$out" || fail "postgres pin not printed"
-[ "$(grep -c '^manifest inspect ' "$work/docker-calls")" = 2 ] || fail "no-drift deploy did not check exactly the two new images"
-[ "$(compose_calls)" = "compose pull api chrome
-compose up -d --no-deps api chrome searxng" ] || fail "no-drift deploy converged the wrong services: $(compose_calls)"
+[ "$(grep -c '^manifest inspect ' "$work/docker-calls")" = 3 ] || fail "no-drift deploy did not check every image it pulls"
+[ "$(compose_calls)" = "$converge_calls" ] || fail "no-drift deploy converged the wrong services: $(compose_calls)"
 grep -q '^snapshot data/helix-postgres@pre-9.8.7-' "$work/zfs-calls" || fail "no-drift deploy took no snapshot"
 cmp -s "$stack/docker-compose.yaml" "$repo/docker-compose.yaml" || fail "no-drift deploy changed the compose file"
 [ -f "$stack/docker-compose.override.yaml" ] || fail "override file removed"
@@ -207,8 +231,7 @@ if [ -s "$work/zfs-calls" ] || [ -s "$work/docker-calls" ]; then fail "drift fai
 cmp -s "$stack/docker-compose.yaml" "$work/old-compose.yaml" || fail "drift failure changed the compose file"
 grep -q '^HELIX_VERSION="9.8.6"$' "$stack/.env" || fail "drift failure changed .env"
 
-# Drift with COMPOSE_SYNC installs the release compose file and a launcher token,
-# and starts the database service the release adds.
+# Drift with COMPOSE_SYNC installs the release compose file and a launcher token.
 setup_stack "$work/old-compose.yaml"
 printf 'CHROME_LAUNCHER_TOKEN=\n' >> "$stack/.env"
 reset_calls
@@ -225,8 +248,7 @@ token=$(sed -n 's/^CHROME_LAUNCHER_TOKEN=//p' "$stack/.env")
 if grep -qF "$token" <<<"$out" || grep -qF "$token" "$work/docker-calls" "$work/ssh-scripts"; then
   fail "launcher token leaked into output or argv"
 fi
-[ "$(compose_calls)" = "compose pull api chrome searxng vectorchord-kodit
-compose up -d --no-deps api chrome searxng vectorchord-kodit" ] || fail "COMPOSE_SYNC converged the wrong services: $(compose_calls)"
+[ "$(compose_calls)" = "$converge_calls" ] || fail "COMPOSE_SYNC converged the wrong services: $(compose_calls)"
 [ -f "$stack/docker-compose.override.yaml" ] || fail "COMPOSE_SYNC removed the override file"
 
 # An unpullable image fails before the host changes, naming the package.
@@ -240,17 +262,73 @@ grep -q 'GitHub package helixml/chrome' <<<"$out" || fail "unpullable failure do
 [ -z "$(compose_calls)" ] || fail "unpullable image: compose ran"
 grep -q '^HELIX_VERSION="9.8.6"$' "$stack/.env" || fail "unpullable image: .env changed"
 
-# A failed health-check rolls the version and the compose file back.
+# Images that keep their tag are pulled too, so they are checked too.
+setup_stack "$repo/docker-compose.yaml"
+reset_calls
+searxng_image=$(sed -n 's/^    image: \(searxng\/.*\)$/\1/p' "$repo/docker-compose.yaml")
+if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true UNPULLABLE="$searxng_image" 2>&1); then
+  fail "unpullable unchanged image did not fail the deploy"
+fi
+[ ! -s "$work/zfs-calls" ] || fail "unpullable unchanged image: snapshot taken"
+
+# Every failure after the snapshot restores .env and the compose file exactly
+# (including the generated launcher token) and reconverges the old services.
 setup_stack "$work/old-compose.yaml"
+cp -p "$stack/.env" "$work/env.before"
 reset_calls
 if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true HEALTH_CODE=502 2>&1); then
   fail "failed health-check did not fail the deploy"
 fi
-grep -q 'HEALTHCHECK FAILED - rolling back to 9.8.6' <<<"$out" || fail "rollback not reported"
-grep -q '^HELIX_VERSION="9.8.6"$' "$stack/.env" || fail "rollback did not restore HELIX_VERSION"
-cmp -s "$stack/docker-compose.yaml" "$work/old-compose.yaml" || fail "rollback did not restore the compose file"
-[ "$(compose_calls | tail -1)" = "compose up -d --no-deps api chrome searxng" ] || fail "rollback did not reconverge: $(compose_calls)"
-grep -q 'DB snapshot, if taken: data/helix-postgres@pre-9.8.7-' <<<"$out" || fail "rollback failure omitted the snapshot"
+grep -q 'HEALTHCHECK FAILED' <<<"$out" || fail "health-check failure not reported"
+assert_rolled_back "health-check failure"
+
+setup_stack "$work/old-compose.yaml"
+cp -p "$stack/.env" "$work/env.before"
+reset_calls
+if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true FAIL_PULL_SERVICE=chrome 2>&1); then
+  fail "failed chrome pull did not fail the deploy"
+fi
+[ "$(compose_calls | head -2)" = "compose pull api
+compose pull chrome" ] || fail "pull failure: unexpected compose calls: $(compose_calls)"
+[ "$(compose_calls | grep -c '^compose up')" = 1 ] || fail "pull failure: new services were started"
+assert_rolled_back "pull failure"
+
+setup_stack "$work/old-compose.yaml"
+cp -p "$stack/.env" "$work/env.before"
+reset_calls
+if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true FAIL_UP_ONCE="$work/up-failed" 2>&1); then
+  fail "failed compose up did not fail the deploy"
+fi
+rm "$work/up-failed"
+assert_rolled_back "compose up failure"
+
+# Database services are never created without RECREATE_POSTGRES, by name ...
+sed '/^  vectorchord-kodit:$/,$d' "$work/old-compose.yaml" > "$work/no-kodit-compose.yaml"
+setup_stack "$work/no-kodit-compose.yaml"
+reset_calls
+if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true 2>&1); then
+  fail "new vectorchord-kodit service created without RECREATE_POSTGRES"
+fi
+grep -q 'creation for vectorchord-kodit; re-run with RECREATE_POSTGRES=true' <<<"$out" || fail "new database refusal not explained"
+[ ! -s "$work/zfs-calls" ] || fail "new database refusal took a snapshot"
+
+# ... or by PostgreSQL-family image.
+printf '  ragdb:\n    image: pgvector/pgvector:pg16\n' > "$work/ragdb.yaml"
+sed -i '/^services:$/r '"$work/ragdb.yaml" "$src/docker-compose.yaml"
+git -C "$src" -c user.name=t -c user.email=t@example.com commit -qam ragdb
+git -C "$src" tag 9.8.8
+setup_stack "$repo/docker-compose.yaml"
+reset_calls
+if out=$(run_deploy 9.8.8 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true 2>&1); then
+  fail "new pgvector service created without RECREATE_POSTGRES"
+fi
+grep -q 'creation for ragdb;' <<<"$out" || fail "pgvector service not recognised as a database"
+setup_stack "$repo/docker-compose.yaml"
+reset_calls
+out=$(run_deploy 9.8.8 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true 2>&1) ||
+  fail "RECREATE_POSTGRES did not allow the new pgvector service: $out"
+grep -q '^compose up -d --no-deps .*ragdb' "$work/docker-calls" || fail "RECREATE_POSTGRES did not create ragdb"
+git -C "$src" checkout -q 9.8.7
 
 # A PostgreSQL major change is refused even with every opt-in.
 old_compose postgres:12.13-alpine > "$work/pg12-compose.yaml"

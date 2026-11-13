@@ -2901,7 +2901,9 @@ steps:
       - apt-get install -y -qq curl ca-certificates openssh-client git > /dev/null
       # The tag clone checks out FETCH_HEAD; deploy-prod.sh resolves the tag itself.
       - git fetch --no-tags origin "+refs/tags/$DRONE_TAG:refs/tags/$DRONE_TAG"
-      - DEPLOY_RUNNER=false scripts/deploy-prod.sh "$DRONE_TAG"
+      # Opt-ins arrive as build params (`drone build restart --param COMPOSE_SYNC=true …`,
+      # see the runbook); only these two are passed through.
+      - COMPOSE_SYNC="$${COMPOSE_SYNC:-false}" RECREATE_POSTGRES="$${RECREATE_POSTGRES:-false}" DEPLOY_RUNNER=false scripts/deploy-prod.sh "$DRONE_TAG"
 
   - name: prod runner code.helix.ml
     image: debian:bookworm-slim

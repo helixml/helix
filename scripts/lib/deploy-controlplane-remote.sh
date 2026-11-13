@@ -5,15 +5,18 @@
 #
 # Plan (read-only): diff the stack's docker-compose.yaml against the one being
 # deployed, resolve each service's image before and after, refuse unsafe
-# database changes, and confirm every new image is pullable. Only then mutate:
-# snapshot the DB, optionally install the new compose file, bump HELIX_VERSION,
-# pull, converge every non-database service, health-check, roll back on failure.
+# database changes, and confirm every image the deploy pulls is pullable. Only
+# then mutate: snapshot the DB, optionally install the new compose file, bump
+# HELIX_VERSION, pull and converge every non-database service, health-check.
+# Any failure after the snapshot restores the exact prior .env and compose file
+# and reconverges the previous services.
 #
 # Everything runs inside main() with stdin from /dev/null, so bash has read the
 # whole script before any command can consume the ssh stdin it arrives on.
 
-# Database services hold data a recreate can strand: they move only with
-# RECREATE_POSTGRES=true, and never across a PostgreSQL major.
+# Database services hold data a recreate can strand: they are created or
+# recreated only with RECREATE_POSTGRES=true, and never across a PostgreSQL
+# major. A service is a database by name, or by a PostgreSQL-family image.
 DB_SERVICES="postgres vectorchord-kodit"
 
 main() {
@@ -21,11 +24,17 @@ main() {
   : "${STACK_DIR:?}" "${VERSION:?}" "${SNAP:?}" "${HEALTH_HOST:?}" "${REPO_COMPOSE_B64:?}"
 
   die() { echo "controlplane: ERROR: $*" >&2; exit 1; }
-  is_db() { case " $DB_SERVICES " in *" $1 "*) return 0 ;; esac; return 1; }
   image_of() { awk -v s="$1" '$1 == s { print $2 }' "$2"; }
-  # An existing database service stays as it is unless RECREATE_POSTGRES=true;
-  # a database service new to the compose file starts on a fresh volume.
-  held_db() { is_db "$1" && [ "$RECREATE_POSTGRES" != "true" ] && [ -n "$(image_of "$1" "$tmp/old")" ]; }
+  is_db() {
+    local img
+    case " $DB_SERVICES " in *" $1 "*) return 0 ;; esac
+    for img in "$(image_of "$1" "$tmp/old")" "$(image_of "$1" "$tmp/new")"; do
+      img=${img##*/}
+      case "${img%%[:@]*}" in postgres | postgresql | pgvector | vchord* | vectorchord*) return 0 ;; esac
+    done
+    return 1
+  }
+  held_db() { is_db "$1" && [ "$RECREATE_POSTGRES" != "true" ]; }
 
   # "service image" lines from compose's canonical YAML. The rendered config
   # carries interpolated secrets, so it is only ever piped, never printed.
@@ -56,12 +65,33 @@ main() {
     esac
   }
 
+  # Once the snapshot is taken, every non-zero exit lands here.
+  on_exit() {
+    local status=$?
+    if [ "$applying" = "true" ] && [ "$status" -ne 0 ]; then
+      rollback
+    fi
+    rm -r "$tmp"
+    exit "$status"
+  }
+
+  rollback() {
+    set +e
+    echo "controlplane: deploy failed after the snapshot - rolling back to ${old_version:-<none>}"
+    sudo cp -p "$tmp/compose.prev" docker-compose.yaml &&
+      sudo cp -p "$tmp/env.prev" .env &&
+      echo "controlplane: restored the previous docker-compose.yaml and .env"
+    sudo docker compose up -d --no-deps "${restore[@]}"
+    echo "DB snapshot for manual restore if a migration was incompatible: $SNAP"
+  }
+
   cd "$STACK_DIR"
   [ -f docker-compose.yaml ] || die "$STACK_DIR/docker-compose.yaml not found"
   sudo grep -qE '^HELIX_VERSION=' .env || die "$STACK_DIR/.env has no HELIX_VERSION line"
 
   tmp=$(mktemp -d)
-  trap 'rm -r "$tmp"' EXIT
+  applying=false
+  trap on_exit EXIT
   printf '%s' "$REPO_COMPOSE_B64" | base64 -d > "$tmp/docker-compose.yaml"
 
   local override=()
@@ -71,7 +101,6 @@ main() {
     -f "$tmp/docker-compose.yaml" "${override[@]}" > "$tmp/new"
   if [ ! -s "$tmp/old" ] || [ ! -s "$tmp/new" ]; then die "could not resolve service images"; fi
 
-  local old_version
   old_version=$(sudo grep -E '^HELIX_VERSION=' .env | head -1 | cut -d= -f2- | tr -d '"')
   echo "controlplane: ${old_version:-<none>} -> $VERSION"
 
@@ -79,7 +108,7 @@ main() {
   sudo cmp -s docker-compose.yaml "$tmp/docker-compose.yaml" || drift=true
 
   # --- image-pin diff ---------------------------------------------------------
-  local svc old new old_major new_major changed=() db_changed=()
+  local svc old new old_major new_major db_changed=()
   echo "controlplane: image pins (current -> deploying):"
   while read -r svc; do
     old=$(image_of "$svc" "$tmp/old")
@@ -90,13 +119,14 @@ main() {
       echo "  $svc: $old -> <removed from compose; its container is left running>"
     else
       echo "  $svc: ${old:-<new service>} -> $new"
-      changed+=("$svc")
-      if is_db "$svc" && [ -n "$old" ]; then
+      if is_db "$svc"; then
         db_changed+=("$svc")
-        old_major=$(pg_major "$old")
-        new_major=$(pg_major "$new")
-        [ "$old_major" = "$new_major" ] ||
-          die "$svc would change PostgreSQL major ($old -> $new); that is a dump/restore (docs/postgres-upgrade.md), never a deploy"
+        if [ -n "$old" ]; then
+          old_major=$(pg_major "$old")
+          new_major=$(pg_major "$new")
+          [ "$old_major" = "$new_major" ] ||
+            die "$svc would change PostgreSQL major ($old -> $new); that is a dump/restore (docs/postgres-upgrade.md), never a deploy"
+        fi
       fi
     fi
   done < <(cut -d' ' -f1 "$tmp/old" "$tmp/new" | sort -u)
@@ -108,12 +138,23 @@ main() {
       die "compose drift: review the image pins above, then re-run with COMPOSE_SYNC=true to install the $VERSION compose file"
   fi
   if [ "${#db_changed[@]}" -gt 0 ] && [ "$RECREATE_POSTGRES" != "true" ]; then
-    die "database image change for ${db_changed[*]}; re-run with RECREATE_POSTGRES=true to recreate it (after the ZFS snapshot)"
+    die "database service image change or creation for ${db_changed[*]}; re-run with RECREATE_POSTGRES=true (it runs after the ZFS snapshot)"
   fi
 
-  # --- every image this deploy pulls must be pullable before anything changes --
+  # Converge every service except the held databases (compose recreates only
+  # those whose image or configuration changed); roll back to the previous set.
+  local targets=()
+  restore=()
+  while read -r svc _; do
+    held_db "$svc" || targets+=("$svc")
+  done < "$tmp/new"
+  while read -r svc _; do
+    held_db "$svc" || restore+=("$svc")
+  done < "$tmp/old"
+
+  # --- every image the deploy pulls must be pullable before anything changes ---
   local unpullable=()
-  for svc in "${changed[@]}"; do
+  for svc in "${targets[@]}"; do
     new=$(image_of "$svc" "$tmp/new")
     sudo docker manifest inspect "$new" > /dev/null 2>&1 || unpullable+=("$(describe_image "$new")")
   done
@@ -124,15 +165,20 @@ main() {
   fi
 
   # --- mutations ----------------------------------------------------------------
+  # Byte-for-byte copies (owner and mode kept) for the rollback path.
+  sudo cp -p .env "$tmp/env.prev"
+  sudo cp -p docker-compose.yaml "$tmp/compose.prev"
   # Crash-consistent DB snapshot for rollback (CHECKPOINT first to minimise WAL replay).
   sudo docker exec helix-postgres-1 psql -U postgres -c 'CHECKPOINT;' > /dev/null 2>&1 || true
   sudo zfs snapshot "$SNAP"
+  applying=true
 
-  local backup=""
   if [ "$drift" = "true" ]; then
+    local backup
     backup="docker-compose.yaml.bak-$(date +%Y%m%d-%H%M%S)"
     sudo cp -p docker-compose.yaml "$backup"
     # Writing through the existing inode keeps its owner and mode.
+    # shellcheck disable=SC2024 # the new file is ours to read; sudo is for the write
     sudo tee docker-compose.yaml < "$tmp/docker-compose.yaml" > /dev/null
     echo "controlplane: installed the $VERSION docker-compose.yaml (previous kept as $STACK_DIR/$backup)"
   fi
@@ -147,17 +193,10 @@ main() {
 
   sudo sed -i "s/^HELIX_VERSION=.*/HELIX_VERSION=\"$VERSION\"/" .env
 
-  # Converge every service except the held databases: compose recreates only
-  # those whose image or configuration changed.
-  local targets=() pulls=()
-  while read -r svc _; do
-    held_db "$svc" || targets+=("$svc")
-  done < "$tmp/new"
-  for svc in "${changed[@]}"; do
-    held_db "$svc" || pulls+=("$svc")
-  done
   echo "controlplane: converging ${targets[*]}"
-  [ "${#pulls[@]}" -eq 0 ] || sudo docker compose pull "${pulls[@]}"
+  for svc in "${targets[@]}"; do
+    sudo docker compose pull "$svc"
+  done
   sudo docker compose up -d --no-deps "${targets[@]}"
 
   local ok=0 code
@@ -167,22 +206,10 @@ main() {
     sleep 5
   done
   if [ "$ok" != "1" ]; then
-    echo "HEALTHCHECK FAILED - rolling back to ${old_version:-<none>}"
-    if [ -n "$backup" ]; then
-      sudo tee docker-compose.yaml < "$backup" > /dev/null
-      echo "restored $STACK_DIR/docker-compose.yaml from $backup"
-    fi
-    if [ -n "$old_version" ]; then
-      sudo sed -i "s/^HELIX_VERSION=.*/HELIX_VERSION=\"$old_version\"/" .env
-      local rollback=()
-      while read -r svc _; do
-        held_db "$svc" || rollback+=("$svc")
-      done < "$tmp/old"
-      sudo docker compose up -d --no-deps "${rollback[@]}" || true
-    fi
-    echo "DB snapshot for manual restore if a migration was incompatible: $SNAP"
+    echo "HEALTHCHECK FAILED"
     exit 42
   fi
+  applying=false
   echo "controlplane healthy on $VERSION"
 }
 
