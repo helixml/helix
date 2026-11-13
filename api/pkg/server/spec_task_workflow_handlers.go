@@ -48,6 +48,11 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	if err := enforceKeyTaskScope(user, specTask.ID); err != nil {
+		writeSpecTaskAuthzError(w, err)
+		return
+	}
+
 	// Get project for authorization and repo info
 	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
 	if err != nil {
@@ -956,6 +961,11 @@ func (s *HelixAPIServer) stopAgentSession(w http.ResponseWriter, r *http.Request
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := enforceKeyTaskScope(user, specTask.ID); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 

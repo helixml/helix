@@ -68,6 +68,8 @@ type ListSessionsQuery struct {
 	// caller can access.
 	RestrictToProjects bool     `json:"restrict_to_projects"`
 	ProjectIDs         []string `json:"project_ids"`
+	// SpecTaskID limits results to the sessions of one spec task.
+	SpecTaskID string `json:"spec_task_id"`
 	// AnyOwner drops the owner clause. Only valid together with a project
 	// scope the caller has been authorized for: it is how a project group
 	// shows every member's chats.

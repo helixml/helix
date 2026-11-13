@@ -426,6 +426,9 @@ func (apiServer *HelixAPIServer) authorizeUserToPromptQueue(ctx context.Context,
 		if err != nil {
 			return "", system.NewHTTPError404("spec task not found")
 		}
+		if err := enforceKeyTaskScope(user, specTask.ID); err != nil {
+			return "", system.NewHTTPError404("spec task not found")
+		}
 		project, err := apiServer.Store.GetProject(ctx, specTask.ProjectID)
 		if err != nil {
 			return "", system.NewHTTPError404("project not found")

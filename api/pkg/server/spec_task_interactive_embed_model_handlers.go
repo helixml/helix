@@ -122,8 +122,8 @@ func (s *HelixAPIServer) loadInteractiveEmbedModelTask(
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
 		return nil, nil, nil, false
 	}
-	if err := s.authorizeUserToProjectByID(r.Context(), user, task.ProjectID, action); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(r.Context(), user, task, action); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return nil, nil, nil, false
 	}
 	if task.PlanningSessionID == "" || task.PlanningSessionID != user.SessionID {

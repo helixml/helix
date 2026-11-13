@@ -145,7 +145,7 @@ func (s *HelixAPIServer) loadAttestationSubject(ctx context.Context, user *types
 		(sessionProject != "" && sessionProject != user.ProjectID) {
 		return nil, errors.New("session does not match the key")
 	}
-	subject := &attestation.Subject{SessionID: session.ID, ProjectID: user.ProjectID, Owner: user.ID}
+	subject := &attestation.Subject{SessionID: session.ID, ProjectID: user.ProjectID, Owner: user.ID, KeyConfined: user.TaskConfined}
 	if user.SpecTaskID == "" {
 		if sessionProject == "" {
 			return nil, errors.New("session is in no project")

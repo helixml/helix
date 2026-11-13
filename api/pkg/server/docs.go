@@ -14513,6 +14513,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only artifacts created by this spec task's task-confined key",
+                        "name": "spec_task_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -31726,6 +31732,10 @@ const docTemplate = `{
                     "description": "Used for isolation and metrics tracking",
                     "type": "string"
                 },
+                "task_confined": {
+                    "description": "TaskConfined confines a session key of a spec task created with\nconfine_agent_key to that task (SpecTask.ConfineAgentKey).",
+                    "type": "boolean"
+                },
                 "type": {
                     "$ref": "#/definitions/types.APIKeyType"
                 }
@@ -31768,6 +31778,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "project_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "description": "SpecTaskID is the spec task whose task-confined key created the\nartifact, set by the server from the key and never from the request.\nSuch a key may change or delete only its own task's artifacts, and a\nreader can tell one lane's artifacts from another's. Empty for\nartifacts created any other way.",
                     "type": "string"
                 },
                 "subdomain_url": {
@@ -33364,6 +33378,10 @@ const docTemplate = `{
                     "description": "Auto-start cloned tasks",
                     "type": "boolean"
                 },
+                "confine_agent_key": {
+                    "description": "ConfineAgentKey confines the clones' agent keys to their own task\n(SpecTask.ConfineAgentKey). A clone of a confined task is always confined.",
+                    "type": "boolean"
+                },
                 "create_projects": {
                     "description": "Create new projects for repos",
                     "type": "array",
@@ -34295,6 +34313,10 @@ const docTemplate = `{
                 },
                 "code_agent_config": {
                     "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
+                "confine_agent_key": {
+                    "description": "ConfineAgentKey confines the API keys minted for this task's sessions\nto the task itself (see SpecTask.ConfineAgentKey). Fixed at creation.",
+                    "type": "boolean"
                 },
                 "credential_owner_id": {
                     "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate this task's agent, for orchestrators dispatching work on a\nhuman's behalf under one service API key. Credential resolution only — the\ntask is still created by, owned by, and attributed to the caller. Resolution\nfails closed unless that user has delegated to this organization.",
@@ -35907,6 +35929,10 @@ const docTemplate = `{
                 },
                 "jti": {
                     "type": "string"
+                },
+                "key_confined": {
+                    "description": "KeyConfined: the attested key reaches only its own spec task and that\ntask's sessions (a task created with confine_agent_key).",
+                    "type": "boolean"
                 },
                 "nonce": {
                     "type": "string"
@@ -42657,6 +42683,10 @@ const docTemplate = `{
                     "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                     "type": "string"
                 },
+                "confine_agent_key": {
+                    "description": "ConfineAgentKey confines every API key minted for this task's sessions\nto this task: its sessions and the task itself, not the project's other\ntasks and sessions, and it may not create tasks. Project files, git,\nrepositories, artifacts and the LLM proxy stay reachable as for any\nproject-scoped key. Set at creation and never changed, so a key cannot\noutlive the confinement it was minted under.",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -43729,6 +43759,10 @@ const docTemplate = `{
                 "completion_requested_at": {
                     "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                     "type": "string"
+                },
+                "confine_agent_key": {
+                    "description": "ConfineAgentKey confines every API key minted for this task's sessions\nto this task: its sessions and the task itself, not the project's other\ntasks and sessions, and it may not create tasks. Project files, git,\nrepositories, artifacts and the LLM proxy stay reachable as for any\nproject-scoped key. Set at creation and never changed, so a key cannot\noutlive the confinement it was minted under.",
+                    "type": "boolean"
                 },
                 "created_at": {
                     "type": "string"
@@ -45912,6 +45946,10 @@ const docTemplate = `{
                 "spec_task_id": {
                     "description": "When running in Helix Code sandbox",
                     "type": "string"
+                },
+                "task_confined": {
+                    "description": "TaskConfined: the key reaches only its spec task (SpecTaskID) and that\ntask's sessions (ApiKey.TaskConfined).",
+                    "type": "boolean"
                 },
                 "token_type": {
                     "description": "none, runner. keycloak, api_key",

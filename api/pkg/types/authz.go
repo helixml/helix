@@ -275,6 +275,9 @@ type User struct {
 	SpecTaskID     string `json:"spec_task_id" gorm:"-"`    // When running in Helix Code sandbox
 	SessionID      string `json:"session_id" gorm:"-"`      // Session this API key is scoped to (ephemeral keys)
 	OrganizationID string `json:"organization_id" gorm:"-"` // Organization this API key is scoped to (ephemeral keys)
+	// TaskConfined: the key reaches only its spec task (SpecTaskID) and that
+	// task's sessions (ApiKey.TaskConfined).
+	TaskConfined bool `json:"task_confined,omitempty" gorm:"-"`
 	// RunnerID is the runner a per-runner token is bound to. Empty for the
 	// shared runner token and for every non-runner credential.
 	RunnerID string `json:"runner_id,omitempty" gorm:"-"`

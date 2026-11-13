@@ -55,6 +55,7 @@ type artifactUpload struct {
 // @Tags Artifacts
 // @Produce json
 // @Param id path string true "Project ID"
+// @Param spec_task_id query string false "Only artifacts created by this spec task's task-confined key"
 // @Success 200 {object} types.ArtifactsListResponse
 // @Router /api/v1/projects/{id}/artifacts [get]
 // @Security BearerAuth
@@ -64,7 +65,10 @@ func (s *HelixAPIServer) listProjectArtifacts(w http.ResponseWriter, r *http.Req
 		writeArtifactHTTPError(w, herr.StatusCode, herr.Message)
 		return
 	}
-	artifacts, err := s.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{ProjectID: project.ID})
+	artifacts, err := s.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{
+		ProjectID:  project.ID,
+		SpecTaskID: r.URL.Query().Get("spec_task_id"),
+	})
 	if err != nil {
 		writeArtifactHTTPError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -149,6 +153,7 @@ func (s *HelixAPIServer) createProjectArtifact(w http.ResponseWriter, r *http.Re
 		Name: name, Description: r.FormValue("description"), Kind: artifactKind(upload.Files),
 		Entrypoint: upload.Entrypoint, Visibility: visibility, ActiveVersionID: versionID,
 		CreatedBy: user.ID, UpdatedBy: user.ID, CreatedAt: now, UpdatedAt: now,
+		SpecTaskID: artifactKeyTaskID(user),
 	}
 	version := artifactVersionFromUpload(r, artifactID, versionID, storagePrefix, 1, user.ID, upload)
 	if err := s.Store.CreateArtifact(r.Context(), artifact, version); err != nil {
@@ -462,7 +467,38 @@ func (s *HelixAPIServer) requireArtifactAccess(w http.ResponseWriter, r *http.Re
 		writeArtifactHTTPError(w, http.StatusForbidden, err.Error())
 		return nil, false
 	}
+	if action != types.ActionGet && action != types.ActionList {
+		if err := enforceKeyArtifactTask(user, artifact); err != nil {
+			writeArtifactHTTPError(w, http.StatusForbidden, err.Error())
+			return nil, false
+		}
+	}
 	return artifact, true
+}
+
+// artifactKeyTaskID is the provenance a new artifact or version records for
+// its creator: the spec task of a task-confined key, "" for any other caller.
+func artifactKeyTaskID(user *types.User) string {
+	if user == nil || !user.TaskConfined {
+		return ""
+	}
+	return user.SpecTaskID
+}
+
+// errArtifactOtherTask refuses a task-confined key an artifact another task
+// (or a person) created.
+var errArtifactOtherTask = errors.New("a task-confined key may only change its own task's artifacts")
+
+// enforceKeyArtifactTask lets a task-confined key change or delete only the
+// artifacts its own task created; it may still read the project's others.
+func enforceKeyArtifactTask(user *types.User, artifact *types.Artifact) error {
+	if user == nil || !user.TaskConfined {
+		return nil
+	}
+	if user.SpecTaskID != "" && artifact.SpecTaskID == user.SpecTaskID {
+		return nil
+	}
+	return errArtifactOtherTask
 }
 
 func parseArtifactMultipart(w http.ResponseWriter, r *http.Request) error {
@@ -747,12 +783,19 @@ func artifactVersionFromUpload(r *http.Request, artifactID, versionID, storagePr
 		files[i] = upload.Files[i].Metadata
 		totalBytes += upload.Files[i].Metadata.Size
 	}
-	return &types.ArtifactVersion{
+	version := &types.ArtifactVersion{
 		ID: versionID, ArtifactID: artifactID, Version: versionNumber, StoragePrefix: storagePrefix,
 		Files: files, FileCount: len(files), TotalBytes: totalBytes, ContentSHA256: upload.ContentSHA256,
 		SourceSessionID: r.FormValue("source_session_id"), SourceSpecTaskID: r.FormValue("source_spec_task_id"),
 		CreatedBy: userID, CreatedAt: time.Now(),
 	}
+	// A task-confined key's version names its own task and session: the
+	// key cannot attribute its upload to another lane.
+	if user := getRequestUser(r); user != nil && user.TaskConfined {
+		version.SourceSpecTaskID = user.SpecTaskID
+		version.SourceSessionID = user.SessionID
+	}
+	return version
 }
 
 func (s *HelixAPIServer) writeArtifactUpload(r *http.Request, storagePrefix string, upload *artifactUpload) error {

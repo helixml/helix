@@ -23,6 +23,7 @@ var testSubject = Subject{
 	ProjectID:      "prj_1",
 	OrganizationID: "org_1",
 	Owner:          "usr_1",
+	KeyConfined:    true,
 }
 
 func newTestSigner(t *testing.T, now time.Time) *Signer {
@@ -46,6 +47,7 @@ func TestMintVerifyRoundTrip(t *testing.T) {
 	require.Equal(t, "prj_1", claims.ProjectID)
 	require.Equal(t, "org_1", claims.OrganizationID)
 	require.Equal(t, "usr_1", claims.Owner)
+	require.True(t, claims.KeyConfined)
 	require.Equal(t, TTL, claims.ExpiresAt.Sub(claims.IssuedAt))
 	require.Len(t, claims.JTI, 32)
 
