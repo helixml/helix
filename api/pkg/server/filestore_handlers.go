@@ -276,27 +276,38 @@ func (s *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, er
 // owner's filestore outside its project's folder.
 var errFilestoreOutsideKeyProject = errors.New("access denied: this key may only use its project's filestore folder")
 
-// keyFilestoreProjectFolder is the folder of its owner's filestore a key
-// bound to a project may use: "projects/<project id>", the layout Helix uses
-// for project data in the filestore. "" means the whole namespace.
+// keyFilestoreProjectFolders are the folders of its owner's filestore a key
+// bound to a project may use, or nil for the whole namespace:
+//
+//   - projects/<project id>: the layout Helix uses for project data;
+//   - engagements/<project id>: TEMPORARY compatibility allowance for PTaaS
+//     lanes, which write receipts, findings, notes, run metadata and
+//     collected evidence there with their session keys. Remove it once
+//     those lanes move to projects/<id>/ (tracked in helixml/helix#3611).
 //
 // The user filestore is keyed by owner, not by project, so without this a
 // key minted for one project (a spec task's or a sandbox's) reads and writes
 // the files its owner keeps for every other project. Keys with no project
 // (personal, org-scoped) keep the whole namespace. App folders (apps/<id>/)
 // are authorized separately, against the app.
-func keyFilestoreProjectFolder(user *types.User) string {
+func keyFilestoreProjectFolders(user *types.User) []string {
 	if user == nil || user.ProjectID == "" {
-		return ""
+		return nil
 	}
-	return path.Join("projects", user.ProjectID)
+	return []string{
+		path.Join("projects", user.ProjectID),
+		path.Join("engagements", user.ProjectID),
+	}
 }
 
 // enforceKeyFilestorePath checks a path relative to the caller's filestore
-// namespace against keyFilestoreProjectFolder.
+// namespace against keyFilestoreProjectFolders. The path is cleaned first,
+// so "..", repeated slashes and backslashes cannot leave the folder, and a
+// folder matches on a whole path segment ("projects/<id>-x" is not inside
+// "projects/<id>").
 func enforceKeyFilestorePath(user *types.User, relPath string) error {
-	folder := keyFilestoreProjectFolder(user)
-	if folder == "" {
+	folders := keyFilestoreProjectFolders(user)
+	if folders == nil {
 		return nil
 	}
 	cleaned, err := filestore.CleanRelativePath(relPath)
@@ -304,8 +315,10 @@ func enforceKeyFilestorePath(user *types.User, relPath string) error {
 		return err
 	}
 	cleaned = filepath.ToSlash(cleaned)
-	if cleaned == folder || strings.HasPrefix(cleaned, folder+"/") {
-		return nil
+	for _, folder := range folders {
+		if cleaned == folder || strings.HasPrefix(cleaned, folder+"/") {
+			return nil
+		}
 	}
 	return errFilestoreOutsideKeyProject
 }

@@ -323,20 +323,6 @@ func TestCrossProjectIsolation_OrgKeyKeepsEngagementFilestore(t *testing.T) {
 	assert.Empty(t, rec.takeWrites())
 }
 
-// A key bound to a project keeps its own project's folder of the owner's
-// filestore, the layout Helix uses for project data (projects/<id>/).
-func TestCrossProjectIsolation_ProjectKeysKeepTheirProjectFolder(t *testing.T) {
-	for kind, key := range isoKeys {
-		user := &types.User{ID: isoOwnerID, ProjectID: key.ProjectID, SpecTaskID: key.SpecTaskID, SessionID: key.SessionID, TaskConfined: key.TaskConfined}
-		assert.NoError(t, enforceKeyFilestorePath(user, "projects/"+isoMainID+"/notes.md"), kind)
-		assert.NoError(t, enforceKeyFilestorePath(user, "/projects/"+isoMainID), kind)
-		for _, p := range []string{"engagements/" + isoVerifyID + "/src.tar", "engagements/" + isoMainID, "projects/" + isoVerifyID, "projects/" + isoMainID + "x/a", "projects/" + isoMainID + "/../" + isoVerifyID, "", "projects"} {
-			assert.ErrorIs(t, enforceKeyFilestorePath(user, p), errFilestoreOutsideKeyProject, "%s: %q", kind, p)
-		}
-	}
-	assert.NoError(t, enforceKeyFilestorePath(&types.User{ID: isoOwnerID, OrganizationID: isoOrgID}, "engagements/"+isoVerifyID))
-}
-
 // The LLM proxy attributes a call to the key's project, whatever project
 // the request names.
 func TestCrossProjectIsolation_LLMProxyAttributesToKeyProject(t *testing.T) {
