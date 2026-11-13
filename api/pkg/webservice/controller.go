@@ -714,12 +714,15 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 // projectSecretEnv) so they reach startup.sh without being written into the
 // command line or logs.
 func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int, gitToken string) (string, error) {
+	if repo.TrustedStartupSHA == "" {
+		return "", errNoTrustedStartupCommit
+	}
 	hydraClient, err := c.sandboxes.HydraClient(sb)
 	if err != nil {
 		return "", err
 	}
 
-	script := deployScript(deployCloneURL(repo), sha, repo.DefaultBranch, repoDirName(repo), containerPort)
+	script := deployScript(deployCloneURL(repo), sha, repo.TrustedStartupSHA, repo.DefaultBranch, repoDirName(repo), containerPort)
 
 	// Inject prod-scoped project secrets via the exec environment (NOT inlined
 	// into the shell script) so the values don't leak into command logs. The
@@ -755,6 +758,10 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 	}
 	return deployedSHAFromOutput(resp.Stdout), nil
 }
+
+// errNoTrustedStartupCommit: only an agent has ever written helix-specs, so
+// there is no startup script a person vouched for.
+var errNoTrustedStartupCommit = errors.New("no trusted startup script: push helix-specs with your own credentials or save the startup script in Project Settings")
 
 // deployedSHAFromOutput reads the commit the deploy script reported checking out.
 func deployedSHAFromOutput(stdout string) string {
@@ -882,7 +889,9 @@ func repoDirName(repo *types.GitRepository) string {
 //     `dirname "$0"/..` is the helix-specs worktree in both contexts (matching
 //     helix-run-startup-script.sh), not the code dir,
 //   - startup.sh is invoked with CWD = the code dir and
-//     $0 = $SPECS/.helix/startup.sh.
+//     $0 = $SPECS/.helix/startup.sh,
+//   - $SPECS is checked out at startupSHA (the repository's trusted startup
+//     commit), never the helix-specs tip, which agents can push to.
 //
 // It prepares the new checkout before stopping any previously-launched app
 // (tracked via a pidfile under /data), then starts the replacement. This keeps
@@ -896,7 +905,7 @@ func repoDirName(repo *types.GitRepository) string {
 // commit it checked out.
 const deployedSHAMarker = "HELIX_DEPLOYED_SHA="
 
-func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort int) string {
+func deployScript(cloneURL, sha, startupSHA, defaultBranch, codeDir string, containerPort int) string {
 	code := "/workspace/" + codeDir
 	// No SHA means the tip of the default branch. The fetch alone only moves
 	// origin/*, so it must be checked out explicitly or a redeploy rebuilds
@@ -934,15 +943,20 @@ func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort in
 		// helix-specs branch (its canonical Helix-metadata branch) — never from
 		// the deployed app branch — so there is a single definition of how the
 		// project boots. Check it out as a SIBLING worktree of the code,
-		// detached at the fetched tip so redeploys never hit a branch-checkout
-		// conflict; remove any stale worktree first. Shallow clone implies
-		// --single-branch, so helix-specs must be fetched explicitly.
+		// detached at the trusted startup commit (agents can push the
+		// helix-specs tip); remove any stale worktree first. Shallow clone
+		// implies --single-branch, so helix-specs must be fetched explicitly,
+		// and in full, since the trusted commit may be behind its tip.
+		"STARTUP_SHA=" + shellEscape(startupSHA),
 		`git -c safe.directory="$CODE" -C "$CODE" worktree remove --force "$SPECS" 2>/dev/null || true`,
 		`rm -rf "$SPECS"`,
-		`git -c safe.directory="$CODE" -C "$CODE" fetch --depth 1 origin helix-specs`,
-		`git -c safe.directory="$CODE" -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
+		`git -c safe.directory="$CODE" -C "$CODE" fetch origin helix-specs`,
+		`if ! git -c safe.directory="$CODE" -C "$CODE" cat-file -e "$STARTUP_SHA^{commit}"; then`,
+		`  echo "Trusted startup commit $STARTUP_SHA is not on the helix-specs branch" >&2; exit 2`,
+		`fi`,
+		`git -c safe.directory="$CODE" -C "$CODE" worktree add --force --detach "$SPECS" "$STARTUP_SHA"`,
 		`if [ ! -f "$SPECS/.helix/startup.sh" ]; then`,
-		`  echo 'No .helix/startup.sh found on the helix-specs branch' >&2; exit 2`,
+		`  echo 'No .helix/startup.sh in the trusted helix-specs commit' >&2; exit 2`,
 		`fi`,
 		`chmod +x "$SPECS/.helix/startup.sh" 2>/dev/null || true`,
 		`STARTUP_USER=()`,

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gorilla/mux"
@@ -344,6 +345,11 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 	if rejectPreparingSpecTaskMutation(w, task) {
 		return
 	}
+	uploader, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	if specTaskAttachmentUploadsLocked(task.Status) {
 		http.Error(w, "task has reached pull request delivery — attachments are read-only", http.StatusConflict)
 		return
@@ -425,7 +431,7 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 	// received doesn't abort the git commit.
 	stageCtx, cancel := detachContext(ctx, 60*time.Second)
 	defer cancel()
-	if err := s.specDrivenTaskService.StageUploadedAttachments(stageCtx, taskID); err != nil {
+	if err := s.specDrivenTaskService.StageUploadedAttachments(stageCtx, taskID, uploader); err != nil {
 		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to stage uploaded attachments into helix-specs (planning-time staging will retry)")
 	}
 
@@ -615,14 +621,15 @@ func (s *HelixAPIServer) readSpecTaskAttachmentBlob(_ context.Context, absoluteP
 	return io.ReadAll(rc)
 }
 
-// sanitiseAttachmentFilename trims path components and rejects hidden/empty names.
+// sanitiseAttachmentFilename trims path components and rejects hidden/empty
+// names and names holding control characters.
 func sanitiseAttachmentFilename(name string) string {
 	name = filepath.Base(name)
 	name = strings.TrimSpace(name)
 	if name == "" || name == "." || name == ".." || strings.HasPrefix(name, ".") {
 		return ""
 	}
-	if strings.ContainsAny(name, "/\\\x00") {
+	if strings.ContainsAny(name, "/\\") || strings.ContainsFunc(name, unicode.IsControl) {
 		return ""
 	}
 	return name

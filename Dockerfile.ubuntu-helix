@@ -1619,6 +1619,7 @@ RUN chmod +x /opt/gow/startup.sh
 ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
 ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD desktop/shared/helix-trusted-startup.sh /usr/local/bin/helix-trusted-startup.sh
 ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
 ADD desktop/shared/helix-git-mtime.py /usr/local/bin/helix-git-mtime
@@ -1640,7 +1641,7 @@ RUN chmod +x /etc/cont-init.d/17-scanout-setup.sh
 ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
 ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
 RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
-    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
+    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-trusted-startup.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-git-mtime \
     /usr/local/bin/helix-chrome-devtools-mcp \
     /usr/local/bin/helix-run-startup-script.sh /usr/local/bin/helix-golden-startup \

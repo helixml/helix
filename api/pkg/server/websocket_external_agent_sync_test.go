@@ -1922,7 +1922,7 @@ func (s *WebSocketSyncSuite) TestSendChatMessage_InterruptTrue() {
 		&types.Interaction{ID: "int-1", SessionID: sessionID}, nil,
 	)
 
-	_, err := s.server.sendChatMessageToExternalAgent(sessionID, "review feedback", "req-int-1", true)
+	_, err := s.server.sendChatMessageToExternalAgent(sessionID, "review feedback", "req-int-1", true, testHarnessTurn)
 	s.NoError(err)
 
 	select {
@@ -1958,7 +1958,7 @@ func (s *WebSocketSyncSuite) TestSendChatMessage_InterruptFalse() {
 		&types.Interaction{ID: "int-2", SessionID: sessionID}, nil,
 	)
 
-	_, err := s.server.sendChatMessageToExternalAgent(sessionID, "approval kickoff", "req-noint-1", false)
+	_, err := s.server.sendChatMessageToExternalAgent(sessionID, "approval kickoff", "req-noint-1", false, testHarnessTurn)
 	s.NoError(err)
 
 	select {
@@ -4894,7 +4894,7 @@ func (s *WebSocketSyncSuite) TestSendChatMessage_NewThread_RegistersSessionMappi
 			return i, nil
 		})
 
-	_, _ = s.server.sendChatMessageToExternalAgent(sessionID, "hello", requestID, false)
+	_, _ = s.server.sendChatMessageToExternalAgent(sessionID, "hello", requestID, false, testHarnessTurn)
 
 	s.server.contextMappingsMutex.RLock()
 	mapped, ok := s.server.requestToSessionMapping[requestID]
@@ -4928,7 +4928,7 @@ func (s *WebSocketSyncSuite) TestSendChatMessage_ExistingThread_NoSessionMapping
 			return i, nil
 		})
 
-	_, _ = s.server.sendChatMessageToExternalAgent(sessionID, "hello", requestID, false)
+	_, _ = s.server.sendChatMessageToExternalAgent(sessionID, "hello", requestID, false, testHarnessTurn)
 
 	s.server.contextMappingsMutex.RLock()
 	_, ok := s.server.requestToSessionMapping[requestID]

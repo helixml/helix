@@ -133,6 +133,7 @@ func (t *StartSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args m
 	}
 
 	task.Status = newStatus
+	task.QueuedBy = types.HelixAgentToolActor()
 	task.UpdatedAt = time.Now()
 
 	err = t.store.UpdateSpecTask(ctx, task)

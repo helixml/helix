@@ -7083,6 +7083,20 @@ func (mr *MockStoreMockRecorder) SetActiveWebServiceSandbox(ctx, projectID, sand
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActiveWebServiceSandbox", reflect.TypeOf((*MockStore)(nil).SetActiveWebServiceSandbox), ctx, projectID, sandboxID)
 }
 
+// SetGitRepositoryTrustedStartupSHA mocks base method.
+func (m *MockStore) SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetGitRepositoryTrustedStartupSHA", ctx, id, sha)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetGitRepositoryTrustedStartupSHA indicates an expected call of SetGitRepositoryTrustedStartupSHA.
+func (mr *MockStoreMockRecorder) SetGitRepositoryTrustedStartupSHA(ctx, id, sha any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGitRepositoryTrustedStartupSHA", reflect.TypeOf((*MockStore)(nil).SetGitRepositoryTrustedStartupSHA), ctx, id, sha)
+}
+
 // SetInteractionPendingQuestion mocks base method.
 func (m *MockStore) SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error) {
 	m.ctrl.T.Helper()
@@ -7345,18 +7359,18 @@ func (mr *MockStoreMockRecorder) SumSandboxCharges(ctx, sandboxID any) *gomock.C
 }
 
 // SyncPromptHistory mocks base method.
-func (m *MockStore) SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
+func (m *MockStore) SyncPromptHistory(ctx context.Context, userID string, provenance types.TurnProvenance, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SyncPromptHistory", ctx, userID, req)
+	ret := m.ctrl.Call(m, "SyncPromptHistory", ctx, userID, provenance, req)
 	ret0, _ := ret[0].(*types.PromptHistorySyncResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // SyncPromptHistory indicates an expected call of SyncPromptHistory.
-func (mr *MockStoreMockRecorder) SyncPromptHistory(ctx, userID, req any) *gomock.Call {
+func (mr *MockStoreMockRecorder) SyncPromptHistory(ctx, userID, provenance, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPromptHistory", reflect.TypeOf((*MockStore)(nil).SyncPromptHistory), ctx, userID, req)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPromptHistory", reflect.TypeOf((*MockStore)(nil).SyncPromptHistory), ctx, userID, provenance, req)
 }
 
 // TakeSecretIntake mocks base method.

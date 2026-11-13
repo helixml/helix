@@ -1098,6 +1098,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		UserID:                  createdSession.Owner,
 		Mode:                    types.SessionModeInference,
 		PromptMessage:           "New conversation started via Zed", // Default message
+		Provenance:              types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
 		State:                   types.InteractionStateWaiting,
 		CodeAgentConfigSnapshot: configSnapshot,
 		ResponseMessage:         "",
@@ -1671,6 +1672,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				GenerationID:            helixSession.GenerationID, // Must match session's generation for query to find it
 				Mode:                    types.SessionModeInference,
 				PromptMessage:           content,
+				Provenance:              types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
 				State:                   types.InteractionStateWaiting,
 				CodeAgentConfigSnapshot: configSnapshot,
 				ExternalAgentRequestID:  messageRequestID,
@@ -2332,8 +2334,11 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 // function is retained ONLY as the low-level primitive the WebSocket-sync e2e
 // test harness drives (test_helpers.go SendChatMessage, used by the cross-repo
 // Zed e2e server which passes its own request_id and asserts routing on it).
-func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string, interrupt bool) (interactionID string, err error) {
+func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string, interrupt bool, provenance types.TurnProvenance) (interactionID string, err error) {
 	ctx := context.Background()
+	if err := provenance.Validate(); err != nil {
+		return "", fmt.Errorf("send chat message to session %s: %w", sessionID, err)
+	}
 
 	// Look up the session to get its ZedThreadID and agent name
 	var acpThreadID interface{} = nil
@@ -2364,38 +2369,41 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 			State:                   types.InteractionStateWaiting,
 			CodeAgentConfigSnapshot: configSnapshot,
 			ExternalAgentRequestID:  requestID,
+			Provenance:              provenance,
 		}
 
 		createdInteraction, createErr := apiServer.Controller.Options.Store.CreateInteraction(ctx, interaction)
 		if createErr != nil {
-			log.Warn().Err(createErr).Str("session_id", sessionID).Msg("Failed to create interaction for chat message")
-		} else {
-			interactionID = createdInteraction.ID
-			// Notify frontend immediately so the chat updates without waiting for poll
-			apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
-			// Map request_id → interaction_id so handleMessageCompleted can
-			// route responses to the correct interaction.
-			apiServer.contextMappingsMutex.Lock()
-			if apiServer.requestToInteractionMapping == nil {
-				apiServer.requestToInteractionMapping = make(map[string]string)
-			}
-			apiServer.requestToInteractionMapping[requestID] = interactionID
-			// When there is no existing Zed thread (acpThreadID == nil), the agent
-			// will create a NEW thread and emit thread_created. Register
-			// request_id → session so handleThreadCreated (PRIORITY 1) reattaches
-			// that new thread to THIS session instead of spawning an orphan
-			// session — which is what happens after a session is cleared
-			// (ClearSession resets ZedThreadID to ""). Only registered for the
-			// new-thread case so we don't leak entries on normal same-thread
-			// continuations, which emit no thread_created to consume the mapping.
-			if acpThreadID == nil {
-				if apiServer.requestToSessionMapping == nil {
-					apiServer.requestToSessionMapping = make(map[string]string)
-				}
-				apiServer.requestToSessionMapping[requestID] = sessionID
-			}
-			apiServer.contextMappingsMutex.Unlock()
+			// Without the interaction the agent's reply has nowhere to land;
+			// sending anyway would leave the caller waiting on a turn that
+			// can never complete.
+			return "", fmt.Errorf("create interaction for chat message to session %s: %w", sessionID, createErr)
 		}
+		interactionID = createdInteraction.ID
+		// Notify frontend immediately so the chat updates without waiting for poll
+		apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, createdInteraction)
+		// Map request_id → interaction_id so handleMessageCompleted can
+		// route responses to the correct interaction.
+		apiServer.contextMappingsMutex.Lock()
+		if apiServer.requestToInteractionMapping == nil {
+			apiServer.requestToInteractionMapping = make(map[string]string)
+		}
+		apiServer.requestToInteractionMapping[requestID] = interactionID
+		// When there is no existing Zed thread (acpThreadID == nil), the agent
+		// will create a NEW thread and emit thread_created. Register
+		// request_id → session so handleThreadCreated (PRIORITY 1) reattaches
+		// that new thread to THIS session instead of spawning an orphan
+		// session — which is what happens after a session is cleared
+		// (ClearSession resets ZedThreadID to ""). Only registered for the
+		// new-thread case so we don't leak entries on normal same-thread
+		// continuations, which emit no thread_created to consume the mapping.
+		if acpThreadID == nil {
+			if apiServer.requestToSessionMapping == nil {
+				apiServer.requestToSessionMapping = make(map[string]string)
+			}
+			apiServer.requestToSessionMapping[requestID] = sessionID
+		}
+		apiServer.contextMappingsMutex.Unlock()
 
 		// Update session timestamp so findConnectedSessionForSpecTask
 		// picks the most recently active session.
@@ -3988,6 +3996,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		SessionID:               sessionID,
 		UserID:                  session.Owner,
 		GenerationID:            session.GenerationID, // Must match session's generation for query to find it
+		Provenance:              prompt.Provenance,
 		Mode:                    types.SessionModeInference,
 		PromptMessage:           prompt.Content,
 		State:                   types.InteractionStateWaiting,

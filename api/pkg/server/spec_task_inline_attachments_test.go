@@ -45,7 +45,7 @@ func TestCreateTaskFromPromptRejectsRequestBodyOverConfiguredLimit(t *testing.T)
 		"/api/v1/spec-tasks/from-prompt",
 		strings.NewReader(`{"project_id":"project-1","prompt":"this body is intentionally over the configured test limit"}`),
 	)
-	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1"}))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user-1", TokenType: types.TokenTypeOIDC}))
 	response := httptest.NewRecorder()
 
 	server.createTaskFromPromptWithMaxRequestBytes(response, req, 32)
@@ -66,7 +66,7 @@ func TestCreateTaskFromPromptCleansUpFailedInlineAttachmentIngestion(t *testing.
 	mockStore := store.NewMockStore(ctrl)
 	mockFilestore := filestore.NewMockFileStore(ctrl)
 	ctx := context.Background()
-	user := types.User{ID: "user-1", Email: "user@example.com"}
+	user := types.User{ID: "user-1", Email: "user@example.com", TokenType: types.TokenTypeOIDC}
 	project := &types.Project{
 		ID:     "project-1",
 		UserID: user.ID,
@@ -152,7 +152,7 @@ func TestCreateTaskFromPromptPublishesOnlyAfterInlineAttachmentsPersist(t *testi
 	mockStore := store.NewMockStore(ctrl)
 	mockFilestore := filestore.NewMockFileStore(ctrl)
 	ctx := context.Background()
-	user := types.User{ID: "user-1", Email: "user@example.com"}
+	user := types.User{ID: "user-1", Email: "user@example.com", TokenType: types.TokenTypeOIDC}
 	project := &types.Project{
 		ID:     "project-1",
 		UserID: user.ID,
@@ -264,7 +264,7 @@ func TestCreateTaskFromPromptCleansUpWhenAttachmentPublicationFails(t *testing.T
 	mockStore := store.NewMockStore(ctrl)
 	mockFilestore := filestore.NewMockFileStore(ctrl)
 	ctx := context.Background()
-	user := types.User{ID: "user-1", Email: "user@example.com"}
+	user := types.User{ID: "user-1", Email: "user@example.com", TokenType: types.TokenTypeOIDC}
 	project := &types.Project{
 		ID:     "project-1",
 		UserID: user.ID,
@@ -519,7 +519,7 @@ func TestUploadSpecTaskAttachmentsReportsPreparingIntake(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
-	user := types.User{ID: "user-1"}
+	user := types.User{ID: "user-1", TokenType: types.TokenTypeOIDC}
 	task := &types.SpecTask{
 		ID:        "task-1",
 		ProjectID: "project-1",

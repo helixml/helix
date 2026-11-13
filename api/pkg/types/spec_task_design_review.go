@@ -48,6 +48,9 @@ type SpecTaskDesignReviewComment struct {
 
 	// Comment metadata
 	CommentedBy string `json:"commented_by" gorm:"not null;size:255;index"` // User who made the comment
+	// Provenance is the commenter's request credential, captured when the
+	// comment is made; the turn that delivers it later is triggered_by it.
+	Provenance TurnProvenance `json:"-" gorm:"type:jsonb"`
 
 	// Location in document
 	DocumentType string `json:"document_type" gorm:"not null;size:50;index"` // "requirements", "technical_design", "implementation_plan"

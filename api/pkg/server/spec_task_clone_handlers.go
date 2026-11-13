@@ -39,6 +39,11 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	creator, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	// Parse request
 	var req types.CloneTaskRequest
@@ -123,7 +128,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 
 	// Clone to existing projects
 	for _, projectID := range req.TargetProjectIDs {
-		result, err := s.cloneTaskToProject(ctx, sourceTask, projectID, cloneGroup.ID, user.ID, user.Email, req.AutoStart, req.ConfineAgentKey)
+		result, err := s.cloneTaskToProject(ctx, sourceTask, projectID, cloneGroup.ID, user.ID, user.Email, req.AutoStart, req.ConfineAgentKey, creator)
 		if err != nil {
 			response.Errors = append(response.Errors, types.CloneTaskError{
 				ProjectID: projectID,
@@ -150,7 +155,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Clone to the new project
-		result, err := s.cloneTaskToProject(ctx, sourceTask, project.ID, cloneGroup.ID, user.ID, user.Email, req.AutoStart, req.ConfineAgentKey)
+		result, err := s.cloneTaskToProject(ctx, sourceTask, project.ID, cloneGroup.ID, user.ID, user.Email, req.AutoStart, req.ConfineAgentKey, creator)
 		if err != nil {
 			response.Errors = append(response.Errors, types.CloneTaskError{
 				ProjectID: project.ID,
@@ -169,7 +174,7 @@ func (s *HelixAPIServer) cloneSpecTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // cloneTaskToProject creates a copy of a task in the target project
-func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.SpecTask, projectID, cloneGroupID, userID, userEmail string, autoStart, confineAgentKey bool) (*types.CloneTaskResult, error) {
+func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.SpecTask, projectID, cloneGroupID, userID, userEmail string, autoStart, confineAgentKey bool, creator types.TurnProvenance) (*types.CloneTaskResult, error) {
 	// Get project to include its name in the result
 	project, err := s.Store.GetProject(ctx, projectID)
 	if err != nil {
@@ -220,6 +225,7 @@ func (s *HelixAPIServer) cloneTaskToProject(ctx context.Context, source *types.S
 	// Create new task with copied data
 	newTask := &types.SpecTask{
 		ID:                  system.GenerateSpecTaskID(),
+		QueuedBy:            creator,
 		ProjectID:           projectID,
 		UserID:              userID,
 		OrganizationID:      project.OrganizationID,

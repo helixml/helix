@@ -856,6 +856,10 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	if err := denyTaskCreationToConfinedKey(user); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	taskCreator, creatorErr := requestTurnProvenance(r.Context(), user)
+	if creatorErr != nil {
+		return nil, system.NewHTTPError403(creatorErr.Error())
+	}
 
 	var req types.ForkSimpleProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1054,7 +1058,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in code repo
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.GitAuthorName(), user.GitAuthorEmail()); err != nil {
+		if err := s.initializeTrustedStartupScript(ctx, user, codeRepoID, codeRepoPath, createdProject.Name, startupScript); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	} else if req.SampleProjectID == "jupyter-financial-analysis" {
@@ -1151,7 +1155,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in primary code repo (notebooks)
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(notebooksPath, createdProject.Name, startupScript, user.GitAuthorName(), user.GitAuthorEmail()); err != nil {
+		if err := s.initializeTrustedStartupScript(ctx, user, notebooksRepoID, notebooksPath, createdProject.Name, startupScript); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	} else if req.SampleProjectID == "clone-demo-shapes" {
@@ -1264,7 +1268,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			}
 
 			// Initialize startup script
-			if scriptErr := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdShapeProject.Name, shapeSampleCode.StartupScript, user.GitAuthorName(), user.GitAuthorEmail()); scriptErr != nil {
+			if scriptErr := s.initializeTrustedStartupScript(ctx, user, codeRepo.ID, codeRepoPath, createdShapeProject.Name, shapeSampleCode.StartupScript); scriptErr != nil {
 				log.Warn().Err(scriptErr).Msg("Failed to initialize startup script in shape repo")
 			}
 
@@ -1283,6 +1287,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 					taskPrompt := sampleProject.TaskPrompts[i]
 					task := &types.SpecTask{
 						ID:             system.GenerateSpecTaskID(),
+						QueuedBy:       taskCreator,
 						UserID:         user.ID,
 						OrganizationID: createdShapeProject.OrganizationID,
 						Name:           generateTaskNameFromPrompt(taskPrompt.Prompt),
@@ -1588,7 +1593,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Initialize startup script in code repo
-		if err := s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(codeRepoPath, createdProject.Name, startupScript, user.GitAuthorName(), user.GitAuthorEmail()); err != nil {
+		if err := s.initializeTrustedStartupScript(ctx, user, codeRepoID, codeRepoPath, createdProject.Name, startupScript); err != nil {
 			log.Warn().Err(err).Msg("Failed to initialize startup script in code repo (continuing)")
 		}
 	}
@@ -1600,6 +1605,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		taskPrompt := sampleProject.TaskPrompts[i]
 		task := &types.SpecTask{
 			ID:             system.GenerateSpecTaskID(),
+			QueuedBy:       taskCreator,
 			ProjectID:      createdProject.ID,
 			UserID:         user.ID,
 			OrganizationID: createdProject.OrganizationID,

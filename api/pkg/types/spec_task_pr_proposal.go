@@ -42,10 +42,13 @@ type SpecTaskPRProposal struct {
 	Status            SpecTaskPRProposalStatus `json:"status" gorm:"not null;size:32;index"`
 	ProposedBySession string                   `json:"proposed_by_session,omitempty" gorm:"size:255"`
 
-	DecidedBy       string     `json:"decided_by,omitempty" gorm:"size:255"`
-	DecidedAt       *time.Time `json:"decided_at,omitempty"`
-	DecisionComment string     `json:"decision_comment,omitempty" gorm:"type:text"`
-	AutoApproved    bool       `json:"auto_approved,omitempty"`
+	DecidedBy string `json:"decided_by,omitempty" gorm:"size:255"`
+	// Decider is the deciding caller's provenance. The agent may hear the
+	// outcome later (once commits land), in that caller's name.
+	Decider         TurnProvenance `json:"-" gorm:"type:jsonb"`
+	DecidedAt       *time.Time     `json:"decided_at,omitempty"`
+	DecisionComment string         `json:"decision_comment,omitempty" gorm:"type:text"`
+	AutoApproved    bool           `json:"auto_approved,omitempty"`
 
 	PRID     string `json:"pr_id,omitempty" gorm:"size:255"`
 	PRNumber int    `json:"pr_number,omitempty"`

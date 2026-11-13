@@ -658,6 +658,11 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
+	provenance, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	// Priority is to use the app ID coming from the authentication context,
 	// this means that the caller is using app specific API key
@@ -902,7 +907,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
-		if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session); reconcileErr != nil {
+		if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session, provenance); reconcileErr != nil {
 			http.Error(rw, reconcileErr.Message, reconcileErr.StatusCode)
 			return
 		}
@@ -1020,7 +1025,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		}
 	}
 
-	session, err = appendOrOverwrite(session, &startReq)
+	session, err = appendOrOverwrite(session, &startReq, provenance)
 	if err != nil {
 		http.Error(rw, "failed to process session messages: "+err.Error(), http.StatusBadRequest)
 		return
@@ -1374,7 +1379,7 @@ func applySessionReasoningEffort(session *types.Session, requested string) strin
 //     the message in the middle of the conversation, all messages after it will be removed.
 //   - If multiple messages are provided, the last message is always from the user. This allows to always correctly regenerate
 //     the response
-func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*types.Session, error) {
+func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest, provenance types.TurnProvenance) (*types.Session, error) {
 	if len(req.Messages) == 0 {
 		return session, fmt.Errorf("no messages provided")
 	}
@@ -1408,6 +1413,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 			PromptMessage:        message,
 			PromptMessageContent: messageContent,
 			Trigger:              req.InteractionTrigger,
+			Provenance:           provenance,
 			State:                types.InteractionStateWaiting, // Will be updated once inference is complete
 		}
 
@@ -1461,6 +1467,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 			PromptMessage:        message,
 			PromptMessageContent: messageContent,
 			Trigger:              req.InteractionTrigger,
+			Provenance:           provenance,
 		},
 	)
 
@@ -2743,14 +2750,18 @@ func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Reque
 		return nil, err
 	}
 
-	if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session); reconcileErr != nil {
+	provenance, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+	if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session, provenance); reconcileErr != nil {
 		return nil, reconcileErr
 	}
 
 	// Enqueue onto the session-scoped prompt queue (the single sender path).
 	// interrupt honours the caller's request; org bots pass false and thereby get
 	// proper busy-defer (previously they hit the direct path with no busy-check).
-	promptID, err := s.enqueueAgentMessage(ctx, sessionID, body.Content, body.Interrupt, body.NotifyUserID, "")
+	promptID, err := s.enqueueAgentMessage(ctx, sessionID, body.Content, body.Interrupt, body.NotifyUserID, "", provenance)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to queue session message")
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to queue session message: %v", err))
@@ -3247,7 +3258,7 @@ func (s *HelixAPIServer) attachProjectContext(ctx context.Context, agent *types.
 // getSessionOutput godoc
 // StartExternalAgentSession creates a new external agent session programmatically.
 // This implements cron.ExternalAgentStarter for use by the cron trigger system.
-func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error) {
+func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string, provenance types.TurnProvenance) (*types.Session, error) {
 	if s.externalAgentExecutor == nil {
 		return nil, fmt.Errorf("external agent executor not configured")
 	}
@@ -3384,7 +3395,7 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		}
 	}
 	if existingDelivery == nil {
-		session, err = appendOrOverwrite(session, req)
+		session, err = appendOrOverwrite(session, req, provenance)
 		if err != nil {
 			return nil, fmt.Errorf("failed to process session messages: %w", err)
 		}

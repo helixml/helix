@@ -140,6 +140,11 @@ type Interaction struct {
 	// relying on an in-memory map that doesn't survive API restarts. See
 	// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
 	PromptID string `json:"prompt_id,omitempty" gorm:"index"`
+
+	// Provenance records who caused this turn's prompt. Server-set at
+	// creation and never updated; rows from before it existed read as
+	// origin "unknown".
+	Provenance TurnProvenance `json:"provenance" gorm:"type:jsonb"`
 }
 
 type InteractionCodeAgentConfigSnapshot struct {
@@ -1072,6 +1077,17 @@ type ApiKey struct { //nolint:revive
 	// TaskConfined confines a session key of a spec task created with
 	// confine_agent_key to that task (SpecTask.ConfineAgentKey).
 	TaskConfined bool `json:"task_confined,omitempty" gorm:"not null;default:false"`
+}
+
+// IsAgentBound reports whether the key acts for an agent rather than a person:
+// it is bound to a session, sandbox, spec task, project or app, or is an
+// app/embed/bot-instance key. Personal and org keys are not agent-bound.
+func (k *ApiKey) IsAgentBound() bool {
+	if k.Type != APIkeytypeAPI && k.Type != APIkeytypeNone {
+		return true
+	}
+	return k.SessionID != "" || k.ProjectID != "" || k.SpecTaskID != "" ||
+		(k.AppID != nil && k.AppID.Valid && k.AppID.String != "")
 }
 
 type OwnerContext struct {

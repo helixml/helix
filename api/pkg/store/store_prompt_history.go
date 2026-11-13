@@ -42,7 +42,12 @@ func maxPromptQueueRetries() int {
 // For new entries: creates them with all frontend fields
 // For existing entries: updates only frontend-owned fields (interrupt, queuePosition)
 // Backend-owned fields (status, retryCount, nextRetryAt) are preserved
-func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
+// provenance is the authenticated caller's; it is stamped on created entries
+// and on entries whose content this sync changes.
+func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, provenance types.TurnProvenance, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
+	if err := provenance.Validate(); err != nil {
+		return nil, err
+	}
 	synced := 0
 	updated := 0
 
@@ -87,6 +92,7 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 				Status:        entry.Status,
 				Interrupt:     interrupt,
 				QueuePosition: entry.QueuePosition,
+				Provenance:    provenance,
 				CreatedAt:     createdAt,
 				UpdatedAt:     time.Now(),
 			}
@@ -111,6 +117,9 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 				"queue_position": entry.QueuePosition,
 				"content":        entry.Content,
 				"updated_at":     time.Now(),
+			}
+			if entry.Content != existingEntry.Content {
+				updateFields["provenance"] = provenance
 			}
 
 			if err := s.gdb.WithContext(ctx).

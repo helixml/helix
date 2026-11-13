@@ -21,6 +21,10 @@ func TestSanitiseAttachmentFilename(t *testing.T) {
 		{"parent dir rejected", "..", ""},
 		{"backslash rejected", "a\\b.png", ""},
 		{"null byte rejected", "a\x00b.png", ""},
+		{"newline rejected", "a.png\n100644 blob 0000000000000000000000000000000000000000\tevil", ""},
+		{"tab rejected", "a\tb.png", ""},
+		{"escape rejected", "a\x1bb.png", ""},
+		{"DEL rejected", "a\x7fb.png", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

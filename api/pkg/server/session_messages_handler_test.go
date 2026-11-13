@@ -95,7 +95,7 @@ func (s *SessionMessagesHandlerSuite) callHandler(sessionID string, body any, us
 // happens asynchronously in the poller — covered by the prompt-history
 // handler tests — so this asserts only the synchronous enqueue contract.
 func (s *SessionMessagesHandlerSuite) TestEnqueuesOntoQueue() {
-	user := &types.User{ID: "user-1"}
+	user := &types.User{ID: "user-1", TokenType: types.TokenTypeOIDC}
 	sessionID := "ses_noWs"
 
 	session := &types.Session{ID: sessionID, Owner: user.ID}
@@ -141,7 +141,7 @@ func (s *SessionMessagesHandlerSuite) TestEnqueuesOntoQueue() {
 // filtered it out. The message was queued and would be delivered, but was
 // invisible. 53 approvals vanished this way.
 func (s *SessionMessagesHandlerSuite) TestStampsSpecTaskIDFromPlanningSession() {
-	user := &types.User{ID: "user-1"}
+	user := &types.User{ID: "user-1", TokenType: types.TokenTypeOIDC}
 	sessionID := "ses_planning"
 
 	session := &types.Session{ID: sessionID, Owner: user.ID}
@@ -183,7 +183,7 @@ func (s *SessionMessagesHandlerSuite) TestStampsSpecTaskIDFromPlanningSession() 
 // unstamped (invisible) row when the reverse lookup errors. Failing loudly is
 // the house rule; a caller retry is better than a message the user cannot see.
 func (s *SessionMessagesHandlerSuite) TestSpecTaskLookupErrorFailsEnqueue() {
-	user := &types.User{ID: "user-1"}
+	user := &types.User{ID: "user-1", TokenType: types.TokenTypeOIDC}
 	sessionID := "ses_lookup_err"
 
 	session := &types.Session{ID: sessionID, Owner: user.ID}
@@ -201,8 +201,8 @@ func (s *SessionMessagesHandlerSuite) TestSpecTaskLookupErrorFailsEnqueue() {
 // TestRejectsCrossUser verifies authorizeUserToSession blocks a different
 // owner — the session has no OrganizationID, so only the session owner passes.
 func (s *SessionMessagesHandlerSuite) TestRejectsCrossUser() {
-	owner := &types.User{ID: "owner-1"}
-	other := &types.User{ID: "other-2"}
+	owner := &types.User{ID: "owner-1", TokenType: types.TokenTypeOIDC}
+	other := &types.User{ID: "other-2", TokenType: types.TokenTypeOIDC}
 	sessionID := "ses_cross"
 
 	session := &types.Session{ID: sessionID, Owner: owner.ID}
@@ -214,7 +214,7 @@ func (s *SessionMessagesHandlerSuite) TestRejectsCrossUser() {
 
 // TestRejectsEmptyContent verifies input validation runs before any store calls.
 func (s *SessionMessagesHandlerSuite) TestRejectsEmptyContent() {
-	user := &types.User{ID: "user-1"}
+	user := &types.User{ID: "user-1", TokenType: types.TokenTypeOIDC}
 	rr := s.callHandler("ses_x", SessionMessageRequest{Content: "   "}, user)
 	s.Equal(http.StatusBadRequest, rr.Code)
 }
@@ -224,7 +224,7 @@ func (s *SessionMessagesHandlerSuite) TestRejectsEmptyContent() {
 // mapping from this field at dispatch — see sendQueuedPromptToSession — rather
 // than synchronously at the endpoint as the old direct path did.
 func (s *SessionMessagesHandlerSuite) TestNotifyUserIDCarriedOnRow() {
-	user := &types.User{ID: "user-1"}
+	user := &types.User{ID: "user-1", TokenType: types.TokenTypeOIDC}
 	sessionID := "ses_notify"
 
 	session := &types.Session{ID: sessionID, Owner: user.ID}
@@ -342,7 +342,7 @@ func (s *SyncEntryAuthzSuite) SetupTest() {
 // The attack: scope is a session the attacker legitimately owns, but the entry
 // names the victim's session.
 func (s *SyncEntryAuthzSuite) TestRejectsEntryTargetingForeignSession() {
-	attacker := &types.User{ID: "usr_attacker"}
+	attacker := &types.User{ID: "usr_attacker", TokenType: types.TokenTypeOIDC}
 	victimSession := &types.Session{ID: "ses_victim", Owner: "usr_victim"}
 
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_victim").Return(victimSession, nil)
@@ -360,7 +360,7 @@ func (s *SyncEntryAuthzSuite) TestRejectsEntryTargetingForeignSession() {
 // naming a DIFFERENT session the caller is authorized for must pass. Collapsing
 // these onto the scope session would silently drop the prompt.
 func (s *SyncEntryAuthzSuite) TestAllowsOtherSessionCallerOwns() {
-	user := &types.User{ID: "usr_1"}
+	user := &types.User{ID: "usr_1", TokenType: types.TokenTypeOIDC}
 	otherOwn := &types.Session{ID: "ses_other", Owner: "usr_1"}
 
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_other").Return(otherOwn, nil)
@@ -376,7 +376,7 @@ func (s *SyncEntryAuthzSuite) TestAllowsOtherSessionCallerOwns() {
 // Entries matching the authorized scope, or carrying no session at all, need no
 // extra lookup — GetSession is never called.
 func (s *SyncEntryAuthzSuite) TestSkipsScopeAndEmptySessionsWithoutLookup() {
-	user := &types.User{ID: "usr_1"}
+	user := &types.User{ID: "usr_1", TokenType: types.TokenTypeOIDC}
 	s.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).Times(0)
 
 	httpErr := s.server.authorizeSyncEntryTargets(

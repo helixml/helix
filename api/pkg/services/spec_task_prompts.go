@@ -172,7 +172,9 @@ The project startup script (installs deps, starts dev servers) runs automaticall
 - **Location:** ` + "`/home/retro/work/helix-specs/.helix/startup.sh`" + `
 - **Log:** ` + "`cat /tmp/helix-startup.log`" + ` (written when the script runs at startup)
 
-If the startup script hasn't run yet, the log won't exist. You can re-run it manually: ` + "`bash /home/retro/work/helix-specs/.helix/startup.sh`" + `
+If the startup script hasn't run yet, the log won't exist. You can run your working copy manually: ` + "`bash /home/retro/work/helix-specs/.helix/startup.sh`" + `
+
+Sandboxes run the startup script from the last helix-specs commit a person pushed or saved in Project Settings, not from the helix-specs tip. Your pushes to helix-specs (including ` + "`.helix/startup.sh`" + ` and any file it runs) take effect at sandbox start only after a person pushes helix-specs or saves the script in Project Settings. If the log says the startup script was NOT run, ask the user to do that.
 
 The pre-warm Docker cache build runs the same script with ` + "`HELIX_GOLDEN_BUILD=true`" + ` and finishes when it exits. If you edit it, put long-running servers after ` + "`[ \"${HELIX_GOLDEN_BUILD:-}\" = true ] && exit 0`" + `.
 
@@ -232,7 +234,7 @@ func buildJustDoItPrompt(userPrompt, guidelinesSection, primaryRepoName, repoSec
 **Primary Project Directory:** /home/retro/work/%s/
 %s
 %s%s%s
-`+helixSkillsSection+`**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (runs at sandbox startup, must be idempotent). Push directly to helix-specs branch.
+`+helixSkillsSection+`**For persistent installs:** Add commands to /home/retro/work/helix-specs/.helix/startup.sh (must be idempotent) and push helix-specs. It runs at sandbox startup only after a person pushes helix-specs or saves the script in Project Settings, so tell the user what you changed.
 `, userPrompt, guidelinesSection, primaryRepoName, repoSection, attachmentsSection, shellCommandsGuidance, gitInstructions)
 }
 

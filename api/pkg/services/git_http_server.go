@@ -47,13 +47,16 @@ type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, messa
 //
 // This is the single sender abstraction for pkg/services callers; it replaces
 // SpecTaskMessageSender's immediate direct dispatch.
-type SpecTaskMessageEnqueuer func(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error
+type SpecTaskMessageEnqueuer func(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string, provenance types.TurnProvenance) error
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {
 	IsAgentKey      bool     // True if this is a session-scoped agent key
 	AllowedBranches []string // The branches the agent can push to
 	ErrorMessage    string   // Set if the agent is not allowed to push at all
+	// HumanPusher is set for a person's key (types.ApiKey.IsAgentBound is
+	// false). Only such a push moves the repository's trusted startup commit.
+	HumanPusher bool
 }
 
 // setNoCacheHeaders sets HTTP headers to prevent caching of git protocol responses.
@@ -782,6 +785,10 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
+	if _, specsPushed := pushedBranchesMap[SpecsBranchName]; specsPushed && restriction != nil && restriction.HumanPusher {
+		s.trustStartupCommit(r.Context(), repoID, branchesAfter[SpecsBranchName])
+	}
+
 	// Fire the project-web-service auto-deploy hook (if installed) for
 	// every push that touched the repo's default branch. Detached so a
 	// slow deploy never blocks the git client's response.
@@ -1034,6 +1041,20 @@ func (s *GitHTTPServer) rollbackBranchRefs(repoPath string, previousHashes map[s
 	}
 }
 
+// trustStartupCommit records a human-pushed helix-specs tip as the commit
+// sandboxes run .helix/startup.sh from. The push has already been accepted, so
+// a failure only leaves the previous trusted commit in place.
+func (s *GitHTTPServer) trustStartupCommit(ctx context.Context, repoID, sha string) {
+	if sha == "" {
+		return
+	}
+	if err := s.store.SetGitRepositoryTrustedStartupSHA(ctx, repoID, sha); err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("sha", sha).Msg("Failed to record trusted startup commit; sandboxes keep running the previous one")
+		return
+	}
+	log.Info().Str("repo_id", repoID).Str("sha", sha).Msg("Recorded trusted startup commit from a human push")
+}
+
 // recordPushError persists a structured PushError on the spec task after a
 // user-initiated external push failed and its refs were rolled back. This is the
 // signal the board/agent reads instead of silently reporting success. Best-effort:
@@ -1084,35 +1105,52 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 		return nil, err
 	}
 
-	// Check if this is an agent API key (has spec_task_id)
+	// Only spec-task keys are branch-restricted.
 	if apiKeyRecord.SpecTaskID == "" {
-		return nil, nil // Not an agent key, no restrictions
+		return &BranchRestriction{HumanPusher: !apiKeyRecord.IsAgentBound()}, nil
 	}
 
-	// Get the spec task to find allowed branches
-	task, err := s.store.GetSpecTask(ctx, apiKeyRecord.SpecTaskID)
+	allowedBranches, err := s.AgentPushBranches(ctx, apiKeyRecord.SpecTaskID, repoID)
 	if err != nil {
-		return &BranchRestriction{
-			IsAgentKey:   true,
-			ErrorMessage: "Agent's spec task not found",
-		}, nil
+		log.Error().Err(err).Str("task_id", apiKeyRecord.SpecTaskID).Str("repo_id", repoID).Msg("Failed to resolve agent push branches")
+		return &BranchRestriction{IsAgentKey: true, ErrorMessage: AgentPushBranchesMessage(err)}, nil
 	}
+	return &BranchRestriction{
+		IsAgentKey:      true,
+		AllowedBranches: allowedBranches,
+	}, nil
+}
 
-	// Agent can push to their feature branch AND helix-specs (for design docs),
-	// plus any branch a user granted it by approving a PR proposal.
-	allowedBranches := []string{SpecsBranchName} // Always allow helix-specs
+var (
+	ErrAgentSpecTaskNotFound    = errors.New("agent's spec task not found")
+	ErrAgentBranchesUnavailable = errors.New("could not load the branches this agent may push to; try again")
+)
+
+// AgentPushBranchesMessage is the refusal text for an AgentPushBranches error.
+func AgentPushBranchesMessage(err error) string {
+	if errors.Is(err, ErrAgentSpecTaskNotFound) {
+		return "Agent's spec task not found"
+	}
+	return ErrAgentBranchesUnavailable.Error()
+}
+
+// AgentPushBranches lists the branches of repoID that the agent of spec task
+// specTaskID may write: helix-specs (design docs), the task's feature branch,
+// and any branch a user granted it by approving a PR proposal. Git pushes (the
+// pre-receive hook) and the REST write routes both enforce this list.
+func (s *GitHTTPServer) AgentPushBranches(ctx context.Context, specTaskID, repoID string) ([]string, error) {
+	task, err := s.store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrAgentSpecTaskNotFound, err)
+	}
+	allowedBranches := []string{SpecsBranchName}
 	if task.BranchName != "" {
 		allowedBranches = append(allowedBranches, task.BranchName)
 	}
 	if s.prProposals != nil {
 		granted, err := s.prProposals.AllowedPushBranches(ctx, task.ID, repoID)
 		if err != nil {
-			// Fail closed: the caller treats an error as "no restriction".
-			log.Error().Err(err).Str("task_id", task.ID).Str("repo_id", repoID).Msg("Failed to load approved PR proposal branches")
-			return &BranchRestriction{
-				IsAgentKey:   true,
-				ErrorMessage: "could not load the branches this agent may push to; try again",
-			}, nil
+			return nil, fmt.Errorf("%w: %v", ErrAgentBranchesUnavailable, err)
 		}
 		for _, branch := range granted {
 			if !slices.Contains(allowedBranches, branch) {
@@ -1120,11 +1158,7 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 			}
 		}
 	}
-
-	return &BranchRestriction{
-		IsAgentKey:      true,
-		AllowedBranches: allowedBranches,
-	}, nil
+	return allowedBranches, nil
 }
 
 func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, repoID string) bool {

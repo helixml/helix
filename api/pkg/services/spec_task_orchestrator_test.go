@@ -1683,7 +1683,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 
 	var messages []string
 	prs := NewPRProposalService(s.store, nil, nil, "")
-	prs.SetMessageEnqueuer(func(_ context.Context, _ *types.SpecTask, message string, interrupt bool, _ string) error {
+	prs.SetMessageEnqueuer(func(_ context.Context, _ *types.SpecTask, message string, interrupt bool, _ string, _ types.TurnProvenance) error {
 		s.False(interrupt)
 		messages = append(messages, message)
 		return nil

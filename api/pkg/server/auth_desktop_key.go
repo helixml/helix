@@ -416,26 +416,8 @@ func (key *desktopKey) projectRouteAllows(path, method string) bool {
 }
 
 // projectKeyRepositoryRouteAllows applies to "/git/repositories/{id}/<sub>".
-// A repository can be attached to several projects, so a project key gets
-// reads and the pull-request workflow only. Changing, deleting, re-indexing
-// or syncing the repository with its remote, writing files, merging and
-// managing access stay with people.
+// A project key has no spec task, so no branch it may write files to; the rest
+// follows agentKeyRepositoryRouteAllows.
 func projectKeyRepositoryRouteAllows(sub, method string) bool {
-	if sub == "access-grants" || strings.HasPrefix(sub, "access-grants/") {
-		return false
-	}
-	if method == http.MethodGet || method == http.MethodHead {
-		return true
-	}
-	parts := strings.Split(sub, "/")
-	switch method {
-	case http.MethodPost:
-		if sub == "branches" || sub == "pull-requests" {
-			return true
-		}
-		return len(parts) == 3 && parts[0] == "pulls" && parts[2] == "request-rebase"
-	case http.MethodPatch:
-		return len(parts) == 2 && parts[0] == "pulls"
-	}
-	return false
+	return sub != "contents" && agentKeyRepositoryRouteAllows(sub, method)
 }

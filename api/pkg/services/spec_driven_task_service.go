@@ -24,6 +24,8 @@ const (
 	SpecsWorktreeRelPath = "design"                // Relative path from repo root
 	SpecsBranchName      = "helix-specs"           // Git branch name for spec-driven development
 	SpecsTaskDirFormat   = "design/tasks/%s_%s_%s" // Format: tasks/DATE_NAME_ID
+	// StartupScriptPath is the helix-specs file sandboxes run at start.
+	StartupScriptPath = ".helix/startup.sh"
 )
 
 var ErrImplementationHandoffAlreadyClaimed = errors.New("implementation handoff is already being started")
@@ -176,9 +178,10 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 	}
 }
 
-// CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
-func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
-	return s.createTaskFromPrompt(ctx, req, false)
+// CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation.
+// creator is the caller creating it; the deferred prompts it queues name it.
+func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest, creator types.TurnProvenance) (*types.SpecTask, error) {
+	return s.createTaskFromPrompt(ctx, req, creator, false)
 }
 
 // CreateTaskFromPromptPreparingAttachments creates a durable, non-dispatchable task
@@ -186,15 +189,20 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 func (s *SpecDrivenTaskService) CreateTaskFromPromptPreparingAttachments(
 	ctx context.Context,
 	req *types.CreateTaskRequest,
+	creator types.TurnProvenance,
 ) (*types.SpecTask, error) {
-	return s.createTaskFromPrompt(ctx, req, true)
+	return s.createTaskFromPrompt(ctx, req, creator, true)
 }
 
 func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	ctx context.Context,
 	req *types.CreateTaskRequest,
+	creator types.TurnProvenance,
 	preparingAttachments bool,
 ) (*types.SpecTask, error) {
+	if err := creator.Validate(); err != nil {
+		return nil, fmt.Errorf("create spec task: %w", err)
+	}
 	if req.AppID != "" {
 		return nil, fmt.Errorf("app_id is no longer supported; provide code_agent_config")
 	}
@@ -314,6 +322,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	}
 
 	task := &types.SpecTask{
+		QueuedBy:                 creator,
 		ID:                       generateTaskID(),
 		ProjectID:                req.ProjectID,
 		UserID:                   req.UserID,
@@ -700,6 +709,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt:  "", // Don't override agent's system prompt
 		PromptMessage: fullMessage,
 		State:         types.InteractionStateWaiting,
+		Provenance:    types.TriggeredBySystemTurn(types.SystemTurnPlanningPrompt, task.QueuedBy),
 	}
 
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create initial interaction")
@@ -780,8 +790,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		VCPUs:          sandboxVCPUs(task),
 		MemoryMB:       sandboxMemoryMB(task),
 		// RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
-		DesktopType:        desktopType,
-		Env:                envVars,
+		DesktopType: desktopType,
+		Env:         envVars,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
 				OrganizationID: launchOrgID,
@@ -1126,6 +1136,7 @@ Follow these guidelines when making changes:
 		SystemPrompt:  "", // Don't override agent's system prompt
 		PromptMessage: promptWithBranch,
 		State:         types.InteractionStateWaiting,
+		Provenance:    types.TriggeredBySystemTurn(types.SystemTurnImplementationPrompt, task.QueuedBy),
 	}
 
 	_, err = s.store.CreateInteraction(ctx, interaction)
@@ -1629,7 +1640,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				message := BuildRevisionInstructionPrompt(t, comments)
 				// interrupt=true: revision instruction is reviewer-driven feedback delivered via the
 				// task-state machine — same semantic as a comment, should preempt in-flight work.
-				err := s.EnqueueMessageToAgent(context.Background(), t, message, true, "")
+				err := s.EnqueueMessageToAgent(context.Background(), t, message, true, "", types.TriggeredBySystemTurn(types.SystemTurnRevisionRequested, t.QueuedBy))
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -2246,7 +2257,6 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	// API key creation is deferred to OnBeforeCreate hook (inside StartDesktop's
 	// session lock) to prevent a race where StopDesktop revokes the key between
 	// creation and container start.
-
 
 	desktopType := "ubuntu" // Default
 

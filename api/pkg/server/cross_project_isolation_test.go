@@ -82,6 +82,13 @@ func (s *isoStore) takeWrites() []string {
 
 func newIsolationStore(t *testing.T) (*store.MockStore, *isoStore) {
 	t.Helper()
+	return newRecordingStore(t, isoStoreResult)
+}
+
+// newRecordingStore answers every store call with result and records each
+// call that is not a read.
+func newRecordingStore(t *testing.T, result func(name string, mt reflect.Type, args []reflect.Value) []reflect.Value) (*store.MockStore, *isoStore) {
+	t.Helper()
 	ctrl := gomock.NewController(t)
 	mock := store.NewMockStore(ctrl)
 	rec := &isoStore{}
@@ -99,7 +106,7 @@ func newIsolationStore(t *testing.T) (*store.MockStore, *isoStore) {
 				rec.writes = append(rec.writes, name)
 				rec.mu.Unlock()
 			}
-			return isoStoreResult(name, mt, args)
+			return result(name, mt, args)
 		})
 		reflect.ValueOf(mock.EXPECT()).MethodByName(name).Call(reflectValues(matchers))[0].
 			MethodByName("DoAndReturn").Call([]reflect.Value{fn})[0].
@@ -186,6 +193,12 @@ func isoStoreResult(name string, mt reflect.Type, args []reflect.Value) []reflec
 	case "GetSandbox":
 		return values(&types.Sandbox{ID: isoSandboxID, ProjectID: isoMainID, OrganizationID: isoOrgID, Owner: isoOwnerID}, nil)
 	}
+	return zeroStoreResult(name, mt)
+}
+
+// zeroStoreResult answers a store call with zero values, and ErrNotFound for
+// a Get.
+func zeroStoreResult(name string, mt reflect.Type) []reflect.Value {
 	outs := make([]reflect.Value, mt.NumOut())
 	for i := range outs {
 		ot := mt.Out(i)

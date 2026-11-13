@@ -338,7 +338,9 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if user.ID != task.CreatedBy {
+	// The creator shortcut is for people: an agent key carries its owner's
+	// id, so it is always scope-checked.
+	if user.ID != task.CreatedBy || holdsAgentKey(user) {
 		if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
 			writeSpecTaskAuthzError(w, err)
 			return
@@ -391,6 +393,10 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 		}
 	}
 	documentPath := taskDir + "/" + filename
+	if err := s.authorizeAgentRepositoryWrite(ctx, user, repo.ID, services.SpecsBranchName, documentPath); err != nil {
+		writeHTTPStatusError(w, err)
+		return
+	}
 	commitHash := review.GitCommitHash
 
 	writeDocument := func() error {
@@ -431,8 +437,12 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 	} else {
 		err = s.gitRepositoryService.WithRepoLock(repo.ID, writeDocument)
 	}
-	if errors.Is(err, errDesignReviewDocumentChanged) {
+	if errors.Is(err, errDesignReviewDocumentChanged) || errors.Is(err, services.ErrBranchMoved) {
 		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if errors.Is(err, services.ErrRepoPathBlocked) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err != nil {
@@ -507,6 +517,11 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 	var req types.SpecTaskDesignReviewSubmitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
+		return
+	}
+	reviewer, err := requestTurnProvenance(r.Context(), user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -593,6 +608,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 			specTask.Status = types.TaskStatusSpecApproved
 			specTask.SpecApprovedBy = user.ID
+			specTask.QueuedBy = reviewer
 			specTask.SpecApprovedAt = &now
 			specTask.StatusUpdatedAt = &now
 			specTask.SpecApproval = &types.SpecApprovalResponse{
@@ -657,7 +673,8 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		// interrupt=true: reviewer-driven feedback should preempt any in-flight agent turn,
 		// matching the comment-queue semantic.
 		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
-		err = s.enqueueSpecTaskAgentMessage(ctx, specTask, message, true, user.ID)
+		err = s.enqueueSpecTaskAgentMessage(ctx, specTask, message, true, user.ID,
+			types.TriggeredBySystemTurn(types.SystemTurnRevisionRequested, reviewer))
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -738,10 +755,16 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 			return
 		}
 	}
+	commenter, err := requestTurnProvenance(r.Context(), user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	comment := &types.SpecTaskDesignReviewComment{
 		ReviewID:     reviewID,
 		CommentedBy:  user.ID,
+		Provenance:   commenter,
 		DocumentType: req.DocumentType,
 		SectionPath:  req.SectionPath,
 		LineNumber:   req.LineNumber,
@@ -1518,7 +1541,8 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	if specTask.PlanningSessionID == "" {
 		return fmt.Errorf("cannot send comment to agent: spec task %s has no planning session", specTask.ID)
 	}
-	promptID, err := s.persistQueuedPrompt(ctx, specTask.PlanningSessionID, promptText, true, comment.CommentedBy, specTask.ID)
+	promptID, err := s.persistQueuedPrompt(ctx, specTask.PlanningSessionID, promptText, true, comment.CommentedBy, specTask.ID,
+		types.TriggeredBySystemTurn(types.SystemTurnDesignReviewComment, comment.Provenance))
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -2008,10 +2032,10 @@ func (s *HelixAPIServer) backfillCommentLinkageForPrompt(ctx context.Context, pr
 // planning session. Delivery is async (the poller dispatches when idle, or
 // cancels-then-sends for interrupt=true) — this is the single sender path that
 // replaces the old immediate direct dispatch.
-func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error {
+func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string, provenance types.TurnProvenance) error {
 	if task.PlanningSessionID == "" {
 		return fmt.Errorf("cannot enqueue message: spec task %s has no planning session", task.ID)
 	}
-	_, err := s.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, notifyUserID, task.ID)
+	_, err := s.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, notifyUserID, task.ID, provenance)
 	return err
 }

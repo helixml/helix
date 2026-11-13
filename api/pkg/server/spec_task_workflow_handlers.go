@@ -77,6 +77,11 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		http.Error(w, errAgentKeyDecision.Error(), http.StatusForbidden)
 		return
 	}
+	approver, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	// If the task is stuck in an earlier state (e.g., spec_review after a
 	// failed approval), nudge it forward by approving specs first.
@@ -94,6 +99,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		now := time.Now()
 		specTask.Status = types.TaskStatusSpecApproved
 		specTask.SpecApprovedBy = user.ID
+		specTask.QueuedBy = approver
 		specTask.SpecApprovedAt = &now
 		specTask.StatusUpdatedAt = &now
 		specTask.SpecApproval = &types.SpecApprovalResponse{
@@ -184,7 +190,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		s.sendImplementationPushInstruction(ctx, specTask, repo, project.DefaultRepoID)
+		s.sendImplementationPushInstruction(ctx, specTask, repo, project.DefaultRepoID, types.TriggeredBySystemTurn(types.SystemTurnPushRequired, approver))
 
 		writeResponse(w, specTask, http.StatusOK)
 		return
@@ -262,7 +268,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			}
 
 			// interrupt=false: post-merge-failure rebase instruction is system-driven follow-up.
-			err = s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "")
+			err = s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "", types.TriggeredBySystemTurn(types.SystemTurnRebaseRequired, approver))
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -353,7 +359,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 // the PR metadata and commit + push every repo it touched. Both approval paths
 // use it: the PR path sends it so late uncommitted work still reaches the PR,
 // and the server-side-merge path sends it when the agent has pushed nothing yet.
-func (s *HelixAPIServer) sendImplementationPushInstruction(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository, primaryRepoID string) {
+func (s *HelixAPIServer) sendImplementationPushInstruction(ctx context.Context, specTask *types.SpecTask, repo *types.GitRepository, primaryRepoID string, provenance types.TurnProvenance) {
 	message, err := s.buildImplementationPushInstruction(ctx, specTask, repo, primaryRepoID)
 	if err != nil {
 		log.Error().
@@ -370,7 +376,7 @@ func (s *HelixAPIServer) sendImplementationPushInstruction(ctx context.Context, 
 
 		// interrupt=false: the push instruction is a system-driven follow-up, not
 		// reactive feedback — enqueue it to defer behind any in-flight agent turn.
-		err := s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "")
+		err := s.enqueueSpecTaskAgentMessage(context.Background(), specTask, message, false, "", provenance)
 		if err != nil {
 			log.Error().
 				Err(err).

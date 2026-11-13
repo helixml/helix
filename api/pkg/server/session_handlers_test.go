@@ -79,7 +79,7 @@ func (suite *AppendOrOverwriteSuite) TestAppendToEmptySession() {
 		},
 	}
 
-	session, err := appendOrOverwrite(session, req)
+	session, err := appendOrOverwrite(session, req, testUserTurn)
 	suite.NoError(err)
 
 	suite.Equal(0, session.GenerationID)
@@ -115,7 +115,7 @@ func (suite *AppendOrOverwriteSuite) TestAppendToNonEmptySession() {
 		},
 	}
 
-	session, err := appendOrOverwrite(session, req)
+	session, err := appendOrOverwrite(session, req, testUserTurn)
 	suite.NoError(err)
 
 	suite.Require().Len(session.Interactions, 2)
@@ -154,7 +154,7 @@ func (suite *AppendOrOverwriteSuite) TestOverwriteSession_LastMessage() {
 		},
 	}
 
-	session, err := appendOrOverwrite(session, req)
+	session, err := appendOrOverwrite(session, req, testUserTurn)
 	suite.NoError(err)
 
 	suite.Require().Len(session.Interactions, 1, "still expecting one interaction")
@@ -199,7 +199,7 @@ func (suite *AppendOrOverwriteSuite) TestOverwriteSession_FirstMessage() {
 		},
 	}
 
-	session, err := appendOrOverwrite(session, req)
+	session, err := appendOrOverwrite(session, req, testUserTurn)
 	suite.NoError(err)
 
 	suite.Require().Len(session.Interactions, 1)
@@ -279,7 +279,7 @@ func (suite *AppendOrOverwriteSuite) TestOverwriteSession_MiddleMessage() {
 		},
 	}
 
-	session, err := appendOrOverwrite(session, req)
+	session, err := appendOrOverwrite(session, req, testUserTurn)
 	suite.NoError(err)
 
 	// Should be 2 interactions:

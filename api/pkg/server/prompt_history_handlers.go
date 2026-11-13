@@ -101,7 +101,11 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 	// row can never be left with an empty session_id (it would never dispatch).
 	syncReq.SessionID = authorizedSessionID
 
-	response, err := apiServer.Store.SyncPromptHistory(ctx, user.ID, &syncReq)
+	provenance, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+	response, err := apiServer.Store.SyncPromptHistory(ctx, user.ID, provenance, &syncReq)
 	if err != nil {
 		log.Error().Err(err).
 			Str("user_id", user.ID).
@@ -498,8 +502,8 @@ func (apiServer *HelixAPIServer) authorizeSyncEntryTargets(ctx context.Context, 
 // session/prompts mid-turn.
 // Returns the created prompt-history entry ID so callers that need to correlate
 // the eventual response (e.g. the design-review comment path) can link to it.
-func (apiServer *HelixAPIServer) enqueueAgentMessage(ctx context.Context, sessionID, message string, interrupt bool, notifyUserID, specTaskID string) (string, error) {
-	promptID, err := apiServer.persistQueuedPrompt(ctx, sessionID, message, interrupt, notifyUserID, specTaskID)
+func (apiServer *HelixAPIServer) enqueueAgentMessage(ctx context.Context, sessionID, message string, interrupt bool, notifyUserID, specTaskID string, provenance types.TurnProvenance) (string, error) {
+	promptID, err := apiServer.persistQueuedPrompt(ctx, sessionID, message, interrupt, notifyUserID, specTaskID, provenance)
 	if err != nil {
 		return "", err
 	}
@@ -543,7 +547,10 @@ func (apiServer *HelixAPIServer) resolveSpecTaskIDForSession(ctx context.Context
 // comment.PromptID so the dispatch-time backfill can find it) use this + an
 // explicit nudgeSessionQueue once their link is saved, closing the race where
 // the async poller could dispatch before the link exists.
-func (apiServer *HelixAPIServer) persistQueuedPrompt(ctx context.Context, sessionID, message string, interrupt bool, notifyUserID, specTaskID string) (string, error) {
+func (apiServer *HelixAPIServer) persistQueuedPrompt(ctx context.Context, sessionID, message string, interrupt bool, notifyUserID, specTaskID string, provenance types.TurnProvenance) (string, error) {
+	if err := provenance.Validate(); err != nil {
+		return "", fmt.Errorf("enqueueAgentMessage: %w", err)
+	}
 	if sessionID == "" {
 		return "", fmt.Errorf("enqueueAgentMessage: sessionID is required")
 	}
@@ -579,6 +586,7 @@ func (apiServer *HelixAPIServer) persistQueuedPrompt(ctx context.Context, sessio
 		Status:       "pending",
 		Interrupt:    interrupt,
 		NotifyUserID: notifyUserID,
+		Provenance:   provenance,
 	}
 	if err := apiServer.Store.CreatePromptHistoryEntry(ctx, entry); err != nil {
 		return "", fmt.Errorf("failed to enqueue agent message: %w", err)

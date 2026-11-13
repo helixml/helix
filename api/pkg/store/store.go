@@ -775,6 +775,7 @@ type Store interface {
 	GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error)
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	MarkGitRepositorySyncStarted(ctx context.Context, id string, startedAt time.Time) error
+	SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error
 	MarkGitRepositorySyncFinished(ctx context.Context, id string, finishedAt time.Time, syncErr string) error
 	ClearStaleGitRepositorySync(ctx context.Context, id string, staleSince time.Time, syncErr string) error
 	DeleteGitRepository(ctx context.Context, id string) error
@@ -994,7 +995,7 @@ type Store interface {
 	// Prompt history methods (for cross-device sync)
 	CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error
 	CreatePromptHistoryEntryIfAbsent(ctx context.Context, entry *types.PromptHistoryEntry) (bool, error)
-	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
+	SyncPromptHistory(ctx context.Context, userID string, provenance types.TurnProvenance, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
 	ListPromptHistory(ctx context.Context, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
 	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
 	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)

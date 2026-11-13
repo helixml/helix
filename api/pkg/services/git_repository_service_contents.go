@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,27 +26,6 @@ func (wc *WorkingCopy) Cleanup() {
 	if wc.TempDir != "" {
 		_ = os.RemoveAll(wc.TempDir)
 	}
-}
-
-// PushToBare pushes changes from the working copy back to the bare repository (origin)
-func (wc *WorkingCopy) PushToBare(ctx context.Context, branch string) error {
-	refSpec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch)
-	err := giteagit.Push(ctx, wc.TempDir, giteagit.PushOptions{
-		Remote: "origin",
-		Branch: refSpec,
-	})
-	if err != nil {
-		// Ignore "already up to date" - this is not an error
-		if giteagit.IsErrPushOutOfDate(err) || giteagit.IsErrPushRejected(err) {
-			return fmt.Errorf("failed to push to bare repo: %w", err)
-		}
-		// Check if error message indicates already up to date
-		if strings.Contains(err.Error(), "already up-to-date") || strings.Contains(err.Error(), "Everything up-to-date") {
-			return nil
-		}
-		return fmt.Errorf("failed to push to bare repo: %w", err)
-	}
-	return nil
 }
 
 // PushToHelixBare pushes changes to the helix-bare remote (used for external repos)
@@ -84,44 +65,6 @@ func (wc *WorkingCopy) Pull(ctx context.Context, remote upstreamRemote) error {
 		return fmt.Errorf("failed to fetch from origin: %w", err)
 	}
 	return nil
-}
-
-// getWorkingCopy creates a temporary non-bare clone of a bare repository
-// This is needed because bare repositories don't have a worktree, so operations
-// like Add, Commit, Checkout require a non-bare clone.
-// The caller MUST call Cleanup() when done to remove the temporary directory.
-func (s *GitRepositoryService) getWorkingCopy(ctx context.Context, bareRepoPath string, branch string) (*WorkingCopy, error) {
-	tempDir, err := os.MkdirTemp("", "helix-git-workdir-*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp directory: %w", err)
-	}
-
-	// Clone from bare repo using gitea's wrapper
-	err = giteagit.Clone(ctx, bareRepoPath, tempDir, giteagit.CloneRepoOptions{
-		Branch: branch,
-	})
-	if err != nil {
-		os.RemoveAll(tempDir)
-		return nil, fmt.Errorf("failed to clone bare repo: %w", err)
-	}
-
-	// Checkout branch if specified
-	if branch != "" {
-		// Try to checkout existing branch first
-		err = GitCheckout(ctx, tempDir, branch, false)
-		if err != nil {
-			// Branch doesn't exist, create it
-			err = GitCheckout(ctx, tempDir, branch, true)
-			if err != nil {
-				os.RemoveAll(tempDir)
-				return nil, fmt.Errorf("failed to checkout branch %s: %w", branch, err)
-			}
-		}
-	}
-
-	return &WorkingCopy{
-		TempDir: tempDir,
-	}, nil
 }
 
 // getExternalWorkingCopy creates a temporary non-bare clone from an external repository
@@ -266,12 +209,13 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 	return result, nil
 }
 
-// CreateOrUpdateFileContents creates or updates a file in a repository and commits it.
-// For bare repositories (which Helix uses to accept remote pushes), this creates a
-// temporary working copy, makes the changes, commits, and pushes back to the bare repo.
-// Returns the commit hash.
-//
-// Uses native git via gitea's wrappers for reliable operations.
+// CreateOrUpdateFileContents commits content at path on an existing branch
+// and returns the branch's new head (its current head when content is
+// unchanged). The commit is built with plumbing against the bare repository:
+// nothing is checked out, so a symlink or .git path in the branch never
+// reaches the filesystem. A write that would go through or replace a symlink
+// or submodule fails with ErrRepoPathBlocked; a concurrent update of the
+// branch fails with ErrBranchMoved.
 func (s *GitRepositoryService) CreateOrUpdateFileContents(
 	ctx context.Context,
 	repoID string,
@@ -298,8 +242,13 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		return "", fmt.Errorf("repository has no local path")
 	}
 
-	if branch == "" {
-		return "", fmt.Errorf("branch is required")
+	if err := types.ValidateGitBranchName(branch); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidBranchName, err)
+	}
+
+	path, err = CleanRepoFilePath(path)
+	if err != nil {
+		return "", err
 	}
 
 	if commitMessage == "" {
@@ -322,55 +271,17 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		}
 	}
 
-	wc, err := s.getWorkingCopy(ctx, repo.LocalPath, branch)
+	parentSHA, err := branchHead(ctx, repo.LocalPath, branch)
 	if err != nil {
-		return "", fmt.Errorf("failed to create working copy: %w", err)
+		return "", err
 	}
-	defer wc.Cleanup()
-
-	filename := filepath.Join(wc.TempDir, path)
-
-	fileDir := filepath.Dir(filename)
-	if err := os.MkdirAll(fileDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create directory: %w", err)
+	if parentSHA == "" {
+		return "", fmt.Errorf("branch %s not found", branch)
 	}
 
-	err = os.WriteFile(filename, content, 0644)
+	commitHash, _, err := commitFileOnParent(ctx, repo.LocalPath, branch, parentSHA, path, content, authorName, authorEmail, commitMessage)
 	if err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-
-	// Add file using gitea's wrapper
-	if err := giteagit.AddChanges(ctx, wc.TempDir, false, path); err != nil {
-		return "", fmt.Errorf("failed to add file to staging: %w", err)
-	}
-
-	// Commit using gitea's wrapper
-	if err := giteagit.CommitChanges(ctx, wc.TempDir, giteagit.CommitChangesOptions{
-		Committer: &giteagit.Signature{
-			Name:  authorName,
-			Email: authorEmail,
-			When:  time.Now(),
-		},
-		Author: &giteagit.Signature{
-			Name:  authorName,
-			Email: authorEmail,
-			When:  time.Now(),
-		},
-		Message: commitMessage,
-	}); err != nil {
-		return "", fmt.Errorf("failed to commit: %w", err)
-	}
-
-	// Push to bare repo
-	if err := wc.PushToBare(ctx, branch); err != nil {
-		return "", fmt.Errorf("failed to push to bare repository: %w", err)
-	}
-
-	// Get commit hash from the working copy
-	commitHash, err := GetBranchCommitID(ctx, wc.TempDir, branch)
-	if err != nil {
-		return "", fmt.Errorf("failed to get commit hash: %w", err)
+		return "", err
 	}
 
 	log.Info().
@@ -381,6 +292,40 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		Msg("Successfully created/updated file in repository")
 
 	return commitHash, nil
+}
+
+// ErrInvalidBranchName is returned for a branch name git would refuse.
+var ErrInvalidBranchName = errors.New("invalid branch name")
+
+const (
+	maxRepoFilePathBytes = 4096
+	maxRepoFilePathDepth = 128
+)
+
+// ErrInvalidRepoFilePath is returned for a file path that is not a plain
+// path inside the work tree.
+var ErrInvalidRepoFilePath = errors.New("file path must be relative, stay inside the repository and not touch .git")
+
+// CleanRepoFilePath returns path in clean slash form, or ErrInvalidRepoFilePath
+// when it is absolute, leaves the work tree or names anything under .git
+// (whose hooks run on the next commit).
+func CleanRepoFilePath(p string) (string, error) {
+	cleaned := pathpkg.Clean(p)
+	if p == "" || len(p) > maxRepoFilePathBytes || !filepath.IsLocal(cleaned) || cleaned == "." {
+		return "", ErrInvalidRepoFilePath
+	}
+	parts := strings.Split(cleaned, "/")
+	// Each component costs a tree rebuild under the repo lock, and git
+	// refuses to check out trees past its own depth limit.
+	if len(parts) > maxRepoFilePathDepth {
+		return "", ErrInvalidRepoFilePath
+	}
+	for _, part := range parts {
+		if strings.EqualFold(part, ".git") {
+			return "", ErrInvalidRepoFilePath
+		}
+	}
+	return cleaned, nil
 }
 
 // GetFileContents reads the contents of a file from a specific branch
