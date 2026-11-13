@@ -51,13 +51,67 @@ main() {
     ' | sort
   }
 
+  # The major from an image's tag: postgres:17-alpine, registry:5000/postgres:16,
+  # postgres:17@sha256:..., pgvector/pgvector:pg16, vchord-suite:pg17-20250601.
   pg_major() {
-    local tag=${1##*:}
-    case "$tag" in
-      [0-9]*) echo "${tag%%[!0-9]*}" ;;
-      pg[0-9]*) tag=${tag#pg}; echo "${tag%%[!0-9]*}" ;;
+    local name=${1%%@*}
+    name=${name##*/}
+    case "$name" in
+      *:[0-9]*) name=${name##*:} ;;
+      *:pg[0-9]*) name=${name##*:pg} ;;
       *) die "cannot read a PostgreSQL major from image $1" ;;
     esac
+    echo "${name%%[!0-9]*}"
+  }
+
+  # "type source" for each mount of a service in a rendered config, a named
+  # volume reported by its real name. Anonymous volumes have no source.
+  service_mounts() {
+    local svc=$1 type src
+    shift
+    "$@" config | awk '
+      /^[^ ]/ { in_volumes = ($0 == "volumes:"); next }
+      in_volumes && /^  [^ ]/ { vol = $1; sub(/:$/, "", vol); next }
+      in_volumes && /^    name: / { print vol, $2 }
+    ' > "$tmp/volume-names"
+    "$@" config | awk -v svc="$svc" '
+      /^[^ ]/ { in_services = ($0 == "services:"); next }
+      in_services && /^  [^ ]/ { cur = $1; sub(/:$/, "", cur); in_mounts = 0; next }
+      in_services && cur == svc && /^    [^ ]/ { in_mounts = ($0 == "    volumes:"); next }
+      in_services && cur == svc && in_mounts && /^      - type: / { type = $3; next }
+      in_services && cur == svc && in_mounts && /^        source: / { print type, $2 }
+    ' | while read -r type src; do
+      if [ "$type" = "volume" ]; then
+        echo "volume $(awk -v v="$src" '$1 == v { print $2 }' "$tmp/volume-names")"
+      else
+        echo "$type $src"
+      fi
+    done
+  }
+
+  # A database service new to this host may start only on storage that holds
+  # nothing yet: a renamed service keeping its volume would otherwise run a new
+  # major on old data.
+  require_empty_storage() {
+    local svc=$1 type src
+    # Written to a file first so a failing compose config aborts the deploy.
+    service_mounts "$svc" "${target_compose[@]}" > "$tmp/mounts"
+    while read -r type src; do
+      case "$type" in
+        volume)
+          [ -n "$src" ] || die "cannot resolve the name of a volume of $svc"
+          ! sudo docker volume inspect "$src" > /dev/null 2>&1 ||
+            die "new database service $svc would mount existing volume $src; refusing to start it on data of unknown major"
+          ;;
+        bind)
+          if sudo test -e "$src" &&
+            { ! sudo test -d "$src" || [ -n "$(sudo find "$src" -mindepth 1 -maxdepth 1 -print -quit)" ]; }; then
+            die "new database service $svc would mount non-empty $src; refusing to start it on data of unknown major"
+          fi
+          ;;
+        *) die "new database service $svc has a $type mount ($src); cannot prove it holds no data" ;;
+      esac
+    done < "$tmp/mounts"
   }
 
   # ghcr.io/<owner>/<name>:<tag> is GitHub package <owner>/<name>.
@@ -119,8 +173,8 @@ main() {
   [ -f docker-compose.override.yaml ] && override=(-f docker-compose.override.yaml)
   current=(sudo docker compose --project-directory . -f docker-compose.yaml "${override[@]}")
   service_images "${current[@]}" > "$tmp/old"
-  service_images sudo env HELIX_VERSION="$VERSION" docker compose --project-directory . \
-    -f "$tmp/docker-compose.yaml" "${override[@]}" > "$tmp/new"
+  target_compose=(sudo env HELIX_VERSION="$VERSION" docker compose --project-directory . -f "$tmp/docker-compose.yaml" "${override[@]}")
+  service_images "${target_compose[@]}" > "$tmp/new"
   if [ ! -s "$tmp/old" ] || [ ! -s "$tmp/new" ]; then die "could not resolve service images"; fi
 
   # What runs now, not what the host's compose renders: .env may have been
@@ -140,7 +194,7 @@ main() {
   sudo cmp -s docker-compose.yaml "$tmp/docker-compose.yaml" || drift=true
 
   # --- image-pin diff: running -> deploying ------------------------------------
-  local cur new rendered note data target db_changed=()
+  local cur new rendered note data want db_changed=()
   echo "controlplane: image pins (running -> deploying):"
   while read -r svc; do
     cur=$(running_image "$svc")
@@ -164,11 +218,15 @@ main() {
       cid=$(running_cid "$svc")
       data=$(sudo docker exec "$cid" sh -c 'cat "$PGDATA/PG_VERSION"') ||
         die "cannot read PG_VERSION from $svc ($cid)"
-      target=$(pg_major "$new")
-      [ "$data" = "$target" ] ||
+      want=$(pg_major "$new")
+      [ "$data" = "$want" ] ||
         die "$svc data is PostgreSQL $data but would run $new; a major change is a dump/restore (docs/postgres-upgrade.md), never a deploy"
-    elif [ -n "$rendered" ] && [ "$RECREATE_POSTGRES" = "true" ]; then
+    elif [ "$RECREATE_POSTGRES" != "true" ]; then
+      :
+    elif [ -n "$rendered" ]; then
       die "$svc is defined on this host but not running, so its data major is unknown; start it on its current image before deploying with RECREATE_POSTGRES=true"
+    else
+      require_empty_storage "$svc"
     fi
   done < <(cut -d' ' -f1 "$tmp/old" "$tmp/new" "$tmp/running" | sort -u)
 

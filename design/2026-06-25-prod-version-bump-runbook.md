@@ -35,7 +35,8 @@ a green `main` build. Principles:
   `RECREATE_POSTGRES=true`, after the ZFS snapshot. A database's target image must match the
   major of its data (`PG_VERSION` in the running container), with or without the flag; a
   major change is a dump/restore (`docs/postgres-upgrade.md`). With the flag, a defined but
-  stopped database fails the deploy, since its data major can't be read.
+  stopped database fails the deploy, since its data major can't be read, and a database
+  service new to the host starts only if its volumes and bind mounts hold nothing yet.
 - Secrets the new compose needs and only this host uses, such as `CHROME_LAUNCHER_TOKEN`, are
   generated on the host into `.env`. They never pass through CI.
 - Any failure after the snapshot (pull, recreate or health-check) restores the exact previous

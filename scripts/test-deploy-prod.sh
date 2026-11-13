@@ -50,6 +50,10 @@ if [ "${1:-} ${2:-} ${3:-}" = "inspect --format {{.Config.Image}}" ]; then
   awk -v s="${4#ctr-}" '$1 == s { print $2 }' "$RUNNING"
   exit 0
 fi
+if [ "${1:-} ${2:-}" = "volume inspect" ]; then
+  case " ${EXISTING_VOLUMES:-} " in *" $3 "*) exit 0 ;; esac
+  exit 1
+fi
 if [ "${1:-}" = "exec" ] && [ "${3:-}" = "sh" ]; then
   version=$(awk -v s="${2#ctr-}" '$1 == s { print $3 }' "$RUNNING")
   [ -n "$version" ] && [ "$version" != "-" ] || exit 1
@@ -450,6 +454,86 @@ out=$(run_deploy 9.8.8 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RE
   fail "RECREATE_POSTGRES did not allow the new pgvector service: $out"
 grep -q '^compose up -d --no-deps .*ragdb' "$work/docker-calls" || fail "RECREATE_POSTGRES did not create ragdb"
 git -C "$src" checkout -q 9.8.7
+
+# release_with <tag> <service yaml> [top-level volume yaml]: a release that adds
+# a database service to the 9.8.7 compose file.
+release_with() {
+  git -C "$src" checkout -q 9.8.7
+  printf '%s' "$2" > "$work/svc.yaml"
+  sed -i '/^services:$/r '"$work/svc.yaml" "$src/docker-compose.yaml"
+  if [ -n "${3:-}" ]; then
+    printf '%s' "$3" > "$work/vol.yaml"
+    sed -i '/^volumes:$/r '"$work/vol.yaml" "$src/docker-compose.yaml"
+  fi
+  git -C "$src" -c user.name=t -c user.email=t@example.com commit -qam "$1"
+  git -C "$src" tag "$1"
+}
+
+# A new database service may start only on storage that holds nothing yet: a
+# renamed service keeping postgres's volume is refused ...
+release_with 9.8.9 $'  pg-renamed:\n    image: postgres:17-alpine\n    volumes:\n      - helix-postgres-db:/var/lib/postgresql/data\n'
+setup_stack "$repo/docker-compose.yaml"
+reset_calls
+if out=$(run_deploy 9.8.9 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true \
+  EXISTING_VOLUMES=stack_helix-postgres-db 2>&1); then
+  fail "renamed database service reusing an existing volume was not refused"
+fi
+grep -q 'new database service pg-renamed would mount existing volume stack_helix-postgres-db' <<<"$out" ||
+  fail "existing-volume refusal does not name the volume: $out"
+[ ! -s "$work/zfs-calls" ] || fail "existing-volume refusal took a snapshot"
+
+# ... as is one whose bind-mounted data directory is not empty ...
+release_with 9.8.10 $'  pg-bind:\n    image: postgres:17-alpine\n    volumes:\n      - ./pgdata:/var/lib/postgresql/data\n'
+setup_stack "$repo/docker-compose.yaml"
+mkdir "$stack/pgdata"
+echo 12 > "$stack/pgdata/PG_VERSION"
+reset_calls
+if out=$(run_deploy 9.8.10 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true 2>&1); then
+  fail "new database service on a non-empty bind mount was not refused"
+fi
+grep -q "new database service pg-bind would mount non-empty $stack/pgdata" <<<"$out" ||
+  fail "bind refusal does not name the directory: $out"
+setup_stack "$repo/docker-compose.yaml"
+mkdir "$stack/pgdata"
+reset_calls
+out=$(run_deploy 9.8.10 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true 2>&1) ||
+  fail "new database service on an empty bind mount was refused: $out"
+
+# ... while a genuinely new one on a fresh volume starts with RECREATE_POSTGRES.
+release_with 9.8.11 $'  pg-fresh:\n    image: postgres:17-alpine\n    volumes:\n      - pg-fresh-data:/var/lib/postgresql/data\n' $'  pg-fresh-data:\n'
+setup_stack "$repo/docker-compose.yaml"
+reset_calls
+out=$(run_deploy 9.8.11 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true \
+  EXISTING_VOLUMES=stack_helix-postgres-db 2>&1) || fail "new database service on a fresh volume was refused: $out"
+grep -q '^compose up -d --no-deps .*pg-fresh' "$work/docker-calls" || fail "fresh database service was not created"
+git -C "$src" checkout -q 9.8.7
+
+# The data major is read from every image form; anything unreadable fails closed.
+# deploy_pg <postgres image> <PG_VERSION or - for an unreadable one>
+deploy_pg() {
+  setup_stack "$repo/docker-compose.yaml"
+  sed -i "s|^HELIX_POSTGRES_IMAGE=.*|HELIX_POSTGRES_IMAGE=$1|" "$stack/.env"
+  reset_calls
+  render_running
+  sed -i "s|^postgres .*|postgres $1 $2|" "$work/running"
+  running_pinned=true
+  out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true 2>&1)
+}
+digest=sha256:$(printf '%064d' 0)
+for case in "postgres:17@$digest 17" "registry:5000/postgres:16 16" "pgvector/pgvector:pg16 16" \
+  "tensorchord/vchord-suite:pg17-20250601 17"; do
+  deploy_pg "${case% *}" "${case##* }" || fail "postgres ${case% *} on PG${case##* } data was refused: $out"
+done
+if deploy_pg "postgres:17@$digest" 16; then fail "digest-pinned postgres 17 over PG16 data was not refused"; fi
+grep -q "postgres data is PostgreSQL 16 but would run postgres:17@$digest" <<<"$out" || fail "digest major mismatch not explained: $out"
+for image in "postgres@$digest" postgres:latest registry:5000/postgres; do
+  if deploy_pg "$image" 17; then fail "unparseable postgres image $image was accepted"; fi
+  grep -q "cannot read a PostgreSQL major from image $image" <<<"$out" || fail "$image refusal not explained: $out"
+  [ ! -s "$work/zfs-calls" ] || fail "$image refusal took a snapshot"
+done
+if deploy_pg postgres:12.13-alpine -; then fail "unreadable PG_VERSION (PGDATA unset or exec failure) was accepted"; fi
+grep -q 'cannot read PG_VERSION from postgres (ctr-postgres)' <<<"$out" || fail "unreadable PG_VERSION refusal not explained: $out"
+[ ! -s "$work/zfs-calls" ] || fail "unreadable PG_VERSION refusal took a snapshot"
 
 # A PostgreSQL major change is refused even with every opt-in.
 old_compose postgres:12.13-alpine > "$work/pg12-compose.yaml"
