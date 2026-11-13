@@ -484,7 +484,7 @@ func (apiServer *HelixAPIServer) purgeOrganization(ctx context.Context, orgID st
 		return fmt.Errorf("tear down organization web services: %w", err)
 	}
 
-	if err := apiServer.deleteSandboxes(ctx, &store.ListSandboxesQuery{OrganizationID: orgID}); err != nil {
+	if err := apiServer.deleteSandboxes(ctx, &store.ListSandboxesQuery{OrganizationID: orgID}, nil); err != nil {
 		return fmt.Errorf("delete organization sandboxes: %w", err)
 	}
 
@@ -514,12 +514,15 @@ func (apiServer *HelixAPIServer) purgeOrganization(ctx context.Context, orgID st
 // its already closed meter left; one whose desktop is still running is
 // stopped through the session, and when that desktop's host is gone the row
 // is deleted anyway, as the session teardown does.
-func (apiServer *HelixAPIServer) deleteSandboxes(ctx context.Context, q *store.ListSandboxesQuery) error {
+func (apiServer *HelixAPIServer) deleteSandboxes(ctx context.Context, q *store.ListSandboxesQuery, keep func(*types.Sandbox) bool) error {
 	sandboxes, err := apiServer.Store.ListSandboxes(ctx, q)
 	if err != nil {
 		return fmt.Errorf("list sandboxes: %w", err)
 	}
 	for _, sandbox := range sandboxes {
+		if keep != nil && keep(sandbox) {
+			continue
+		}
 		err := apiServer.sandboxController.Delete(ctx, sandbox.ID)
 		switch {
 		case err == nil, errors.Is(err, store.ErrNotFound):

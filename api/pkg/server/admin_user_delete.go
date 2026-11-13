@@ -51,7 +51,11 @@ func (apiServer *HelixAPIServer) deleteUserAccount(ctx context.Context, user *ty
 		return system.NewHTTPError500(err.Error())
 	}
 
-	if err := apiServer.deleteSandboxes(ctx, &store.ListSandboxesQuery{Owner: user.ID}); err != nil {
+	// A project's web-service sandbox belongs to the project, not to the user
+	// who last deployed it: purgeProject and purgeOrganization below tear down
+	// the ones of personal projects and of organizations deleted with the user,
+	// and the ones of organizations that survive keep serving.
+	if err := apiServer.deleteSandboxes(ctx, &store.ListSandboxesQuery{Owner: user.ID}, isWebServiceSandbox); err != nil {
 		return system.NewHTTPError500("failed to delete the user's sandboxes: " + err.Error())
 	}
 
@@ -121,7 +125,13 @@ func (apiServer *HelixAPIServer) cancelAccountSubscriptions(ctx context.Context,
 		if apiServer.Stripe == nil {
 			return system.NewHTTPError500(fmt.Sprintf("wallet %s has subscription %s but Stripe is not configured", wallet.ID, wallet.StripeSubscriptionID))
 		}
-		if err := apiServer.Stripe.CancelSubscription(ctx, wallet.StripeSubscriptionID); err != nil {
+		err := apiServer.Stripe.CancelSubscription(ctx, wallet.StripeSubscriptionID)
+		if stripeSubscriptionGone(err) {
+			log.Info().Str("user_id", userID).Str("wallet_id", wallet.ID).Str("subscription_id", wallet.StripeSubscriptionID).
+				Msg("subscription of deleted account no longer exists in Stripe")
+			continue
+		}
+		if err != nil {
 			return system.NewHTTPError500(fmt.Sprintf("failed to cancel subscription %s of wallet %s: %s", wallet.StripeSubscriptionID, wallet.ID, err))
 		}
 		log.Info().Str("user_id", userID).Str("wallet_id", wallet.ID).Str("subscription_id", wallet.StripeSubscriptionID).
@@ -136,8 +146,10 @@ func walletHasLiveSubscription(wallet *types.Wallet) bool {
 	if wallet.StripeSubscriptionID == "" {
 		return false
 	}
+	// An empty status means the webhook has not synced the subscription yet;
+	// it can still bill, so it counts as live.
 	switch wallet.SubscriptionStatus {
-	case "", stripeapi.SubscriptionStatusCanceled, stripeapi.SubscriptionStatusIncompleteExpired:
+	case stripeapi.SubscriptionStatusCanceled, stripeapi.SubscriptionStatusIncompleteExpired:
 		return false
 	}
 	return true
@@ -228,4 +240,20 @@ func (apiServer *HelixAPIServer) deleteUserFiles(ctx context.Context, userID str
 		log.Info().Str("user_id", userID).Str("path", path).Msg("deleted user files")
 	}
 	return nil
+}
+
+// isWebServiceSandbox reports whether the sandbox hosts a project's web service.
+func isWebServiceSandbox(sandbox *types.Sandbox) bool {
+	return sandbox.Purpose == types.SandboxPurposeWebService
+}
+
+// stripeSubscriptionGone reports whether a cancellation failed only because
+// Stripe no longer has the subscription (deleted, or already canceled), so
+// there is nothing left to bill.
+func stripeSubscriptionGone(err error) bool {
+	var stripeErr *stripeapi.Error
+	if !errors.As(err, &stripeErr) {
+		return false
+	}
+	return stripeErr.Code == stripeapi.ErrorCodeResourceMissing
 }

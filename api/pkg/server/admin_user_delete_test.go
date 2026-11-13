@@ -102,6 +102,13 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 		ID: "sbx_del_" + suffix, OrganizationID: sharedOrg, Owner: userID, Runtime: types.SandboxRuntimeHeadlessUbuntu,
 	})
 	require.NoError(t, err)
+	// The shared project's web service, last deployed by the user: it is the
+	// org's and must keep serving.
+	webServiceSandbox, err := st.CreateSandbox(ctx, &types.Sandbox{
+		ID: "sbx_web_" + suffix, OrganizationID: sharedOrg, Owner: userID, Runtime: types.SandboxRuntimeHeadlessUbuntu,
+		ProjectID: sharedProject.ID, Purpose: types.SandboxPurposeWebService, Status: types.SandboxStatusRunning,
+	})
+	require.NoError(t, err)
 	_, err = st.CreateWallet(ctx, &types.Wallet{UserID: userID})
 	require.NoError(t, err)
 
@@ -193,6 +200,8 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 	require.NoError(t, err)
 	_, err = st.GetProject(ctx, sharedProject.ID)
 	require.NoError(t, err)
+	_, err = st.GetSandbox(ctx, webServiceSandbox.ID)
+	require.NoError(t, err, "the shared project's web service must be kept")
 	members, err := st.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{OrganizationID: sharedOrg})
 	require.NoError(t, err)
 	require.Len(t, members, 1)
@@ -225,6 +234,7 @@ func TestAdminDeleteUser_RevokesKeysBeforeTeardown(t *testing.T) {
 type cancelRecordingStripeBackend struct {
 	canceled []string
 	failID   string
+	goneID   string // answers as Stripe does for a subscription it no longer has
 }
 
 func (b *cancelRecordingStripeBackend) Call(method, path, _ string, _ stripeapi.ParamsContainer, _ stripeapi.LastResponseSetter) error {
@@ -234,6 +244,9 @@ func (b *cancelRecordingStripeBackend) Call(method, path, _ string, _ stripeapi.
 	}
 	if id == b.failID {
 		return fmt.Errorf("stripe unavailable")
+	}
+	if id == b.goneID {
+		return &stripeapi.Error{HTTPStatusCode: http.StatusNotFound, Code: stripeapi.ErrorCodeResourceMissing}
 	}
 	b.canceled = append(b.canceled, id)
 	return nil
@@ -256,13 +269,15 @@ func TestAdminDeleteUser_CancelsSubscriptionsFirst(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		failID   string
+		goneID   string
 		canceled []string
 	}{
-		{"all cancelled, delete proceeds", "", []string{"sub_user", "sub_org"}},
-		{"org cancellation fails, delete aborts", "sub_org", []string{"sub_user"}},
+		{"all cancelled, delete proceeds", "", "", []string{"sub_user", "sub_org"}},
+		{"org cancellation fails, delete aborts", "sub_org", "", []string{"sub_user"}},
+		{"org subscription already gone from Stripe, delete proceeds", "", "sub_org", []string{"sub_user"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			backend := &cancelRecordingStripeBackend{failID: tc.failID}
+			backend := &cancelRecordingStripeBackend{failID: tc.failID, goneID: tc.goneID}
 			original := stripeapi.GetBackend(stripeapi.APIBackend)
 			stripeapi.SetBackend(stripeapi.APIBackend, backend)
 			t.Cleanup(func() { stripeapi.SetBackend(stripeapi.APIBackend, original) })
@@ -295,9 +310,11 @@ func TestAdminDeleteUser_CancelsSubscriptionsFirst(t *testing.T) {
 	}
 }
 
-// A canceled or never-started subscription is not touched.
+// A canceled or never-started subscription is not touched; one the webhook
+// has not synced yet is.
 func TestWalletHasLiveSubscription(t *testing.T) {
 	require.False(t, walletHasLiveSubscription(&types.Wallet{}))
+	require.True(t, walletHasLiveSubscription(&types.Wallet{StripeSubscriptionID: "sub"}), "not yet synced by the webhook: can still bill")
 	require.False(t, walletHasLiveSubscription(&types.Wallet{StripeSubscriptionID: "sub", SubscriptionStatus: stripeapi.SubscriptionStatusCanceled}))
 	require.False(t, walletHasLiveSubscription(&types.Wallet{StripeSubscriptionID: "sub", SubscriptionStatus: stripeapi.SubscriptionStatusIncompleteExpired}))
 	require.True(t, walletHasLiveSubscription(&types.Wallet{StripeSubscriptionID: "sub", SubscriptionStatus: stripeapi.SubscriptionStatusActive}))
