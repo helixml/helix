@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -33,10 +34,28 @@ var (
 	// OpenCodeConfigHome isolates opencode's own config from anything else
 	// under ~/.config.
 	OpenCodeConfigHome = "/home/retro/.config/helix-opencode"
-	// OpenCodeDataHome holds session state. It lives under the workspace so
-	// sessions survive a container restart, matching QWEN_HOME.
-	OpenCodeDataHome = "/home/retro/work/.opencode-state"
+	// OpenCodeStateRoot holds session state, one subdirectory per opencode
+	// release. It lives under the workspace so sessions survive a container
+	// restart, matching QWEN_HOME. opencode migrates its SQLite schema in
+	// place and has no cross-version compatibility, so a database written by
+	// one release can make another exit at startup.
+	OpenCodeStateRoot = "/home/retro/work/.opencode-state"
 )
+
+// errOpenCodeInstallBackoff marks a resolve that was skipped because a recent
+// install attempt failed. That failure has already been reported.
+var errOpenCodeInstallBackoff = errors.New("opencode install is backing off after a failure")
+
+// openCodeRuntime is the opencode build a session runs and the state
+// directory that belongs to it.
+type openCodeRuntime struct {
+	command string
+	version string
+}
+
+func (r openCodeRuntime) dataHome() string {
+	return filepath.Join(OpenCodeStateRoot, r.version)
+}
 
 // openCodeDownloadTimeout bounds a single artifact download. The archive is
 // ~60MB, so this is generous for a slow link while still failing a hung
@@ -208,7 +227,7 @@ func (d *SettingsDaemon) buildOpenCodeConfig(baseURL string) openCodeConfig {
 	return config
 }
 
-// resolveOpenCodeCommand returns the opencode binary this session must run.
+// resolveOpenCodeRuntime returns the opencode binary this session must run.
 //
 // With no admin override (the common case) this is the baked binary and the
 // function touches the network zero times. With an override it downloads,
@@ -216,53 +235,55 @@ func (d *SettingsDaemon) buildOpenCodeConfig(baseURL string) openCodeConfig {
 // baked path when a pinned release cannot be installed: silently running the
 // bundled build would leave an admin believing a rollout had landed when it
 // had not.
-func (d *SettingsDaemon) resolveOpenCodeCommand() (string, error) {
+func (d *SettingsDaemon) resolveOpenCodeRuntime() (openCodeRuntime, error) {
+	baked, err := readOpenCodeBakedVersion()
+	if err != nil {
+		return openCodeRuntime{}, err
+	}
 	pinned := d.codeAgentConfig.OpenCodeBinary
-	if pinned == nil || pinned.Version == "" {
-		return OpenCodeBakedBinary, nil
-	}
-
-	if baked := readOpenCodeBakedVersion(); baked == pinned.Version {
-		log.Printf("opencode: pinned version %s matches the bundled build; using %s", pinned.Version, OpenCodeBakedBinary)
-		return OpenCodeBakedBinary, nil
-	}
-
-	artifact, ok := pinned.Artifacts[runtime.GOARCH]
-	if !ok {
-		return "", fmt.Errorf("pinned opencode %s publishes no %s build", pinned.Version, runtime.GOARCH)
+	if pinned == nil || pinned.Version == "" || pinned.Version == baked {
+		return openCodeRuntime{command: OpenCodeBakedBinary, version: baked}, nil
 	}
 
 	installed := filepath.Join(OpenCodeCacheDir, pinned.Version, "opencode")
+	pinnedRuntime := openCodeRuntime{command: installed, version: pinned.Version}
 	if fi, err := os.Stat(installed); err == nil && fi.Mode()&0111 != 0 {
-		return installed, nil
+		return pinnedRuntime, nil
 	}
 
 	// Back off after a failure so a broken pin cannot turn every settings
 	// merge into another download attempt.
 	if since := time.Since(d.openCodeLastAttempt); !d.openCodeLastAttempt.IsZero() && since < openCodeRetryInterval {
-		return "", fmt.Errorf("opencode %s failed to install %s ago; retrying in %s",
+		return openCodeRuntime{}, fmt.Errorf("%w: opencode %s failed %s ago; retrying in %s", errOpenCodeInstallBackoff,
 			pinned.Version, since.Round(time.Second), (openCodeRetryInterval - since).Round(time.Second))
 	}
 	d.openCodeLastAttempt = time.Now()
 
+	artifact, ok := pinned.Artifacts[runtime.GOARCH]
+	if !ok {
+		return openCodeRuntime{}, fmt.Errorf("pinned opencode %s publishes no %s build", pinned.Version, runtime.GOARCH)
+	}
 	if err := installOpenCode(installed, artifact); err != nil {
-		return "", fmt.Errorf("install opencode %s: %w", pinned.Version, err)
+		return openCodeRuntime{}, fmt.Errorf("install opencode %s: %w", pinned.Version, err)
 	}
 	d.openCodeLastAttempt = time.Time{}
 	log.Printf("opencode: installed pinned version %s at %s", pinned.Version, installed)
-	return installed, nil
+	return pinnedRuntime, nil
 }
 
-// readOpenCodeBakedVersion returns the release baked into the image, or "" if
-// the marker file is missing. An empty result is treated as "unknown", which
-// forces an override to install rather than assuming a match.
-func readOpenCodeBakedVersion() string {
+// readOpenCodeBakedVersion returns the release baked into the image. The
+// marker is written at image build time; without it the session's state
+// directory cannot be chosen.
+func readOpenCodeBakedVersion() (string, error) {
 	data, err := os.ReadFile(OpenCodeBakedVersionFile)
 	if err != nil {
-		log.Printf("opencode: could not read %s (%v); assuming the bundled version is unknown", OpenCodeBakedVersionFile, err)
-		return ""
+		return "", fmt.Errorf("read bundled opencode version: %w", err)
 	}
-	return strings.TrimSpace(string(data))
+	version := strings.TrimSpace(string(data))
+	if version == "" {
+		return "", fmt.Errorf("bundled opencode version file %s is empty", OpenCodeBakedVersionFile)
+	}
+	return version, nil
 }
 
 // installOpenCode downloads artifact, verifies its digest, and extracts the
