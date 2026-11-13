@@ -9,6 +9,9 @@ set -euo pipefail
 #   1. controlplane (helix-cloud-london): CHECKPOINT + ZFS-snapshot the DB, bump
 #      HELIX_VERSION, `docker compose pull api && up -d api`, health-check, and
 #      roll the image version back in place if the health-check fails.
+#      Only `api` is recreated. The London database keeps the PostgreSQL major
+#      pinned as HELIX_POSTGRES_IMAGE in its .env: compose defaults to 17, and
+#      17 does not start on older data (docs/postgres-upgrade.md).
 #   2. runners: pull the released sandbox image and re-run each host's launcher.
 #
 # The hosts are reached over plain SSH with one dedicated CD key (the key's

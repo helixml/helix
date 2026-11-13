@@ -78,7 +78,8 @@ Run it locally against a throwaway Postgres and browser launcher:
 
 ```bash
 docker run -d --rm --name pg-authz -e POSTGRES_PASSWORD=postgres -p 15432:5432 postgres:17
-docker run -d --rm --name chrome-authz -p 17317:7317 ghcr.io/go-rod/rod:v0.115.0
+docker build -f Dockerfile.chrome -t helix-chrome:dev .
+docker run -d --rm --name chrome-authz -p 17317:7317 helix-chrome:dev
 (cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin/helix .)
 export PATH=/tmp/helix-bin:$PATH START_HELIX_TEST_SERVER=true DEV_SUBDOMAIN=dev \
   HELIX_INTEGRATION_NO_PROVIDER_ENV=true \

@@ -180,3 +180,50 @@ Used by both the init container and main controlplane container.
   value: {{ .Values.postgresql.external.database }}
 {{- end }}
 {{- end }}
+
+{{/*
+Crawler browser launcher token: chrome.launcherToken, else the value already
+in the chart's Secret, else a new random one. Memoised in .Values so every
+template renders the same value.
+*/}}
+{{- define "helix-controlplane.chrome-launcher-token" -}}
+{{- if not .Values.chrome._launcherToken -}}
+{{- $token := .Values.chrome.launcherToken -}}
+{{- if not $token -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "helix-controlplane.chrome-launcher-secret" .) -}}
+{{- if and $existing $existing.data (hasKey $existing.data "token") -}}
+{{- $token = index $existing.data "token" | b64dec -}}
+{{- else -}}
+{{- $token = randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set .Values.chrome "_launcherToken" $token -}}
+{{- end -}}
+{{- .Values.chrome._launcherToken -}}
+{{- end -}}
+
+{{- define "helix-controlplane.chrome-launcher-secret" -}}
+{{- .Values.chrome.launcherTokenExistingSecret | default (printf "%s-chrome-launcher" (include "helix-controlplane.fullname" .)) -}}
+{{- end -}}
+
+{{/*
+Env var carrying the launcher token from its Secret. Usage:
+{{ include "helix-controlplane.chrome-launcher-env" (dict "name" "CHROME_LAUNCHER_TOKEN" "root" .) }}
+*/}}
+{{- define "helix-controlplane.chrome-launcher-env" -}}
+- name: {{ .name }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "helix-controlplane.chrome-launcher-secret" .root }}
+      key: {{ if .root.Values.chrome.launcherTokenExistingSecret }}{{ .root.Values.chrome.launcherTokenExistingSecretKey | default "token" }}{{ else }}token{{ end }}
+{{- end -}}
+
+{{/*
+Pod annotation that rolls the controlplane and chrome pods together when a
+chart-managed launcher token changes.
+*/}}
+{{- define "helix-controlplane.chrome-launcher-checksum" -}}
+{{- if and .Values.chrome.enabled (not .Values.chrome.launcherTokenExistingSecret) -}}
+checksum/chrome-launcher-token: {{ include "helix-controlplane.chrome-launcher-token" . | sha256sum | quote }}
+{{- end -}}
+{{- end -}}

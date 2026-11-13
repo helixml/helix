@@ -1,0 +1,63 @@
+# Crawler browser: a go-rod launcher manager in front of a current Chromium.
+# Same contract as ghcr.io/go-rod/rod: the manager listens on :7317 and the
+# API connects with launcher.NewManaged (RAG_CRAWLER_LAUNCHER_URL).
+#
+#   docker build -f Dockerfile.chrome -t helix-chrome .
+#
+# The manager (api/cmd/chrome-manager) is built against the go-rod version in
+# go.mod, so it always matches the API's launcher client, and only launches
+# the bundled Chromium with the flags the crawler uses. Chromium is Debian
+# trixie's chromium-headless-shell, pinned with the Debian snapshot in
+# chrome-version.env; scripts/check-chromium-freshness.sh says when to bump.
+
+# golang:1.27
+FROM golang@sha256:ec47ea3725fea0cc88f6de94919aef19f40f12fc1ec0e2d1b3426dbf15ecca04 AS manager
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY api/cmd/chrome-manager/main.go api/cmd/chrome-manager/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/chrome-manager ./api/cmd/chrome-manager
+
+# debian:trixie-slim
+FROM debian@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
+
+COPY chrome-version.env /etc/helix/chrome-version.env
+RUN . /etc/helix/chrome-version.env \
+ && rm -f /etc/apt/sources.list.d/debian.sources \
+ && printf '%s\n' \
+      "Types: deb" \
+      "URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}" \
+      "Suites: trixie trixie-updates" \
+      "Components: main" \
+      "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" \
+      "" \
+      "Types: deb" \
+      "URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}" \
+      "Suites: trixie-security" \
+      "Components: main" \
+      "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" \
+      > /etc/apt/sources.list.d/snapshot.sources \
+ && apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=5 update \
+ && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+      "chromium-headless-shell=${CHROMIUM_VERSION}" \
+      ca-certificates \
+      dumb-init \
+      fonts-liberation \
+      fonts-noto-cjk \
+      fonts-noto-color-emoji \
+      tzdata \
+ && rm -rf /var/lib/apt/lists/* \
+ && /usr/lib/chromium/chromium-headless-shell --version
+
+COPY --from=manager /out/chrome-manager /usr/local/bin/chrome-manager
+
+# go-rod passes --no-sandbox when it detects a container.
+RUN useradd --system --uid 10001 --create-home --home-dir /home/rod rod \
+ && touch /.dockerenv
+
+ENV HOME=/home/rod
+USER 10001
+WORKDIR /home/rod
+EXPOSE 7317
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["chrome-manager", "-bin", "/usr/lib/chromium/chromium-headless-shell"]

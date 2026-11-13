@@ -1,10 +1,34 @@
 # Upgrading PostgreSQL on a Docker Compose install
 
-The self-host `docker-compose.yaml` runs `postgres:12.22-alpine` by default.
-PostgreSQL 12 is end-of-life and no longer receives security fixes, so move
-to a supported major version. The default does not change by itself: a newer
+New self-host installs run PostgreSQL 17 (`postgres:17-alpine`). Installs
+created before that run PostgreSQL 12, which is end-of-life and no longer
+receives security fixes, so move them to a supported major version. A newer
 PostgreSQL cannot start on a data directory written by 12, so the upgrade is a
 dump and restore that you run once.
+
+## Existing installs stay on 12 until you upgrade
+
+`install.sh` (a full install or `--upgrade`) reads `PG_VERSION` from the
+existing data directory. If it predates PostgreSQL 17 and `.env` does not set
+`HELIX_POSTGRES_IMAGE`, it adds `HELIX_POSTGRES_IMAGE=postgres:12.22-alpine`
+to `.env`, so the database keeps starting, and prints a pointer here.
+
+If you update `docker-compose.yaml` some other way and start an existing
+PostgreSQL 12 volume without that pin, PostgreSQL 17 refuses to start and
+leaves the data untouched:
+
+```
+FATAL:  database files are incompatible with server
+DETAIL:  The data directory was initialized by PostgreSQL version 12, which is not compatible with this version 17.x.
+```
+
+`docker compose logs postgres` shows it while the API waits for the
+database. Add the pin and start again:
+
+```bash
+echo 'HELIX_POSTGRES_IMAGE=postgres:12.22-alpine' >> .env
+docker compose up -d
+```
 
 Kubernetes installs are not affected: the Helm chart already runs PostgreSQL 17
 (see `charts/helix-controlplane/UPGRADE.md`).
@@ -13,13 +37,14 @@ Kubernetes installs are not affected: the Helm chart already runs PostgreSQL 17
 
 Two `.env` settings select the database:
 
-- `HELIX_POSTGRES_IMAGE`: the PostgreSQL image (default `postgres:12.22-alpine`).
+- `HELIX_POSTGRES_IMAGE`: the PostgreSQL image (default `postgres:17-alpine`;
+  `install.sh` sets `postgres:12.22-alpine` for existing 12 data).
 - `POSTGRES_DATA`: where the data lives (default: the `helix-postgres-db`
   Docker volume).
 
 The upgrade dumps the old database, points both settings at a new image and an
 empty data directory, and restores the dump there. The old volume is never
-modified, so rolling back is removing the two lines again.
+modified, so rolling back is restoring the two previous values.
 
 ## Steps
 
@@ -50,6 +75,7 @@ restore.
    ```bash
    docker compose stop postgres
    sudo mkdir -p /opt/HelixML/data/helix-postgres-17
+   sed -i '/^HELIX_POSTGRES_IMAGE=/d' .env
    cat >> .env <<'EOF'
    HELIX_POSTGRES_IMAGE=postgres:17-alpine
    POSTGRES_DATA=/opt/HelixML/data/helix-postgres-17
@@ -92,9 +118,9 @@ installer preserves keys it does not manage.
 
 ## Rolling back
 
-Stop Helix, delete the `HELIX_POSTGRES_IMAGE` and `POSTGRES_DATA` lines you
-added to `.env` (or restore the previous `POSTGRES_DATA` value), and run
-`docker compose up -d`. Helix starts on the untouched PostgreSQL 12 volume.
+Stop Helix, set `HELIX_POSTGRES_IMAGE=postgres:12.22-alpine` in `.env` again,
+delete the `POSTGRES_DATA` line you added (or restore its previous value), and
+run `docker compose up -d`. Helix starts on the untouched PostgreSQL 12 volume.
 Data written after the upgrade is not carried back.
 
 ## Cleaning up
