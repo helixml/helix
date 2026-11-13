@@ -1361,15 +1361,20 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 	return key, nil
 }
 
-// frontendLicenseInfo is the licence block of /api/v1/status. Everyone needs
-// to know whether the deployment is licensed (the SPA locks itself when it is
-// not); who holds the licence, when it expires and what it allows is for
-// deployment admins, the same audience as /api/v1/license.
+// frontendLicenseInfo is the licence block of /api/v1/status. Who holds the
+// licence, when it expires and what it allows is for deployment admins, the
+// same audience as /api/v1/license. Other users only need to learn that the
+// deployment is unlicensed (the SPA locks itself then), so they get no block
+// at all while the licence is valid and {valid:false} when it is not.
 func frontendLicenseInfo(decoded *license.License, admin bool) *types.FrontendLicenseInfo {
-	info := &types.FrontendLicenseInfo{Valid: decoded.Valid && !decoded.Expired()}
+	valid := decoded.Valid && !decoded.Expired()
 	if !admin {
-		return info
+		if valid {
+			return nil
+		}
+		return &types.FrontendLicenseInfo{Valid: false}
 	}
+	info := &types.FrontendLicenseInfo{Valid: valid}
 	info.Organization = decoded.Organization
 	info.ValidUntil = decoded.ValidUntil
 	info.Features.Users = decoded.Features.Users
