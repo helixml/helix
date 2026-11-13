@@ -22,9 +22,15 @@ describe('BotProfile', () => {
   })
 
   it('keeps long names in the compact profile', () => {
-    render(<BotProfile bot={{ ...runningBot, id: 'bot_01', name: 'A very long operations coordination bot name' }} />)
+    const { container } = render(<BotProfile bot={{ ...runningBot, id: 'bot_01', name: 'A very long operations coordination bot name' }} />)
 
-    expect(screen.getByTestId('bot-profile-compact')).toBeInTheDocument()
+    expect(screen.getByTestId('bot-profile-compact')).toHaveStyle({
+      paddingTop: '16px',
+      paddingBottom: '16px',
+      boxSizing: 'border-box',
+    })
     expect(screen.getByRole('heading', { name: 'A very long operations coordination bot name' })).toBeInTheDocument()
+    expect(container.querySelector('img')).toHaveStyle({ width: '64px', height: '64px' })
+    expect(container.querySelector('img')).not.toHaveStyle({ position: 'absolute' })
   })
 })

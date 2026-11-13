@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/cdp"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/launcher/flags"
 	"github.com/go-rod/rod/lib/proto"
@@ -84,6 +85,20 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 	return b, nil
 }
 
+// launcherTokenHeader carries RAG_CRAWLER_LAUNCHER_TOKEN to the browser
+// manager (api/cmd/chrome-manager), which refuses launches without it when
+// it has a token configured.
+const launcherTokenHeader = "Helix-Launcher-Token"
+
+// launcherClient asks the manager to launch a browser and connects to it.
+func (b *Browser) launcherClient() (*cdp.Client, error) {
+	u, header := b.launcher.ClientHeader()
+	if token := b.cfg.RAG.Crawler.LauncherToken; token != "" {
+		header.Set(launcherTokenHeader, token)
+	}
+	return cdp.StartWithURL(b.ctx, u, header)
+}
+
 // Close closes the browser and all associated pages
 func (b *Browser) Close() {
 	// Clean up page pool first
@@ -127,7 +142,7 @@ func (b *Browser) getFromPool(ctx context.Context) (*rod.Browser, error) {
 func (b *Browser) getBrowser() (*rod.Browser, error) {
 	if b.launcher != nil {
 		log.Info().Msg("Getting client from launcher")
-		client, err := b.launcher.Client()
+		client, err := b.launcherClient()
 		if err != nil {
 			return nil, fmt.Errorf("error getting launcher client: %w", err)
 		}

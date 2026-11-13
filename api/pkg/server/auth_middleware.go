@@ -40,6 +40,7 @@ var (
 	ErrEmbedKeyNotAllowed       = errors.New("this embed key is scoped to a single task and may not access this resource")
 	ErrBotInstanceKeyNotAllowed = errors.New("this bot instance key is scoped to its own sandbox and may not access this resource")
 	ErrSandboxKeyNotAllowed     = errors.New("this sandbox key is scoped to its own sandbox and may not access this resource")
+	ErrSessionKeyNotAllowed     = errors.New("this session key is scoped to its own session and may not access this resource")
 	// ErrHelixTokenWithOIDC is returned when a Helix-issued JWT is used while OIDC authentication
 	// is configured. This can happen when a user has stale cookies from when the server was using
 	// regular auth. The user needs to clear their cookies and log in again via OIDC.
@@ -444,10 +445,10 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// A key bound to a sandbox outside any project reaches only what the
-		// sandbox itself needs. Fail closed.
-		if !sandboxKeyAllows(user, r) {
-			http.Error(w, ErrSandboxKeyNotAllowed.Error(), http.StatusForbidden)
+		// A desktop key outside any project (a sandbox's, or a session's
+		// with no project) reaches only what its desktop needs. Fail closed.
+		if err := auth.desktopKeyRefusal(user, r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 
@@ -538,10 +539,10 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// A key bound to a sandbox outside any project reaches only what the
-		// sandbox itself needs. Fail closed.
-		if !sandboxKeyAllows(user, r) {
-			http.Error(w, ErrSandboxKeyNotAllowed.Error(), http.StatusForbidden)
+		// A desktop key outside any project (a sandbox's, or a session's
+		// with no project) reaches only what its desktop needs. Fail closed.
+		if err := auth.desktopKeyRefusal(user, r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 

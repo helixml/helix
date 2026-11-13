@@ -429,7 +429,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             }}
           />
         </Tooltip>
-        <BotPortrait portraitIndex={bot.portraitIndex} size={22} />
+        <BotPortrait portraitIndex={bot.portraitIndex} size={22} sx={{ filter: 'grayscale(1)' }} />
         <Typography
           component="span"
           sx={{

@@ -1,5 +1,3 @@
-//go:build !nokodit
-
 package server
 
 import (
@@ -14,62 +12,36 @@ import (
 
 // koditRepoScope holds the set of Kodit repositories allowed for a session.
 type koditRepoScope struct {
-	repoIDs map[int64]bool // allowed Kodit repo IDs (for validation)
-	idSlice []int64        // same IDs as a slice (for search filtering)
+	repoIDs map[int64]bool         // allowed Kodit repo IDs (for validation)
+	idSlice []int64                // same IDs as a slice (for search filtering)
+	repos   []*types.GitRepository // the Helix repositories behind idSlice, in the same order
 }
 
-// resolveKoditRepoScope resolves which Kodit repositories a session may access.
-// If the session belongs to a project, returns repos linked to that project.
-// Otherwise falls back to the user's organization repos.
-func resolveKoditRepoScope(ctx context.Context, s store.Store, sessionID string, user *types.User) (*koditRepoScope, error) {
-	session, err := s.GetSession(ctx, sessionID)
+// resolveKoditRepoScope resolves which Kodit repositories user may search
+// through session.
+//
+// The candidates are the session's tenant: for a session in a project with
+// code intelligence on, the project's repositories plus the indexed
+// repositories of the project's organization (code search across the
+// organization is a product feature); for a helix-org worker's session, which
+// has no project, the repositories of the session's organization, or of its
+// owner for a personal session. Any other session outside a project (a plain
+// chat) has no candidates, so its scope is empty. Each candidate is then kept only if user may read it through the
+// REST API, so per-repository access grants apply and a project- or
+// session-scoped key never sees a repository its REST calls would be refused.
+func resolveKoditRepoScope(ctx context.Context, s store.Store, authorizeRepo RepositoryAuthorizer, session *types.Session, user *types.User) (*koditRepoScope, error) {
+	scope := &koditRepoScope{repoIDs: make(map[int64]bool)}
+	if authorizeRepo == nil || user == nil {
+		return scope, nil
+	}
+
+	candidates, err := koditScopeCandidates(ctx, s, session, user)
 	if err != nil {
-		return nil, fmt.Errorf("session lookup: %w", err)
+		return nil, err
 	}
 
-	var repos []*types.GitRepository
-
-	switch {
-	case session.ProjectID != "":
-		project, projErr := s.GetProject(ctx, session.ProjectID)
-		if projErr != nil {
-			return nil, fmt.Errorf("project lookup: %w", projErr)
-		}
-		if !project.KoditEnabled {
-			return &koditRepoScope{repoIDs: make(map[int64]bool)}, nil
-		}
-		// When Kodit is enabled, scope to all org repos (not just project repos)
-		if project.OrganizationID != "" {
-			repos, err = s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-				OrganizationID: project.OrganizationID,
-			})
-		} else {
-			repos, err = s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-				OwnerID: user.ID,
-			})
-		}
-	case user.OrganizationID != "":
-		repos, err = s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			OrganizationID: user.OrganizationID,
-		})
-	default:
-		repos, err = s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			OwnerID: user.ID,
-		})
-	}
-	if err != nil {
-		return nil, fmt.Errorf("list repos: %w", err)
-	}
-
-	scope := &koditRepoScope{
-		repoIDs: make(map[int64]bool),
-	}
-
-	for _, repo := range repos {
-		if !repo.KoditIndexing {
-			continue
-		}
-		if repo.Metadata == nil {
+	for _, repo := range candidates {
+		if !repo.KoditIndexing || repo.Metadata == nil {
 			continue
 		}
 		koditID := extractKoditRepoID(repo.Metadata)
@@ -79,15 +51,97 @@ func resolveKoditRepoScope(ctx context.Context, s store.Store, sessionID string,
 				Msg("repo has KoditIndexing but no kodit_repo_id, skipping from MCP scope")
 			continue
 		}
+		if scope.repoIDs[koditID] {
+			continue
+		}
+		if err := authorizeRepo(ctx, user, repo, types.ActionGet); err != nil {
+			continue
+		}
 		scope.repoIDs[koditID] = true
 		scope.idSlice = append(scope.idSlice, koditID)
+		scope.repos = append(scope.repos, repo)
 	}
 
 	log.Debug().
-		Str("session_id", sessionID).
-		Str("project_id", session.ProjectID).
+		Str("session_id", session.ID).
+		Str("project_id", sessionProjectID(session)).
+		Int("candidate_repos", len(candidates)).
 		Int("allowed_repos", len(scope.idSlice)).
 		Msg("resolved Kodit repo scope")
 
 	return scope, nil
+}
+
+// koditScopeCandidates lists the repositories a session's Kodit scope is
+// drawn from, before per-caller authorization.
+func koditScopeCandidates(ctx context.Context, s store.Store, session *types.Session, user *types.User) ([]*types.GitRepository, error) {
+	projectID := sessionProjectID(session)
+	if projectID == "" && session.Metadata.OrgWorkerID == "" {
+		return nil, nil
+	}
+	if projectID == "" {
+		query := &types.ListGitRepositoriesRequest{OrganizationID: session.OrganizationID}
+		if session.OrganizationID == "" {
+			query = &types.ListGitRepositoriesRequest{OwnerID: session.Owner}
+		}
+		repos, err := s.ListGitRepositories(ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("list repos: %w", err)
+		}
+		return repos, nil
+	}
+
+	project, err := s.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project lookup: %w", err)
+	}
+	if !project.KoditEnabled {
+		return nil, nil
+	}
+
+	repos, err := s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: project.ID})
+	if err != nil {
+		return nil, fmt.Errorf("list project repos: %w", err)
+	}
+	// A project-scoped key may only read its own project's repositories, so
+	// listing the organization would only add candidates that the
+	// authorization step refuses.
+	if project.OrganizationID == "" || user.ProjectID != "" {
+		return repos, nil
+	}
+	orgRepos, err := s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{OrganizationID: project.OrganizationID})
+	if err != nil {
+		return nil, fmt.Errorf("list org repos: %w", err)
+	}
+	return append(repos, orgRepos...), nil
+}
+
+// sessionProjectID is the project a session belongs to: its project column,
+// or else the project recorded in its metadata (as enforceKeySessionScope
+// reads it).
+func sessionProjectID(session *types.Session) string {
+	if session.ProjectID != "" {
+		return session.ProjectID
+	}
+	return session.Metadata.ProjectID
+}
+
+// koditAgentRepos lists the indexed repositories a spec-task agent of project
+// can reach through the Kodit MCP server. The agent authenticates with a
+// session key that belongs to userID and is confined to the project
+// (GetOrCreateSessionAPIKey), so the scope is resolved for that identity.
+func (apiServer *HelixAPIServer) koditAgentRepos(ctx context.Context, project *types.Project, userID string) ([]*types.GitRepository, error) {
+	session := &types.Session{Owner: userID, OrganizationID: project.OrganizationID, ProjectID: project.ID}
+	agent := &types.User{
+		ID:             userID,
+		OrganizationID: project.OrganizationID,
+		ProjectID:      project.ID,
+		TokenType:      types.TokenTypeAPIKey,
+		APIKeyType:     types.APIkeytypeAPI,
+	}
+	scope, err := resolveKoditRepoScope(ctx, apiServer.Store, apiServer.authorizeUserToRepository, session, agent)
+	if err != nil {
+		return nil, err
+	}
+	return scope.repos, nil
 }

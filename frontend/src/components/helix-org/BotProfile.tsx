@@ -52,19 +52,22 @@ const BotProfile: FC<BotProfileProps> = ({ bot, expanded = false }) => {
     return (
       <Box
         data-testid="bot-profile-compact"
-        sx={(theme) => ({
+        sx={{
           minHeight: 96,
           width: '100%',
-          px: { xs: 2, sm: 3 },
+          pl: { xs: 2, sm: 3 },
+          pr: 7,
+          py: 2,
           display: 'flex',
           alignItems: 'center',
-          position: 'relative',
+          gap: 2,
           overflow: 'hidden',
-          backgroundColor: alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.2 : 0.16),
-        })}
+          boxSizing: 'border-box',
+          backgroundColor: 'background.default',
+        }}
       >
-        <Box sx={{ minWidth: 0, maxWidth: 'calc(100% - 164px)', position: 'relative', zIndex: 1 }}>
-          <Typography variant="h5" component="h1" title={botName} noWrap sx={{ fontWeight: 700 }}>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="h6" component="h1" title={botName} noWrap sx={{ fontWeight: 700 }}>
             {botName}
           </Typography>
           <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
@@ -75,11 +78,8 @@ const BotProfile: FC<BotProfileProps> = ({ bot, expanded = false }) => {
         <BotPortrait
           portraitIndex={bot.portrait_index}
           sx={{
-            width: 116,
-            height: 116,
-            position: 'absolute',
-            right: { xs: 38, sm: 56 },
-            bottom: -28,
+            width: 64,
+            height: 64,
           }}
         />
       </Box>

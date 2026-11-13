@@ -95,7 +95,7 @@ func (suite *PostgresStoreTestSuite) TestGetLatestActivationPromptHistoryEntryIn
 	suite.Require().NotNil(latest.DeletedAt)
 }
 
-func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptForConfigChangeOnlyClaimsLatestUncancelledFailure() {
+func (suite *PostgresStoreTestSuite) TestRecoverFailedPromptOnlyClaimsLatestUncancelledFailure() {
 	ctx := context.Background()
 	now := time.Now()
 	session, err := suite.db.CreateSession(ctx, types.Session{
@@ -129,7 +129,7 @@ func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptForConfigChangeOnl
 		Created: now.Add(time.Second), Updated: now.Add(time.Second), State: types.InteractionStateComplete,
 	})
 	suite.Require().NoError(err)
-	claimed, err := suite.db.RecoverProviderPromptForConfigChange(ctx, session.ID, oldPromptID, oldInteraction.ID)
+	claimed, err := suite.db.RecoverFailedPrompt(ctx, session.ID, oldPromptID, oldInteraction.ID)
 	suite.Require().NoError(err)
 	suite.False(claimed)
 
@@ -143,7 +143,7 @@ func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptForConfigChangeOnl
 	})
 	suite.Require().NoError(err)
 	suite.Require().NoError(suite.db.DeletePromptHistoryEntry(ctx, cancelledPromptID))
-	claimed, err = suite.db.RecoverProviderPromptForConfigChange(ctx, session.ID, cancelledPromptID, cancelledInteraction.ID)
+	claimed, err = suite.db.RecoverFailedPrompt(ctx, session.ID, cancelledPromptID, cancelledInteraction.ID)
 	suite.Require().NoError(err)
 	suite.False(claimed)
 
@@ -159,7 +159,7 @@ func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptForConfigChangeOnl
 	suite.Require().NoError(suite.db.SetSessionProviderRecovery(ctx, session.ID, &types.ProviderRecovery{
 		PromptID: eligiblePromptID, InteractionID: eligibleInteraction.ID,
 	}))
-	claimed, err = suite.db.RecoverProviderPromptForConfigChange(ctx, session.ID, eligiblePromptID, eligibleInteraction.ID)
+	claimed, err = suite.db.RecoverFailedPrompt(ctx, session.ID, eligiblePromptID, eligibleInteraction.ID)
 	suite.Require().NoError(err)
 	suite.True(claimed)
 	prompt, err := suite.db.GetPromptHistoryEntry(ctx, eligiblePromptID)

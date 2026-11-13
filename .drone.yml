@@ -131,10 +131,68 @@ steps:
       - ./desktop/shared/test-start-zed-mcp-readiness.sh
       - ./scripts/test-deploy-prod.sh
       - sh scripts/test-image-publish.sh
+      - sh scripts/check-postgres-defaults.sh
+      - bash scripts/test-install-postgres-pin.sh
     when:
       event:
         - push
     depends_on: []
+
+  # Crawler browser image (Dockerfile.chrome), built on the runner's Docker so
+  # the detached `chrome` step runs exactly what this commit ships. The tests
+  # reach it at http://chrome:7317 like the old `chrome` service.
+  - name: build-chrome-image
+    image: docker:cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      - "docker build --pull --label helix.ci.chrome=1 -f Dockerfile.chrome -t helix-chrome-ci:${DRONE_BUILD_NUMBER} ."
+    when:
+      event:
+        - push
+    depends_on: []
+
+  - name: chrome
+    image: "helix-chrome-ci:${DRONE_BUILD_NUMBER}"
+    pull: never
+    detach: true
+    environment:
+      # Exercises the launch token; the test steps send the same value.
+      CHROME_LAUNCHER_TOKEN: ci-launcher-token
+    when:
+      event:
+        - push
+    depends_on: [build-chrome-image]
+
+  # The image carries the Chromium pinned in chrome-version.env, and the pin
+  # is within 2 majors of the stable major recorded with it. No network, so
+  # it only changes with the code; the smoke-test cron checks live stable.
+  - name: chrome-version-check
+    image: docker:cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      - "scripts/check-chromium-freshness.sh helix-chrome-ci:${DRONE_BUILD_NUMBER}"
+    when:
+      event:
+        - push
+    depends_on: [build-chrome-image]
+
+  - name: chrome-image-scan
+    image: aquasec/trivy:0.76.1
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: trivy-cache
+        path: /root/.cache/trivy
+    commands:
+      - "trivy image --no-progress --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 helix-chrome-ci:${DRONE_BUILD_NUMBER}"
+    when:
+      event:
+        - push
+    depends_on: [build-chrome-image]
 
   # Build API binary once for migrations and integration tests.
   # This avoids recompiling in each step that needs the binary.
@@ -184,18 +242,17 @@ steps:
     environment:
       # Reduce log noise in CI - suppress trace/debug logs that bloat output
       LOG_LEVEL: "warn"
-      # Disabled until tested with togetherai
       DISABLE_AGENT_TESTS: "true"
       # Skip migrations - already run by run-migrations step
       HELIX_SKIP_AUTOMIGRATE: "1"
       GEMINI_API_KEY:
         from_secret: GEMINI_API_KEY
       OPENAI_API_KEY:
-        from_secret: openai_tools
-      TOGETHER_API_KEY:
-        from_secret: openai_api_key
-      TOGETHER_BASE_URL:
-        from_secret: openai_base_url
+        from_secret: bunker_api_key
+      OPENAI_BASE_URL:
+        from_secret: bunker_base_url
+      INFERENCE_PROVIDER: openai
+      TOOLS_MODEL: glm-5.3-flash
       # TODO: reenable
       # CI_ADO_TOKEN:
       #   from_secret: ci_ado_token
@@ -208,6 +265,7 @@ steps:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      RAG_CRAWLER_LAUNCHER_TOKEN: ci-launcher-token
 
     commands:
       - ORT_LIB_DIR=/usr/lib go run github.com/helixml/kodit/tools/download-ort
@@ -220,12 +278,28 @@ steps:
       # First arg "600" sets the script's wall-clock timeout — it parses
       # the first numeric arg. Without it the script defaults to 300s,
       # which is shorter than the inner `-timeout 8m` and kills the
-      # suite during pkg/tools (real TogetherAI calls take ~280s).
+      # suite during slower inference-backed tests.
       - go list ./api/... | grep -v '/desktop' | grep -v '/desktop-bridge' | xargs ./scripts/run-tests-with-timeout.sh 600 -tags ORT -timeout 8m -v
     when:
       event:
         - push
-    depends_on: [run-migrations]
+    depends_on: [run-migrations, chrome]
+
+  # Helix for Mac's VM start script (postgres pin before compose up). The
+  # for-mac app itself only builds on macOS; this package is plain Go.
+  - name: for-mac-stackscript-test
+    image: golang:1.25-bookworm
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    commands:
+      - cd for-mac && go test -count=1 ./stackscript
+    when:
+      event:
+        - push
+    depends_on: []
 
   - name: unit-test-nocgo
     image: golang:1.25-alpine
@@ -259,10 +333,6 @@ steps:
         from_secret: bunker_api_key
       OPENAI_BASE_URL:
         from_secret: bunker_base_url
-      TOGETHER_API_KEY:
-        from_secret: openai_api_key
-      TOGETHER_BASE_URL:
-        from_secret: openai_base_url
       # Database config (running in a sidecar)
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -270,6 +340,7 @@ steps:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: postgres
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      RAG_CRAWLER_LAUNCHER_TOKEN: ci-launcher-token
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
       START_HELIX_TEST_SERVER: "true"
       # Artifact creation is gated on subdomain hosting being configured:
@@ -306,7 +377,7 @@ steps:
     when:
       event:
         - push
-    depends_on: [run-migrations]
+    depends_on: [run-migrations, chrome]
 
   # Cross-tenant authorization matrix (integration-test/api/README.md,
   # "Authorization matrix"). No secrets: the server it starts has no LLM
@@ -332,6 +403,7 @@ steps:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DATABASE: authz_matrix
       RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      RAG_CRAWLER_LAUNCHER_TOKEN: ci-launcher-token
       ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
       START_HELIX_TEST_SERVER: "true"
       DEV_SUBDOMAIN: "dev"
@@ -353,7 +425,7 @@ steps:
     when:
       event:
         - push
-    depends_on: [build-api-binary]
+    depends_on: [build-api-binary, chrome]
 
   # - name: oauth-github-integration-test
   #   image: golang:1.25
@@ -911,15 +983,31 @@ steps:
         - push
     depends_on: []
 
+  # Untag this build's browser image; the running `chrome` container keeps it
+  # until the pipeline ends, and the next build prunes it.
+  - name: cleanup-chrome-image
+    image: docker:cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      - "docker image rm -f helix-chrome-ci:${DRONE_BUILD_NUMBER} || true"
+      - docker image prune -f --filter label=helix.ci.chrome=1 || true
+    when:
+      event:
+        - push
+      status:
+        - success
+        - failure
+    depends_on: [unit-test, api-integration-test, api-authz-matrix, chrome-version-check, chrome-image-scan]
+
 services:
   - name: postgres
-    image: postgres:12.22-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-  - name: chrome
-    image: ghcr.io/go-rod/rod:v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107
 
 volumes:
   - name: oauth-github-test-results
@@ -943,6 +1031,12 @@ volumes:
   - name: yarn-cache
     host:
       path: /var/cache/drone/yarn
+  - name: trivy-cache
+    host:
+      path: /var/cache/drone/trivy
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
 ---
 kind: pipeline
 type: docker
@@ -1090,6 +1184,219 @@ steps:
         path: /var/run/docker.sock
 
 ---
+kind: pipeline
+type: docker
+name: build-chrome-amd64
+
+# Separate from the controlplane pipelines: a failed chrome build or scan
+# never holds back a controlplane release.
+depends_on:
+  - default
+
+platform:
+  os: linux
+  arch: amd64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+  - name: trivy-cache
+    host:
+      path: /var/cache/drone/trivy
+
+steps:
+  - name: build-image
+    image: docker:cli
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        docker build --pull --provenance=false \
+          -f Dockerfile.chrome \
+          -t registry.helixml.tech/helix/chrome:$${VERSION}-linux-amd64 \
+          .
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+  - name: scan-image
+    image: aquasec/trivy:0.76.1
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        trivy image --no-progress --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 \
+          registry.helixml.tech/helix/chrome:$${VERSION}-linux-amd64
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: trivy-cache
+        path: /root/.cache/trivy
+
+  - name: publish-image
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+        scripts/publish-image.sh registry.helixml.tech/helix/chrome:$${VERSION}-linux-amd64
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+---
+kind: pipeline
+type: docker
+name: build-chrome-arm64
+
+# Separate from the controlplane pipelines: a failed chrome build or scan
+# never holds back a controlplane release.
+depends_on:
+  - default
+
+platform:
+  os: linux
+  arch: arm64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+  - name: trivy-cache
+    host:
+      path: /var/cache/drone/trivy
+
+steps:
+  - name: build-image
+    image: docker:cli
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        docker build --pull --provenance=false \
+          -f Dockerfile.chrome \
+          -t registry.helixml.tech/helix/chrome:$${VERSION}-linux-arm64 \
+          .
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+  - name: scan-image
+    image: aquasec/trivy:0.76.1
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        trivy image --no-progress --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 \
+          registry.helixml.tech/helix/chrome:$${VERSION}-linux-arm64
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+      - name: trivy-cache
+        path: /root/.cache/trivy
+
+  - name: publish-image
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+        scripts/publish-image.sh registry.helixml.tech/helix/chrome:$${VERSION}-linux-arm64
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+---
+kind: pipeline
+type: docker
+name: manifest-chrome
+
+depends_on:
+  - build-chrome-amd64
+  - build-chrome-arm64
+
+trigger:
+  ref:
+    include:
+      - refs/heads/main
+      - refs/tags/*
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  - name: manifest
+    image: docker:cli
+    environment:
+      REGISTRY_PASSWORD:
+        from_secret: helix_registry_password
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - echo "$${REGISTRY_PASSWORD}" | docker login registry.helixml.tech -u admin --password-stdin
+      - |
+        if [ -n "${DRONE_TAG}" ]; then
+          VERSION="${DRONE_TAG}"
+        else
+          VERSION=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
+        fi
+        REPO="registry.helixml.tech/helix/chrome"
+        docker manifest create --amend $${REPO}:$${VERSION} \
+          $${REPO}:$${VERSION}-linux-amd64 \
+          $${REPO}:$${VERSION}-linux-arm64
+        docker manifest push $${REPO}:$${VERSION}
+        echo "Multi-arch manifest pushed: $${REPO}:$${VERSION}"
+        scripts/ghcr-manifest.sh $${REPO} $${VERSION}
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+
+---
 # See integration-test/smoke/README.md
 kind: pipeline
 type: docker
@@ -1107,6 +1414,24 @@ trigger:
     - developer
 
 steps:
+  - name: build-chrome-image
+    image: docker:cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      - "docker build --pull --label helix.ci.chrome=1 -f Dockerfile.chrome -t helix-chrome-ci:${DRONE_BUILD_NUMBER} ."
+    depends_on: []
+
+  - name: chrome
+    image: "helix-chrome-ci:${DRONE_BUILD_NUMBER}"
+    pull: never
+    detach: true
+    volumes:
+      - name: integration-test
+        path: /integration-test
+    depends_on: [build-chrome-image]
+
   - name: smoke-test-saas
     image: golang:1.25-alpine
     volumes:
@@ -1127,7 +1452,7 @@ steps:
       - apk add --no-cache curl bash openssl
       - cp -r integration-test/* /integration-test
       - go test -timeout 600s -tags=integration -v ./integration-test/smoke
-    depends_on: []
+    depends_on: [chrome]
   - name: slack-notification
     image: plugins/slack
     settings:
@@ -1139,17 +1464,88 @@ steps:
     when:
       status:
         - failure
+    depends_on: [smoke-test-saas]
+
+  - name: cleanup-chrome-image
+    image: docker:cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      - "docker image rm -f helix-chrome-ci:${DRONE_BUILD_NUMBER} || true"
+      - docker image prune -f --filter label=helix.ci.chrome=1 || true
+    when:
+      status:
+        - success
+        - failure
+    depends_on: [smoke-test-saas]
 
 volumes:
   - name: integration-test
     temp: {}
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
 
-services:
-  - name: chrome
-    image: ghcr.io/go-rod/rod:v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107
+---
+# Nightly: is the crawler browser's pinned Chromium (chrome-version.env) still
+# within 2 majors of Chrome stable? Runs on the existing nightly cron.
+kind: pipeline
+type: docker
+name: chrome-freshness
+
+trigger:
+  event:
+    - cron
+  cron:
+    - helm-upgrade-nightly
+    - developer
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+  - name: build-chrome-image
+    image: docker:cli
     volumes:
-      - name: integration-test
-        path: /integration-test
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      - "docker build --pull --label helix.ci.chrome=1 -f Dockerfile.chrome -t helix-chrome-ci:${DRONE_BUILD_NUMBER} ."
+
+  - name: chrome-freshness
+    image: docker:cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      - "scripts/check-chromium-freshness.sh --online helix-chrome-ci:${DRONE_BUILD_NUMBER}"
+
+  - name: slack-notification
+    image: plugins/slack
+    settings:
+      webhook:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+      channel: helix-janitor
+      message: "⚠️ Crawler browser pin is stale: the Chromium in chrome-version.env is more than 2 majors behind stable (or the check could not run). Bump the pins. (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+    when:
+      status:
+        - failure
+
+  - name: cleanup-chrome-image
+    image: docker:cli
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    commands:
+      - "docker image rm -f helix-chrome-ci:${DRONE_BUILD_NUMBER} || true"
+      - docker image prune -f --filter label=helix.ci.chrome=1 || true
+    when:
+      status:
+        - success
+        - failure
 
 ---
 # Helm Upgrade Compatibility Test
@@ -2340,6 +2736,7 @@ depends_on:
   - default
   - manifest-controlplane
   - manifest-sandbox
+  - manifest-chrome
 
 trigger:
   ref:

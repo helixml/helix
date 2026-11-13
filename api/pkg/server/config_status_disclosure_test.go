@@ -84,8 +84,8 @@ func TestConfig_SignedInCallerGetsBuildAndDeploymentIdentity(t *testing.T) {
 	require.NotEmpty(t, cfg.DeploymentID)
 }
 
-// /status tells every user whether the deployment is licensed, but only a
-// deployment admin sees who holds the licence and what it allows.
+// /status tells non-admins only that the deployment is unlicensed; a deployment
+// admin sees who holds the licence and what it allows.
 func TestFrontendLicenseInfo_DetailsOnlyForAdmins(t *testing.T) {
 	decoded := &license.License{
 		Organization: "Acme Corp",
@@ -95,13 +95,7 @@ func TestFrontendLicenseInfo_DetailsOnlyForAdmins(t *testing.T) {
 		Limits:       license.Limits{Users: 50, Machines: 5},
 	}
 
-	tenant := frontendLicenseInfo(decoded, false)
-	require.True(t, tenant.Valid)
-	require.Empty(t, tenant.Organization)
-	require.True(t, tenant.ValidUntil.IsZero())
-	require.False(t, tenant.Features.Users)
-	require.Zero(t, tenant.Limits.Users)
-	require.Zero(t, tenant.Limits.Machines)
+	require.Nil(t, frontendLicenseInfo(decoded, false), "a valid licence is not described to non-admins at all")
 
 	admin := frontendLicenseInfo(decoded, true)
 	require.True(t, admin.Valid)
@@ -110,5 +104,10 @@ func TestFrontendLicenseInfo_DetailsOnlyForAdmins(t *testing.T) {
 
 	expired := *decoded
 	expired.ValidUntil = time.Now().Add(-time.Hour)
-	require.False(t, frontendLicenseInfo(&expired, false).Valid)
+	tenant := frontendLicenseInfo(&expired, false)
+	require.NotNil(t, tenant, "non-admins must still learn the deployment is unlicensed")
+	require.False(t, tenant.Valid)
+	require.Empty(t, tenant.Organization)
+	require.True(t, tenant.ValidUntil.IsZero())
+	require.Zero(t, tenant.Limits.Users)
 }

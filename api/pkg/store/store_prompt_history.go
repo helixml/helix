@@ -396,7 +396,7 @@ func (s *PostgresStore) RecoverProviderPrompt(ctx context.Context, sessionID, pr
 	return recovered, err
 }
 
-func (s *PostgresStore) RecoverProviderPromptForConfigChange(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+func (s *PostgresStore) RecoverFailedPrompt(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
 	recovered := false
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var session types.Session

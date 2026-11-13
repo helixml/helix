@@ -63,16 +63,18 @@ func TestAuthzMatrix(t *testing.T) {
 func projectRoutes() []route {
 	return []route{
 		{
+			// A session key with no project reaches no project; a helix-org
+			// worker's key acts as its hiring user by design.
 			Method: http.MethodGet, Path: "/api/v1/projects/{projA}",
-			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow, appKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow, appKey: deny, sessKey: deny, workerKey: allow, projChatKey: allow}),
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/projects/{projA2}",
-			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny, projChatKey: deny}),
 		},
 		{
 			Method: http.MethodPut, Path: "/api/v1/projects/{projA}", Body: tamper("description"),
-			Expect: strangers(expect{aOwner: allow, aMember: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, sessKey: deny}),
 			Fresh:  freshProject, Check: "/api/v1/projects/{projA}",
 		},
 		{
@@ -82,7 +84,7 @@ func projectRoutes() []route {
 		},
 		{
 			Method: http.MethodDelete, Path: "/api/v1/projects/{projA}",
-			Expect: strangers(expect{aOwner: allow, aMember: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, sessKey: deny}),
 			Fresh:  freshProject, Check: "/api/v1/projects/{projA}",
 		},
 		{
@@ -92,7 +94,7 @@ func projectRoutes() []route {
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/projects/{projA}/repositories",
-			Expect: strangers(expect{aOwner: allow, aMember: allow, projKey: allow}),
+			Expect: strangers(expect{aOwner: allow, aMember: allow, projKey: allow, sessKey: deny}),
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/projects/{projA2}/repositories",
@@ -115,7 +117,7 @@ func projectRoutes() []route {
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/projects/{projA}/secrets",
-			Expect: strangers(expect{aOwner: allow, projKey: allow}),
+			Expect: strangers(expect{aOwner: allow, projKey: allow, sessKey: deny}),
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/projects/{projA2}/secrets",
@@ -214,6 +216,11 @@ func sessionRoutes() []route {
 		{
 			Method: http.MethodGet, Path: "/api/v1/sessions/{sessOther}/interactions",
 			Expect: expect{aOwner: allow, sessKey: deny},
+		},
+		{
+			// Its own session's content is its desktop's to read.
+			Method: http.MethodGet, Path: "/api/v1/sessions/{sessChat}/interactions",
+			Expect: expect{aOwner: allow, sessKey: allow},
 		},
 		{
 			Method: http.MethodPut, Path: "/api/v1/sessions/{sessA}", Body: tamper("name"),
@@ -404,7 +411,7 @@ func repositoryRoutes() []route {
 	return []route{
 		{
 			Method: http.MethodGet, Path: "/api/v1/git/repositories/{repoA}",
-			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow}),
+			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow, sessKey: deny}),
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/git/repositories/{repoA2}",
@@ -412,7 +419,7 @@ func repositoryRoutes() []route {
 		},
 		{
 			Method: http.MethodPut, Path: "/api/v1/git/repositories/{repoA}", Body: tamper("description"),
-			Expect: strangers(expect{aOwner: allow, aMember: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, sessKey: deny}),
 			Fresh:  freshRepo, Check: "/api/v1/git/repositories/{repoA}",
 		},
 		{
@@ -422,7 +429,7 @@ func repositoryRoutes() []route {
 		},
 		{
 			Method: http.MethodDelete, Path: "/api/v1/git/repositories/{repoA}",
-			Expect: strangers(expect{aOwner: allow, aMember: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, sessKey: deny}),
 			Fresh:  freshRepo, Check: "/api/v1/git/repositories/{repoA}",
 		},
 		{
@@ -477,15 +484,17 @@ func gitSmartHTTPRoutes() []route {
 	return []route{
 		{
 			Method: http.MethodGet, Path: "/git/{repoA}/info/refs?service=git-upload-pack", Header: basic,
-			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow}),
+			// A project session's desktop clones its project's repositories
+			// (helix-workspace-setup.sh), and only those.
+			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, sessKey: deny, workerKey: allow, projChatKey: allow}),
 		},
 		{
 			Method: http.MethodGet, Path: "/git/{repoA2}/info/refs?service=git-upload-pack", Header: basic,
-			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny, projChatKey: deny}),
 		},
 		{
 			Method: http.MethodGet, Path: "/git/{repoA}/info/refs?service=git-receive-pack", Header: basic,
-			Expect: strangers(expect{aOwner: allow, aMember: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, sessKey: deny}),
 		},
 		{
 			Method: http.MethodGet, Path: "/git/{repoA2}/info/refs?service=git-receive-pack", Header: basic,
@@ -598,7 +607,7 @@ func secretRoutes() []route {
 	return []route{
 		{
 			Method: http.MethodPut, Path: "/api/v1/secrets/{secretProj}", Body: tamper("name"),
-			Expect: strangers(expect{aOwner: allow, aMember: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, sessKey: deny}),
 			Fresh:  freshProjectSecret, Check: "/api/v1/projects/{projA}/secrets", CheckMarker: "secretProj",
 		},
 		{
@@ -608,12 +617,12 @@ func secretRoutes() []route {
 		},
 		{
 			Method: http.MethodPut, Path: "/api/v1/secrets/{secretPersonal}", Body: tamper("name"),
-			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny, sessKey: deny}),
 			Fresh:  freshPersonalSecret, Check: "/api/v1/secrets", CheckMarker: "secretPersonal",
 		},
 		{
 			Method: http.MethodDelete, Path: "/api/v1/secrets/{secretProj}",
-			Expect: strangers(expect{aOwner: allow, aMember: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, sessKey: deny}),
 			Fresh:  freshProjectSecret, Check: "/api/v1/projects/{projA}/secrets", CheckMarker: "secretProj",
 		},
 		{
@@ -623,7 +632,7 @@ func secretRoutes() []route {
 		},
 		{
 			Method: http.MethodDelete, Path: "/api/v1/secrets/{secretPersonal}",
-			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny, sessKey: deny}),
 			Fresh:  freshPersonalSecret, Check: "/api/v1/secrets", CheckMarker: "secretPersonal",
 		},
 	}
@@ -633,7 +642,7 @@ func secretListRoutes() []route {
 	return []route{
 		{
 			Method: http.MethodGet, Path: "/api/v1/secrets?organization_id={orgA}",
-			Expect: strangers(expect{aOwner: allow, aMember: allow}),
+			Expect: strangers(expect{aOwner: allow, aMember: allow, sessKey: deny}),
 		},
 	}
 }
@@ -821,7 +830,27 @@ func organizationRoutes() []route {
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/organizations/{orgA}/sandboxes",
-			Expect: strangers(expect{aOwner: allow, aMember: allow}),
+			Expect: strangers(expect{aOwner: allow, aMember: allow, sessKey: deny}),
+		},
+		{
+			// A session key with no project may not create, delete or run
+			// commands in its owner's sandboxes. Without a sandbox host (or,
+			// below, a sandbox) the owner gets past authorization and fails
+			// later.
+			Method: http.MethodPost, Path: "/api/v1/organizations/{orgA}/sandboxes",
+			Body:   map[string]any{"image": "authz-matrix.invalid/none"},
+			Expect: strangers(expect{aOwner: reached, sessKey: deny}),
+		},
+		{
+			Method: http.MethodDelete, Path: "/api/v1/organizations/{orgA}/sandboxes/sbx_authzmatrixmissing",
+			Expect:        expect{aOwner: reached, sessKey: deny},
+			ReachedMarker: "sandbox not found",
+		},
+		{
+			Method: http.MethodPost, Path: "/api/v1/organizations/{orgA}/sandboxes/sbx_authzmatrixmissing/commands",
+			Body:          map[string]any{"command": []string{"true"}},
+			Expect:        expect{aOwner: reached, sessKey: deny},
+			ReachedMarker: "sandbox not found",
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/organizations/{orgA}/guidelines-history",
@@ -951,7 +980,12 @@ func filestoreRoutes() []route {
 	return []route{
 		{
 			Method: http.MethodGet, Path: "/api/v1/filestore/list?path=apps/{appA}",
-			Expect: strangers(expect{aOwner: allow, aMember: allow, projKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: allow, projKey: deny, sessKey: deny}),
+		},
+		{
+			// The caller's own folder.
+			Method: http.MethodGet, Path: "/api/v1/filestore/list?path=",
+			Expect: expect{aOwner: allow, sessKey: deny},
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/filestore/list?path=apps",
@@ -1000,7 +1034,7 @@ func externalAgentRoutes() []route {
 		{
 			Method: http.MethodPost, Path: "/api/v1/external-agents/{sessA}/exec",
 			Body:          map[string]any{"command": []string{"true"}},
-			Expect:        strangers(expect{aOwner: reached, aMember: deny}),
+			Expect:        strangers(expect{aOwner: reached, aMember: deny, sessKey: deny}),
 			ReachedMarker: "Sandbox not connected",
 		},
 		{
@@ -1083,13 +1117,20 @@ func mcpRoutes() []route {
 	return []route{
 		{
 			Method: http.MethodPost, Path: "/api/v1/mcp/helix/message?app_id={appA}", Body: initialize, Header: accept,
-			Expect: strangers(expect{aOwner: reached, aMember: reached, projKey: deny}),
+			Expect: strangers(expect{aOwner: reached, aMember: reached, projKey: deny, sessKey: deny}),
 		},
 		{
 			// The org and bot come from the worker's session, never the URL:
 			// only a worker session key gets in.
 			Method: http.MethodPost, Path: "/api/v1/mcp/helix-org", Body: initialize, Header: accept,
 			Expect: strangers(expect{workerKey: allow, aOwner: deny, aOwnerOrgKey: deny, projKey: deny, sessKey: deny}),
+		},
+		{
+			// A session outside any project has no repositories to search.
+			// The owner reaches the backend (Kodit is off in CI).
+			Method: http.MethodPost, Path: "/api/v1/mcp/kodit?session_id={sessChat}", Body: initialize, Header: accept,
+			Expect:        expect{aOwner: reached, sessKey: deny},
+			ReachedMarker: "Kodit is not",
 		},
 		{
 			Method: http.MethodPost, Path: "/api/v1/mcp/helix-tasks", Body: initialize, Header: accept,
@@ -1108,8 +1149,9 @@ func llmProxyRoutes() []route {
 		{
 			// Choosing an agent you cannot use must be refused before any
 			// provider is selected.
+			// A sandbox has no agent: its key may not run one of its owner's.
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appA}", Body: chat,
-			Expect:        strangers(expect{aOwner: reached, aMember: reached, projKey: deny}),
+			Expect:        strangers(expect{aOwner: reached, aMember: reached, projKey: deny, sandboxKey: deny}),
 			ReachedMarker: "authz-matrix.invalid",
 		},
 		{
@@ -1120,7 +1162,7 @@ func llmProxyRoutes() []route {
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appPersonal}", Body: chat,
-			Expect:        strangers(expect{aOwner: reached, aMember: deny}),
+			Expect:        strangers(expect{aOwner: reached, aMember: deny, sessKey: deny, sandboxKey: deny}),
 			ReachedMarker: "authz-matrix.invalid",
 		},
 		{
@@ -1152,8 +1194,15 @@ func llmProxyRoutes() []route {
 			},
 		},
 		{
+			// A RAG source is authorized by owner only; a session key may
+			// not name one.
+			Method: http.MethodPost, Path: "/v1/chat/completions?rag_source_id=authz-matrix-missing", Body: chat,
+			Expect:        expect{aOwner: reached, sessKey: deny},
+			ReachedMarker: "failed to load RAG",
+		},
+		{
 			Method: http.MethodPost, Path: "/v1/messages", Body: chat,
-			Expect: expect{aOwner: reached, projKey: reached, waitlisted: deny, anonymous: deny},
+			Expect: expect{aOwner: reached, projKey: reached, sessKey: reached, sandboxKey: reached, waitlisted: deny, anonymous: deny},
 		},
 		{
 			// The embeddings provider is server-wide; this placeholder model
@@ -1171,7 +1220,7 @@ func llmProxyRoutes() []route {
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/responses", Body: chat,
-			Expect: expect{projKey: reached, waitlisted: deny, anonymous: deny},
+			Expect: expect{projKey: reached, sessKey: reached, waitlisted: deny, anonymous: deny},
 		},
 	}
 }

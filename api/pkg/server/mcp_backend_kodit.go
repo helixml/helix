@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -19,37 +20,67 @@ import (
 )
 
 // KoditMCPBackend implements MCPBackend for Kodit code intelligence.
-// It creates a per-session HTTP handler scoped to the repositories
-// the session's project has access to.
+// Every request is served by a handler scoped to the repositories the caller
+// may read through the requested session.
+//
+// The session is authorized on every request. The repository scope depends on
+// the caller as well as the session (owners and org owners can both read a
+// session), so it is cached per caller credential and session, and only for
+// koditScopeTTL from when it was resolved: a client that keeps polling sees
+// code intelligence turned off or a repository detached within that time,
+// while the bursts of MCP requests an agent makes (initialize, tools/list,
+// tool calls) resolve the scope once. Building the scoped Kodit handler costs
+// tens of microseconds and its MCP sessions are stateless, so a fresh handler
+// per request serves an existing MCP session unchanged.
 type KoditMCPBackend struct {
-	koditClient *kodit.Client
-	store       store.Store
-	enabled     bool
-	authorize   SessionAuthorizer
+	koditClient    *kodit.Client
+	store          store.Store
+	enabled        bool
+	authorize      SessionAuthorizer
+	authorizeRepos RepositoryAuthorizer
 
-	handlers   map[string]*sessionHandler
-	handlersMu sync.RWMutex
-
-	cleanupCtx    context.Context
-	cleanupCancel context.CancelFunc
+	scopesMu sync.Mutex
+	scopes   map[koditScopeKey]cachedKoditScope
+	now      func() time.Time // for tests; time.Now when nil
 }
 
-type sessionHandler struct {
-	handler  http.Handler
-	lastUsed time.Time
-	mu       sync.Mutex
+// koditScopeTTL is how long a resolved repository scope is reused. It is
+// measured from resolution and never extended by use.
+const koditScopeTTL = 5 * time.Second
+
+// koditScopeKey identifies a resolved scope: the session and every property
+// of the caller's credential that authorization reads.
+type koditScopeKey struct {
+	sessionID      string
+	userID         string
+	admin          bool
+	tokenType      types.TokenType
+	apiKeyType     types.APIKeyType
+	appID          string
+	projectID      string
+	specTaskID     string
+	keySessionID   string
+	organizationID string
 }
 
-func (h *sessionHandler) touch() {
-	h.mu.Lock()
-	h.lastUsed = time.Now()
-	h.mu.Unlock()
+func newKoditScopeKey(sessionID string, user *types.User) koditScopeKey {
+	return koditScopeKey{
+		sessionID:      sessionID,
+		userID:         user.ID,
+		admin:          user.Admin,
+		tokenType:      user.TokenType,
+		apiKeyType:     user.APIKeyType,
+		appID:          user.AppID,
+		projectID:      user.ProjectID,
+		specTaskID:     user.SpecTaskID,
+		keySessionID:   user.SessionID,
+		organizationID: user.OrganizationID,
+	}
 }
 
-func (h *sessionHandler) isExpired(ttl time.Duration) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return time.Since(h.lastUsed) > ttl
+type cachedKoditScope struct {
+	scope   *koditRepoScope
+	expires time.Time
 }
 
 // NewKoditMCPBackend creates a new Kodit MCP backend with session-aware scoping.
@@ -57,18 +88,11 @@ func NewKoditMCPBackend(koditClient *kodit.Client, enabled bool, store store.Sto
 	if !enabled {
 		return &KoditMCPBackend{enabled: false}
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	b := &KoditMCPBackend{
-		koditClient:   koditClient,
-		store:         store,
-		enabled:       koditClient != nil,
-		handlers:      make(map[string]*sessionHandler),
-		cleanupCtx:    ctx,
-		cleanupCancel: cancel,
+	return &KoditMCPBackend{
+		koditClient: koditClient,
+		store:       store,
+		enabled:     koditClient != nil,
 	}
-	go b.cleanupLoop()
-	return b
 }
 
 // setClient installs a kodit client after construction. Used because kodit.New
@@ -80,60 +104,6 @@ func (b *KoditMCPBackend) setClient(koditClient *kodit.Client) {
 	}
 	b.koditClient = koditClient
 	b.enabled = true
-	if b.handlers == nil {
-		b.handlers = make(map[string]*sessionHandler)
-	}
-	if b.cleanupCtx == nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		b.cleanupCtx = ctx
-		b.cleanupCancel = cancel
-		go b.cleanupLoop()
-	}
-}
-
-// Stop stops the background cleanup.
-func (b *KoditMCPBackend) Stop() {
-	if b.cleanupCancel != nil {
-		b.cleanupCancel()
-	}
-}
-
-func (b *KoditMCPBackend) cleanupLoop() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-b.cleanupCtx.Done():
-			return
-		case <-ticker.C:
-			b.cleanupExpired(5 * time.Minute)
-		}
-	}
-}
-
-func (b *KoditMCPBackend) cleanupExpired(ttl time.Duration) {
-	var expired []string
-
-	b.handlersMu.RLock()
-	for key, h := range b.handlers {
-		if h.isExpired(ttl) {
-			expired = append(expired, key)
-		}
-	}
-	b.handlersMu.RUnlock()
-
-	if len(expired) == 0 {
-		return
-	}
-
-	b.handlersMu.Lock()
-	for _, key := range expired {
-		delete(b.handlers, key)
-	}
-	b.handlersMu.Unlock()
-
-	log.Debug().Int("count", len(expired)).Msg("cleaned up expired Kodit MCP session handlers")
 }
 
 // SetSessionAuthorizer wires the session RBAC check applied to every request.
@@ -141,18 +111,26 @@ func (b *KoditMCPBackend) SetSessionAuthorizer(fn SessionAuthorizer) {
 	b.authorize = fn
 }
 
-// authorizeSession checks the caller may read the session whose repository
-// scope it asks for. It runs on every request, before the per-session handler
-// cache, so a cached handler is never served to another caller.
-func (b *KoditMCPBackend) authorizeSession(ctx context.Context, sessionID string, user *types.User) error {
+// SetRepositoryAuthorizer wires the repository RBAC check that filters each
+// request's Kodit scope down to the repositories the caller may read.
+func (b *KoditMCPBackend) SetRepositoryAuthorizer(fn RepositoryAuthorizer) {
+	b.authorizeRepos = fn
+}
+
+// authorizedSession loads the session whose repository scope the caller asks
+// for and checks the caller may read it.
+func (b *KoditMCPBackend) authorizedSession(ctx context.Context, sessionID string, user *types.User) (*types.Session, error) {
 	if b.authorize == nil || user == nil {
-		return errors.New("not authorized for this session")
+		return nil, errors.New("not authorized for this session")
 	}
 	session, err := b.store.GetSession(ctx, sessionID)
 	if err != nil {
-		return errors.New("not authorized for this session")
+		return nil, errors.New("not authorized for this session")
 	}
-	return b.authorize(ctx, user, session, types.ActionGet)
+	if err := b.authorize(ctx, user, session, types.ActionGet); err != nil {
+		return nil, err
+	}
+	return session, nil
 }
 
 // ServeHTTP implements MCPBackend.
@@ -171,12 +149,19 @@ func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	if err := b.authorizeSession(r.Context(), sessionID, user); err != nil {
+	session, err := b.authorizedSession(r.Context(), sessionID, user)
+	if err != nil {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
-	handler, err := b.handlerForSession(r.Context(), sessionID, user)
+	handler, err := b.handlerFor(r.Context(), session, user)
+	if errors.Is(err, errNoKoditRepositories) {
+		// An MCP server that refuses initialize breaks clients that require
+		// every configured server to start, so a session with nothing to
+		// search gets a server with no tools rather than an error.
+		handler, err = emptyKoditMCPHandler(), nil
+	}
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("failed to resolve Kodit MCP scope")
 		http.Error(w, "failed to initialize Kodit MCP: "+err.Error(), http.StatusInternalServerError)
@@ -205,36 +190,74 @@ func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 	handler.ServeHTTP(w, r2)
 }
 
-func (b *KoditMCPBackend) handlerForSession(ctx context.Context, sessionID string, user *types.User) (http.Handler, error) {
-	ttl := 5 * time.Minute
-
-	b.handlersMu.RLock()
-	if h, ok := b.handlers[sessionID]; ok && !h.isExpired(ttl) {
-		h.touch()
-		b.handlersMu.RUnlock()
-		return h.handler, nil
+// handlerFor builds the Kodit MCP handler for the repositories user may read
+// through session.
+func (b *KoditMCPBackend) handlerFor(ctx context.Context, session *types.Session, user *types.User) (http.Handler, error) {
+	scope, err := b.scopeFor(ctx, session, user)
+	if err != nil {
+		return nil, err
 	}
-	b.handlersMu.RUnlock()
+	handler, err := scopedKoditMCPHandler(b.koditClient, scope.idSlice)
+	if err != nil {
+		return nil, err
+	}
+	return koditScopeGuard(scope.repoIDs, handler), nil
+}
 
-	scope, err := resolveKoditRepoScope(ctx, b.store, sessionID, user)
+// scopeFor returns the repository scope of user in session, resolving it
+// unless a resolution for the same credential and session is younger than
+// koditScopeTTL.
+func (b *KoditMCPBackend) scopeFor(ctx context.Context, session *types.Session, user *types.User) (*koditRepoScope, error) {
+	now := time.Now
+	if b.now != nil {
+		now = b.now
+	}
+	key := newKoditScopeKey(session.ID, user)
+
+	b.scopesMu.Lock()
+	cached, ok := b.scopes[key]
+	b.scopesMu.Unlock()
+	if ok && now().Before(cached.expires) {
+		return cached.scope, nil
+	}
+
+	scope, err := resolveKoditRepoScope(ctx, b.store, b.authorizeRepos, session, user)
 	if err != nil {
 		return nil, err
 	}
 
-	handler := kodit.NewScopedMCPHandler(b.koditClient, scope.idSlice)
-
-	now := time.Now()
-	b.handlersMu.Lock()
-	b.handlers[sessionID] = &sessionHandler{
-		handler:  handler,
-		lastUsed: now,
+	t := now()
+	b.scopesMu.Lock()
+	if b.scopes == nil {
+		b.scopes = make(map[koditScopeKey]cachedKoditScope)
 	}
-	b.handlersMu.Unlock()
+	for k, v := range b.scopes {
+		if !t.Before(v.expires) {
+			delete(b.scopes, k)
+		}
+	}
+	b.scopes[key] = cachedKoditScope{scope: scope, expires: t.Add(koditScopeTTL)}
+	b.scopesMu.Unlock()
+	return scope, nil
+}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Int("allowed_repos", len(scope.idSlice)).
-		Msg("created session-scoped Kodit MCP handler")
+// emptyKoditMCPHandler is the MCP server for a session that may search no
+// repository: it answers initialize and lists no tools.
+var emptyKoditMCPHandler = sync.OnceValue(func() http.Handler {
+	return mcpserver.NewStreamableHTTPServer(mcpserver.NewMCPServer("kodit", "1.0.0", mcpserver.WithToolCapabilities(true)))
+})
 
-	return handler, nil
+// errNoKoditRepositories is returned when a session may see no indexed
+// repositories.
+var errNoKoditRepositories = errors.New("no code-intelligence repositories are available to this session")
+
+// scopedKoditMCPHandler builds the Kodit MCP handler for a fixed set of
+// repositories. Before kodit v1.4.0 an empty set meant unscoped (every
+// repository on the instance); v1.4.0 sees nothing for an empty set, and an
+// empty set is still refused here so the answer never depends on the library.
+func scopedKoditMCPHandler(client *kodit.Client, repoIDs []int64) (http.Handler, error) {
+	if len(repoIDs) == 0 {
+		return nil, errNoKoditRepositories
+	}
+	return kodit.NewScopedMCPHandler(client, repoIDs), nil
 }
