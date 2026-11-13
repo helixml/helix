@@ -25,15 +25,56 @@ check() {
     echo "ok: ${name}"
 }
 
-run() {
+reset_counters() {
     for cgroup in "$PROCS" "$BUILDKIT"; do
+        rm -f "$cgroup/cpu.stat" "$cgroup/io.stat"
         echo "usage_usec 0" > "$cgroup/cpu.stat"
         echo "259:0 rbytes=0 wbytes=0" > "$cgroup/io.stat"
     done
+}
+
+run() {
+    reset_counters
+    launch "$1"
+}
+
+launch() {
     printf '%s\n' "$1" > "$TMP/startup.sh"
     local start=$SECONDS code=0
     timeout 60 "$SCRIPT_DIR/helix-golden-startup.sh" "$TMP/startup.sh" >"$TMP/out" 2>&1 || code=$?
     echo "$code $((SECONDS - start))"
+}
+
+# Runs a startup script that waits for the build activity fed by run_fed and
+# reports whether the monitor let it finish.
+run_fed() {
+    local cpu_step="$1" write_step="$2" code
+    reset_counters
+    rm -f "$TMP/fed" "$BUILDKIT/cpu.stat" "$PROCS/io.stat"
+    mkfifo "$BUILDKIT/cpu.stat" "$PROCS/io.stat"
+    feed "$cpu_step" "$write_step" &
+    local feeder=$!
+    read -r code _ <<<"$(launch 'until [ -e '"$TMP"'/fed ]; do sleep 0.1; done; echo "startup finished"; exit 0')"
+    kill "$feeder"
+    wait "$feeder" 2>/dev/null || true
+    reset_counters
+    if grep -q "startup finished" "$TMP/out"; then echo "$code finished"; else echo "$code stopped"; fi
+}
+
+# Every monitor sample reads BuildKit's cpu.stat and then the agent's io.stat.
+# Making both FIFOs hands each sample the next counter values, so activity
+# grows per sample rather than per second and a stalled runner cannot make a
+# busy build look idle. $TMP/fed appears once the monitor has taken more
+# samples than it needs to stop an idle build.
+feed() {
+    local cpu_step="$1" write_step="$2" samples=0
+    local enough=$((HELIX_GOLDEN_IDLE_TIMEOUT / HELIX_GOLDEN_IDLE_POLL + 2))
+    while :; do
+        echo "usage_usec $((samples * cpu_step))" > "$BUILDKIT/cpu.stat"
+        echo "259:0 rbytes=0 wbytes=$((samples * write_step))" > "$PROCS/io.stat"
+        samples=$((samples + 1))
+        [ "$samples" -lt "$enough" ] || touch "$TMP/fed"
+    done
 }
 
 run_rootless() {
@@ -46,10 +87,15 @@ run_rootless() {
     echo "$code $((SECONDS - start))"
 }
 
-read -r code _ <<<"$(run 'echo built; exit 0')"
+# Tests that aren't about the idle stop turn it off: the fake counters never
+# move, so a runner slow to start bash -i would otherwise stop the script as
+# idle before it reached its exit.
+NO_IDLE_STOP=3600
+
+read -r code _ <<<"$(HELIX_GOLDEN_IDLE_TIMEOUT=$NO_IDLE_STOP run 'echo built; exit 0')"
 check "exiting script succeeds" 0 "$code"
 
-read -r code _ <<<"$(run 'echo broken; exit 3')"
+read -r code _ <<<"$(HELIX_GOLDEN_IDLE_TIMEOUT=$NO_IDLE_STOP run 'echo broken; exit 3')"
 check "failing script keeps its exit code" 3 "$code"
 
 read -r code took <<<"$(run 'echo built; sleep 4242 & exec sleep 4242')"
@@ -58,20 +104,16 @@ check "foreground server is stopped once idle" 0 "$code"
 pgrep -f "^sleep 4242" >/dev/null && { echo "FAIL: server processes left running"; exit 1; }
 echo "ok: server processes killed"
 
-read -r code _ <<<"$(run 'read -r line; echo "got: $line"; exit 0')"
+read -r code _ <<<"$(HELIX_GOLDEN_IDLE_TIMEOUT=$NO_IDLE_STOP run 'read -r line; echo "got: $line"; exit 0')"
 check "prompt does not block" 0 "$code"
 
 # BuildKit steps run outside the script's processes; they show up only in the
 # tier's counters.
-read -r code took <<<"$(run 'for i in $(seq 1 10); do echo "usage_usec ${i}000000" > '"$BUILDKIT"'/cpu.stat; sleep 1; done; exit 0')"
-check "script waiting on a BuildKit build is not stopped" 0 "$code"
-[ "$took" -ge 10 ] || { echo "FAIL: script stopped after ${took}s"; exit 1; }
-echo "ok: script with a BuildKit build ran to completion"
+read -r code outcome <<<"$(run_fed 1000000 0)"
+check "script waiting on a BuildKit build is not stopped" "0 finished" "$code $outcome"
 
-read -r code took <<<"$(run 'for i in $(seq 1 10); do echo "259:0 rbytes=0 wbytes=${i}00000000" > '"$PROCS"'/io.stat; sleep 1; done; exit 0')"
-check "script pulling images is not stopped" 0 "$code"
-[ "$took" -ge 10 ] || { echo "FAIL: script stopped after ${took}s"; exit 1; }
-echo "ok: script pulling images ran to completion"
+read -r code outcome <<<"$(run_fed 0 100000000)"
+check "script pulling images is not stopped" "0 finished" "$code $outcome"
 
 mkdir -p "$TMP/bin" "$TMP/runtime/dockerd-rootless"
 cat > "$TMP/bin/docker" <<'EOF'
@@ -86,10 +128,10 @@ EOF
 chmod +x "$TMP/bin/docker"
 export PATH="$TMP/bin:$PATH"
 
-read -r code _ <<<"$(run_rootless 'echo broken; exit 3')"
+read -r code _ <<<"$(HELIX_GOLDEN_IDLE_TIMEOUT=$NO_IDLE_STOP run_rootless 'echo broken; exit 3')"
 check "rootless failing script keeps its exit code" 3 "$code"
 
-read -r code _ <<<"$(run_rootless 'read -r line; echo "got: $line"; exit 0')"
+read -r code _ <<<"$(HELIX_GOLDEN_IDLE_TIMEOUT=$NO_IDLE_STOP run_rootless 'read -r line; echo "got: $line"; exit 0')"
 check "rootless prompt does not block" 0 "$code"
 
 read -r code took <<<"$(run_rootless 'echo built; sleep 4343 & exec sleep 4343')"

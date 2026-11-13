@@ -47,7 +47,7 @@ steps:
     image: node:23-alpine
     commands:
       - cd frontend
-      - yarn test --maxWorkers=4 --minWorkers=1
+      - yarn test
     depends_on: [frontend-install]
 
   - name: build-frontend
