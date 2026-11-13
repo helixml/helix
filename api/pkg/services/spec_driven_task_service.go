@@ -90,6 +90,7 @@ type SpecDrivenTaskService struct {
 	SessionContextService      *SessionContextService    // Service for inter-session coordination
 	auditLogService            *AuditLogService          // Service for audit logging
 	koditService               KoditServicer             // Kodit code intelligence (for MCP documentation in prompts)
+	koditRepoLister            KoditRepoLister           // Kodit repositories a task's agent can reach (for prompts)
 	ExecInDesktop              DesktopExecFunc           // Callback to exec commands in running desktop containers
 	WakeDesktop                DesktopWakeFunc           // Callback to start a stopped desktop after a failed exec
 	ReadAttachmentBlob         AttachmentBlobReader      // Callback to load attachment bytes from filestore
@@ -142,6 +143,12 @@ func NewSpecDrivenTaskService(
 // SetKoditService replaces the kodit service after late initialization.
 func (s *SpecDrivenTaskService) SetKoditService(svc KoditServicer) {
 	s.koditService = svc
+}
+
+// SetKoditRepoLister wires the resolution of the Kodit repositories a task's
+// agent can reach, used for the repository section of task prompts.
+func (s *SpecDrivenTaskService) SetKoditRepoLister(fn KoditRepoLister) {
+	s.koditRepoLister = fn
 }
 
 // SetTestMode enables or disables test mode (prevents async operations)
@@ -1529,7 +1536,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// Start implementation in the existing task session and sandbox, but on
 		// a clean ACP thread owned by the implementation configuration.
 		if sessionID != "" && !s.testMode {
-			agentInstructionService := NewAgentInstructionService(s.store, s.EnqueueMessageToAgent, s.koditService)
+			agentInstructionService := NewAgentInstructionService(s.store, s.EnqueueMessageToAgent, s.koditService, s.koditRepoLister)
 			message := agentInstructionService.BuildApprovalInstruction(
 				context.Background(), task, branchName, effectiveBaseBranch, repo.Name,
 			)
@@ -1860,41 +1867,9 @@ func isNonRetryableIdentityError(err error) bool {
 	return errors.Is(err, errIdentityUserNotFound) || errors.Is(err, errIdentityNoEmail)
 }
 
-// buildRepositorySectionForTask fetches project and org repos, then builds the repository section
+// buildRepositorySectionForTask builds the repository section of a task prompt.
 func (s *SpecDrivenTaskService) buildRepositorySectionForTask(ctx context.Context, task *types.SpecTask, project *types.Project) string {
-	if task.ProjectID == "" {
-		return ""
-	}
-
-	// Fetch project repos
-	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: task.ProjectID,
-	})
-	if err != nil {
-		return ""
-	}
-
-	// Fetch Kodit org repos if enabled
-	var koditOrgRepos []*types.GitRepository
-	if project != nil && project.KoditEnabled && project.OrganizationID != "" {
-		orgRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-			OrganizationID: project.OrganizationID,
-		})
-		if err == nil {
-			for _, repo := range orgRepos {
-				if repo.KoditIndexing {
-					koditOrgRepos = append(koditOrgRepos, repo)
-				}
-			}
-		}
-	}
-
-	primaryRepoID := ""
-	if project != nil {
-		primaryRepoID = project.DefaultRepoID
-	}
-
-	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
+	return repositorySectionForTask(ctx, s.store, s.koditRepoLister, task, project)
 }
 
 // Helper functions

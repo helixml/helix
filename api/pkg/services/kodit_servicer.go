@@ -124,7 +124,7 @@ type KoditServicer interface {
 	IsEnabled() bool
 	RegisterRepository(ctx context.Context, params *RegisterRepositoryParams) (int64, bool, error)
 	GetRepositoryEnrichments(ctx context.Context, koditRepoID int64, enrichmentType, commitSHA string) ([]enrichment.Enrichment, error)
-	GetEnrichment(ctx context.Context, enrichmentID string) (enrichment.Enrichment, error)
+	GetRepositoryEnrichment(ctx context.Context, koditRepoID int64, enrichmentID string) (enrichment.Enrichment, error)
 	GetRepositoryCommits(ctx context.Context, koditRepoID int64, limit int) ([]repository.Commit, error)
 	SearchSnippets(ctx context.Context, koditRepoID int64, query string, limit int) ([]enrichment.Enrichment, error)
 	GetRepositoryStatus(ctx context.Context, koditRepoID int64) (tracking.RepositoryStatusSummary, error)
@@ -179,7 +179,7 @@ func (d *disabledKoditService) RegisterRepository(context.Context, *RegisterRepo
 func (d *disabledKoditService) GetRepositoryEnrichments(context.Context, int64, string, string) ([]enrichment.Enrichment, error) {
 	return nil, errors.New("kodit service not enabled")
 }
-func (d *disabledKoditService) GetEnrichment(context.Context, string) (enrichment.Enrichment, error) {
+func (d *disabledKoditService) GetRepositoryEnrichment(context.Context, int64, string) (enrichment.Enrichment, error) {
 	return enrichment.Enrichment{}, errors.New("kodit service not enabled")
 }
 func (d *disabledKoditService) GetRepositoryCommits(context.Context, int64, int) ([]repository.Commit, error) {
