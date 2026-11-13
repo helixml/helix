@@ -284,6 +284,8 @@ Today `searxng.SearchProvider` is used directly by `agent/skill/web_search.go`. 
 - `requestId` appears in an `/answer` stream only on the cost chunk and inside the error payload, per Exa's spec.
 - LLM features (summary, outputSchema, deep, answer, findSimilar) need `SEARCH_LLM_*`; highlights and findSimilar need `SEARCH_EMBEDDINGS_*`. Without them the request gets `FEATURE_DISABLED`.
 
+**Billing.** `websearch/billing` wraps whichever provider `setup` builds, so the API, agent skills and the CLI are all charged from one price table (`SEARCH_PRICE_*`, defaulting to Exa's list prices). The exa provider's own charge is Helix's cost, never the caller's price. Each response carries `costDollars` (search charge in `total` only, content charges itemised); with `STRIPE_BILLING_ENABLED` the total is debited from the org wallet, else the user's (`wallet.For`, the rule inference uses), as a `usage` transaction carrying `web_search_request_id`, the `requestId` the client saw. A wallet below `STRIPE_MINIMUM_INFERENCE_BALANCE` gets 402 `NO_MORE_CREDITS` before any work; failed calls cost nothing; runner tokens are exempt. Agent skills bill the turn's organization (the one its LLM calls bill) and assign their own request id.
+
 **Verification.**
 - `server/websearch_integration_test.go` runs the real handlers and native stack against fake SearXNG, web and OpenAI servers, and validates every request, response and SSE event against Exa's OpenAPI spec (pinned in `server/testdata/exa-openapi`). It relaxes two things: `warnings` on `/contents` and `/findSimilar`, and contents on subpages.
 - `integration-test/websearch-sdk/run.sh` drives pinned `exa-py` and `exa-js`, unmodified, against a live Helix: 20/20 checks pass locally.

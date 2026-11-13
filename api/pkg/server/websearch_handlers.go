@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/websearch"
 )
 
@@ -49,6 +50,7 @@ func cleanWebSearchBasePath(next http.Handler) http.Handler {
 // @Param   request body websearch.SearchRequest true "Search request"
 // @Success 200 {object} websearch.SearchResponse
 // @Failure 400 {object} websearch.ErrorResponse
+// @Failure 402 {object} websearch.ErrorResponse "NO_MORE_CREDITS: the wallet is below the minimum balance"
 // @Failure 500 {object} websearch.ErrorResponse
 // @Router /api/v1/websearch/search [post]
 // @Security BearerAuth
@@ -87,6 +89,7 @@ func (s *HelixAPIServer) webSearchSearch(rw http.ResponseWriter, r *http.Request
 // @Param   request body websearch.ContentsRequest true "Contents request"
 // @Success 200 {object} websearch.ContentsResponse
 // @Failure 400 {object} websearch.ErrorResponse
+// @Failure 402 {object} websearch.ErrorResponse "NO_MORE_CREDITS: the wallet is below the minimum balance"
 // @Failure 500 {object} websearch.ErrorResponse
 // @Router /api/v1/websearch/contents [post]
 // @Security BearerAuth
@@ -114,6 +117,7 @@ func (s *HelixAPIServer) webSearchContents(rw http.ResponseWriter, r *http.Reque
 // @Param   request body websearch.FindSimilarRequest true "Find similar request"
 // @Success 200 {object} websearch.FindSimilarResponse
 // @Failure 400 {object} websearch.ErrorResponse
+// @Failure 402 {object} websearch.ErrorResponse "NO_MORE_CREDITS: the wallet is below the minimum balance"
 // @Failure 500 {object} websearch.ErrorResponse
 // @Router /api/v1/websearch/findSimilar [post]
 // @Security BearerAuth
@@ -141,6 +145,7 @@ func (s *HelixAPIServer) webSearchFindSimilar(rw http.ResponseWriter, r *http.Re
 // @Param   request body websearch.AnswerRequest true "Answer request"
 // @Success 200 {object} websearch.AnswerResponse
 // @Failure 400 {object} websearch.ErrorResponse
+// @Failure 402 {object} websearch.ErrorResponse "NO_MORE_CREDITS: the wallet is below the minimum balance"
 // @Failure 500 {object} websearch.ErrorResponse
 // @Router /api/v1/websearch/answer [post]
 // @Security BearerAuth
@@ -193,15 +198,20 @@ type webSearchRequest[T any] interface {
 	Validate() error
 }
 
-// startWebSearchCall assigns the request id, attributes the request to the
-// caller, and decodes and validates the body. An unknown field is a 400,
+// startWebSearchCall assigns the request id, attributes the request (and
+// its charge) to the caller, and decodes and validates the body. An unknown field is a 400,
 // never silently dropped.
 func startWebSearchCall[T any, P webSearchRequest[T]](rw http.ResponseWriter, r *http.Request) (*webSearchCall, P, bool) {
 	call := &webSearchCall{requestID: system.GenerateRequestID(), rw: rw}
 	rw.Header().Set("x-request-id", call.requestID)
 
 	user := getRequestUser(r)
-	call.ctx = websearch.WithCaller(r.Context(), websearch.Caller{UserID: user.ID, OrgID: user.OrganizationID})
+	call.ctx = websearch.WithCaller(r.Context(), websearch.Caller{
+		UserID:    user.ID,
+		OrgID:     user.OrganizationID,
+		RequestID: call.requestID,
+		System:    user.TokenType == types.TokenTypeRunner,
+	})
 
 	dec := json.NewDecoder(http.MaxBytesReader(rw, r.Body, maxWebSearchRequestBody))
 	dec.DisallowUnknownFields()

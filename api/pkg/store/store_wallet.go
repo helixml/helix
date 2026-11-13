@@ -288,6 +288,7 @@ func applyWalletDelta(tx *gorm.DB, walletID string, balanceBefore, amount float6
 		SandboxID:          meta.SandboxID,
 		SandboxRuntime:     meta.SandboxRuntime,
 		SandboxPricingType: meta.SandboxPricingType,
+		WebSearchRequestID: meta.WebSearchRequestID,
 		TopUpID:            meta.TopUpID,
 	}).Error
 }

@@ -29187,6 +29187,16 @@
                             }
                         }
                     },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "content": {
@@ -29236,6 +29246,16 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -29301,6 +29321,16 @@
                             }
                         }
                     },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "content": {
@@ -29350,6 +29380,16 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/websearch.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -50912,12 +50952,6 @@
                     "contents": {
                         "$ref": "#/components/schemas/websearch.ContentsCost"
                     },
-                    "search": {
-                        "$ref": "#/components/schemas/websearch.SearchCost"
-                    },
-                    "summary": {
-                        "type": "number"
-                    },
                     "total": {
                         "type": "number"
                     }
@@ -51214,17 +51248,6 @@
                     },
                     "url": {
                         "type": "string"
-                    }
-                }
-            },
-            "websearch.SearchCost": {
-                "type": "object",
-                "properties": {
-                    "keyword": {
-                        "type": "number"
-                    },
-                    "neural": {
-                        "type": "number"
                     }
                 }
             },

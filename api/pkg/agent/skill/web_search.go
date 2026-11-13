@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/agent"
+	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
 	"github.com/helixml/helix/api/pkg/websearch"
@@ -116,12 +118,24 @@ func (t *searchTool) Execute(ctx context.Context, meta agent.Meta, args map[stri
 
 	log.Debug().Str("query", query).Str("category", req.Category).Msg("Executing web search")
 
-	ctx = websearch.WithCaller(ctx, websearch.Caller{UserID: meta.UserID})
-	resp, err := t.provider.Search(ctx, req)
+	resp, err := t.provider.Search(withWebSearchCaller(ctx, meta), req)
 	if err != nil {
 		return "", fmt.Errorf("search failed: %w", err)
 	}
 	return formatSearchResponse(resp.Results), nil
+}
+
+// withWebSearchCaller attributes a skill's web search request to the agent
+// turn's user and organization: the same wallet the turn's LLM calls are
+// billed to (the organization's when the session has one, else the user's).
+// The skill is the request's only owner, so it assigns the request id.
+func withWebSearchCaller(ctx context.Context, meta agent.Meta) context.Context {
+	orgID, _ := oai.GetContextOrganizationID(ctx)
+	return websearch.WithCaller(ctx, websearch.Caller{
+		UserID:    meta.UserID,
+		OrgID:     orgID,
+		RequestID: system.GenerateRequestID(),
+	})
 }
 
 func formatSearchResponse(results []websearch.Result) string {

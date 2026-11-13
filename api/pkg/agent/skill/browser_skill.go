@@ -172,7 +172,7 @@ func (t *browserTool) Execute(ctx context.Context, meta agent.Meta, args map[str
 		Str("app_id", meta.AppID).
 		Msg("Executing browser tool")
 
-	ctx = websearch.WithCaller(ctx, websearch.Caller{UserID: meta.UserID})
+	ctx = withWebSearchCaller(ctx, meta)
 	page, err := t.fetch(ctx, pageURL)
 	if err != nil {
 		return "", err

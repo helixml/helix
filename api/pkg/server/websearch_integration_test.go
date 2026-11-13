@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,13 +16,16 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/netguard"
 	helixopenai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/searxng"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/websearch"
+	"github.com/helixml/helix/api/pkg/websearch/billing"
 	"github.com/helixml/helix/api/pkg/websearch/native"
 )
 
@@ -46,6 +50,10 @@ type WebSearchIntegrationSuite struct {
 	// api serves the full stack (ranker and synthesizer configured) with
 	// private networks allowed, since the fake web is on loopback.
 	api *httptest.Server
+
+	mu sync.Mutex
+	// debits are the wallet debits made, by web search request id.
+	debits map[string]float64
 }
 
 func TestWebSearchIntegrationSuite(t *testing.T) {
@@ -56,12 +64,20 @@ const (
 	wsLLMProvider = "fake-llm"
 	wsUserID      = "usr_websearch_it"
 	wsOrgID       = "org_websearch_it"
+	wsWalletID    = "wal_websearch_it"
 )
+
+// wsPrices are the default prices (config.WebSearchPrices).
+var wsPrices = config.WebSearchPrices{
+	SearchLite: 0.004, Search: 0.007, SearchDeep: 0.012, ResultOver10: 0.001,
+	ContentPage: 0.001, Answer: 0.005, FindSimilar: 0.007,
+}
 
 type wsStack struct {
 	policy netguard.Policy
 	cache  *wsPageCache
 	llm    bool // configure the ranker and synthesizer
+	broke  bool // the org's wallet is empty
 }
 
 func (s *WebSearchIntegrationSuite) SetupTest() {
@@ -72,6 +88,7 @@ func (s *WebSearchIntegrationSuite) SetupTest() {
 	s.llm = newWSLLM(t)
 	s.extractor = newWSExtractor(t)
 	s.cache = newWSPageCache()
+	s.debits = map[string]float64{}
 	s.api = s.startAPI(wsStack{policy: netguard.Policy{AllowPrivate: true}, cache: s.cache, llm: true})
 }
 
@@ -107,7 +124,8 @@ func (s *WebSearchIntegrationSuite) startAPI(stack wsStack) *httptest.Server {
 	provider, err := native.New(opts)
 	s.Require().NoError(err)
 
-	apiServer := &HelixAPIServer{webSearch: provider}
+	apiServer := &HelixAPIServer{webSearch: billing.New(provider, wsPrices,
+		config.Stripe{BillingEnabled: true, MinimumInferenceBalance: 0.01}, s.walletStore(stack.broke))}
 	router := mux.NewRouter()
 	apiServer.registerWebSearchRoutes(router.PathPrefix(APIPrefix).Subrouter())
 	handler := cleanWebSearchBasePath(router)
@@ -117,6 +135,45 @@ func (s *WebSearchIntegrationSuite) startAPI(stack wsStack) *httptest.Server {
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// walletStore holds the org's wallet and records debits from it.
+func (s *WebSearchIntegrationSuite) walletStore(broke bool) store.Store {
+	balance := 100.0
+	if broke {
+		balance = 0
+	}
+	st := store.NewMockStore(gomock.NewController(s.T()))
+	st.EXPECT().GetWalletByOrg(gomock.Any(), wsOrgID).AnyTimes().Return(&types.Wallet{ID: wsWalletID, OrgID: wsOrgID, Balance: balance}, nil)
+	st.EXPECT().UpdateWalletBalance(gomock.Any(), wsWalletID, gomock.Any(), gomock.Any()).AnyTimes().
+		DoAndReturn(func(_ context.Context, _ string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
+			s.Equal(types.TransactionTypeUsage, meta.TransactionType)
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.NotContains(s.debits, meta.WebSearchRequestID, "one debit per request")
+			s.debits[meta.WebSearchRequestID] = amount
+			return &types.Wallet{ID: wsWalletID, Balance: balance + amount}, nil
+		})
+	return st
+}
+
+// requireCharged checks a response reported cost and that exactly that was
+// debited under the requestId the client saw.
+func (s *WebSearchIntegrationSuite) requireCharged(resp wsResponse, cost *websearch.CostDollars, total float64) {
+	s.Require().NotNil(cost, "costDollars")
+	s.InDelta(total, cost.Total, 1e-9, "costDollars.total")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	debit, ok := s.debits[resp.header.Get("x-request-id")]
+	s.Require().True(ok, "a debit under the response's requestId")
+	s.InDelta(-total, debit, 1e-9, "the debit is costDollars.total")
+}
+
+// requireNotCharged checks nothing was debited.
+func (s *WebSearchIntegrationSuite) requireNotCharged() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Empty(s.debits)
 }
 
 type wsResponse struct {
@@ -258,6 +315,8 @@ func (s *WebSearchIntegrationSuite) TestSearchPlain() {
 	s.Equal(s.searx.now.Add(-60*24*time.Hour).Format("2006-01-02"), body.Results[1].PublishedDate.UTC().Format("2006-01-02"), "date-only")
 	s.Empty(body.Warnings)
 	s.Zero(s.web.hitCount(s.genericsURL()), "a search without contents fetches nothing")
+	s.requireCharged(resp, body.CostDollars, wsPrices.Search)
+	s.Nil(body.CostDollars.Contents, "no contents, no content charge")
 
 	reqs := s.searx.requests()
 	s.Require().NotEmpty(reqs)
@@ -331,6 +390,12 @@ func (s *WebSearchIntegrationSuite) TestSearchWithContents() {
 	}
 	s.Positive(embeddings, "highlights are ranked by embeddings")
 	s.Equal(4, summaries, "one summary per result and subpage, on the fast model")
+
+	// Two results and their two subpages, each with text, highlights and a
+	// summary; extras are free.
+	pages := 4 * wsPrices.ContentPage
+	s.requireCharged(resp, body.CostDollars, wsPrices.Search+3*pages)
+	s.Equal(&websearch.ContentsCost{Text: &pages, Highlights: &pages, Summary: &pages}, body.CostDollars.Contents)
 }
 
 func (s *WebSearchIntegrationSuite) TestSearchFilters() {
@@ -497,6 +562,10 @@ func (s *WebSearchIntegrationSuite) TestStreamSearch() {
 	s.Require().NotNil(done.Output)
 	s.Equal(wsSynthesisReply, done.Output.Content)
 	s.Positive(done.SearchTime)
+	s.requireCharged(resp, done.CostDollars, wsPrices.Search)
+	for _, raw := range events[:len(events)-1] {
+		s.NotContains(string(raw), "costDollars", "only the done event carries the cost")
+	}
 }
 
 // TestStreamSearchWarnings: Exa sends warnings on the results chunk; its
@@ -528,6 +597,7 @@ func (s *WebSearchIntegrationSuite) TestStreamSearchFailure() {
 	s.Equal(websearch.SearchEventError, last.Type)
 	s.Require().NotNil(last.Error)
 	s.Contains(last.Error.Message, "upstream model overloaded")
+	s.requireNotCharged()
 }
 
 // TestSearchEngineOutageWarning: one engine timing out while another answers
@@ -573,6 +643,7 @@ func (s *WebSearchIntegrationSuite) TestContentsByURL() {
 	s.Equal("Go Developer Survey 2026", report.Title, "a PDF is titled by its first line")
 	s.Require().NotNil(report.Text)
 	s.Equal(wsPDFText, *report.Text, "PDF text from the extraction service")
+	s.requireCharged(resp, body.CostDollars, 3*wsPrices.ContentPage)
 }
 
 func (s *WebSearchIntegrationSuite) TestContentsMixedOutcomes() {
@@ -595,6 +666,9 @@ func (s *WebSearchIntegrationSuite) TestContentsMixedOutcomes() {
 		{ID: targets[3], Status: websearch.ContentStatusError, Error: &websearch.ContentError{Tag: websearch.TagBlockedDestination}},
 	}, body.Statuses)
 	s.Equal([]string{s.genericsURL()}, resultURLs(body.Results), "only successes are results")
+	s.requireCharged(resp, body.CostDollars, wsPrices.ContentPage)
+	s.Require().NotNil(body.CostDollars.Contents)
+	s.Equal(wsPrices.ContentPage, *body.CostDollars.Contents.Text, "pages that failed cost nothing")
 }
 
 func (s *WebSearchIntegrationSuite) TestContentsBlockedByDefaultPolicy() {
@@ -612,6 +686,8 @@ func (s *WebSearchIntegrationSuite) TestContentsBlockedByDefaultPolicy() {
 	s.Empty(body.Results)
 	s.Zero(s.web.hitCount(s.genericsURL()))
 	s.Zero(s.web.hitCount(s.rustURL()))
+	s.Equal(&websearch.CostDollars{}, body.CostDollars, "nothing returned, nothing charged")
+	s.requireNotCharged()
 }
 
 func (s *WebSearchIntegrationSuite) TestContentsByIDsAndCache() {
@@ -690,6 +766,7 @@ func (s *WebSearchIntegrationSuite) TestFindSimilar() {
 			s.Len(r.HighlightScores, len(r.Highlights), "findSimilar returns highlightScores")
 		}
 		s.Greater(*body.Results[0].Score, *body.Results[1].Score)
+		s.requireCharged(resp, body.CostDollars, wsPrices.FindSimilar+2*wsPrices.ContentPage)
 		s.Contains(s.firstPageQueries(), wsDescribeReply, "the LLM's description of the page is the search query")
 	})
 	s.Run("same domain allowed", func() {
@@ -710,6 +787,8 @@ func (s *WebSearchIntegrationSuite) TestAnswer() {
 		s.requireOK(resp)
 		body := decodeAs[websearch.AnswerResponse](s, resp)
 		s.Equal(wsAnswerReply, body.Answer)
+		s.requireCharged(resp, body.CostDollars, wsPrices.Answer)
+		s.Nil(body.CostDollars.Contents, "an answer's fetches are included in its price")
 		s.Require().Len(body.Citations, 4)
 		s.Equal(s.genericsURL(), body.Citations[0].URL)
 		for _, c := range body.Citations {
@@ -772,6 +851,12 @@ func (s *WebSearchIntegrationSuite) TestAnswerStream() {
 	s.Equal(wsAnswerReply, text.String())
 	s.Equal([]string{"assistant"}, roles, "the role is sent once, on the first delta")
 	s.Len(citations, 4)
+
+	var last websearch.AnswerEvent
+	s.Require().NoError(json.Unmarshal(events[len(events)-1], &last))
+	s.Equal(websearch.AnswerEvent{CostDollars: last.CostDollars, RequestID: resp.header.Get("x-request-id")}, last,
+		"the stream ends with the cost chunk, the only event with a requestId")
+	s.requireCharged(resp, last.CostDollars, wsPrices.Answer)
 }
 
 // TestAnswerStreamFailure: an LLM failure after streaming started ends the
@@ -785,6 +870,7 @@ func (s *WebSearchIntegrationSuite) TestAnswerStreamFailure() {
 	s.Equal(websearch.AnswerErrorTag, last.Tag)
 	s.Equal(http.StatusInternalServerError, last.Payload.Error.Code)
 	s.Contains(last.Payload.Error.Message, "upstream model overloaded")
+	s.requireNotCharged()
 }
 
 // --- warnings ---
@@ -838,6 +924,26 @@ func (s *WebSearchIntegrationSuite) TestErrorEnvelopes() {
 		s.requireError(resp, http.StatusBadRequest, websearch.TagInvalidRequest)
 	})
 	s.Empty(s.searx.requests(), "rejected requests never reach the search engine")
+	s.requireNotCharged()
+}
+
+// TestNoMoreCredits: a caller below the minimum balance gets Exa's 402
+// envelope before any work is done.
+func (s *WebSearchIntegrationSuite) TestNoMoreCredits() {
+	api := s.startAPI(wsStack{policy: netguard.Policy{AllowPrivate: true}, cache: s.cache, llm: true, broke: true})
+	for _, tc := range []struct{ path, body string }{
+		{"/search", `{"query":"go generics"}`},
+		{"/search", `{"query":"go generics","stream":true,"outputSchema":{"type":"text"}}`},
+		{"/contents", jsonBody(map[string]any{"urls": []string{s.genericsURL()}, "text": true})},
+		{"/findSimilar", jsonBody(map[string]any{"url": s.genericsURL()})},
+		{"/answer", `{"query":"When did Go get generics?"}`},
+		{"/answer", `{"query":"When did Go get generics?","stream":true}`},
+	} {
+		s.requireError(s.call(api, tc.path, tc.body), http.StatusPaymentRequired, websearch.TagNoMoreCredits)
+	}
+	s.Empty(s.searx.requests(), "nothing is searched")
+	s.Zero(s.web.hitCount(s.genericsURL()), "nothing is fetched")
+	s.requireNotCharged()
 }
 
 func (s *WebSearchIntegrationSuite) TestFeaturesNeedingAnLLMWithoutOne() {

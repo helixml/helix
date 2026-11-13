@@ -41,8 +41,12 @@ func (s *WebSearchHandlersSuite) SetupTest() {
 }
 
 func (s *WebSearchHandlersSuite) post(path, body string) *httptest.ResponseRecorder {
+	return s.postAs(types.User{ID: "user_1", OrganizationID: "org_1"}, path, body)
+}
+
+func (s *WebSearchHandlersSuite) postAs(user types.User, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
-	req = req.WithContext(setRequestUser(context.Background(), types.User{ID: "user_1", OrganizationID: "org_1"}))
+	req = req.WithContext(setRequestUser(context.Background(), user))
 	rec := httptest.NewRecorder()
 	s.handler.ServeHTTP(rec, req)
 	return rec
@@ -55,11 +59,12 @@ func (s *WebSearchHandlersSuite) decodeError(rec *httptest.ResponseRecorder) web
 }
 
 func (s *WebSearchHandlersSuite) TestSearchReturnsJSONWithRequestID() {
+	var caller websearch.Caller
 	s.provider.EXPECT().Search(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req *websearch.SearchRequest) (*websearch.SearchResponse, error) {
 			s.Equal("golang", req.Query)
 			s.Equal(3, req.NumResults)
-			s.Equal(websearch.Caller{UserID: "user_1", OrgID: "org_1"}, websearch.CallerFrom(ctx))
+			caller = websearch.CallerFrom(ctx)
 			return &websearch.SearchResponse{RequestID: "upstream", Results: []websearch.Result{{URL: "https://go.dev/", Title: "Go"}}}, nil
 		})
 
@@ -72,6 +77,20 @@ func (s *WebSearchHandlersSuite) TestSearchReturnsJSONWithRequestID() {
 	s.Require().NoError(json.Unmarshal(rec.Body.Bytes(), &resp))
 	s.Equal(requestID, resp.RequestID)
 	s.Equal("https://go.dev/", resp.Results[0].URL)
+	s.Equal(websearch.Caller{UserID: "user_1", OrgID: "org_1", RequestID: requestID}, caller,
+		"the provider bills the request under the requestId the client sees")
+}
+
+func (s *WebSearchHandlersSuite) TestRunnerTokenIsSystemCaller() {
+	s.provider.EXPECT().Contents(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, _ *websearch.ContentsRequest) (*websearch.ContentsResponse, error) {
+			s.True(websearch.CallerFrom(ctx).System, "runner tokens are not billed")
+			return &websearch.ContentsResponse{}, nil
+		})
+
+	rec := s.postAs(types.User{ID: "runner-system", TokenType: types.TokenTypeRunner}, "/api/v1/websearch/contents", `{"urls":["https://go.dev/"]}`)
+
+	s.Equal(http.StatusOK, rec.Code)
 }
 
 func (s *WebSearchHandlersSuite) TestTrailingSlashBaseURL() {

@@ -337,16 +337,13 @@ type Notice struct {
 	Details json.RawMessage `json:"details,omitempty"`
 }
 
+// CostDollars is what a request cost the caller in Helix credits. Contents
+// itemises the content charges; the search charge appears only in Total,
+// which Exa allows ("some search types report their cost only in total"),
+// since Exa's neural/keyword split does not describe Helix's price table.
 type CostDollars struct {
 	Total    float64       `json:"total"`
-	Search   *SearchCost   `json:"search,omitempty"`
 	Contents *ContentsCost `json:"contents,omitempty"`
-	Summary  *float64      `json:"summary,omitempty"`
-}
-
-type SearchCost struct {
-	Neural  *float64 `json:"neural,omitempty"`
-	Keyword *float64 `json:"keyword,omitempty"`
 }
 
 type ContentsCost struct {

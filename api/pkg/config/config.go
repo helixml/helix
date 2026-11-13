@@ -605,6 +605,30 @@ type WebSearch struct {
 	// disables highlights.
 	EmbeddingsProvider string `envconfig:"SEARCH_EMBEDDINGS_PROVIDER"`
 	EmbeddingsModel    string `envconfig:"SEARCH_EMBEDDINGS_MODEL"`
+
+	Prices WebSearchPrices
+}
+
+// WebSearchPrices is what web search costs callers in Helix credits
+// (dollars), whichever provider serves it. The defaults are Exa's list
+// prices (exa.ai/pricing, 2026-11-13).
+type WebSearchPrices struct {
+	// Search is the base price of a /search by type: lite (and legacy
+	// instant), auto (and legacy fast), deep and deep-lite (and legacy
+	// deep-reasoning).
+	SearchLite float64 `envconfig:"SEARCH_PRICE_SEARCH_LITE" default:"0.004"`
+	Search     float64 `envconfig:"SEARCH_PRICE_SEARCH" default:"0.007"`
+	SearchDeep float64 `envconfig:"SEARCH_PRICE_SEARCH_DEEP" default:"0.012"`
+	// ResultOver10 is charged for each /search or /findSimilar result
+	// beyond the tenth.
+	ResultOver10 float64 `envconfig:"SEARCH_PRICE_RESULT_OVER_10" default:"0.001"`
+	// ContentPage is charged per page, subpages included, for each of text,
+	// highlights and summary returned.
+	ContentPage float64 `envconfig:"SEARCH_PRICE_CONTENT_PAGE" default:"0.001"`
+	// Answer is the whole price of an /answer, its searches included.
+	Answer float64 `envconfig:"SEARCH_PRICE_ANSWER" default:"0.005"`
+	// FindSimilar is the base price of a /findSimilar.
+	FindSimilar float64 `envconfig:"SEARCH_PRICE_FIND_SIMILAR" default:"0.007"`
 }
 
 type Kodit struct {

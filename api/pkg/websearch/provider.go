@@ -34,6 +34,7 @@ const (
 	TagNotFound        = "NOT_FOUND"
 	TagUpstreamError   = "UPSTREAM_ERROR"
 	TagInternalError   = "INTERNAL_ERROR"
+	TagNoMoreCredits   = "NO_MORE_CREDITS"
 )
 
 // Error is a failure with an Exa-style status code and machine-readable tag.
@@ -72,11 +73,17 @@ func AsError(err error) *Error {
 	return &Error{Status: http.StatusInternalServerError, Tag: TagInternalError, Message: err.Error()}
 }
 
-// Caller identifies who a request is made for, so LLM and embedding calls a
-// provider makes are attributed to them.
+// Caller identifies a request and who it is made for, so it is billed to
+// them and the LLM and embedding calls a provider makes are attributed to
+// them. RequestID is the id the client sees and the credit transaction
+// records.
 type Caller struct {
-	UserID string
-	OrgID  string
+	UserID    string
+	OrgID     string
+	RequestID string
+	// System marks Helix's own runner token, which is never billed, as with
+	// inference.
+	System bool
 }
 
 type callerKey struct{}

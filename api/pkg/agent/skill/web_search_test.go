@@ -9,6 +9,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/helixml/helix/api/pkg/agent"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/websearch"
 )
@@ -27,20 +28,35 @@ func TestSearchToolMapsRequestAndFormatsResults(t *testing.T) {
 			require.Equal(t, 5, req.NumResults)
 			require.Equal(t, websearch.CategoryNews, req.Category)
 			require.Equal(t, searchSnippetChars, req.Contents.Text.MaxCharacters)
-			require.Equal(t, websearch.Caller{UserID: "user_1"}, websearch.CallerFrom(ctx))
+			requireTurnCaller(t, ctx)
 			return &websearch.SearchResponse{Results: []websearch.Result{
 				{URL: "https://go.dev/blog", Title: "Go blog", Text: &text},
 				{URL: "https://example.com", Title: "No text"},
 			}}, nil
 		})
 
-	out, err := tool.Execute(context.Background(), agent.Meta{UserID: "user_1"}, map[string]interface{}{
+	out, err := tool.Execute(turnContext(), agent.Meta{UserID: "user_1"}, map[string]interface{}{
 		"query": "go release", "category": "news",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "## Results: \n"+
 		"### Source: Go blog\n- URL: https://go.dev/blog\n- Snippet: Go 1.30 was released.\n\n"+
 		"### Source: No text\n- URL: https://example.com\n- Snippet: \n\n", out)
+}
+
+// turnContext is an agent turn's context: its LLM calls bill org_1.
+func turnContext() context.Context {
+	return oai.SetContextOrganizationID(context.Background(), "org_1")
+}
+
+// requireTurnCaller checks a web search is billed like the turn's LLM calls,
+// under its own request id.
+func requireTurnCaller(t *testing.T, ctx context.Context) {
+	caller := websearch.CallerFrom(ctx)
+	require.Equal(t, "user_1", caller.UserID)
+	require.Equal(t, "org_1", caller.OrgID)
+	require.NotEmpty(t, caller.RequestID)
+	require.False(t, caller.System)
 }
 
 func TestSearchToolGeneralCategoryIsUnfiltered(t *testing.T) {

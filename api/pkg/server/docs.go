@@ -24474,6 +24474,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/websearch.ErrorResponse"
                         }
                     },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -24521,6 +24527,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
                         "schema": {
                             "$ref": "#/definitions/websearch.ErrorResponse"
                         }
@@ -24576,6 +24588,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/websearch.ErrorResponse"
                         }
                     },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -24623,6 +24641,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
                         "schema": {
                             "$ref": "#/definitions/websearch.ErrorResponse"
                         }
@@ -46010,12 +46034,6 @@ const docTemplate = `{
                 "contents": {
                     "$ref": "#/definitions/websearch.ContentsCost"
                 },
-                "search": {
-                    "$ref": "#/definitions/websearch.SearchCost"
-                },
-                "summary": {
-                    "type": "number"
-                },
                 "total": {
                     "type": "number"
                 }
@@ -46312,17 +46330,6 @@ const docTemplate = `{
                 },
                 "url": {
                     "type": "string"
-                }
-            }
-        },
-        "websearch.SearchCost": {
-            "type": "object",
-            "properties": {
-                "keyword": {
-                    "type": "number"
-                },
-                "neural": {
-                    "type": "number"
                 }
             }
         },

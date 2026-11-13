@@ -381,7 +381,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to create browser pool: %w", err)
 	}
 
-	webSearch, err := setup.NewProvider(cfg.WebSearch, setup.Deps{
+	webSearch, err := setup.NewProvider(cfg.WebSearch, cfg.Stripe, setup.Deps{
 		Store:     postgresStore,
 		Providers: providerManager,
 		Documents: extractor,

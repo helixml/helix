@@ -9697,8 +9697,6 @@ export interface WebsearchContextOption {
 
 export interface WebsearchCostDollars {
   contents?: WebsearchContentsCost;
-  search?: WebsearchSearchCost;
-  summary?: number;
   total?: number;
 }
 
@@ -9805,11 +9803,6 @@ export interface WebsearchResult {
   text?: string;
   title?: string;
   url?: string;
-}
-
-export interface WebsearchSearchCost {
-  keyword?: number;
-  neural?: number;
 }
 
 export interface WebsearchSearchOutput {

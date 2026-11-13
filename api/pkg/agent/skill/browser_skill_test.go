@@ -44,11 +44,11 @@ func TestBrowserToolReturnsPageText(t *testing.T) {
 			require.Equal(t, []string{testPageURL}, req.URLs)
 			require.True(t, req.Text.Enabled)
 			require.Nil(t, req.MaxAgeHours)
-			require.Equal(t, websearch.Caller{UserID: "user_1"}, websearch.CallerFrom(ctx))
+			requireTurnCaller(t, ctx)
 			return pageResponse("# Docs\n\nHello"), nil
 		})
 
-	out, err := tool.Execute(context.Background(), agent.Meta{UserID: "user_1"}, browserArgs())
+	out, err := tool.Execute(turnContext(), agent.Meta{UserID: "user_1"}, browserArgs())
 	require.NoError(t, err)
 	require.Equal(t, "# Docs\n\nHello", out)
 }

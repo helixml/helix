@@ -15374,10 +15374,6 @@ definitions:
     properties:
       contents:
         $ref: '#/definitions/websearch.ContentsCost'
-      search:
-        $ref: '#/definitions/websearch.SearchCost'
-      summary:
-        type: number
       total:
         type: number
     type: object
@@ -15578,13 +15574,6 @@ definitions:
         type: string
       url:
         type: string
-    type: object
-  websearch.SearchCost:
-    properties:
-      keyword:
-        type: number
-      neural:
-        type: number
     type: object
   websearch.SearchOutput:
     properties:
@@ -31600,6 +31589,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/websearch.ErrorResponse'
+        "402":
+          description: 'NO_MORE_CREDITS: the wallet is below the minimum balance'
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -31631,6 +31624,10 @@ paths:
             $ref: '#/definitions/websearch.ContentsResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "402":
+          description: 'NO_MORE_CREDITS: the wallet is below the minimum balance'
           schema:
             $ref: '#/definitions/websearch.ErrorResponse'
         "500":
@@ -31665,6 +31662,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/websearch.ErrorResponse'
+        "402":
+          description: 'NO_MORE_CREDITS: the wallet is below the minimum balance'
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -31697,6 +31698,10 @@ paths:
             $ref: '#/definitions/websearch.SearchResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "402":
+          description: 'NO_MORE_CREDITS: the wallet is below the minimum balance'
           schema:
             $ref: '#/definitions/websearch.ErrorResponse'
         "500":

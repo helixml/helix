@@ -90,6 +90,7 @@ type TransactionMetadata struct {
 	TopUpID                 string          `json:"top_up_id"`
 	StripePaymentIntentID   string          `json:"stripe_payment_intent_id"`
 	StripeCheckoutSessionID string          `json:"stripe_checkout_session_id"`
+	WebSearchRequestID      string          `json:"web_search_request_id"`
 	TransactionType         TransactionType `json:"transaction_type"`
 }
 
@@ -123,6 +124,7 @@ type Transaction struct {
 	SandboxID          string         `json:"sandbox_id" gorm:"index"` // For sandbox runtime usage
 	SandboxRuntime     SandboxRuntime `json:"sandbox_runtime"`
 	SandboxPricingType string         `json:"sandbox_pricing_type"`
+	WebSearchRequestID string         `json:"web_search_request_id"` // For web search usage: the requestId the client saw
 
 	TopUpID string `json:"top_up_id"` // For top-ups
 }
