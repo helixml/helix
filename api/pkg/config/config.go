@@ -763,6 +763,15 @@ type Auth struct {
 	// for the Helix Desktop app. When set, GET /api/v1/auth/desktop-callback?token=<secret>
 	// creates an admin session and redirects to /.
 	DesktopAutoLoginSecret string `envconfig:"DESKTOP_AUTO_LOGIN_SECRET"`
+
+	// LoginTrustedProxies lists the proxies (CIDRs) in front of the API whose
+	// X-Forwarded-For hops are believed when counting failed password
+	// sign-ins per client. Behind Cloudflare, include Cloudflare's published
+	// ranges as well as your own proxy, so the walk reaches the visitor.
+	// With none configured, a public TCP peer is the client and a private or
+	// loopback peer (an unlisted proxy) gets no per-client count, so users
+	// behind one proxy never share a bucket.
+	LoginTrustedProxies []string `envconfig:"HELIX_LOGIN_TRUSTED_PROXIES" description:"Comma-separated CIDRs of proxies whose X-Forwarded-For is trusted when throttling failed password sign-ins per client."`
 }
 
 type Regular struct {
@@ -1098,7 +1107,10 @@ type WebServer struct {
 	// HSTSMaxAge is the Strict-Transport-Security max-age sent on responses
 	// for the SERVER_URL host when SERVER_URL is https. It covers that host
 	// only (no includeSubDomains). Zero disables the header.
-	HSTSMaxAge time.Duration `envconfig:"HELIX_HSTS_MAX_AGE" default:"8760h" description:"Strict-Transport-Security max-age for the SERVER_URL host when it is https. 0 disables."`
+	// The default is a day so a self-hosted install that also serves plain
+	// HTTP on the same host is not locked out for long; a dedicated hosted
+	// domain should set a year (8760h).
+	HSTSMaxAge time.Duration `envconfig:"HELIX_HSTS_MAX_AGE" default:"24h" description:"Strict-Transport-Security max-age for the SERVER_URL host when it is https. 0 disables. Hosted deployments should set 8760h."`
 
 	// FrameAncestors restricts which origins may frame the web UI, as a CSP
 	// frame-ancestors source list (e.g. "'self'" or "'self' https://portal.example.com").

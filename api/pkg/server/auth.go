@@ -618,6 +618,10 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Failed to complete password reset: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Failures against the old password no longer lock the account.
+	if s.loginThrottle != nil {
+		s.loginThrottle.clearAccount(user.Email)
+	}
 
 	// A reset is how an account is recovered from whoever holds the old
 	// password, so every session that password opened is closed, and any
@@ -768,16 +772,15 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		const invalidCredentials = "Invalid email or password"
 		// Repeated failures for an account or from one client are refused
 		// before any lookup, the same way for known and unknown addresses.
-		clientIP := s.loginClientIP(r)
+		// The attempt is reserved before any lookup, the same way for known
+		// and unknown addresses, so parallel requests cannot exceed the limit.
+		var attempt *loginAttempt
 		if s.loginThrottle != nil {
-			if wait := s.loginThrottle.retryAfter(loginRequest.Email, clientIP); wait > 0 {
+			var wait time.Duration
+			attempt, wait = s.loginThrottle.reserve(loginRequest.Email, loginClientKey(r, s.loginTrustedProxies))
+			if attempt == nil {
 				writeLoginThrottled(w, wait)
 				return
-			}
-		}
-		recordFailure := func() {
-			if s.loginThrottle != nil {
-				s.loginThrottle.recordFailure(loginRequest.Email, clientIP)
 			}
 		}
 		user, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{
@@ -793,7 +796,6 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			// time does not say whether the address has an account.
 			_ = s.authenticator.ValidatePassword(r.Context(), authpkg.PasswordTimingDecoy(), loginRequest.Password)
 			log.Debug().Msg("login attempt for an unknown email")
-			recordFailure()
 			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
 		}
@@ -801,12 +803,11 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		err = s.authenticator.ValidatePassword(r.Context(), user, loginRequest.Password)
 		if err != nil {
 			log.Debug().Err(err).Str("user_id", user.ID).Msg("Failed to validate password")
-			recordFailure()
 			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
 		}
-		if s.loginThrottle != nil {
-			s.loginThrottle.recordSuccess(loginRequest.Email)
+		if attempt != nil {
+			attempt.Succeeded()
 		}
 
 		// Create a BFF session for this user

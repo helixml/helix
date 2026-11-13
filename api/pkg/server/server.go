@@ -188,7 +188,10 @@ type HelixAPIServer struct {
 	passwordResetSends sync.WaitGroup
 	// loginThrottle refuses password sign-ins after repeated failures. Nil
 	// disables it.
-	loginThrottle            *loginThrottle
+	loginThrottle *loginThrottle
+	// loginTrustedProxies are the proxies whose X-Forwarded-For identifies
+	// the client for loginThrottle (HELIX_LOGIN_TRUSTED_PROXIES).
+	loginTrustedProxies      []*net.IPNet
 	fileServerHandler        http.Handler
 	cache                    *ristretto.Cache[string, string]
 	avatarsBucket            *blob.Bucket
@@ -442,6 +445,10 @@ func NewServer(
 	if err != nil {
 		return nil, err
 	}
+	loginTrustedProxies, err := parseTrustedProxies(cfg.Auth.LoginTrustedProxies)
+	if err != nil {
+		return nil, fmt.Errorf("HELIX_LOGIN_TRUSTED_PROXIES: %w", err)
+	}
 
 	apiServer := &HelixAPIServer{
 		Cfg:                        cfg,
@@ -511,6 +518,7 @@ func NewServer(
 		requestAudit:           requestAuditRecorder,
 		requestAuditMiddleware: newRequestAuditMiddleware(requestAuditRecorder, requestAuditOpts),
 		loginThrottle:          newLoginThrottle(),
+		loginTrustedProxies:    loginTrustedProxies,
 
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,
