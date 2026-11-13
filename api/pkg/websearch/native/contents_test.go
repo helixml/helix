@@ -41,31 +41,38 @@ func TestContentsStatuses(t *testing.T) {
 		{ID: "https://d.com/", Status: "success", Source: "cached"},
 	}, resp.Statuses)
 	assert.Equal(t, []string{"https://a.com/", "https://d.com/"}, resultURLs(resp.Results), "results are the successes, in order")
-	assert.Equal(t, websearch.DocumentID("https://a.com/"), resp.Results[0].ID)
+	assert.Equal(t, "https://a.com/", resp.Results[0].ID)
 	assert.Equal(t, "Page https://a.com/", resp.Results[0].Title)
 	assert.Equal(t, "Ann", *resp.Results[0].Author)
 	assert.Equal(t, []string{bodyOf("https://a.com/"), "cached " + bodyOf("https://d.com/")}, resultTexts(resp.Results))
 	assert.Equal(t, []string{"https://a.com/"}, e.puts, "only fetched pages are written to the cache")
 }
 
+// A document id is the normalised URL search handed out, so an id resolves
+// whether or not search fetched the page.
 func TestContentsByID(t *testing.T) {
 	e := newEnv(t)
 	e.pipeline(nil)
 	e.cachePage("https://a.com/", time.Hour)
-	known := websearch.DocumentID("https://a.com/")
 
 	resp, err := e.provider(t).Contents(context.Background(), &websearch.ContentsRequest{
-		IDs: []string{known, "doc_unknown"}, ContentsOptions: websearch.ContentsOptions{Text: &websearch.TextOption{Enabled: true}},
+		IDs: []string{"https://a.com/", "https://b.com/never-fetched"}, ContentsOptions: websearch.ContentsOptions{Text: &websearch.TextOption{Enabled: true}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []websearch.ContentStatus{
-		{ID: known, Status: "success", Source: "cached"},
-		{ID: "doc_unknown", Status: "error", Error: &websearch.ContentError{Tag: websearch.TagSourceNotAvailable}},
+		{ID: "https://a.com/", Status: "success", Source: "cached"},
+		{ID: "https://b.com/never-fetched", Status: "success", Source: "crawled"},
 	}, resp.Statuses)
-	require.Len(t, resp.Results, 1)
-	assert.Equal(t, known, resp.Results[0].ID)
-	assert.Equal(t, "https://a.com/", resp.Results[0].URL)
-	assert.Empty(t, e.fetched)
+	require.Len(t, resp.Results, 2)
+	assert.Equal(t, "https://a.com/", resp.Results[0].ID)
+	assert.Equal(t, []string{"https://b.com/never-fetched"}, e.fetched)
+}
+
+func TestContentsRejectsNonURLID(t *testing.T) {
+	e := newEnv(t)
+	_, err := e.provider(t).Contents(context.Background(), &websearch.ContentsRequest{IDs: []string{"doc_1"}})
+	require.Error(t, err)
+	assert.Equal(t, websearch.TagInvalidRequest, websearch.AsError(err).Tag)
 }
 
 func TestContentsByIDRefetchesStalePage(t *testing.T) {
@@ -73,7 +80,7 @@ func TestContentsByIDRefetchesStalePage(t *testing.T) {
 	e.pipeline(nil)
 	e.cachePage("https://a.com/", 5*time.Hour)
 	resp, err := e.provider(t).Contents(context.Background(), &websearch.ContentsRequest{
-		IDs: []string{websearch.DocumentID("https://a.com/")}, ContentsOptions: websearch.ContentsOptions{MaxAgeHours: ptr(1)},
+		IDs: []string{"https://a.com/"}, ContentsOptions: websearch.ContentsOptions{MaxAgeHours: ptr(1)},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "crawled", resp.Statuses[0].Source)
@@ -367,7 +374,7 @@ func TestContentsSubpages(t *testing.T) {
 	assert.Equal(t, []string{"https://a.com/p", "https://a.com/docs", "https://a.com/blog"}, resultURLs(sub),
 		"best target match first, then page order; a failed subpage is left out")
 	assert.Equal(t, bodyOf("https://a.com/docs"), *sub[1].Text, "subpages get the same contents")
-	assert.Equal(t, websearch.DocumentID("https://a.com/docs"), sub[1].ID)
+	assert.Equal(t, "https://a.com/docs", sub[1].ID)
 	assert.Nil(t, sub[0].Subpages)
 	assert.Len(t, resp.Statuses, 1, "statuses cover the requested pages only")
 	assert.Equal(t, []websearch.Warning{{Code: websearch.WarningPartialResults, Message: "1 of 4 subpages could not be fetched"}}, resp.Warnings)

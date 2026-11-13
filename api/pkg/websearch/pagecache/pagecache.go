@@ -29,11 +29,7 @@ func (c *Cache) Get(ctx context.Context, url string) (*native.RawPage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("normalise %q: %w", url, err)
 	}
-	return toRawPage(c.store.GetWebPageByURL(ctx, normalized))
-}
-
-func (c *Cache) GetByID(ctx context.Context, id string) (*native.RawPage, error) {
-	return toRawPage(c.store.GetWebPage(ctx, id))
+	return toRawPage(c.store.GetWebPage(ctx, normalized))
 }
 
 func (c *Cache) Put(ctx context.Context, page *native.RawPage) error {
@@ -42,7 +38,6 @@ func (c *Cache) Put(ctx context.Context, page *native.RawPage) error {
 		return fmt.Errorf("normalise %q: %w", page.URL, err)
 	}
 	return c.store.UpsertWebPage(ctx, &types.WebPage{
-		ID:          websearch.DocumentID(normalized),
 		URL:         normalized,
 		FinalURL:    page.FinalURL,
 		StatusCode:  page.StatusCode,

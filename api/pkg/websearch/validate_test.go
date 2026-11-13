@@ -111,9 +111,9 @@ func TestValidate(t *testing.T) {
 
 		// /contents
 		{"contents urls", decode[ContentsRequest](t, `{"urls":["https://a.com"]}`), ""},
-		{"contents ids", decode[ContentsRequest](t, `{"ids":["doc_1"]}`), ""},
+		{"contents ids", decode[ContentsRequest](t, `{"ids":["https://a.com/"]}`), ""},
 		{"contents neither", decode[ContentsRequest](t, `{}`), "exactly one of ids or urls"},
-		{"contents both", decode[ContentsRequest](t, `{"ids":["doc_1"],"urls":["https://a.com"]}`), "exactly one of ids or urls"},
+		{"contents both", decode[ContentsRequest](t, `{"ids":["https://a.com/"],"urls":["https://a.com"]}`), "exactly one of ids or urls"},
 		{"contents 100 urls", decode[ContentsRequest](t, `{"urls":`+list(100, "https://a.com")+`}`), ""},
 		{"contents 101 urls", decode[ContentsRequest](t, `{"urls":`+list(101, "https://a.com")+`}`), "at most 100"},
 		{"contents url too long", decode[ContentsRequest](t, `{"urls":["`+url2049+`"]}`), "urls[0]"},

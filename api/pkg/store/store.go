@@ -1044,8 +1044,7 @@ type Store interface {
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
 
 	// Web search page cache, shared across organizations (public content).
-	GetWebPage(ctx context.Context, id string) (*types.WebPage, error)
-	GetWebPageByURL(ctx context.Context, url string) (*types.WebPage, error)
+	GetWebPage(ctx context.Context, url string) (*types.WebPage, error)
 	UpsertWebPage(ctx context.Context, page *types.WebPage) error
 }
 

@@ -30,7 +30,7 @@ func (p *Provider) FindSimilar(ctx context.Context, req *websearch.FindSimilarRe
 	if err != nil {
 		return nil, websearch.InvalidRequest("url is not a valid URL: %v", err)
 	}
-	source, err := p.loadDoc(ctx, sourceURL, false, fetchPolicy{timeout: defaultFetchTimeout}, websearch.TextOptions{})
+	source, err := p.loadDoc(ctx, sourceURL, fetchPolicy{timeout: defaultFetchTimeout}, websearch.TextOptions{})
 	if fe, ok := pageFailure(err); ok {
 		return nil, websearch.InvalidRequest("url could not be fetched: %s", fe.Tag)
 	}

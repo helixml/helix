@@ -175,21 +175,6 @@ func (mr *MockPageCacheMockRecorder) Get(ctx, url any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockPageCache)(nil).Get), ctx, url)
 }
 
-// GetByID mocks base method.
-func (m *MockPageCache) GetByID(ctx context.Context, id string) (*RawPage, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetByID", ctx, id)
-	ret0, _ := ret[0].(*RawPage)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetByID indicates an expected call of GetByID.
-func (mr *MockPageCacheMockRecorder) GetByID(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockPageCache)(nil).GetByID), ctx, id)
-}
-
 // Put mocks base method.
 func (m *MockPageCache) Put(ctx context.Context, page *RawPage) error {
 	m.ctrl.T.Helper()

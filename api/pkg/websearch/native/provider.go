@@ -118,7 +118,7 @@ func candidateHits(candidates []Candidate) ([]hit, error) {
 			return nil, fmt.Errorf("discovered URL %q: %w", c.URL, err)
 		}
 		hits[i].result = websearch.Result{
-			ID:            websearch.DocumentID(u),
+			ID:            u,
 			URL:           u,
 			Title:         c.Title,
 			PublishedDate: c.PublishedDate,
@@ -129,7 +129,7 @@ func candidateHits(candidates []Candidate) ([]hit, error) {
 }
 
 func newResult(d *doc) websearch.Result {
-	return websearch.Result{ID: websearch.DocumentID(d.raw.URL), URL: d.raw.URL}
+	return websearch.Result{ID: d.raw.URL, URL: d.raw.URL}
 }
 
 func results(hits []hit) []websearch.Result {

@@ -36,7 +36,7 @@ func TestSearchWithoutContents(t *testing.T) {
 	require.Len(t, resp.Results, 2)
 	a := resp.Results[0]
 	assert.Equal(t, "https://example.com/a", a.URL)
-	assert.Equal(t, websearch.DocumentID("https://example.com/a"), a.ID)
+	assert.Equal(t, "https://example.com/a", a.ID)
 	assert.Equal(t, "A", a.Title)
 	assert.Equal(t, &published, a.PublishedDate)
 	assert.Equal(t, "https://example.com/a.png", a.Image)

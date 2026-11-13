@@ -63,20 +63,18 @@ func (p *Provider) Contents(ctx context.Context, req *websearch.ContentsRequest)
 	if err := p.checkContents(opts, ""); err != nil {
 		return nil, err
 	}
-	targets, byID := req.URLs, false
+	// A document id is the page's normalised URL, so ids and urls load alike.
+	field, targets := "urls", req.URLs
 	if len(req.IDs) > 0 {
-		targets, byID = req.IDs, true
+		field, targets = "ids", req.IDs
 	}
-	keys := targets
-	if !byID {
-		keys = make([]string, len(targets))
-		for i, u := range targets {
-			n, err := websearch.NormalizeURL(u)
-			if err != nil {
-				return nil, websearch.InvalidRequest("urls[%d] is not a valid URL: %v", i, err)
-			}
-			keys[i] = n
+	keys := make([]string, len(targets))
+	for i, u := range targets {
+		n, err := websearch.NormalizeURL(u)
+		if err != nil {
+			return nil, websearch.InvalidRequest("%s[%d] is not a valid URL: %v", field, i, err)
 		}
+		keys[i] = n
 	}
 
 	render := renderConfig{textLimit: defaultContentsTextChars}
@@ -86,7 +84,7 @@ func (p *Provider) Contents(ctx context.Context, req *websearch.ContentsRequest)
 	tallies := make([]subpageTally, len(targets))
 	err := p.forEach(ctx, len(targets), func(ctx context.Context, i int) error {
 		statuses[i] = websearch.ContentStatus{ID: targets[i]}
-		d, err := p.loadDoc(ctx, keys[i], byID, pol, textOpts)
+		d, err := p.loadDoc(ctx, keys[i], pol, textOpts)
 		if fe, ok := pageFailure(err); ok {
 			statuses[i].Status = websearch.ContentStatusError
 			statuses[i].Error = &websearch.ContentError{Tag: fe.Tag, HTTPStatusCode: fe.HTTPStatusCode}
@@ -160,7 +158,7 @@ func (p *Provider) fetchHits(ctx context.Context, hits []hit, po pageOptions) ([
 	pol, textOpts := policyFor(opts), textOptions(opts)
 	tallies := make([]subpageTally, len(hits))
 	err := p.forEach(ctx, len(hits), func(ctx context.Context, i int) error {
-		d, err := p.loadDoc(ctx, hits[i].result.URL, false, pol, textOpts)
+		d, err := p.loadDoc(ctx, hits[i].result.URL, pol, textOpts)
 		if _, ok := pageFailure(err); ok {
 			return nil
 		}
@@ -304,7 +302,7 @@ func (p *Provider) subpages(ctx context.Context, d *doc, o *websearch.ContentsOp
 	pol, textOpts := policyFor(o), textOptions(o)
 	pages := make([]*websearch.Result, len(links))
 	err := p.forEach(ctx, len(links), func(ctx context.Context, i int) error {
-		sd, err := p.loadDoc(ctx, links[i], false, pol, textOpts)
+		sd, err := p.loadDoc(ctx, links[i], pol, textOpts)
 		if _, ok := pageFailure(err); ok {
 			return nil
 		}

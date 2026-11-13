@@ -102,10 +102,9 @@ type Link struct {
 }
 
 // PageCache stores raw pages by normalised URL. Get returns (nil, nil) on a
-// miss. The document id handed out in results is DocumentID(url).
+// miss.
 type PageCache interface {
 	Get(ctx context.Context, url string) (*RawPage, error)
-	GetByID(ctx context.Context, id string) (*RawPage, error)
 	Put(ctx context.Context, page *RawPage) error
 }
 

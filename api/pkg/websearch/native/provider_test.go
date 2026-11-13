@@ -86,16 +86,6 @@ func (e *env) memCache() {
 		defer e.mu.Unlock()
 		return e.cached[u], nil
 	}).AnyTimes()
-	e.cache.EXPECT().GetByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id string) (*RawPage, error) {
-		e.mu.Lock()
-		defer e.mu.Unlock()
-		for u, p := range e.cached {
-			if websearch.DocumentID(u) == id {
-				return p, nil
-			}
-		}
-		return nil, nil
-	}).AnyTimes()
 	e.cache.EXPECT().Put(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p *RawPage) error {
 		e.mu.Lock()
 		defer e.mu.Unlock()

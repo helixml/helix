@@ -55,10 +55,10 @@ func textOptions(o *websearch.ContentsOptions) websearch.TextOptions {
 	return websearch.TextOptions{}
 }
 
-// loadDoc loads and extracts the page for a normalised URL or a document
-// id. Failures specific to the page are *FetchError.
-func (p *Provider) loadDoc(ctx context.Context, key string, byID bool, pol fetchPolicy, opts websearch.TextOptions) (*doc, error) {
-	raw, source, err := p.load(ctx, key, byID, pol)
+// loadDoc loads and extracts the page for a normalised URL. Failures
+// specific to the page are *FetchError.
+func (p *Provider) loadDoc(ctx context.Context, pageURL string, pol fetchPolicy, opts websearch.TextOptions) (*doc, error) {
+	raw, source, err := p.load(ctx, pageURL, pol)
 	if err != nil {
 		return nil, err
 	}
@@ -73,21 +73,11 @@ func (p *Provider) loadDoc(ctx context.Context, key string, byID bool, pol fetch
 }
 
 // load returns the raw page from the cache or the web, as pol allows.
-func (p *Provider) load(ctx context.Context, key string, byID bool, pol fetchPolicy) (*RawPage, string, error) {
+func (p *Provider) load(ctx context.Context, pageURL string, pol fetchPolicy) (*RawPage, string, error) {
 	var cached *RawPage
-	var err error
-	pageURL := key
-	switch {
-	case byID:
-		if cached, err = p.opts.Cache.GetByID(ctx, key); err != nil {
-			return nil, "", fmt.Errorf("page cache: %w", err)
-		}
-		if cached == nil {
-			return nil, "", &FetchError{Tag: websearch.TagSourceNotAvailable, Err: fmt.Errorf("unknown document id %q", key)}
-		}
-		pageURL = cached.URL
-	case !pol.alwaysFetch():
-		if cached, err = p.opts.Cache.Get(ctx, key); err != nil {
+	if !pol.alwaysFetch() {
+		var err error
+		if cached, err = p.opts.Cache.Get(ctx, pageURL); err != nil {
 			return nil, "", fmt.Errorf("page cache: %w", err)
 		}
 	}
