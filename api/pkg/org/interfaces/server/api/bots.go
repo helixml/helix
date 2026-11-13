@@ -275,7 +275,9 @@ func displayActivationError(err string) string {
 // @Param id path string true "Bot ID"
 // @Param payload body api.UpdateBotRequest true "Patch fields"
 // @Success 200 {object} api.BotDTO
+// @Failure 403 {object} api.ErrorResponse
 // @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/bots/{id} [patch]
 func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
@@ -572,6 +574,7 @@ func (a *apiHandler) removeBotParent(w http.ResponseWriter, r *http.Request) {
 // @Param id path string true "Bot ID"
 // @Success 200 {object} api.BotChatDTO
 // @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/bots/{id}/chat [post]
@@ -593,6 +596,9 @@ func (a *apiHandler) ensureBotChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if a.refuseDeletingBot(w, orgID, id) {
 		return
 	}
 	projectID, agentAppID, _, err := a.deps.ProjectEnsurer.Ensure(ctx, orgID, id)
@@ -617,6 +623,7 @@ func (a *apiHandler) ensureBotChat(w http.ResponseWriter, r *http.Request) {
 // @Param id path string true "Bot ID"
 // @Success 202 {object} api.BotActivateDTO
 // @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/bots/{id}/activate [post]
@@ -640,6 +647,9 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 	// command runs its project/dispatch side effects.
 	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if a.refuseDeletingBot(w, orgID, id) {
 		return
 	}
 	res, err := a.deps.Activations.Activate(ctx, orgID, id)

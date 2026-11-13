@@ -465,3 +465,61 @@ func (b blockingDeleter) DeleteAll(ctx context.Context, _ string, _ orgchart.Nod
 	}
 	return b.err
 }
+
+// TestDelete_RefusesWhileAnotherDeleteRuns pins that a synchronous Delete
+// (MCP delete_bot, agent-app delete) does not run a second cascade over a
+// bot whose delete is already in flight in this process.
+func TestDelete_RefusesWhileAnotherDeleteRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-delete-concurrent"
+	seedBot(t, st, orgID, "w-busy")
+
+	release := make(chan struct{})
+	cleaner := &recordingAgentDeliveryCleaner{}
+	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{release: release}, AgentDelivery: cleaner}
+	if err := svc.StartDelete(ctx, orgID, "w-busy"); err != nil {
+		t.Fatalf("StartDelete: %v", err)
+	}
+	if err := svc.Delete(ctx, orgID, "w-busy"); !errors.Is(err, lifecycle.ErrDeleteInProgress) {
+		t.Fatalf("concurrent Delete: err=%v, want ErrDeleteInProgress", err)
+	}
+	if cleaner.restored {
+		t.Fatal("refused Delete restored agent delivery under the running delete")
+	}
+	close(release)
+	svc.WaitDeletes()
+	if _, err := st.Nodes.Get(ctx, orgID, "w-busy"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("node after delete: err=%v, want ErrNotFound", err)
+	}
+}
+
+// TestDelete_HidesNodeWhileRunning pins that a synchronous Delete marks the
+// Node as deleting for its duration, as StartDelete does.
+func TestDelete_HidesNodeWhileRunning(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-delete-sync-marker"
+	seedBot(t, st, orgID, "w-sync")
+
+	release := make(chan struct{})
+	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{release: release}}
+	done := make(chan error, 1)
+	go func() { done <- svc.Delete(ctx, orgID, "w-sync") }()
+	deadline := time.Now().Add(5 * time.Second)
+	for !svc.Deleting(orgID, "w-sync") {
+		if time.Now().After(deadline) {
+			t.Fatal("synchronous Delete never marked the node as deleting")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if svc.Deleting(orgID, "w-sync") {
+		t.Fatal("deleting marker not cleared")
+	}
+}

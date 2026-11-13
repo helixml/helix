@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
@@ -95,6 +97,10 @@ func (t *ListBots) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if err != nil {
 		return nil, fmt.Errorf("list bots: %w", err)
 	}
+	// Bots being deleted are hidden, as on the REST list.
+	all = slices.DeleteFunc(all, func(b orgchart.Node) bool {
+		return t.deps.Lifecycle.Deleting(orgID, b.ID)
+	})
 	// One List call builds the report → managers index, so we don't
 	// issue a ListManagers per bot.
 	managersByReport := map[orgchart.NodeID][]orgchart.NodeID{}
@@ -104,6 +110,9 @@ func (t *ListBots) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 			return nil, fmt.Errorf("list reporting lines: %w", err)
 		}
 		for _, l := range lines {
+			if t.deps.Lifecycle.Deleting(orgID, l.ManagerID) {
+				continue
+			}
 			managersByReport[l.ReportID] = append(managersByReport[l.ReportID], l.ManagerID)
 		}
 	}
@@ -152,6 +161,9 @@ func (t *GetBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
 		return nil, fmt.Errorf("get_bot: caller has no OrgID")
+	}
+	if t.deps.Lifecycle.Deleting(orgID, orgchart.NodeID(args.ID)) {
+		return nil, fmt.Errorf("get bot %q: %w", args.ID, lifecycle.ErrDeleteInProgress)
 	}
 	b, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.NodeID(args.ID))
 	if err != nil {

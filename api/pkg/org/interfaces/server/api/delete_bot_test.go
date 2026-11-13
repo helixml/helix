@@ -32,7 +32,8 @@ func (b blockingInstances) DeleteAll(ctx context.Context, _ string, _ orgchart.N
 
 // TestDeleteBot_ReturnsBeforeTeardownFinishes pins that DELETE /bots/{id}
 // does not block on the teardown, and that while it runs the bot is hidden
-// from reads, refuses edits, and a repeated delete is accepted.
+// from reads, refuses edits, activation and chat, and a repeated delete is
+// accepted.
 func TestDeleteBot_ReturnsBeforeTeardownFinishes(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
@@ -43,6 +44,10 @@ func TestDeleteBot_ReturnsBeforeTeardownFinishes(t *testing.T) {
 	}
 	inst := blockingInstances{started: make(chan struct{}), release: make(chan struct{})}
 	deps.Lifecycle.Instances = inst
+	ensurer := &fakeEnsurer{projectID: "prj-x", agentApp: "app-x"}
+	disp := &fakeDispatcher{}
+	deps = wireActivate(deps, st, ensurer, disp)
+	deps.ProjectEnsurer = ensurer
 	h := orgapi.Handler(deps)
 
 	if rec := do(t, h, "DELETE", "/bots/b-mgr", nil); rec.Code != http.StatusAccepted {
@@ -74,6 +79,21 @@ func TestDeleteBot_ReturnsBeforeTeardownFinishes(t *testing.T) {
 	}
 	if rec := do(t, h, "DELETE", "/bots/b-mgr", nil); rec.Code != http.StatusAccepted {
 		t.Fatalf("repeat delete: got %d, want 202", rec.Code)
+	}
+	// Nothing may re-provision the bot the cascade is tearing down.
+	for _, path := range []string{"/bots/b-mgr/activate", "/bots/b-mgr/chat"} {
+		if rec := do(t, h, "POST", path, nil); rec.Code != http.StatusConflict {
+			t.Fatalf("POST %s while deleting: got %d, want 409; body=%s", path, rec.Code, rec.Body)
+		}
+	}
+	ensurer.mu.Lock()
+	ensureCalls := ensurer.calls
+	ensurer.mu.Unlock()
+	disp.mu.Lock()
+	dispatched := disp.manualCalls
+	disp.mu.Unlock()
+	if ensureCalls != 0 || dispatched != 0 {
+		t.Fatalf("deleting bot was provisioned: ensure=%d dispatch=%d", ensureCalls, dispatched)
 	}
 
 	close(inst.release)

@@ -2,10 +2,15 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 )
+
+// ErrDeleteInProgress is returned by Delete when another delete of the same
+// Node is already running.
+var ErrDeleteInProgress = errors.New("bot is already being deleted")
 
 type deleteKey struct {
 	orgID string
@@ -20,10 +25,10 @@ type deleteKey struct {
 // visible and deletable again.
 func (s *Service) StartDelete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	if id == "" {
-		return fmt.Errorf("node id is empty")
+		return errors.New("node id is empty")
 	}
 	if s.Store == nil {
-		return fmt.Errorf("lifecycle: store is nil")
+		return errors.New("lifecycle: store is nil")
 	}
 	if s.Deleting(orgID, id) {
 		return nil
@@ -31,27 +36,14 @@ func (s *Service) StartDelete(ctx context.Context, orgID string, id orgchart.Nod
 	if _, err := s.Store.Nodes.Get(ctx, orgID, id); err != nil {
 		return fmt.Errorf("get node %q: %w", id, err)
 	}
-	key := deleteKey{orgID: orgID, id: id}
-	s.deleteMu.Lock()
-	if _, ok := s.deleting[key]; ok {
-		s.deleteMu.Unlock()
+	if !s.claimDelete(orgID, id) {
 		return nil
 	}
-	if s.deleting == nil {
-		s.deleting = map[deleteKey]struct{}{}
-	}
-	s.deleting[key] = struct{}{}
 	s.deletes.Add(1)
-	s.deleteMu.Unlock()
-
 	go func() {
 		defer s.deletes.Done()
-		defer func() {
-			s.deleteMu.Lock()
-			delete(s.deleting, key)
-			s.deleteMu.Unlock()
-		}()
-		if err := s.Delete(ctx, orgID, id); err != nil {
+		defer s.releaseDelete(orgID, id)
+		if err := s.deleteDetached(ctx, orgID, id); err != nil {
 			s.logger().Error("background delete failed", "org", orgID, "node", id, "err", err)
 			return
 		}
@@ -60,8 +52,8 @@ func (s *Service) StartDelete(ctx context.Context, orgID string, id orgchart.Nod
 	return nil
 }
 
-// Deleting reports whether a background delete of the Node is in flight.
-// Read paths hide such Nodes and mutation paths refuse them.
+// Deleting reports whether a delete of the Node is in flight. Read paths hide
+// such Nodes and mutation paths refuse them.
 func (s *Service) Deleting(orgID string, id orgchart.NodeID) bool {
 	if s == nil {
 		return false
@@ -70,4 +62,26 @@ func (s *Service) Deleting(orgID string, id orgchart.NodeID) bool {
 	defer s.deleteMu.Unlock()
 	_, ok := s.deleting[deleteKey{orgID: orgID, id: id}]
 	return ok
+}
+
+// claimDelete marks the Node as being deleted. It returns false when another
+// delete already holds the claim.
+func (s *Service) claimDelete(orgID string, id orgchart.NodeID) bool {
+	key := deleteKey{orgID: orgID, id: id}
+	s.deleteMu.Lock()
+	defer s.deleteMu.Unlock()
+	if _, ok := s.deleting[key]; ok {
+		return false
+	}
+	if s.deleting == nil {
+		s.deleting = map[deleteKey]struct{}{}
+	}
+	s.deleting[key] = struct{}{}
+	return true
+}
+
+func (s *Service) releaseDelete(orgID string, id orgchart.NodeID) {
+	s.deleteMu.Lock()
+	defer s.deleteMu.Unlock()
+	delete(s.deleting, deleteKey{orgID: orgID, id: id})
 }

@@ -497,7 +497,7 @@ func errStatus(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, store.ErrConflict):
+	case errors.Is(err, store.ErrConflict), errors.Is(err, lifecycle.ErrDeleteInProgress):
 		return http.StatusConflict
 	case errors.Is(err, nodes.ErrUnknownTool), errors.Is(err, nodes.ErrInvalidInstanceProfile), errors.Is(err, instances.ErrInvalidRequest):
 		return http.StatusBadRequest
