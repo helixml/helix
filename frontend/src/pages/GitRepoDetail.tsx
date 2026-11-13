@@ -88,6 +88,7 @@ import PullRequests from '../components/git/PullRequests'
 import CreateProjectDialog from '../components/project/CreateProjectDialog'
 import { TypesExternalRepositoryType, TypesAzureDevOps, TypesGitRepository } from '../api/api'
 import { copyTextToClipboard } from '../utils/clipboard'
+import { extractErrorMessage } from '../hooks/useErrorCallback'
 
 const TAB_NAMES = ['code', 'wiki', 'search', 'changelog', 'connect', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
@@ -378,7 +379,7 @@ const GitRepoDetail: FC = () => {
       snackbar.success('Repository updated successfully')
     } catch (error) {
       console.error('Failed to update repository:', error)
-      snackbar.error('Failed to update repository')
+      snackbar.error(`Failed to update repository: ${extractErrorMessage(error).trim()}`)
     } finally {
       setUpdating(false)
     }
