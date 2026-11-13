@@ -258,15 +258,18 @@ func (i *Interaction) ToOpenAIAssistantMessage() (openai.ChatCompletionMessage, 
 }
 
 type ListInteractionsQuery struct {
-	AppID         string
-	SessionID     string
-	InteractionID string
-	UserID        string
-	GenerationID  int // Use -1 to get all generations for a session
-	Page          int
-	PerPage       int
-	Feedback      string
-	Order         string // Defaults to ID ASC
+	AppID                 string
+	SessionID             string
+	InteractionID         string
+	UserID                string
+	GenerationID          int // Use -1 to get all generations for a session
+	Page                  int
+	PerPage               int
+	Feedback              string
+	State                 InteractionState
+	HasPendingQuestion    bool
+	CompletedSuccessfully bool
+	Order                 string // Defaults to ID ASC
 }
 
 // GetMessageMultiContentPart - probably specifically for PromptContent
@@ -495,6 +498,8 @@ type SessionMetadata struct {
 	AutoRestartCount   int       `json:"auto_restart_count,omitempty"`
 	LastAutoRestartAt  time.Time `json:"last_auto_restart_at,omitempty"`
 
+	Recovery *ProviderRecovery `json:"provider_recovery,omitempty"`
+
 	// Title history - tracks evolution of session topics (newest first)
 	// Shown on hover in the SpecTask tab view to see what topics were covered
 	TitleHistory []*TitleHistoryEntry `json:"title_history,omitempty"`
@@ -631,6 +636,16 @@ type SessionMetadata struct {
 	PausedAt     time.Time `json:"paused_at,omitempty"`
 }
 
+type ProviderRecovery struct {
+	Provider      string    `json:"provider"`
+	Model         string    `json:"model"`
+	PromptID      string    `json:"prompt_id"`
+	InteractionID string    `json:"interaction_id"`
+	Attempts      int       `json:"attempts"`
+	FailedAt      time.Time `json:"failed_at"`
+	NextCheckAt   time.Time `json:"next_check_at"`
+}
+
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
 type SessionsList struct {
 	// the total number of sessions that match the query
@@ -716,6 +731,10 @@ func (c *ExternalAgentConfig) Validate() error {
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
 // Falls back to DisplayWidth/DisplayHeight if set, otherwise uses defaults
 func (c *ExternalAgentConfig) GetEffectiveResolution() (width, height int) {
+	if c.Resolution == "" && c.DisplayWidth == 0 && c.DisplayHeight == 0 {
+		w, h, _ := SandboxResolutionSize(DefaultSandboxResolution())
+		return w, h
+	}
 	if w, h, ok := SandboxResolutionSize(c.Resolution); ok {
 		return w, h
 	}
@@ -741,6 +760,9 @@ func (c *ExternalAgentConfig) GetEffectiveDesktopType() string {
 func (c *ExternalAgentConfig) GetEffectiveZoomLevel() int {
 	if c.ZoomLevel > 0 {
 		return c.ZoomLevel
+	}
+	if c.Resolution == "" && c.DisplayWidth == 0 && c.DisplayHeight == 0 {
+		return SandboxResolutionDefaultZoom(DefaultSandboxResolution())
 	}
 	return SandboxResolutionDefaultZoom(c.Resolution)
 }
@@ -1043,6 +1065,10 @@ type ApiKey struct { //nolint:revive
 	ProjectID      string          `json:"project_id"`      // Used for isolation and metrics tracking
 	SpecTaskID     string          `json:"spec_task_id"`    // Used for isolation and metrics tracking
 	SessionID      string          `json:"session_id"`      // Session this key is scoped to (ephemeral keys)
+	// EmbedInteractive lets an embed key also DRIVE its one session's desktop
+	// (keyboard, mouse, clipboard). Off for public embeds; set for an operator
+	// that embeds a tenant's own agent for that tenant. Ignored on other types.
+	EmbedInteractive bool `json:"embed_interactive,omitempty"`
 }
 
 type OwnerContext struct {
@@ -1273,6 +1299,10 @@ type ServerConfigForFrontend struct {
 	// the default gets a task selector that marks the wrong rung "Default" while
 	// containers come up at the configured size.
 	DefaultSpecTaskSandbox SandboxResourceOverrides `json:"default_spec_task_sandbox"`
+	// NativeDisplay is the host's own display (Helix for Mac), offered as the
+	// "native" sandbox resolution and used when a desktop has none set. Nil
+	// where the host reported no display; the UI then defaults to 1080p.
+	NativeDisplay *NativeDisplay `json:"native_display,omitempty"`
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to
 	// the frontend so the chat-settings page can prefill the textbox.
@@ -1504,11 +1534,8 @@ type ToolAzureDevOpsConfig struct {
 }
 
 type ToolBrowserConfig struct {
-	Enabled                bool `json:"enabled" yaml:"enabled"`
-	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
-	ProcessOutput          bool `json:"process_output" yaml:"process_output"`                     // If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,
-	Cache                  bool `json:"cache" yaml:"cache"`                                       // If true, the browser will cache the results of the tool call
-	NoBrowser              bool `json:"no_browser" yaml:"no_browser"`                             // If true, the browser will not be used to open URLs, it will be a simple GET request
+	Enabled       bool `json:"enabled" yaml:"enabled"`
+	ProcessOutput bool `json:"process_output" yaml:"process_output"` // If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,
 	// TODO: whitelist URLs?
 }
 
@@ -1818,11 +1845,8 @@ type AssistantGooseRecipe struct {
 }
 
 type AssistantBrowser struct {
-	Enabled                bool `json:"enabled" yaml:"enabled"`
-	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
-	ProcessOutput          bool `json:"process_output" yaml:"process_output"`                     // If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,
-	Cache                  bool `json:"cache" yaml:"cache"`                                       // If true, the browser will cache the results of the tool call
-	NoBrowser              bool `json:"no_browser" yaml:"no_browser"`                             // If true, the browser will not be used to open URLs, it will be a simple GET request
+	Enabled       bool `json:"enabled" yaml:"enabled"`
+	ProcessOutput bool `json:"process_output" yaml:"process_output"` // If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,
 	// TODO: whitelist URLs?
 }
 
@@ -2007,6 +2031,10 @@ type CronTrigger struct {
 // that you can supply to Azure DevOps to trigger a session.
 type AzureDevOpsTrigger struct {
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	// WebhookSecret authenticates deliveries to /api/v1/webhooks/{id}.
+	// Generated by the server when the trigger is saved; deliveries without
+	// it are rejected.
+	WebhookSecret string `json:"webhook_secret,omitempty" yaml:"-"`
 }
 
 // AgentWorkQueueTrigger represents a trigger for agent work queue items
@@ -2237,7 +2265,7 @@ func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int)
 	} else if z.DisplayWidth > 0 && z.DisplayHeight > 0 {
 		width, height = z.DisplayWidth, z.DisplayHeight
 	} else {
-		width, height = 1920, 1080
+		width, height, _ = SandboxResolutionSize(DefaultSandboxResolution())
 	}
 
 	// Get refresh rate (default to 60Hz)
@@ -2913,6 +2941,23 @@ type RegisterRequest struct {
 	Password        string `json:"password"`
 	FullName        string `json:"full_name"`
 	PasswordConfirm string `json:"password_confirm"`
+	// InvitationID and InvitationToken come from the invite link
+	// (/login?invitation=<id>&token=<token>). Password sign-up does not
+	// verify the email address, so only the invitation presented here is
+	// accepted, and only with its secret token and when it was sent to Email.
+	InvitationID    string `json:"invitation_id,omitempty"`
+	InvitationToken string `json:"invitation_token,omitempty"`
+}
+
+// AcceptInvitationRequest is the body of POST /invitations/{id}/accept.
+type AcceptInvitationRequest struct {
+	// Token is the invitation's secret token from the invite link.
+	Token string `json:"token"`
+}
+
+// InvitationLinkResponse carries a freshly issued invite link.
+type InvitationLinkResponse struct {
+	URL string `json:"url"`
 }
 
 type PasswordResetRequest struct {
@@ -2959,6 +3004,7 @@ type UserResponse struct {
 	Admin               bool     `json:"admin"`
 	OnboardingCompleted bool     `json:"onboarding_completed"`
 	Waitlisted          bool     `json:"waitlisted"`
+	EmailVerified       bool     `json:"email_verified"`
 	AlphaFeatures       []string `json:"alpha_features"`
 }
 
@@ -3666,17 +3712,25 @@ type SandboxInstance struct {
 	// (e.g. "inf2.8xlarge"). Empty on bare-metal / non-AWS hosts.
 	InstanceType string `json:"instance_type,omitempty" gorm:"type:varchar(100)"`
 
-	// Sandbox capacity. MaxSandboxes is set explicitly at auto-register
-	// and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
-	// (default 20); the gorm default below only applies to rows inserted
-	// via paths that don't set the field. Kept aligned with the env-var
-	// default to avoid surprises.
-	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
-	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:20"`   // Maximum allowed containers
-	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
+	// Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced
+	// by FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES
+	// in its heartbeat, that value wins and MaxSandboxesFromRunner is set
+	// (so the boot-time backfill leaves it alone). Otherwise it is set at
+	// auto-register and Manager-provisioned paths from
+	// HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below
+	// only applies to rows inserted via paths that don't set the field.
+	ActiveSandboxes        int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
+	MaxSandboxes           int  `json:"max_sandboxes" gorm:"default:-1"`   // Maximum allowed containers; -1 means unlimited
+	MaxSandboxesFromRunner bool `json:"max_sandboxes_from_runner" gorm:"default:false"`
+	PrivilegedMode         bool `json:"privileged_mode" gorm:"default:false"`
 
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
+
+	// GoldenCacheUnavailable is set when the sandbox has no container data root
+	// (/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes
+	// whose heartbeat predates it keep building.
+	GoldenCacheUnavailable bool `json:"golden_cache_unavailable" gorm:"default:false"`
 
 	// --- Sandbox-absorbs-runner pivot fields (Decision 13 in design.md) ---
 	// Populated by the sandbox's compose-manager process (where present).
@@ -3774,6 +3828,33 @@ func (s *SandboxInstance) CanHostDesktop() bool {
 	return s.RenderNode != "SOFTWARE"
 }
 
+// EligibleForPlacement reports whether placement could put a sandbox needing
+// the given desktop version key on this Runner: it must advertise a non-empty
+// image for versionKey, and, when a display is required, be render-capable.
+// Liveness (online, fresh heartbeat) and capacity are checked by callers.
+// FindAvailableSandboxInstance and the spec-task sandbox-capacity gate share
+// this so the gate never counts capacity placement could not actually use.
+func (s *SandboxInstance) EligibleForPlacement(versionKey string, requiresDisplay bool) bool {
+	if requiresDisplay && !s.CanHostDesktop() {
+		return false
+	}
+	if len(s.DesktopVersions) == 0 {
+		return false
+	}
+	var versions map[string]string
+	if err := json.Unmarshal(s.DesktopVersions, &versions); err != nil {
+		return false
+	}
+	return versions[versionKey] != ""
+}
+
+// AtCapacity reports whether the Runner already hosts its maximum number
+// of dev containers. -1 means unlimited; 0 is not enforced while awaiting
+// the control plane fallback.
+func (s *SandboxInstance) AtCapacity() bool {
+	return s.MaxSandboxes > 0 && s.ActiveSandboxes >= s.MaxSandboxes
+}
+
 // SandboxHeartbeatRequest is sent by sandbox-heartbeat daemon every 30 seconds
 type SandboxHeartbeatRequest struct {
 	// Desktop image versions (content-addressable Docker image hashes)
@@ -3802,8 +3883,16 @@ type SandboxHeartbeatRequest struct {
 	// Privileged mode (host Docker access for development)
 	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`
 
+	// GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable.
+	GoldenCacheUnavailable bool `json:"golden_cache_unavailable,omitempty"`
+
 	// Helix version running on this sandbox (git commit hash or release version)
 	HelixVersion string `json:"helix_version,omitempty"`
+
+	// MaxSandboxes is the runner's own cap on concurrent dev containers,
+	// from its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means
+	// the runner did not report one and the API's fallback applies.
+	MaxSandboxes int `json:"max_sandboxes,omitempty"`
 
 	// --- Sandbox-absorbs-runner pivot fields ---
 	// Reported by the compose-manager process inside the sandbox.

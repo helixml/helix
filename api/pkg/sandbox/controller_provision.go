@@ -21,6 +21,7 @@ import (
 // controller calls during provision()/Delete(). Extracted so tests can swap
 // in a fake without standing up a RevDial connection.
 type hydraProvisionClient interface {
+	Ready(ctx context.Context) error
 	CreateDevContainer(ctx context.Context, req *hydra.CreateDevContainerRequest) (*hydra.DevContainerResponse, error)
 	ListDevContainers(ctx context.Context) (*hydra.ListDevContainersResponse, error)
 	DeleteDevContainer(ctx context.Context, sessionID string) (*hydra.DevContainerResponse, error)
@@ -49,6 +50,7 @@ var allowedResourcePresets = []resourcePreset{
 	{VCPUs: 8, MemoryMB: 16384},
 	{VCPUs: 12, MemoryMB: 24576},
 	{VCPUs: 16, MemoryMB: 32768},
+	{VCPUs: 32, MemoryMB: 65536},
 }
 
 func resolveSandboxResources(req *types.CreateSandboxRequest) (int, int, error) {
@@ -62,7 +64,11 @@ func resolveSandboxResources(req *types.CreateSandboxRequest) (int, int, error) 
 			return vcpus, memoryMB, nil
 		}
 	}
-	return 0, 0, fmt.Errorf("invalid sandbox resources: choose one of 1 CPU / 2GB RAM, 4 CPU / 8GB RAM, or 8 CPU / 16GB RAM")
+	choices := make([]string, 0, len(allowedResourcePresets))
+	for _, preset := range allowedResourcePresets {
+		choices = append(choices, fmt.Sprintf("%d CPU / %dGB RAM", preset.VCPUs, preset.MemoryMB/1024))
+	}
+	return 0, 0, fmt.Errorf("invalid sandbox resources: choose one of %s", strings.Join(choices, ", "))
 }
 
 // provision picks a hydra host and asks it to launch the container.
@@ -122,14 +128,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		}
 	}
 
-	envMap := map[string]string{}
-	if len(sandbox.Env) > 0 {
-		_ = json.Unmarshal(sandbox.Env, &envMap)
-	}
-	if envMap == nil {
-		// JSON `null` unmarshals into a nil map; re-init so writes succeed.
-		envMap = map[string]string{}
-	}
+	envMap := creatorEnv(sandbox.Env)
 	envMap["HELIX_DISABLE_AGENT"] = "1"
 	// Web-service sandboxes host a docker-compose app, not a GUI — skip booting
 	// GNOME + the video-streaming stack (desktop-bridge, settings-sync). Only
@@ -195,6 +194,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 
 	createReq := &hydra.CreateDevContainerRequest{
 		SessionID:           sandbox.ID,
+		MaxSandboxes:        host.MaxSandboxes,
 		Image:               image,
 		ContainerName:       containerName,
 		Hostname:            containerName,
@@ -272,6 +272,27 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		log.Warn().Err(err).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to persist sandbox status; deleting provisioned container")
 		rollbackOnFailure("status")
 	}
+}
+
+// creatorEnv returns the environment the sandbox's creator supplied, minus
+// every HELIX_* variable: those carry the platform's identity and wiring for
+// the container (HELIX_SESSION_ID, HELIX_API_URL, ...), and only the
+// provisioner may set them.
+func creatorEnv(raw []byte) map[string]string {
+	env := map[string]string{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &env)
+	}
+	if env == nil {
+		// JSON `null` unmarshals into a nil map; re-init so writes succeed.
+		env = map[string]string{}
+	}
+	for key := range env {
+		if strings.HasPrefix(strings.ToUpper(key), "HELIX_") {
+			delete(env, key)
+		}
+	}
+	return env
 }
 
 // buildMounts assembles the host-side bind/volume mounts for a sandbox.
@@ -453,6 +474,11 @@ func (c *Controller) HostReadyForReplacement(ctx context.Context, sandbox *types
 		return false, fmt.Sprintf("pinned host %s no longer advertises the %q image for runtime %s",
 			host.ID, spec.VersionKey, spec.Name)
 	}
+	readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := c.newHydraClient(host.ID).Ready(readyCtx); err != nil {
+		return false, fmt.Sprintf("pinned host %s Hydra is not ready: %v", host.ID, err)
+	}
 	return true, ""
 }
 
@@ -528,13 +554,22 @@ func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sand
 	if err != nil {
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
+	sawFull := false
 	for _, h := range hosts {
 		// Headless containers run no compositor and no encoder, so any
 		// online host will do - including CPU-only and inference
 		// accelerator hosts that cannot stream a desktop.
-		if h.Status == "online" {
-			return h, nil
+		if h.Status != "online" {
+			continue
 		}
+		if h.AtCapacity() {
+			sawFull = true
+			continue
+		}
+		return h, nil
+	}
+	if sawFull {
+		return nil, store.ErrAllSandboxHostsFull
 	}
 	return nil, errors.New("no available sandbox host with the requested runtime")
 }
@@ -559,7 +594,10 @@ func resolveImage(host *types.SandboxInstance, imageName, versionKey string) (st
 // existing GORM filters Just Work — sandbox IDs are globally unique and don't
 // collide with real session IDs. The token grants the desktop-bridge enough
 // auth to register a RevDial connection back to the API; it's revoked when
-// the sandbox is deleted.
+// the sandbox is deleted. The key never carries the owner's full authority:
+// in a project it is confined to the project, and outside one the API auth
+// middleware confines it by route to the sandbox's own needs
+// (server.sandboxKeyAllows) and git refuses it.
 func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.Sandbox) (string, error) {
 	existing, err := c.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: sandbox.OrganizationID,
@@ -571,7 +609,14 @@ func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.S
 		return "", err
 	}
 	if existing != nil {
-		return existing.Key, nil
+		if existing.ProjectID == sandbox.ProjectID {
+			return existing.Key, nil
+		}
+		// Minted with a different project scope (e.g. before keys carried
+		// the sandbox's project): replace it rather than hand it out.
+		if err := c.store.DeleteAPIKey(ctx, existing.Key); err != nil {
+			return "", fmt.Errorf("replace sandbox api key with mismatched project scope: %w", err)
+		}
 	}
 
 	newKey, err := system.GenerateAPIKey()
@@ -586,6 +631,10 @@ func (c *Controller) ensureSandboxAPIToken(ctx context.Context, sandbox *types.S
 		Name:           fmt.Sprintf("Sandbox key - %s", sandbox.ID),
 		Type:           types.APIkeytypeAPI,
 		SessionID:      sandbox.ID,
+		// A sandbox created in a project gets a key confined to that
+		// project (enforceKeyProjectScope), so code in the container cannot
+		// reach the owner's other projects.
+		ProjectID: sandbox.ProjectID,
 	})
 	if err != nil {
 		return "", err

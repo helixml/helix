@@ -16,6 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/project"
 	"github.com/helixml/helix/api/pkg/agent/skill/repository"
 	modelpkg "github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/netguard"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -184,7 +185,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeBrowser {
-			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser, llm, c.browserCache, c.Options.Config.Tools.TLSSkipVerify))
+			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.WebSearch, llm))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeCalculator {
@@ -196,7 +197,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeWebSearch {
-			skills = append(skills, skill.NewSearchSkill(assistantTool.Config.WebSearch, c.Options.SearchProvider, c.Options.Browser))
+			skills = append(skills, skill.NewSearchSkill(assistantTool.Config.WebSearch, c.Options.WebSearch))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeProjectManager {
@@ -205,10 +206,13 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeAzureDevOps {
+			// The organization URL is user-supplied: the git provider
+			// outbound policy applies to every Azure DevOps connection.
+			adoPolicy := netguard.Policy{AllowPrivate: c.Options.Config.GitProviders.AllowPrivateNetworks}
 			// TODO: add support for granular skill selection
-			skills = append(skills, azuredevops.NewCreateThreadSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
-			skills = append(skills, azuredevops.NewReplyToCommentSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
-			skills = append(skills, azuredevops.NewPullRequestDiffSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
+			skills = append(skills, azuredevops.NewCreateThreadSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken, adoPolicy))
+			skills = append(skills, azuredevops.NewReplyToCommentSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken, adoPolicy))
+			skills = append(skills, azuredevops.NewPullRequestDiffSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken, adoPolicy))
 		}
 
 	}

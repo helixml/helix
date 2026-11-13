@@ -1,13 +1,11 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
-import {
-  Typography,
-  Box,
-  Button,
-  IconButton,
-  Menu,
-  MenuItem,
-  Tooltip,
-} from '@mui/material';
+import Typography from '@mui/material/Typography';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Tooltip from '@mui/material/Tooltip';
 import { IProviderEndpoint } from '../../types';
 import { TypesAggregatedUsageMetric } from '../../api/api';
 import { Boxes, EllipsisVertical, ListChecks, Pencil, Plus, Trash2 } from 'lucide-react';
@@ -28,6 +26,7 @@ import { useGetOrgById } from '../../services/orgService';
 import useRouter from '../../hooks/useRouter';
 import SimpleTable, { ITableField } from '../widgets/SimpleTable';
 import ProviderEndpointIcon from '../providers/ProviderEndpointIcon';
+import { isEnvConfiguredEndpoint } from '../providers/types';
 
 // Component to display owner information
 const OwnerInfo: FC<{ ownerId: string; ownerType?: string }> = ({ ownerId, ownerType }) => {
@@ -154,13 +153,6 @@ const ProviderEndpointsTable: FC<ProviderEndpointsTableProps> = ({ onOpenProvide
     })
   };
 
-  const isSystemEndpoint = (endpoint: IProviderEndpoint) => {
-    // Only synthetic env-var endpoints are read-only. They are injected from
-    // config with a sentinel id of "-" (no DB row to edit). A real DB row —
-    // including a global one — always has a real id and is admin-editable, even
-    // if a past bug stamped its owner as "system".
-    return endpoint.id === '-';
-  };
 
   // Helper function to render owner information
   const renderOwnerInfo = (endpoint: IProviderEndpoint) => {
@@ -276,7 +268,7 @@ const ProviderEndpointsTable: FC<ProviderEndpointsTableProps> = ({ onOpenProvide
         onRowClick={row => openProvider(row._data as IProviderEndpoint)}
         getActions={row => {
           const endpoint = row._data as IProviderEndpoint
-          if (isSystemEndpoint(endpoint)) {
+          if (isEnvConfiguredEndpoint(endpoint)) {
             return (
               <Tooltip title="System endpoints can only be configured through environment variables in your Helix instance">
                 <span>

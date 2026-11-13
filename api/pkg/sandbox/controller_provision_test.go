@@ -36,9 +36,12 @@ type fakeHydra struct {
 	createErr  error
 	listResp   *hydra.ListDevContainersResponse
 	listErr    error
+	readyErr   error
 	deleteErr  error
 	forgetErr  error
 }
+
+func (f *fakeHydra) Ready(context.Context) error { return f.readyErr }
 
 func (f *fakeHydra) ListDevContainers(_ context.Context) (*hydra.ListDevContainersResponse, error) {
 	f.mu.Lock()
@@ -467,10 +470,15 @@ func (s *ProvisionSuite) TestProvisionDesktopBuildsFullEnvAndMounts() {
 	s.Require().Equal(filepath.Join("/sandbox-host", "runtime", sbID, "crash-dumps"), cores.Source)
 }
 
-// TestProvisionDesktopRootlessSetsUnprivilegedRequest: an allowlisted project
-// gets an unprivileged desktop request carrying DesktopRootless so hydra builds
-// the hardened HostConfig. See design/2026-10-08-desktop-root-isolation.md.
 func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
+	s.testProvisionRootlessRequest(false, "")
+}
+
+func (s *ProvisionSuite) TestProvisionRootlessWebServiceSetsPersistentDataRequest() {
+	s.testProvisionRootlessRequest(true, types.SandboxPurposeWebService)
+}
+
+func (s *ProvisionSuite) testProvisionRootlessRequest(persistent bool, purpose string) {
 	runtimes, err := NewRuntimeRegistry(config.Sandboxes{
 		Runtimes:                  "headless-ubuntu=ubuntu:22.04|sleep infinity",
 		DefaultRuntime:            "headless-ubuntu",
@@ -492,6 +500,8 @@ func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
 		DisplayWidth:   1920,
 		DisplayHeight:  1080,
 		DisplayFPS:     30,
+		Persistent:     persistent,
+		Purpose:        purpose,
 		Env:            mustMarshal(map[string]string{}),
 	}
 	versions := mustMarshal(map[string]string{"ubuntu": "abc123"})
@@ -516,6 +526,8 @@ func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
 		DisplayHeight: 1080,
 		DisplayFPS:    30,
 		ProjectID:     "prj_target",
+		Persistent:    persistent,
+		Purpose:       purpose,
 	})
 	s.Require().NoError(err)
 	s.controller.waitProvisions()
@@ -525,13 +537,24 @@ func (s *ProvisionSuite) TestProvisionDesktopRootlessSetsUnprivilegedRequest() {
 	s.Require().Equal(hydra.DevContainerTypeUbuntu, req.ContainerType)
 	s.Require().False(req.Privileged, "hardened desktop must not be privileged")
 	s.Require().True(req.DesktopRootless, "hardened desktop must request rootless mode")
+	s.Require().Equal(persistent, req.Persistent)
 	var rootlessData hydra.MountConfig
+	var persistentData hydra.MountConfig
 	for _, item := range req.Mounts {
 		if item.Destination == "/home/retro/.local/share/docker" {
 			rootlessData = item
 		}
+		if item.Destination == "/data" {
+			persistentData = item
+		}
 	}
 	s.Require().Equal("rootless-docker-data-"+sbID, rootlessData.Source)
+	if persistent {
+		s.Require().Equal("/sandbox-host/webservice/prj_target/data", persistentData.Source)
+		s.Require().False(persistentData.ReadOnly)
+	} else {
+		s.Require().Empty(persistentData)
+	}
 }
 
 func (s *ProvisionSuite) TestProvisionDesktopOutsideRootlessAllowlistRemainsPrivileged() {
@@ -655,6 +678,38 @@ func (s *ProvisionSuite) TestProvisionMarksFailedWhenNoHostAvailable() {
 	s.Require().Empty(s.hydra.createCalls, "hydra CreateDevContainer must not be called when no host is available")
 }
 
+func (s *ProvisionSuite) TestCreatePreservesInternalHostPinForProvisioning() {
+	sb := &types.Sandbox{}
+	host := &types.SandboxInstance{ID: "host-pinned", Status: "online"}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().CreateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, in *types.Sandbox) (*types.Sandbox, error) {
+			s.Equal("host-pinned", in.HostDeviceID)
+			*sb = *in
+			sb.ID = "sbx_pinned"
+			return sb, nil
+		},
+	)
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_pinned").Return(sb, nil)
+	s.store.EXPECT().GetSandboxInstance(gomock.Any(), "host-pinned").Return(host, nil)
+	s.store.EXPECT().IncrementSandboxContainerCount(gomock.Any(), "host-pinned").Return(nil)
+	s.store.EXPECT().SetSandboxContainer(gomock.Any(), "sbx_pinned", "host-pinned", gomock.Any()).Return(nil)
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_pinned", types.SandboxStatusRunning, "").Return(nil)
+	s.hydra.createResp = &hydra.DevContainerResponse{
+		SessionID: "sbx_pinned", ContainerID: "ctr_pinned", Status: hydra.DevContainerStatusRunning,
+	}
+
+	_, err := s.controller.Create(s.ctx, "org_1", "user_1", &types.CreateSandboxRequest{
+		Runtime: types.SandboxRuntimeHeadlessUbuntu, Persistent: true, HostDeviceID: "host-pinned",
+	})
+	s.Require().NoError(err)
+	s.controller.waitProvisions()
+
+	s.Equal("host-pinned", s.hydra.hostID)
+}
+
 // TestDeleteCallsHydraDeleteAndForgetOps: Delete must tear down the hydra
 // container AND forget the cached command ops, in that order, before
 // soft-deleting the row.
@@ -698,6 +753,43 @@ func (s *ProvisionSuite) TestDeleteContinuesWhenHydraDeleteFails() {
 
 	s.hydra.deleteErr = errors.New("hydra unreachable")
 	s.Require().NoError(s.controller.Delete(s.ctx, sb.ID))
+}
+
+func (s *ProvisionSuite) TestDeleteForRecoveryPreservesStateWhenHydraDeleteFails() {
+	sb := &types.Sandbox{
+		ID:             "sbx_recovery",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		HostDeviceID:   "host-z",
+		Status:         types.SandboxStatusRunning,
+		StatusMessage:  "serving",
+	}
+	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
+	s.hydra.deleteErr = errors.New("revdial disconnected")
+
+	err := s.controller.DeleteForRecovery(s.ctx, sb.ID)
+	var unconfirmed *RecoveryTeardownUnconfirmedError
+	s.Require().ErrorAs(err, &unconfirmed)
+	s.Equal(types.SandboxStatusRunning, sb.Status)
+	s.Equal("serving", sb.StatusMessage)
+}
+
+func (s *ProvisionSuite) TestDeleteForRecoveryDeletesStateAfterConfirmedTeardown() {
+	sb := &types.Sandbox{
+		ID:             "sbx_recovery",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		HostDeviceID:   "host-z",
+		Status:         types.SandboxStatusPending,
+	}
+	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
+	s.store.EXPECT().DecrementSandboxContainerCount(s.ctx, "host-z").Return(nil)
+	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
+
+	s.Require().NoError(s.controller.DeleteForRecovery(s.ctx, sb.ID))
+	s.Equal([]string{sb.ID}, s.hydra.deleteCalls)
+	s.Equal([]string{sb.ID}, s.hydra.forgetCalls)
 }
 
 // TestDeleteSkipsHydraWhenSandboxHasNoHost: a sandbox whose provision step
@@ -1110,4 +1202,16 @@ func (s *ProvisionSuite) TestEnvMapJSONRoundTrip() {
 	var out map[string]string
 	s.Require().NoError(json.Unmarshal(b, &out))
 	s.Require().Equal(in, out)
+}
+
+// The creator's env reaches the container, but HELIX_* variables are the
+// platform's: a creator cannot point the container at another session or API.
+func TestCreatorEnvDropsPlatformVariables(t *testing.T) {
+	env := creatorEnv([]byte(`{"FOO":"bar","HELIX_SESSION_ID":"ses_other","helix_api_url":"http://evil","HELIXFOO":"kept"}`))
+	if len(env) != 2 || env["FOO"] != "bar" || env["HELIXFOO"] != "kept" {
+		t.Fatalf("unexpected env: %v", env)
+	}
+	if got := creatorEnv([]byte("null")); got == nil || len(got) != 0 {
+		t.Fatalf("null env: %v", got)
+	}
 }

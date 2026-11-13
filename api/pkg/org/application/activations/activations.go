@@ -39,6 +39,10 @@ type SessionResolver interface {
 	SessionID(ctx context.Context, orgID string, workerID orgchart.NodeID) (string, error)
 }
 
+type SessionProgress interface {
+	LatestSuccessfulTurnStartedAt(ctx context.Context, orgID string, workerID orgchart.NodeID) (time.Time, error)
+}
+
 // DesktopStopper stops a bot's desktop container without deleting the
 // session row (transcript survives). Used by Stop.
 type DesktopStopper interface {
@@ -74,6 +78,7 @@ type Activations struct {
 	ensurer    ProjectEnsurer
 	dispatcher Dispatcher
 	sessions   SessionResolver
+	progress   SessionProgress
 	stopper    DesktopStopper
 	resetter   SessionResetter
 	canceller  OutstandingCanceller
@@ -92,6 +97,7 @@ type Deps struct {
 	Ensurer    ProjectEnsurer
 	Dispatcher Dispatcher
 	Sessions   SessionResolver
+	Progress   SessionProgress
 	Stopper    DesktopStopper
 	Resetter   SessionResetter
 	Canceller  OutstandingCanceller
@@ -110,6 +116,7 @@ func New(deps Deps) *Activations {
 		ensurer:    deps.Ensurer,
 		dispatcher: deps.Dispatcher,
 		sessions:   deps.Sessions,
+		progress:   deps.Progress,
 		stopper:    deps.Stopper,
 		resetter:   deps.Resetter,
 		canceller:  deps.Canceller,
@@ -143,6 +150,32 @@ type ActivateResult struct {
 // gives the cleaner status.
 func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgchart.NodeID) (ActivateResult, error) {
 	return a.activate(ctx, orgID, workerID, false)
+}
+
+// LatestError returns the newest completed activation failure. A newer pending
+// or successful activation, or a successful turn begun after the failure,
+// clears the operator error without changing the audit row.
+func (a *Activations) LatestError(ctx context.Context, orgID string, workerID orgchart.NodeID) (string, error) {
+	if a.repo == nil {
+		return "", nil
+	}
+	rows, err := a.repo.ListForWorker(ctx, orgID, workerID, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 || !rows[0].IsCompleted() || rows[0].Outcome.Status != activation.StatusError {
+		return "", nil
+	}
+	if a.progress != nil {
+		startedAt, err := a.progress.LatestSuccessfulTurnStartedAt(ctx, orgID, workerID)
+		if err != nil {
+			return "", fmt.Errorf("latest successful turn: %w", err)
+		}
+		if startedAt.After(*rows[0].EndedAt) {
+			return "", nil
+		}
+	}
+	return rows[0].Outcome.Error, nil
 }
 
 func (a *Activations) activate(ctx context.Context, orgID string, workerID orgchart.NodeID, forceManual bool) (ActivateResult, error) {

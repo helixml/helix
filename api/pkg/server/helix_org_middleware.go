@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -110,9 +111,11 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			return nil, fmt.Errorf("provision helix-org service api key: %w", err)
 		}
 
+		botBootstrapFailed := false
 		if s.botRepair != nil {
 			if err := s.botRepair(ctx, orgID, serviceKey); err != nil {
-				return nil, fmt.Errorf("repair helix-org bots: %w", err)
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org Bot repair failed")
+				botBootstrapFailed = true
 			}
 		}
 
@@ -173,7 +176,6 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// page needed to fix a bad default agent config, and the public
 		// webhook handlers. The org stays un-bootstrapped so the next
 		// request retries.
-		botBootstrapFailed := false
 		if s.botBootstrap != nil {
 			if err := s.botBootstrap(ctx, orgID); err != nil {
 				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org Bot bootstrap failed")
@@ -279,20 +281,26 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
-		if isHelixOrgPrivilegedMutation(r) && !isAdmin(user) && membership.Role != types.OrganizationRoleOwner {
+		// A project- or session-scoped key acts as a member, whatever its
+		// owner's role: org-wide configuration is not its to change. The
+		// scope is checked before the admin exemption, as orgstore does.
+		role, platformAdmin := helixOrgAuthority(user, membership.Role)
+		if isHelixOrgPrivilegedMutation(r) && !platformAdmin && role != types.OrganizationRoleOwner {
 			http.Error(w, "only organization owners and administrators can modify this resource", http.StatusForbidden)
 			return
 		}
 		ctx := helixorgserver.WithOrgID(r.Context(), org.ID)
 		ctx = helixorgserver.WithOrgHandle(ctx, mux.Vars(r)["org"])
-		ctx = helixorgserver.WithOrgAuthorization(ctx, membership.Role, isAdmin(user))
+		ctx = helixorgserver.WithOrgAuthorization(ctx, role, platformAdmin)
 		// Bridge the authenticated caller into the runtime-helix context
-		// so lifecycle.Create persists them as the Bot's hiring user
+		// so in-process calls retain authorization and lifecycle.Create persists
+		// them as the Bot's hiring user
 		// (SaveHiringUser reads runtimehelix.UserIDFromContext). Without
 		// this every Bot's session falls back to the org-service identity
 		// (organization owner), which cross-attributes another user's key into
 		// the tenant org's API-keys list.
 		ctx = runtimehelix.WithUserID(ctx, user.ID)
+		ctx = runtimehelix.WithUser(ctx, user)
 		// Strip the /orgs/{org}/helix-org prefix so the downstream
 		// helix-org handler sees the same flat path it served from
 		// /api/v1/org/* before — keeps the org-graph server unaware
@@ -309,18 +317,30 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 		return false
 	}
 	orgSegment := mux.Vars(r)["org"]
-	settingsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/settings/agent.default"
-	if r.URL.Path == settingsPath {
+	// Every org setting is org-wide configuration (runtime credentials,
+	// transport tokens and webhook secrets, activation mandate, limits), and
+	// the GitHub App manifest flow installs an app for the whole org.
+	settingsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/settings/"
+	if strings.HasPrefix(r.URL.Path, settingsPath) {
 		return true
 	}
-	assetsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/assets"
-	if r.URL.Path == assetsPath || strings.HasPrefix(r.URL.Path, assetsPath+"/") {
+	if r.URL.Path == strings.TrimRight(APIPrefix, "/")+"/orgs/"+orgSegment+"/github/app-manifest" {
 		return true
 	}
-	botsPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment + "/bots/"
+	// Assets, triggers (including their webhook installs) and processors are
+	// org-wide wiring: they decide what wakes which bot and with what data.
+	orgPath := strings.TrimRight(APIPrefix, "/") + "/orgs/" + orgSegment
+	for _, collection := range []string{"/assets", "/triggers", "/processors"} {
+		if r.URL.Path == orgPath+collection || strings.HasPrefix(r.URL.Path, orgPath+collection+"/") {
+			return true
+		}
+	}
+	botsPath := orgPath + "/bots/"
 	if !strings.HasPrefix(r.URL.Path, botsPath) {
 		return false
 	}
+	// Per-bot secrets. Trigger attachments are authorized per bot by the
+	// handler (org managers, or anyone who can edit the bot's agent).
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, botsPath), "/")
 	return len(parts) >= 3 && parts[0] != "" && parts[1] == "secrets" && parts[2] != ""
 }
@@ -330,6 +350,10 @@ func isHelixOrgPrivilegedMutation(r *http.Request) bool {
 // sees the same flat paths it serves from the standalone server's
 // own mux (/chart, /workers, /roles, …). The {org} segment is
 // captured by gorilla mux and stitched back into the prefix here.
+//
+// A forwarded path that is itself org-scoped (/orgs/...) is refused: the
+// outer middleware authorised exactly one org, and no inner route may
+// re-scope the request to another one from the URL.
 func stripOrgScopedPrefix(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		orgSeg := mux.Vars(r)["org"]
@@ -343,8 +367,35 @@ func stripOrgScopedPrefix(next http.Handler) http.Handler {
 		if stripped.URL.Path == "" {
 			stripped.URL.Path = "/"
 		}
+		if !strings.HasPrefix(stripped.URL.Path, "/") || isNestedOrgPath(stripped.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
 		stripped.URL.RawPath = ""
 		stripped.RequestURI = stripped.URL.RequestURI()
 		next.ServeHTTP(w, stripped)
 	})
+}
+
+// isNestedOrgPath reports whether a path forwarded past the org-scope prefix
+// still addresses an org, after cleaning so "//orgs" or "/./orgs" can't
+// slip past.
+func isNestedOrgPath(p string) bool {
+	cleaned := path.Clean(p)
+	return cleaned == "/orgs" || strings.HasPrefix(cleaned, "/orgs/")
+}
+
+// helixOrgAuthority is the org role and platform-admin flag a caller brings
+// into the org graph. A project- or session-scoped key (a sandbox agent, a
+// helix-org worker) is capped at member and never admin, so downstream
+// owner checks (CanManageOrganization, tool grants) match the REST routes,
+// where such a key cannot act as organization owner either.
+func helixOrgAuthority(user *types.User, role types.OrganizationRole) (types.OrganizationRole, bool) {
+	if isAgentScopedKey(user) {
+		if role == types.OrganizationRoleOwner {
+			role = types.OrganizationRoleMember
+		}
+		return role, false
+	}
+	return role, isAdmin(user)
 }

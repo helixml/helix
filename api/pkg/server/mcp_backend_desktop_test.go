@@ -33,7 +33,7 @@ func (s *DesktopMCPBackendSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.mockStore = store.NewMockStore(s.ctrl)
 	s.dialer = &fakeDialer{}
-	s.backend = NewDesktopMCPBackend(s.mockStore, s.dialer)
+	s.backend = NewDesktopMCPBackend(s.mockStore, s.dialer, (&HelixAPIServer{Store: s.mockStore}).authorizeUserToSession)
 }
 
 func (s *DesktopMCPBackendSuite) TearDownTest() {

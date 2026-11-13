@@ -6,31 +6,29 @@ import React, {
   useMemo,
   useRef,
 } from "react";
-import {
-  Alert,
-  Box,
-  Typography,
-  Chip,
-  Divider,
-  IconButton,
-  TextField,
-  Button,
-  Tooltip,
-  Select,
-  CircularProgress,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  ListItemText,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  Switch,
-  Autocomplete,
-  ClickAwayListener,
-} from "@mui/material";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Chip from "@mui/material/Chip";
+import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
+import Select from "@mui/material/Select";
+import CircularProgress from "@mui/material/CircularProgress";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogActions from "@mui/material/DialogActions";
+import Switch from "@mui/material/Switch";
+import Autocomplete from "@mui/material/Autocomplete";
+import ClickAwayListener from "@mui/material/ClickAwayListener";
 import type { Theme } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import PlayArrow from "@mui/icons-material/PlayArrow";
@@ -68,8 +66,10 @@ import useRouter from "../../hooks/useRouter";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
+import { readResponseError } from "../../utils/responseError";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import { deriveDisplaySettings, sandboxResolutionLabel } from "../../services/externalAgentDisplay";
+import { useNativeDisplay } from "../../hooks/useNativeDisplay";
 import { useStreaming } from "../../contexts/streaming";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
@@ -238,8 +238,6 @@ interface SpecTaskDetailContentProps {
   initialView?: TaskView;
   /** Keep standalone task content inset while allowing sibling drawers to span the workspace. */
   padContent?: boolean;
-  /** Whether tasks awaiting spec review should open the review automatically. */
-  autoOpenReview?: boolean;
   /** Replace route close with reversible content-panel collapse. */
   allowContentCollapse?: boolean;
   /** Poll GitHub while this task is visible. Disabled for read-only embeds. */
@@ -254,18 +252,36 @@ interface SpecTaskDetailContentProps {
    * visible instances mirror the same URL param.
    */
   syncViewWithUrl?: boolean;
+  /**
+   * Hide everything that operates the TASK (accept, start/stop/restart the
+   * desktop, the actions menu, the terminal). For embeds whose viewer may chat
+   * and watch or drive the desktop but not manage the task — an embed key
+   * cannot, so those controls would only fail.
+   */
+  hideControls?: boolean;
 }
+
+// What hideControls switches off on the view toolbar.
+const embedControlOverrides = {
+  showStart: false,
+  showStop: false,
+  showRestart: false,
+  showKeepAlive: false,
+  showUpload: false,
+  renderMenuItems: undefined,
+  onToggleTerminal: undefined,
+};
 
 const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   taskId,
   initialView,
   padContent = false,
-  autoOpenReview = true,
   allowContentCollapse = false,
   enableForegroundPRRefresh = true,
   onClose,
   onTaskArchived,
   syncViewWithUrl = true,
+  hideControls = false,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -507,10 +523,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     );
   }, [updateExecutionConfig, snackbar]);
 
+  const nativeDisplay = useNativeDisplay();
   const displayResolution = task?.sandbox_display?.resolution;
   const displaySettings = useMemo(
-    () => deriveDisplaySettings({ resolution: displayResolution }),
-    [displayResolution],
+    () => deriveDisplaySettings({ resolution: displayResolution }, nativeDisplay),
+    [displayResolution, nativeDisplay],
   );
 
   // Check the task-owned execution config for Claude subscription credentials.
@@ -1006,10 +1023,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
     setIsStartingPlanning(true);
     try {
-      const { keyboardLayout, timezone, isOverridden } = getBrowserLocale();
+      const { keyboardLayout, timezone, languages, isOverridden } = getBrowserLocale();
       const queryParams = new URLSearchParams();
       if (keyboardLayout) queryParams.set("keyboard", keyboardLayout);
       if (timezone) queryParams.set("timezone", timezone);
+      if (languages) queryParams.set("languages", languages);
       const queryString = queryParams.toString();
       const url = `/api/v1/spec-tasks/${task.id}/start-planning${queryString ? `?${queryString}` : ""}`;
 
@@ -1023,7 +1041,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         credentials: "include",
       });
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await readResponseError(response);
         // Open the matching provider connection flow on OAuth enforcement.
         if (
           response.status === 422 &&
@@ -1059,7 +1077,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         throw new Error(
           errorData.message ||
             errorData.error ||
-            `Failed to start planning: ${response.statusText}`,
+            `Failed to start planning: ${response.statusText || `HTTP ${response.status}`}`,
         );
       }
 
@@ -1128,11 +1146,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
     try {
       await saveSandboxDisplay(sandboxDisplay);
-      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay)}; applies when the desktop starts`);
+      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay, nativeDisplay)}; applies when the desktop starts`);
     } catch (err: any) {
       snackbar.error(err?.message || "Failed to update display");
     }
-  }, [isDesktopRunning, saveSandboxDisplay, snackbar]);
+  }, [isDesktopRunning, saveSandboxDisplay, snackbar, nativeDisplay]);
   const applyPendingSandboxDisplay = useCallback(async (restartNow: boolean) => {
     if (!pendingSandboxDisplay) return;
     const sandboxDisplay = pendingSandboxDisplay;
@@ -1146,9 +1164,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (restartNow) {
       await handleRestartSession();
     } else {
-      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay)}; applies on the next desktop restart`);
+      snackbar.success(`Display set to ${sandboxResolutionLabel(sandboxDisplay, nativeDisplay)}; applies on the next desktop restart`);
     }
-  }, [pendingSandboxDisplay, saveSandboxDisplay, handleRestartSession, snackbar]);
+  }, [pendingSandboxDisplay, saveSandboxDisplay, handleRestartSession, snackbar, nativeDisplay]);
 
   // Handle session stop
   const handleStopSession = useCallback(async () => {
@@ -1353,14 +1371,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   };
 
-  // Auto-open spec review when enabled and the task is ready for review.
-  // The Chat task route disables this so selecting a task preserves the Chat context.
+  // Auto-open spec review when the task is ready for review.
   // The sessionStorage marker limits auto-open to once per SPA session/task.
   // The spec_approved_at guard prevents bouncing the user back to the review page in the
   // brief window between approval and the cached task.status transitioning away from spec_review.
   useEffect(() => {
     if (
-      autoOpenReview &&
       task?.id &&
       !getAutoOpenedSpecTasks().has(task.id) &&
       !task?.spec_approved_at &&
@@ -1377,7 +1393,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       }
     }
   }, [
-    autoOpenReview,
     syncViewWithUrl,
     task?.id,
     task?.status,
@@ -1528,7 +1543,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     variant: "inline" | "stacked",
     density: ToolbarDensity = "comfortable",
   ) => {
-    if (!task) return null;
+    if (!task || hideControls) return null;
 
     return (
       <SpecTaskActionButtons
@@ -2560,17 +2575,19 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Pull requests open only from agent proposals the user approves; the ones
   // still awaiting a decision (or a retry) sit above the composer.
   const { data: prProposals } = useSpecTaskPRProposals(task?.id);
-  const actionablePRProposals = (prProposals ?? []).filter((p) =>
-    ACTIONABLE_PR_PROPOSAL_STATUSES.has(p.status ?? ""),
-  );
+  const actionablePRProposals = hideControls
+    ? []
+    : (prProposals ?? []).filter((p) =>
+        ACTIONABLE_PR_PROPOSAL_STATUSES.has(p.status ?? ""),
+      );
   // A proposal waiting on the user is only visible in the chat panel, so open
   // it (or switch to the Chat tab) once per new proposal. Once per proposal,
   // so a user who collapses the panel again is not fought on every poll.
   // The agent's request to finish the task is revealed the same way.
   const revealedProposalIdsRef = useRef<Set<string>>(new Set());
-  const pendingCompletionKey = completionRequestKey(task);
+  const pendingCompletionKey = completionRequestKey(task, hideControls);
   const proposalsToRevealKey = [
-    ...proposalsToReveal(prProposals ?? [], revealedProposalIdsRef.current),
+    ...proposalsToReveal(prProposals ?? [], revealedProposalIdsRef.current, hideControls),
     ...(pendingCompletionKey && !revealedProposalIdsRef.current.has(pendingCompletionKey)
       ? [pendingCompletionKey]
       : []),
@@ -2887,6 +2904,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   leadingActions={(
                     <CodeAgentExecutionControls
                       value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
+                      interactiveEmbedTaskId={hideControls ? task.id : undefined}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
                       sandboxDisplay={task.sandbox_display}
@@ -2986,6 +3004,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     allowContentCollapse ? collapseContentPanel : undefined
                   }
                   onClosePanel={allowContentCollapse ? undefined : onClose}
+                  {...(hideControls ? embedControlOverrides : {})}
                 />
 
                 {/* In split-view layout, "chat" falls through to desktop since chat
@@ -3152,6 +3171,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 onClosePanel={
                   allowContentCollapse && isBigScreen ? undefined : onClose
                 }
+                {...(hideControls ? embedControlOverrides : {})}
               />
             )}
 
@@ -3230,6 +3250,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   leadingActions={(
                     <CodeAgentExecutionControls
                       value={currentExecutionConfig?.code_agent_config || task.code_agent_config}
+                      interactiveEmbedTaskId={hideControls ? task.id : undefined}
                       sandboxResourceOverrides={task.sandbox_resource_overrides}
                       sandboxRuntime={task.sandbox_runtime}
                       sandboxDisplay={task.sandbox_display}
@@ -3420,7 +3441,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         onClose={() => setPendingSandboxDisplay(null)}
       >
         <DialogTitle>
-          Restart the desktop to switch to {sandboxResolutionLabel(pendingSandboxDisplay || undefined)}?
+          Restart the desktop to switch to {sandboxResolutionLabel(pendingSandboxDisplay || undefined, nativeDisplay)}?
         </DialogTitle>
         <DialogContent>
           <DialogContentText>

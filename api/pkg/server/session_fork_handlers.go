@@ -102,6 +102,9 @@ func (apiServer *HelixAPIServer) forkSession(_ http.ResponseWriter, req *http.Re
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
+	if err := apiServer.validateOrgCodeAgentHarness(ctx, parent.OrganizationID, targetRuntime, "", ""); err != nil {
+		return nil, system.NewHTTPError422(err.Error())
+	}
 	// Reject the fork only when NOTHING about how the child runs would
 	// change: same app (or no app override, falling back to the parent's)
 	// AND same runtime. Two apps that share a runtime can still differ in

@@ -10,8 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/types"
@@ -22,10 +26,32 @@ import (
 
 type failCreateInteractionStore struct {
 	store.Store
+	resetCalled bool
 }
 
 func (s *failCreateInteractionStore) CreateInteraction(context.Context, *types.Interaction) (*types.Interaction, error) {
 	return nil, errors.New("write failed")
+}
+
+func (s *failCreateInteractionStore) ResetCrashedPromptsForSession(context.Context, string) (int, error) {
+	s.resetCalled = true
+	return 0, nil
+}
+
+type configRecoveryStore struct {
+	store.Store
+	resetCount int
+	resetErr   error
+	drained    chan struct{}
+}
+
+func (s *configRecoveryStore) ResetCrashedPromptsForSession(context.Context, string) (int, error) {
+	return s.resetCount, s.resetErr
+}
+
+func (s *configRecoveryStore) GetAnyPendingPrompt(context.Context, string) (*types.PromptHistoryEntry, error) {
+	close(s.drained)
+	return nil, nil
 }
 
 func seedCodingAgent(mem *memorystore.MemoryStore, id, provider, model string) {
@@ -161,6 +187,194 @@ func TestUpdateSessionExecutionConfigPersistsCompleteConfigAndKeepsAgent(t *test
 	assert.Equal(t, types.CodeAgentRuntimeOpenCode, updated.Metadata.CodeAgentRuntime)
 }
 
+func TestCodeAgentConfigValidationDiscoversSelectedProviderOnColdCache(t *testing.T) {
+	tests := []struct {
+		name           string
+		configured     []string
+		discovered     []types.OpenAIModel
+		discoveryErr   error
+		model          string
+		wantValidation bool
+	}{
+		{
+			name:           "rejects configured qwen absent from successful discovery",
+			configured:     []string{"glm-5.3-flash", "qwen3.8-flash-next"},
+			discovered:     []types.OpenAIModel{{ID: "glm-5.3-flash", Enabled: true}},
+			model:          "qwen3.8-flash-next",
+			wantValidation: false,
+		},
+		{
+			name:           "admits discovered model",
+			configured:     []string{"glm-5.3-flash", "qwen3.8-flash-next"},
+			discovered:     []types.OpenAIModel{{ID: "glm-5.3-flash", Enabled: true}},
+			model:          "bunker/glm-5.3-flash",
+			wantValidation: true,
+		},
+		{
+			name:           "admits static model when discovery unsupported",
+			configured:     []string{"glm-5.3-flash"},
+			discoveryErr:   errors.New("404 not found"),
+			model:          "glm-5.3-flash",
+			wantValidation: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, mem := newForkTestServer(t)
+			ctrl := gomock.NewController(t)
+			providerManager := manager.NewMockProviderManager(ctrl)
+			providerClient := openai.NewMockClient(ctrl)
+			modelInfoProvider := model.NewMockModelInfoProvider(ctrl)
+			cache, err := ristretto.NewCache(&ristretto.Config[string, string]{NumCounters: 1e3, MaxCost: 1 << 20, BufferItems: 64})
+			require.NoError(t, err)
+			defer cache.Close()
+			srv.providerManager = providerManager
+			srv.modelInfoProvider = modelInfoProvider
+			srv.cache = cache
+
+			endpoint := &types.ProviderEndpoint{
+				ID: "pe_bunker", Name: "bunker", Owner: "user_a", BaseURL: "https://bunker.local", Models: tt.configured,
+			}
+			providerManager.EXPECT().ListProviderEndpoints(gomock.Any(), "user_a").Return([]*types.ProviderEndpoint{endpoint}, nil)
+			providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(providerClient, nil)
+			providerClient.EXPECT().ListModels(gomock.Any()).Return(tt.discovered, tt.discoveryErr)
+			modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+			config := &types.CodeAgentExecutionConfig{
+				Runtime: types.CodeAgentRuntimeOpenCode, CredentialType: types.CodeAgentCredentialTypeAPIKey,
+				ProviderRef: endpoint.ID, Model: tt.model,
+			}
+			if tt.wantValidation {
+				require.NoError(t, srv.validateCodeAgentExecutionConfig(context.Background(), config, "user_a", "user_a", ""))
+				return
+			}
+
+			seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+			session := newOrgChatSession("user_a")
+			seedParentWithInteractions(t, mem, session, 1)
+			waiting, err := mem.CreateInteraction(context.Background(), &types.Interaction{
+				SessionID: session.ID, UserID: session.Owner, GenerationID: session.GenerationID,
+				State: types.InteractionStateWaiting,
+			})
+			require.NoError(t, err)
+
+			rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+				types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+
+			require.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
+			require.Contains(t, rr.Body.String(), "not currently available")
+			unchanged, err := mem.GetInteraction(context.Background(), waiting.ID)
+			require.NoError(t, err)
+			require.Equal(t, types.InteractionStateWaiting, unchanged.State)
+			stored, err := mem.GetSession(context.Background(), session.ID)
+			require.NoError(t, err)
+			require.Nil(t, stored.Metadata.CodeAgentConfig)
+		})
+	}
+}
+
+func TestUpdateSessionExecutionConfigRetriesCrashedPrompts(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	session := newOrgChatSession("user_a")
+	seedParentWithInteractions(t, mem, session, 1)
+	recovery := &configRecoveryStore{Store: mem, resetCount: 1, drained: make(chan struct{})}
+	srv.Store = recovery
+
+	config := &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "anthropic",
+		Model:          "claude-sonnet-4-7",
+	}
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	select {
+	case <-recovery.drained:
+	case <-time.After(time.Second):
+		t.Fatal("crashed prompt queue was not retried")
+	}
+}
+
+func TestUpdateSessionExecutionConfigRetriesProviderFailedActivation(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	session := newOrgChatSession("user_a")
+	session.Metadata.OrgWorkerID = "promoter"
+	session.Metadata.AutoRestartOnCrash = true
+	session.Metadata.Recovery = &types.ProviderRecovery{PromptID: "prompt_activation_promoter", InteractionID: "int_promoter"}
+	seedParentWithInteractions(t, mem, session, 1)
+	require.NoError(t, mem.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: "prompt_activation_promoter", SessionID: session.ID, UserID: session.Owner, Status: "sent",
+	}))
+	_, err := mem.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_promoter", SessionID: session.ID, UserID: session.Owner, PromptID: "prompt_activation_promoter",
+		State: types.InteractionStateError,
+		Error: `agent turn aborted: Internal error: Internal Server Error: Post "https://node06.lukemarsden.net/v1/chat/completions": dial tcp 212.82.90.212:443: i/o timeout: { "service": "session", "errorName": "APIError" }`,
+	})
+	require.NoError(t, err)
+	recovery := &configRecoveryStore{Store: mem, drained: make(chan struct{})}
+	srv.Store = recovery
+
+	config := &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "anthropic",
+		Model:          "claude-sonnet-4-7",
+	}
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	select {
+	case <-recovery.drained:
+	case <-time.After(time.Second):
+		t.Fatal("provider-failed activation queue was not retried")
+	}
+	prompt, err := mem.GetPromptHistoryEntry(ctx, "prompt_activation_promoter")
+	require.NoError(t, err)
+	require.Equal(t, "pending", prompt.Status)
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Nil(t, updated.Metadata.Recovery)
+}
+
+func TestUpdateSessionExecutionConfigCanRetryPromptResetWithoutAnotherSwitch(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	session := newOrgChatSession("user_a")
+	seedParentWithInteractions(t, mem, session, 1)
+	recovery := &configRecoveryStore{Store: mem, resetErr: errors.New("database unavailable"), drained: make(chan struct{})}
+	srv.Store = recovery
+
+	config := &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "anthropic",
+		Model:          "claude-sonnet-4-7",
+	}
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusInternalServerError, rr.Code, rr.Body.String())
+	require.Contains(t, rr.Body.String(), "failed to reset crashed prompts")
+
+	recovery.resetErr = nil
+	recovery.resetCount = 1
+	rr = callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	select {
+	case <-recovery.drained:
+	case <-time.After(time.Second):
+		t.Fatal("crashed prompt queue was not retried")
+	}
+}
+
 func TestUpdateSessionExecutionConfigRestoresWorkingSessionWhenSwitchFails(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
@@ -168,7 +382,8 @@ func TestUpdateSessionExecutionConfigRestoresWorkingSessionWhenSwitchFails(t *te
 	session := newOrgChatSession("user_a")
 	session.Metadata.ZedThreadID = "ctx_working_thread"
 	seedParentWithInteractions(t, mem, session, 1)
-	srv.Store = &failCreateInteractionStore{Store: mem}
+	failingStore := &failCreateInteractionStore{Store: mem}
+	srv.Store = failingStore
 
 	config := &types.CodeAgentExecutionConfig{
 		Runtime:        types.CodeAgentRuntimeOpenCode,
@@ -186,6 +401,7 @@ func TestUpdateSessionExecutionConfigRestoresWorkingSessionWhenSwitchFails(t *te
 	assert.Equal(t, types.CodeAgentRuntimeZedAgent, updated.Metadata.CodeAgentRuntime)
 	assert.Equal(t, types.CodeAgentRuntimeZedAgent.ZedAgentName(), updated.Metadata.ZedAgentName)
 	assert.Equal(t, "ctx_working_thread", updated.Metadata.ZedThreadID)
+	assert.False(t, failingStore.resetCalled, "a failed switch must leave crashed prompts parked")
 }
 
 // A SpecTask session reports its TASK's configuration, not the session row's:

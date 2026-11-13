@@ -6,13 +6,13 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDurableConsumerRedeliversNak(t *testing.T) {
-	n, cleanup := setupTestNats(t)
-	defer cleanup()
+	n := newTestNats(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -31,12 +31,14 @@ func TestDurableConsumerRedeliversNak(t *testing.T) {
 	defer sub.Unsubscribe()
 	require.NoError(t, n.PublishDurable(ctx, "DURABLE_REDELIVERY", "durable.redelivery.one", []byte("hello")))
 
-	first := <-deliveries
+	first := receive(t, deliveries)
 	require.Equal(t, []byte("hello"), first.Data)
 	require.Equal(t, uint64(1), first.NumDelivered)
-	second := <-deliveries
+	second := receive(t, deliveries)
 	require.Equal(t, []byte("hello"), second.Data)
 	require.Equal(t, uint64(2), second.NumDelivered)
+	require.NotZero(t, first.Sequence)
+	require.Equal(t, first.Sequence, second.Sequence)
 
 	stream, err := n.js.Stream(ctx, "DURABLE_REDELIVERY")
 	require.NoError(t, err)
@@ -56,9 +58,7 @@ func TestDurableConsumerRedeliversNak(t *testing.T) {
 
 func TestDurableConsumerSurvivesServerRestart(t *testing.T) {
 	storeDir := t.TempDir()
-	serverPort, websocketPort, err := getRandomPorts()
-	require.NoError(t, err)
-	cfg := durableTestConfig(storeDir, serverPort, websocketPort)
+	cfg := durableTestConfig(storeDir, server.RANDOM_PORT, server.RANDOM_PORT)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -69,11 +69,11 @@ func TestDurableConsumerSurvivesServerRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sub.Unsubscribe())
 	require.NoError(t, first.PublishDurable(ctx, "DURABLE_RESTART", "durable.restart.one", []byte("persisted")))
-	stopTestNats(first)
+	first.Close()
 
 	second, err := NewNats(cfg)
 	require.NoError(t, err)
-	defer stopTestNats(second)
+	t.Cleanup(second.Close)
 	consumers, err := second.ListDurableConsumers(ctx, "DURABLE_RESTART")
 	require.NoError(t, err)
 	require.Equal(t, []DurableConsumer{{Name: "worker-one", Subject: "durable.restart.one"}}, consumers)
@@ -84,7 +84,7 @@ func TestDurableConsumerSurvivesServerRestart(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer sub.Unsubscribe()
-	require.Equal(t, []byte("persisted"), <-received)
+	require.Equal(t, []byte("persisted"), receive(t, received))
 }
 
 func durableTestConfig(storeDir string, serverPort, websocketPort int) *config.ServerConfig {
@@ -97,10 +97,4 @@ func durableTestConfig(storeDir string, serverPort, websocketPort int) *config.S
 	cfg.PubSub.Server.MaxPayload = 32 * 1024 * 1024
 	cfg.PubSub.Server.EmbeddedNatsServerEnabled = true
 	return cfg
-}
-
-func stopTestNats(n *Nats) {
-	n.conn.Close()
-	n.embeddedServer.Shutdown()
-	n.embeddedServer.WaitForShutdown()
 }

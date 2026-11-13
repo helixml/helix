@@ -9,11 +9,14 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/webservice"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -47,6 +50,7 @@ func (s *DeleteProjectTasksSuite) SetupTest() {
 		Cfg:                   &config.ServerConfig{},
 		Store:                 s.sto,
 		externalAgentExecutor: s.executor,
+		webServiceController:  webservice.New(s.sto, sandbox.New(s.sto, nil, nil, "", "")),
 		Controller: &controller.Controller{Options: controller.Options{
 			Config:    &config.ServerConfig{},
 			Filestore: s.fs,
@@ -69,6 +73,14 @@ func (s *DeleteProjectTasksSuite) expectTaskDeleted(id string) {
 	s.sto.EXPECT().DeleteSpecTask(gomock.Any(), id).Return(nil)
 }
 
+// expectNoProjectOwnedResources expects the repository, access grant and
+// trigger sweep for a personal project that owns none of them.
+func (s *DeleteProjectTasksSuite) expectNoProjectOwnedResources() {
+	s.sto.EXPECT().ListProjectRepositories(gomock.Any(), &types.ListProjectRepositoriesQuery{ProjectID: "prj_del"}).Return(nil, nil)
+	s.sto.EXPECT().DeleteProjectRepositoriesByProject(gomock.Any(), "prj_del").Return(nil)
+	s.sto.EXPECT().ListTriggerConfigurations(gomock.Any(), gomock.Any()).Return(nil, nil)
+}
+
 func (s *DeleteProjectTasksSuite) TestDeleteProjectDeletesAllTasksIncludingArchived() {
 	project := &types.Project{ID: "prj_del", UserID: s.userID}
 	withSession := &types.SpecTask{ID: "t1", ProjectID: "prj_del", PlanningSessionID: "ses_1"}
@@ -82,13 +94,16 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectDeletesAllTasksIncludingArchi
 	}).Return([]*types.SpecTask{withSession, archived}, nil)
 
 	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_1").Return(nil)
+	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_1").Return(&types.Session{ID: "ses_1"}, nil)
 	s.expectTaskDeleted("t1")
 	// t2 has no planning session: no stop, but it is still deleted.
 	s.expectTaskDeleted("t2")
 
 	s.sto.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{ProjectID: "prj_del"}).
 		Return([]*types.Artifact{}, nil)
+	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
 
 	resp, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().Nil(httpErr)
@@ -128,4 +143,99 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectAbortsWhenTaskListFails() {
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().NotNil(httpErr)
 	s.Contains(httpErr.Error(), "list project tasks")
+}
+
+// A desktop whose sandbox host is gone (a replaced sandbox pod) must not block
+// the project delete; once the project is deleted the orphan reaper owns it.
+// A connected host that fails the stop still aborts the delete.
+func (s *DeleteProjectTasksSuite) TestDeleteProjectSkipsDesktopsOnDisconnectedHosts() {
+	project := &types.Project{ID: "prj_del", UserID: s.userID}
+	task := &types.SpecTask{ID: "t1", ProjectID: "prj_del", PlanningSessionID: "ses_task"}
+	gone := fmt.Errorf("failed to dial Hydra via RevDial: %w", connman.ErrNoConnection)
+
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(&types.Session{ID: "ses_explore"}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_explore").Return(gone)
+	s.sto.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{task}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_task").Return(gone)
+	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_task").Return(&types.Session{ID: "ses_task"}, nil)
+	s.expectTaskDeleted("t1")
+	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
+	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
+	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
+
+	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Require().Nil(httpErr)
+
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(&types.Session{ID: "ses_explore"}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_explore").Return(fmt.Errorf("hydra API error (status 500)"))
+
+	_, httpErr = s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Require().NotNil(httpErr)
+	s.Contains(httpErr.Error(), "stop exploratory session")
+}
+
+func (s *DeleteProjectTasksSuite) TestDeleteProjectRetriesAfterSessionWasDeleted() {
+	project := &types.Project{ID: "prj_del", UserID: s.userID}
+	task := &types.SpecTask{ID: "t1", ProjectID: "prj_del", PlanningSessionID: "ses_task"}
+
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(nil, nil)
+	s.sto.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{task}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_task").Return(nil)
+	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_task").Return(nil, store.ErrNotFound)
+	s.expectTaskDeleted("t1")
+	s.sto.EXPECT().ListArtifacts(gomock.Any(), gomock.Any()).Return([]*types.Artifact{}, nil)
+	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(nil, store.ErrNotFound)
+	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
+
+	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Require().Nil(httpErr)
+}
+
+func (s *DeleteProjectTasksSuite) TestDeleteProjectAbortsWhenSessionDeleteFails() {
+	project := &types.Project{ID: "prj_del", UserID: s.userID}
+	task := &types.SpecTask{ID: "t1", ProjectID: "prj_del", PlanningSessionID: "ses_task"}
+
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(nil, nil)
+	s.sto.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{task}, nil)
+	s.executor.EXPECT().StopDesktop(gomock.Any(), "ses_task").Return(nil)
+	s.sto.EXPECT().DeleteSession(gomock.Any(), "ses_task").Return(nil, fmt.Errorf("db down"))
+
+	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Require().NotNil(httpErr)
+	s.Contains(httpErr.Error(), "delete session ses_task")
+}
+
+// Deleting a project removes its web service: the public route, the sandbox
+// running it, and the enabled state the health monitor watches.
+func (s *DeleteProjectTasksSuite) TestDeleteProjectTearsDownWebService() {
+	project := &types.Project{ID: "prj_del", UserID: s.userID}
+	s.sto.EXPECT().GetProject(gomock.Any(), "prj_del").Return(project, nil)
+	s.sto.EXPECT().GetProjectExploratorySession(gomock.Any(), "prj_del").Return(nil, nil)
+	s.sto.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.sto.EXPECT().ListArtifacts(gomock.Any(), &store.ListArtifactsQuery{ProjectID: "prj_del"}).Return(nil, nil)
+
+	state := &types.ProjectWebServiceState{ProjectID: "prj_del", Enabled: true, ContainerPort: 8080, ActiveSandboxID: "sbx_ws"}
+	s.sto.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_del").Return(state, nil)
+	s.sto.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetProjectWebService, "prj_del").Return(nil)
+	s.sto.EXPECT().GetSandbox(gomock.Any(), "sbx_ws").Return(&types.Sandbox{ID: "sbx_ws", Status: types.SandboxStatusStopped}, nil)
+	s.sto.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_ws", types.SandboxStatusStopping, "").Return(nil)
+	s.sto.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.sto.EXPECT().DeleteSandbox(gomock.Any(), "sbx_ws").Return(nil)
+	s.sto.EXPECT().UpsertProjectWebServiceState(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, st *types.ProjectWebServiceState) error {
+			s.False(st.Enabled, "the web service must be disabled")
+			s.Empty(st.ActiveSandboxID)
+			return nil
+		})
+	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
+	s.expectNoProjectOwnedResources()
+
+	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
+	s.Nil(httpErr)
 }

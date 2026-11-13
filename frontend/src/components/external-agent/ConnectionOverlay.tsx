@@ -3,8 +3,12 @@
  */
 
 import React from 'react';
-import { Box, Typography, Button, Alert, CircularProgress } from '@mui/material';
-import { Refresh } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
+import Alert from '@mui/material/Alert';
+import CircularProgress from '@mui/material/CircularProgress';
+import Refresh from '@mui/icons-material/Refresh';
 import useLightTheme from '../../hooks/useLightTheme';
 
 export interface ConnectionOverlayProps {

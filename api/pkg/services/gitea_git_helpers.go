@@ -90,30 +90,24 @@ func Fetch(ctx context.Context, repoPath string, opts FetchOptions) error {
 	}
 
 	stderr, err := runGitFetchWithRetry(ctx, repoPath, func() (string, error) {
-		cmd := gitcmd.NewCommand("fetch")
+		args := []string{"fetch", "--no-progress"}
 		if opts.Force {
-			cmd.AddArguments("-f")
+			args = append(args, "-f")
 		}
 		if opts.Prune {
-			cmd.AddArguments("--prune")
+			args = append(args, "--prune")
 		}
 		if opts.Depth > 0 {
-			cmd.AddArguments("--depth").AddDynamicArguments(fmt.Sprintf("%d", opts.Depth))
+			args = append(args, "--depth", fmt.Sprintf("%d", opts.Depth))
 		}
-		cmd.AddDynamicArguments(opts.Remote)
+		args = append(args, "--", opts.Remote)
 		if len(opts.RefSpecs) > 0 {
-			for _, refspec := range opts.RefSpecs {
-				cmd.AddDynamicArguments(refspec)
-			}
+			args = append(args, opts.RefSpecs...)
 		} else if opts.Branch != "" {
-			cmd.AddDynamicArguments(opts.Branch)
+			args = append(args, opts.Branch)
 		}
 
-		_, stderr, err := cmd.RunStdString(ctx, &gitcmd.RunOpts{
-			Dir:     repoPath,
-			Env:     opts.Env,
-			Timeout: timeout,
-		})
+		_, stderr, err := runUpstreamGit(ctx, repoPath, timeout, opts.Env, args...)
 		return stderr, err
 	}, waitForGitFetchRetry)
 	if err != nil {
@@ -202,7 +196,7 @@ func BuildAuthenticatedURL(remoteURL, username, password string) (string, error)
 
 	u, err := url.Parse(remoteURL)
 	if err != nil {
-		return remoteURL, err
+		return remoteURL, redactURLParseError(err)
 	}
 
 	// Only modify HTTP(S) URLs - if scheme is empty or not http(s), return unchanged
@@ -213,7 +207,7 @@ func BuildAuthenticatedURL(remoteURL, username, password string) (string, error)
 
 	// Verify we have a valid host (url.Parse succeeds but sets Host="" for schemeless URLs)
 	if u.Host == "" {
-		return remoteURL, fmt.Errorf("URL has no host: %s", remoteURL)
+		return remoteURL, fmt.Errorf("URL has no host: %s", RedactURLCredentials(remoteURL))
 	}
 
 	// Set user info (username:password)
@@ -433,7 +427,7 @@ func ShortHash(hash string) string {
 
 // PreReceiveHookVersion is incremented when the hook logic changes.
 // The hook script contains this version and will be updated if it differs.
-const PreReceiveHookVersion = "6"
+const PreReceiveHookVersion = "7"
 
 // preReceiveHookScript is the shell script that:
 // 1. Protects helix-specs branch from force pushes
@@ -472,10 +466,19 @@ while read oldrev newrev refname; do
     # Extract branch name from ref (refs/heads/branch-name -> branch-name)
     branch="${refname#refs/heads/}"
 
-    # Skip if not a branch ref (e.g., tags)
+    # Non-branch refs (tags, notes, other namespaces) are unrestricted for
+    # normal users. A restricted agent key may only update its allowed branches,
+    # so every other ref is refused.
     case "$refname" in
         refs/heads/*) ;;
-        *) continue ;;
+        *)
+            if [ -n "$ALLOWED_BRANCHES" ]; then
+                echo "error: refusing to update $refname" >&2
+                echo "hint: This push is restricted to the branches: $ALLOWED_BRANCHES" >&2
+                exit 1
+            fi
+            continue
+            ;;
     esac
 
     # Check 1: Force-push and deletion protection for helix-specs

@@ -194,6 +194,20 @@ func (s *Store) DeleteOrganization(ctx context.Context, id string) error {
 			return err
 		}
 
+		// Delete access grants and their role bindings explicitly: the FK
+		// cascades are added best-effort at startup and may be missing.
+		if err := tx.Where("access_grant_id IN (?)",
+			tx.Model(&types.AccessGrant{}).Select("id").Where("organization_id = ?", id),
+		).Delete(&types.AccessGrantRoleBinding{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("organization_id = ?", id).Delete(&types.AccessGrantRoleBinding{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("organization_id = ?", id).Delete(&types.AccessGrant{}).Error; err != nil {
+			return err
+		}
+
 		// Delete all teams
 		if err := tx.Where("organization_id = ?", id).Delete(&types.Team{}).Error; err != nil {
 			return err

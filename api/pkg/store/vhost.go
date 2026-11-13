@@ -315,12 +315,20 @@ func (s *PostgresStore) ListEnabledWebServiceProjectsByRepo(ctx context.Context,
 }
 
 // ListActiveWebServices returns every project web-service state that is
-// enabled and has a live deployment (an active sandbox). Used by the
-// health-monitor to probe and auto-recover running web services.
+// enabled, has a live deployment (an active sandbox), and belongs to a project
+// that still exists. Used by the health-monitor to probe and auto-recover
+// running web services, and by GitHub CD to redeploy them.
+//
+// Soft-deleted projects are excluded even when their state row is still
+// enabled: before project deletion tore down the web service, deleting a
+// project left the row behind, and the health-monitor then probed and
+// "recovered" the dead service forever, paging HelixWebServiceDown and
+// HelixWebServiceRecoveryLooping for a project nobody could see.
 func (s *PostgresStore) ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error) {
 	var rows []*types.ProjectWebServiceState
 	err := s.gdb.WithContext(ctx).
-		Where("enabled = ? AND active_sandbox_id <> ''", true).
+		Joins("JOIN projects ON projects.id = project_web_service_states.project_id AND projects.deleted_at IS NULL").
+		Where("project_web_service_states.enabled = ? AND project_web_service_states.active_sandbox_id <> ''", true).
 		Find(&rows).Error
 	if err != nil {
 		return nil, err

@@ -298,3 +298,22 @@ func (s *ControllerPlacementSuite) TestHasDisplayCapableHost() {
 	s.Require().NoError(err)
 	s.Require().True(ok)
 }
+
+// TestHeadlessSkipsHostsAtCapacity — a host at its max_sandboxes cap must not
+// receive new headless sandboxes; when every online host is full the error
+// says so rather than claiming there is no host.
+func (s *ControllerPlacementSuite) TestHeadlessSkipsHostsAtCapacity() {
+	sb := &types.Sandbox{ID: "sbx_headless_capped"}
+	full := &types.SandboxInstance{ID: "host-full", Status: "online", ActiveSandboxes: 1, MaxSandboxes: 1}
+	roomy := &types.SandboxInstance{ID: "host-roomy", Status: "online", ActiveSandboxes: 1, MaxSandboxes: 2}
+	s.store.EXPECT().ListSandboxInstances(s.ctx).Return([]*types.SandboxInstance{full, roomy}, nil)
+
+	host, err := s.controller.pickHostForSandbox(s.ctx, sb, s.headlessSpec())
+	s.Require().NoError(err)
+	s.Require().Equal("host-roomy", host.ID)
+
+	s.store.EXPECT().ListSandboxInstances(s.ctx).Return([]*types.SandboxInstance{full}, nil)
+	host, err = s.controller.pickHostForSandbox(s.ctx, sb, s.headlessSpec())
+	s.Require().ErrorIs(err, store.ErrAllSandboxHostsFull)
+	s.Require().Nil(host)
+}

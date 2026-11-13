@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -53,7 +54,11 @@ func (s *prTestStore) GetOAuthConnection(_ context.Context, id string) (*types.O
 }
 
 func newPRTestService(s *prTestStore) *GitRepositoryService {
-	return &GitRepositoryService{store: s}
+	svc := &GitRepositoryService{store: s}
+	// These tests stand the provider up on a loopback httptest server; the
+	// outbound policy itself is covered by TestProviderAPIClientsApplyOutboundPolicy.
+	svc.SetOutboundPolicy(netguard.Policy{AllowPrivate: true})
+	return svc
 }
 
 func TestGetGitHubClient_UserOAuthTakesPrecedence(t *testing.T) {
@@ -258,6 +263,29 @@ func TestGetCredentialsForRepo_GitLabUserOAuthTakesPrecedence(t *testing.T) {
 	}
 }
 
+func TestGetCredentialsForRepo_PasswordOnlyPAT(t *testing.T) {
+	// The project dialogs link a PAT-browsed repo with the token as the password
+	// and no username. The clone must still authenticate.
+	for _, tc := range []struct {
+		externalType types.ExternalRepositoryType
+		username     string
+		wantUsername string
+	}{
+		{types.ExternalRepositoryTypeGitHub, "", "x-access-token"},
+		{types.ExternalRepositoryTypeGitHub, "octocat", "octocat"},
+		{types.ExternalRepositoryTypeGitLab, "", "oauth2"},
+		{types.ExternalRepositoryTypeGitLab, "someone", "someone"},
+	} {
+		repo := &types.GitRepository{ExternalType: tc.externalType, Username: tc.username, Password: "repo-pat"}
+
+		username, password := newPRTestService(&prTestStore{}).getCredentialsForRepo(context.Background(), repo)
+
+		if username != tc.wantUsername || password != "repo-pat" {
+			t.Errorf("%s with username %q: got %q / %q, want %q / repo-pat", tc.externalType, tc.username, username, password, tc.wantUsername)
+		}
+	}
+}
+
 func TestCreateGitLabMergeRequest_UserOAuthTakesPrecedence(t *testing.T) {
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -406,5 +434,24 @@ func TestValidateUserOAuth_AcceptsCustomGitLabProvider(t *testing.T) {
 
 	if err := newPRTestService(fs).ValidateUserOAuth(context.Background(), repo, "user-x"); err != nil {
 		t.Fatalf("expected custom GitLab provider to match, got: %v", err)
+	}
+}
+
+// External GitHub repos must resolve to the provider client and the owner/repo
+// parsed from the external URL (a self-call here once recursed forever).
+func TestGitHubClientForRepo_ExternalGitHub(t *testing.T) {
+	svc := newPRTestService(&prTestStore{})
+	repo := &types.GitRepository{
+		ExternalURL:  "https://github.com/org/repo",
+		ExternalType: types.ExternalRepositoryTypeGitHub,
+		Password:     "repo-pat",
+	}
+
+	client, owner, name, err := svc.githubClientForRepo(context.Background(), repo, "")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if client == nil || owner != "org" || name != "repo" {
+		t.Fatalf("got client=%v owner=%q repo=%q, want org/repo", client, owner, name)
 	}
 }

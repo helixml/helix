@@ -861,6 +861,28 @@ helix_compose_args() {
     fi
 }
 
+# warn_postgres_eol: the controlplane compose file defaults to PostgreSQL 12
+# so existing data volumes keep starting. 12 is end-of-life; moving to a
+# supported major is an opt-in dump/restore (docs/postgres-upgrade.md).
+warn_postgres_eol() {
+    local image=""
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        image=$(grep -E '^[[:space:]]*HELIX_POSTGRES_IMAGE[[:space:]]*=' "$INSTALL_DIR/.env" 2>/dev/null \
+            | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+    fi
+    case "${image:-postgres:12}" in
+        postgres:12*|*/postgres:12*)
+            echo
+            echo "┌───────────────────────────────────────────────────────────────────────────"
+            echo "│ ⚠️  Helix's database runs PostgreSQL 12, which is end-of-life and no longer"
+            echo "│    receives security fixes. Upgrading is a one-time dump and restore that"
+            echo "│    keeps your current data volume as a rollback:"
+            echo "│    https://github.com/helixml/helix/blob/main/docs/postgres-upgrade.md"
+            echo "└───────────────────────────────────────────────────────────────────────────"
+            ;;
+    esac
+}
+
 # --------------------------------------------------------------------------
 # do_upgrade: lightweight controlplane upgrade path.
 #
@@ -987,6 +1009,7 @@ do_upgrade() {
     echo
     echo "Upgrade complete. Running containers:"
     $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" ps
+    warn_postgres_eol
     exit 0
 }
 
@@ -1912,6 +1935,11 @@ EOF
         RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
         PGVECTOR_PASSWORD=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | sed 's/^PGVECTOR_PASSWORD=//' || generate_password)
         HELIX_ENCRYPTION_KEY=$(grep '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" | sed 's/^HELIX_ENCRYPTION_KEY=//' || generate_encryption_key)
+        REGULAR_AUTH_JWT_SECRET=$(grep '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" | sed 's/^REGULAR_AUTH_JWT_SECRET=//')
+        case "$REGULAR_AUTH_JWT_SECRET" in
+            ""|helix-default-jwt-secret|helix-default-secret-change-in-production)
+                REGULAR_AUTH_JWT_SECRET=$(generate_encryption_key) ;;
+        esac
 
         # Preserve API keys if not provided as command line arguments
         if [ -z "$ANTHROPIC_API_KEY" ]; then
@@ -1926,6 +1954,7 @@ EOF
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
         PGVECTOR_PASSWORD=$(generate_password)
         HELIX_ENCRYPTION_KEY=$(generate_encryption_key)
+        REGULAR_AUTH_JWT_SECRET=$(generate_encryption_key)
     fi
 
     # On upgrades, write to a temp file so we can merge user customizations
@@ -1951,6 +1980,10 @@ PGVECTOR_PASSWORD=$PGVECTOR_PASSWORD
 # Encryption key for secrets at rest (SSH keys, PATs, etc.)
 # 64-character hex string (32 bytes for AES-256-GCM)
 HELIX_ENCRYPTION_KEY=$HELIX_ENCRYPTION_KEY
+
+# Signing key for login sessions and password-reset links
+# 64-character hex string (32 bytes). Changing it signs everyone out.
+REGULAR_AUTH_JWT_SECRET=$REGULAR_AUTH_JWT_SECRET
 
 # URLs
 KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
@@ -2299,6 +2332,7 @@ CADDYEOF"
         echo
         echo "✅ Helix $LATEST_RELEASE started"
         echo "   Helix is available at $API_HOST"
+        warn_postgres_eol
     fi
 fi
 
@@ -2542,6 +2576,7 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
     # Run the docker container with vendor-specific GPU configuration
     eval docker run \$GPU_FLAGS \$ENV_FLAGS \\
         --shm-size=10g --restart=always -d \\
+        --log-driver json-file --log-opt max-size=100m --log-opt max-file=5 \\
         --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
         --ulimit stack=67108864 \\
         --network="helix_default" \\
@@ -2679,7 +2714,7 @@ HELIX_API_URL="${HELIX_API_URL}"
 SANDBOX_INSTANCE_ID="${SANDBOX_INSTANCE_ID}"
 RUNNER_TOKEN="${RUNNER_TOKEN:-__DEFAULT_RUNNER_TOKEN__}"
 GPU_VENDOR="${GPU_VENDOR}"
-MAX_SANDBOXES="${MAX_SANDBOXES}"
+MAX_SANDBOXES="${MAX_SANDBOXES:--1}"
 HELIX_HOSTNAME="${HELIX_HOSTNAME}"
 PRIVILEGED_DOCKER="${PRIVILEGED_DOCKER}"
 
@@ -2765,9 +2800,9 @@ elif [ "$GPU_VENDOR" = "neuron" ]; then
 elif [ "$GPU_VENDOR" = "virtio" ]; then
     # macOS ARM with virtio-gpu (QEMU VideoToolbox H.264 via scanout)
     GPU_FLAGS="--device /dev/dri"
-    GPU_ENV_FLAGS="-e GPU_VENDOR=virtio -e CONTAINER_DOCKER_PATH=${CONTAINER_DOCKER_PATH:-}"
-    # DRM socket for lease manager, container-docker ZFS mount
-    VIRTIO_FLAGS="-v /run/helix-drm:/run/helix-drm:rw -v ${CONTAINER_DOCKER_PATH:-/helix/container-docker}:/container-docker"
+    GPU_ENV_FLAGS="-e GPU_VENDOR=virtio"
+    # DRM socket for lease manager
+    VIRTIO_FLAGS="-v /run/helix-drm:/run/helix-drm:rw"
 elif [ "$GPU_VENDOR" = "none" ]; then
     # Software rendering - no GPU device mounts needed
     GPU_FLAGS=""
@@ -2803,6 +2838,15 @@ else
     DOCKER_VOLUME="${SANDBOX_DOCKER_VOLUME:-sandbox-storage}"
 fi
 
+# Desktops' container data (per-session dockerd storage and golden Docker
+# caches). Set CONTAINER_DOCKER_PATH to a host path on a ZFS zvol for instant
+# golden clones; otherwise Hydra copies golden caches into a named volume.
+if [ "$GPU_VENDOR" = "virtio" ]; then
+    CONTAINER_DOCKER_MOUNT="${CONTAINER_DOCKER_PATH:-/helix/container-docker}"
+else
+    CONTAINER_DOCKER_MOUNT="${CONTAINER_DOCKER_PATH:-sandbox-container-docker}"
+fi
+
 # Run the sandbox container
 # Note: Don't use 'eval' here - it breaks quoting for --device-cgroup-rule
 # GPU_FLAGS contains --device /dev/dri for GPU modes (nvidia, amd, intel, virtio)
@@ -2812,6 +2856,7 @@ fi
 docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS $VIRTIO_FLAGS \
     --privileged \
     --restart=always -d \
+    --log-driver json-file --log-opt max-size=100m --log-opt max-file=5 \
     --name helix-sandbox \
     --network="helix_default" \
     -e HELIX_API_URL="$HELIX_API_URL" \
@@ -2824,7 +2869,9 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS $VIRTIO_FLAGS \
     -e SANDBOX_DATA_PATH=/data \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
     -e HELIX_FRAME_EXPORT_PORT="${HELIX_FRAME_EXPORT_PORT:-15937}" \
+    -e CONTAINER_DOCKER_PATH="${CONTAINER_DOCKER_PATH:-}" \
     -v ${DOCKER_VOLUME}:/var/lib/docker \
+    -v ${CONTAINER_DOCKER_MOUNT}:/container-docker \
     -v sandbox-data:/data \
     -v hydra-storage:/hydra-data \
     -v /run/udev:/run/udev:rw \
@@ -2903,7 +2950,6 @@ EOF
     sed -i "s|\${SANDBOX_INSTANCE_ID}|${SANDBOX_ID}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|__DEFAULT_RUNNER_TOKEN__|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${MAX_SANDBOXES}|10|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${PRIVILEGED_DOCKER}|${PRIVILEGED_DOCKER:-false}|g" $INSTALL_DIR/sandbox.sh
 

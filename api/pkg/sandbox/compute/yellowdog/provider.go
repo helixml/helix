@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -483,6 +484,9 @@ func (p *Provider) taskEnvironment(spec compute.Spec) map[string]string {
 	}
 	if id := spec.Labels["helix.sandbox_id"]; id != "" {
 		env["SANDBOX_INSTANCE_ID"] = id
+	}
+	if spec.MaxSandboxes == -1 || spec.MaxSandboxes > 0 {
+		env["MAX_SANDBOXES"] = strconv.Itoa(spec.MaxSandboxes)
 	}
 	// GPU_VENDOR tells the embedded bash_script which docker device flags to
 	// use when launching helix-sandbox. Without it the script defaults to

@@ -37,7 +37,7 @@ func TestChiefOfStaffCreatesAssetAndReceivesOperationalToolsOverMCP(t *testing.T
 
 	reg := mcptools.NewRegistry()
 	require.NoError(t, mcptools.RegisterBuiltins(reg, cfg.Build()))
-	srv := httptest.NewServer(server.NewFromStore(st, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(st, reg, nil, nil, nil).StandaloneHandler())
 	t.Cleanup(srv.Close)
 	session := connectMCP(t, srv.URL, "chief-of-staff")
 

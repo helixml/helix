@@ -1,34 +1,30 @@
 import React, { FC, useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Box,
-  Button,
-  Typography,
-  Alert,
-  Stack,
-  MenuItem,
-  Menu,
-  IconButton,
-  CircularProgress,
-  Tooltip,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
-import {
-  Add as AddIcon,
-  Refresh as RefreshIcon,
-  Explore as ExploreIcon,
-  Stop as StopIcon,
-  ViewKanban as KanbanIcon,
-  History as AuditIcon,
-  Tab as TabIcon,
-  Archive as ArchiveIcon,
-  BarChart as MetricsIcon,
-  SmartToy as BotIcon,
-  Visibility as ViewIcon,
-  PushPin as PushPinIcon,
-  PushPinOutlined as PushPinOutlinedIcon,
-} from "@mui/icons-material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
+import Stack from "@mui/material/Stack";
+import MenuItem from "@mui/material/MenuItem";
+import Menu from "@mui/material/Menu";
+import IconButton from "@mui/material/IconButton";
+import CircularProgress from "@mui/material/CircularProgress";
+import Tooltip from "@mui/material/Tooltip";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
+import AddIcon from "@mui/icons-material/Add";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import ExploreIcon from "@mui/icons-material/Explore";
+import StopIcon from "@mui/icons-material/Stop";
+import KanbanIcon from "@mui/icons-material/ViewKanban";
+import AuditIcon from "@mui/icons-material/History";
+import TabIcon from "@mui/icons-material/Tab";
+import ArchiveIcon from "@mui/icons-material/Archive";
+import MetricsIcon from "@mui/icons-material/BarChart";
+import BotIcon from "@mui/icons-material/SmartToy";
+import ViewIcon from "@mui/icons-material/Visibility";
+import PushPinIcon from "@mui/icons-material/PushPin";
+import PushPinOutlinedIcon from "@mui/icons-material/PushPinOutlined";
 import {
   Plus,
   X,
@@ -107,6 +103,7 @@ const SpecTasksPage: FC = () => {
     error: projectError,
   } = useGetProject(projectId || "", !!projectId);
   const projectAccessDenied = isProjectAccessDeniedError(projectError);
+  const defaultImplementationLimit = project?.implementation_limit || 5;
   const projectDependentQueriesEnabled =
     !!projectId && !!project && !projectAccessDenied;
 
@@ -334,13 +331,13 @@ const SpecTasksPage: FC = () => {
 
   const boardWipLimits = useMemo(() => {
     const limits = project?.metadata?.board_settings?.wip_limits;
-    if (!limits) return undefined;
     return {
-      planning: limits.planning ?? 3,
-      review: limits.review ?? 2,
-      implementation: limits.implementation ?? 5,
+      planning: limits?.planning || 3,
+      review: limits?.review || 2,
+      implementation:
+        limits?.implementation || defaultImplementationLimit,
     };
-  }, [project?.metadata?.board_settings?.wip_limits]);
+  }, [project?.metadata?.board_settings?.wip_limits, defaultImplementationLimit]);
 
   // Track newly created task ID for focusing "Start Planning" button
   const [focusTaskId, setFocusTaskId] = useState<string | undefined>(undefined);

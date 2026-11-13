@@ -47,6 +47,12 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 		Description: "Default sandbox size (vCPU count from the spec-task preset ladder) for Bots that do not set their own. Unset means the standard preset.",
 	})
 	r.Register(configregistry.Spec{
+		Key:         configregistry.MaxConcurrentActivationsKey,
+		Type:        configregistry.TypeInt,
+		Default:     `32`,
+		Description: "Maximum concurrent Bot activations for this organization.",
+	})
+	r.Register(configregistry.Spec{
 		Key:         "worker.specs_mandate",
 		Type:        configregistry.TypeString,
 		Description: "Optional full activation mandate override. When empty, every activation embeds the Worker's current role content.",
@@ -54,6 +60,7 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 	r.Register(configregistry.Spec{
 		Key:         "helix.api_key",
 		Type:        configregistry.TypeString,
+		Secret:      true,
 		Description: "Fallback bearer token for the embedded helix-org client when no logged-in user is on the request. Auto-provisioned for the organization owner.",
 	})
 	// Transport-level secrets: every Stream whose transport is `postmark`

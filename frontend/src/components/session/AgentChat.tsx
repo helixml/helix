@@ -1,7 +1,10 @@
-import { FC, useCallback, useMemo, useRef, useState } from 'react'
+import { FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
+import { ChevronRight, CircleHelp, ListTodo, UsersRound } from 'lucide-react'
 
 import { TypesInteractionState } from '../../api/api'
 import { useStreaming } from '../../contexts/streaming'
@@ -21,6 +24,7 @@ import SessionPromptQueue from './SessionPromptQueue'
 import { useSessionPromptQueue } from './useSessionPromptQueue'
 import { getChatColors } from './chatStyles'
 import type { WorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
+import type { BotDTO } from '../../services/helixOrgService'
 
 interface AgentChatProps {
   sessionId: string
@@ -50,11 +54,24 @@ interface AgentChatProps {
    * conversation rather than like arriving in an empty log.
    */
   minimal?: boolean
-  /** Heading for the welcome screen. Only used in minimal mode. */
+  /** Heading for the welcome screen. */
   welcomeHeading?: string
   /** Optional line under the welcome heading. */
   welcomeSubheading?: string
+  /** Show the welcome screen for a full-app chat while it has no interactions. */
+  welcomeWhenEmpty?: boolean
+  /** Prompts offered on the empty-chat welcome screen. */
+  starterPrompts?: readonly string[]
+  /** Fills the composer with a selected starter prompt. */
+  onSelectStarter?: (prompt: string) => void
+  /** Enables the org-bot profile, starters and reply identity. */
+  orgBot?: BotDTO
+  /** Reports the authoritative empty-thread state to the surrounding profile. */
+  onWelcomeChange?: (visible: boolean) => void
 }
+
+// Inside an iframe (an embedded task) the host page owns focus.
+const isFramed = typeof window !== "undefined" && window.self !== window.top
 
 /** Shared org/spec-task conversation surface. */
 const AgentChat: FC<AgentChatProps> = ({
@@ -76,6 +93,11 @@ const AgentChat: FC<AgentChatProps> = ({
   minimal = false,
   welcomeHeading = 'What would you like to know?',
   welcomeSubheading,
+  welcomeWhenEmpty = false,
+  starterPrompts = [],
+  onSelectStarter,
+  orgBot,
+  onWelcomeChange,
 }) => {
   const api = useApi()
   const snackbar = useSnackbar()
@@ -107,11 +129,30 @@ const AgentChat: FC<AgentChatProps> = ({
       TypesInteractionState.InteractionStateWaiting,
     [latestInteractionsResponse?.data?.interactions?.[0]?.state],
   )
+  // Session-keyed queue for sessions without a spec task; the spec-task
+  // composer carries its own backend-backed queue instead.
+  const sessionQueue = useSessionPromptQueue(showSessionPromptQueue ? sessionId : '', isAgentBusy)
+  const hasSessionQueue = showSessionPromptQueue && sessionQueue.entries.length > 0
   const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
   const latestInteractionId = latestInteraction?.id || null
-  const pendingQuestion = latestInteraction?.state === TypesInteractionState.InteractionStateWaiting
-    ? latestInteraction.pending_question
-    : undefined
+  const { data: pendingQuestionsResponse } = useListInteractions(
+    sessionId,
+    0,
+    100,
+    'desc',
+    {
+      enabled: !!sessionId,
+      refetchInterval: 3000,
+      pendingQuestionOnly: true,
+    },
+  )
+  const pendingQuestionInteractions = pendingQuestionsResponse?.data?.interactions ?? []
+  const totalInteractionCount = latestInteractionsResponse?.data?.totalCount ?? 0
+  const hasOrgHireBriefing = welcomeWhenEmpty
+    && totalInteractionCount === 1
+    && latestInteraction?.trigger === 'org_hire'
+    && latestInteraction.state === TypesInteractionState.InteractionStateComplete
+    && !latestInteraction.error
   // Has the customer said anything yet?
   //
   // One interaction means only the session's opening briefing exists — the
@@ -119,17 +160,20 @@ const AgentChat: FC<AgentChatProps> = ({
   // has asked it anything, so there is no conversation to show. hasSentInWelcome
   // covers the gap between clicking send and the count catching up on the next
   // poll, which would otherwise flash the welcome screen back for a moment.
-  const showWelcome = !pendingQuestion && shouldShowWelcome(
-    minimal,
-    hasSentInWelcome,
-    latestInteractionsResponse?.data?.totalCount ?? 0,
-    latestInteractionsLoading,
-    hasBriefingTurn,
-  )
-  // Session-keyed queue for sessions without a spec task; the spec-task
-  // composer carries its own backend-backed queue instead.
-  const sessionQueue = useSessionPromptQueue(showSessionPromptQueue ? sessionId : '', isAgentBusy)
-  const hasSessionQueue = showSessionPromptQueue && sessionQueue.entries.length > 0
+  const showWelcome = pendingQuestionInteractions.length === 0
+    && (!welcomeWhenEmpty || !hasSessionQueue)
+    && shouldShowWelcome(
+      minimal || welcomeWhenEmpty,
+      hasSentInWelcome,
+      totalInteractionCount,
+      latestInteractionsLoading,
+      hasBriefingTurn || hasOrgHireBriefing,
+    )
+  useLayoutEffect(() => {
+    onWelcomeChange?.(showWelcome)
+    // The parent callback does not decide welcome visibility.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showWelcome])
   const composerPlanSteps = isAgentBusy
     ? planStepsFromResponseEntries(latestInteraction?.response_entries as unknown as ResponseEntry[] | undefined)
     : []
@@ -137,7 +181,6 @@ const AgentChat: FC<AgentChatProps> = ({
     && dismissedPlanInteractionId !== latestInteractionId
 
   const handleSend = useCallback(async (message: string, interrupt?: boolean) => {
-    setHasSentInWelcome(true)
     setComposerPlanExpanded(false)
     setDismissedPlanInteractionId(null)
     await streaming.NewInference({
@@ -146,6 +189,7 @@ const AgentChat: FC<AgentChatProps> = ({
       sessionId,
       interrupt: interrupt ?? true,
     })
+    setHasSentInWelcome(true)
     void refreshSpecTaskStatus()
     // Provider state remains mounted; primitive route state selects the current
     // session and task whose queries need refreshing.
@@ -188,16 +232,20 @@ const AgentChat: FC<AgentChatProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
+  const sendMode = composerSendMode(minimal, !!(specTaskId && projectId))
   const composer = (
     <RobustPromptInput
       minimal={minimal}
-      sendMode={composerSendMode(minimal, !!(specTaskId && projectId))}
+      sendMode={sendMode}
       sessionId={sessionId}
       specTaskId={specTaskId}
       projectId={projectId}
       apiClient={apiClient}
       onSend={handleSend}
-      onWillSend={onWillSend}
+      onWillSend={() => {
+        if (sendMode === 'queued') setHasSentInWelcome(true)
+        onWillSend?.()
+      }}
       appendText={appendText}
       onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
       onFileUpload={handleFileUpload}
@@ -206,7 +254,9 @@ const AgentChat: FC<AgentChatProps> = ({
       isCancelling={isCancelling}
       leadingActions={leadingActions}
       showContextUsage={!minimal}
-      autoFocus
+      // Focusing inside an iframe scrolls the embedding page to the composer;
+      // a host page (HelixOS, Gatewaze) decides where focus goes.
+      autoFocus={!isFramed}
       placeholder={placeholder}
       disabled={disabled}
       enableSandboxCompletions
@@ -219,9 +269,66 @@ const AgentChat: FC<AgentChatProps> = ({
     />
   )
 
-  // Nothing said yet: the welcome screen IS the chat, so it gets the whole
-  // frame rather than sitting above an empty thread.
-  if (showWelcome) {
+  const starterIcons = [UsersRound, ListTodo, CircleHelp]
+  const starterActions = starterPrompts.length > 0 && onSelectStarter ? (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: orgBot ? 1.5 : 0 }}>
+      {starterPrompts.map((prompt, index) => {
+        const StarterIcon = starterIcons[index] || CircleHelp
+        return (
+          <Button
+            key={prompt}
+            onClick={() => onSelectStarter(prompt)}
+            disabled={disabled}
+            endIcon={<ChevronRight size={orgBot ? 20 : 18} />}
+            startIcon={orgBot ? (
+              <Box
+                component="span"
+                sx={(theme) => ({
+                  width: 42,
+                  height: 42,
+                  display: 'grid',
+                  placeItems: 'center',
+                  flexShrink: 0,
+                  borderRadius: 1.5,
+                  color: 'primary.main',
+                  backgroundColor: alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.16 : 0.22),
+                })}
+              >
+                <StarterIcon size={22} aria-hidden="true" />
+              </Box>
+            ) : undefined}
+            sx={(theme) => ({
+              minHeight: orgBot ? 72 : 48,
+              px: orgBot ? 1.5 : 1,
+              justifyContent: 'space-between',
+              gap: 1.5,
+              borderRadius: orgBot ? 2 : 0,
+              borderTop: '1px solid',
+              borderColor: 'divider',
+              color: 'text.primary',
+              backgroundColor: orgBot
+                ? alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.08 : 0.1)
+                : 'transparent',
+              textTransform: 'none',
+              fontWeight: 600,
+              textAlign: 'left',
+              '& .MuiButton-startIcon': { mr: 0.5 },
+              '& .MuiButton-endIcon': { ml: 'auto' },
+              '&:hover': orgBot ? {
+                backgroundColor: alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.14 : 0.16),
+              } : undefined,
+              '&:last-of-type': { borderBottom: '1px solid', borderColor: 'divider' },
+            })}
+          >
+            {prompt}
+          </Button>
+        )
+      })}
+    </Box>
+  ) : null
+
+  // Minimal mode owns the whole frame, including its composer.
+  if (showWelcome && minimal) {
     return (
       <Box
         data-agent-chat
@@ -235,7 +342,10 @@ const AgentChat: FC<AgentChatProps> = ({
         }}
       >
         <ChatWelcome heading={welcomeHeading} subheading={welcomeSubheading}>
-          {composer}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {starterActions}
+            {composer}
+          </Box>
         </ChatWelcome>
       </Box>
     )
@@ -256,26 +366,55 @@ const AgentChat: FC<AgentChatProps> = ({
       }}
     >
       <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, width: '100%', overflow: 'hidden', display: 'flex' }}>
-        <EmbeddedSessionView
-          ref={sessionViewRef}
-          sessionId={sessionId}
-          enableInteractionDebugCopy={enableInteractionDebugCopy}
-          minimal={minimal}
-          hasBriefingTurn={hasBriefingTurn}
-          trailingContent={
-            actionCards || (pendingQuestion && latestInteractionId) ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {actionCards}
-                {pendingQuestion && latestInteractionId && (
-                  <PendingQuestionCard
-                    interactionId={latestInteractionId}
-                    pendingQuestion={pendingQuestion}
-                  />
-                )}
-              </Box>
-            ) : undefined
-          }
-        />
+        {showWelcome ? (
+          <Box
+            sx={{
+              width: '100%',
+              px: { xs: 2, sm: 3 },
+              display: 'flex',
+              alignItems: orgBot ? 'flex-start' : 'center',
+              overflowY: orgBot ? 'auto' : 'hidden',
+            }}
+          >
+            <Box sx={{ width: '100%', maxWidth: orgBot ? 540 : 480, mx: 'auto', pt: orgBot ? { xs: 3, sm: 4 } : 0, pb: orgBot ? 2 : 0 }}>
+              <Typography component="h2" variant="h5" sx={{ fontWeight: orgBot ? 700 : 600, mb: welcomeSubheading ? 1 : 3 }}>
+                {welcomeHeading}
+              </Typography>
+              {welcomeSubheading && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  {welcomeSubheading}
+                </Typography>
+              )}
+              {starterActions}
+            </Box>
+          </Box>
+        ) : (
+          <EmbeddedSessionView
+            ref={sessionViewRef}
+            sessionId={sessionId}
+            enableInteractionDebugCopy={enableInteractionDebugCopy}
+            minimal={minimal}
+            hasBriefingTurn={hasBriefingTurn}
+            assistantName={orgBot?.name || orgBot?.id}
+            assistantPortraitIndex={orgBot?.portrait_index}
+            trailingContent={
+              actionCards || pendingQuestionInteractions.length > 0 ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {actionCards}
+                  {pendingQuestionInteractions.map((interaction) =>
+                    interaction.id && interaction.pending_question ? (
+                      <PendingQuestionCard
+                        key={interaction.id}
+                        interactionId={interaction.id}
+                        pendingQuestion={interaction.pending_question}
+                      />
+                    ) : null,
+                  )}
+                </Box>
+              ) : undefined
+            }
+          />
+        )}
       </Box>
 
       <Box

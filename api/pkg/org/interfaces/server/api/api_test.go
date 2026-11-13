@@ -27,6 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/triggers"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -45,6 +46,14 @@ type fakeAgentCreator struct{}
 
 func (fakeAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
 	return lifecycle.CreatedAgent{LegacyAppID: "app-test"}, nil
+}
+
+type fakeSessionProgress struct {
+	startedAt time.Time
+}
+
+func (f fakeSessionProgress) LatestSuccessfulTurnStartedAt(context.Context, string, orgchart.NodeID) (time.Time, error) {
+	return f.startedAt, nil
 }
 
 // newDeps builds a fresh store + config registry + hub for one test,
@@ -78,7 +87,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 	botsSvc := nodes.New(nodes.Deps{
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: topo,
 		Now: clock, NewID: newID, BaseTools: mcptools.BaseReadTools,
-		KnownTools: mcptools.Catalogue(toolReg),
+		GrantableTools: mcptools.DefaultBotTools(), KnownTools: mcptools.Catalogue(toolReg),
 	})
 	assetsSvc, err := assets.New(assets.Deps{
 		Assets: st.Assets, Links: st.AssetLinks, Nodes: st.Nodes,
@@ -285,6 +294,36 @@ func TestGetSettings_RedactsSecretValues(t *testing.T) {
 	}
 }
 
+// TestGetSettings_RedactsWholeSecretValue covers scalar secrets such
+// as helix.api_key (the org owner's service key): any org member can
+// GET /settings, so the value must be masked, not returned verbatim.
+func TestGetSettings_RedactsWholeSecretValue(t *testing.T) {
+	deps, _, reg := newDeps(t)
+	reg.Register(configregistry.Spec{
+		Key:    "helix.api_key",
+		Type:   configregistry.TypeString,
+		Secret: true,
+	})
+	h := orgapi.Handler(deps)
+
+	if err := reg.Set(context.Background(), "org-test", "helix.api_key", `"hl-owner-sekrit"`); err != nil {
+		t.Fatalf("set value: %v", err)
+	}
+
+	rec := do(t, h, "GET", "/settings", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "hl-owner-sekrit") {
+		t.Fatalf("secret leaked into response: %s", rec.Body)
+	}
+	var resp orgapi.SettingsResponse
+	decode(t, rec, &resp)
+	if len(resp.Specs) != 1 || !resp.Specs[0].Configured || resp.Specs[0].Value != `"..."` {
+		t.Fatalf("specs = %+v, want one configured spec with value \"...\"", resp.Specs)
+	}
+}
+
 // TestPutSetting_PersistsValue PUTs a setting, GETs it back, asserts
 // round-trip. Anchors the registry.Set → store → GetRedacted path.
 func TestPutSetting_PersistsValue(t *testing.T) {
@@ -317,6 +356,148 @@ func TestPutSetting_PersistsValue(t *testing.T) {
 	}
 	if row.Value != `"zed_agent"` {
 		t.Errorf("value: got %q, want %q", row.Value, `"zed_agent"`)
+	}
+}
+
+func TestPutSettingRejectsNonPositiveActivationLimit(t *testing.T) {
+	deps, _, reg := newDeps(t)
+	reg.Register(configregistry.Spec{Key: configregistry.MaxConcurrentActivationsKey, Type: configregistry.TypeInt, Default: `32`})
+	h := orgapi.Handler(deps)
+	for _, value := range []string{`0`, `-1`} {
+		rec := do(t, h, "PUT", "/settings/"+configregistry.MaxConcurrentActivationsKey, orgapi.SetSettingRequest{Value: value})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("PUT %s status = %d, want 400", value, rec.Code)
+		}
+	}
+}
+
+func TestGetBotSurfacesLatestActivationError(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-worker", "# Worker")
+	started := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	act, err := activation.New("a-failed", "b-worker", []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, act); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Complete(ctx, "org-test", act.ID, activation.Outcome{Status: activation.StatusError, Error: "organization capacity reached"}, started.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-worker", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	if detail.Bot.ActivationError != "organization capacity reached" {
+		t.Fatalf("activation error = %q", detail.Bot.ActivationError)
+	}
+}
+
+func TestGetBotClearsActivationErrorAfterSuccessfulTurn(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-worker", "# Worker")
+	started := time.Date(2026, 11, 5, 16, 0, 0, 0, time.UTC)
+	act, err := activation.New("a-failed", "b-worker", []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, act); err != nil {
+		t.Fatal(err)
+	}
+	endedAt := started.Add(time.Second)
+	if err := st.Activations.Complete(ctx, "org-test", act.ID, activation.Outcome{Status: activation.StatusError, Error: "provider timeout"}, endedAt); err != nil {
+		t.Fatal(err)
+	}
+	deps.Activations = activations.New(activations.Deps{
+		Repo: st.Activations, Progress: fakeSessionProgress{startedAt: endedAt.Add(time.Second)},
+	})
+
+	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-worker", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	if detail.Bot.ActivationError != "" {
+		t.Fatalf("activation error = %q", detail.Bot.ActivationError)
+	}
+}
+
+func TestGetBotExplainsOpaqueProviderActivationError(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-worker", "# Worker")
+	started := time.Date(2026, 11, 5, 19, 0, 0, 0, time.UTC)
+	act, err := activation.New("a-failed", "b-worker", []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, act); err != nil {
+		t.Fatal(err)
+	}
+	raw := `session error: agent turn aborted: Internal error: status code 524: {"service":"session","errorName":"APIError"}`
+	if err := st.Activations.Complete(ctx, "org-test", act.ID, activation.Outcome{Status: activation.StatusError, Error: raw}, started.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-worker", nil)
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	if strings.Contains(detail.Bot.ActivationError, "524") || !strings.Contains(detail.Bot.ActivationError, "temporarily unavailable") {
+		t.Fatalf("activation error = %q", detail.Bot.ActivationError)
+	}
+}
+
+func TestGetBotPreservesClientProviderActivationError(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-worker", "# Worker")
+	started := time.Date(2026, 11, 5, 19, 0, 0, 0, time.UTC)
+	act, err := activation.New("a-failed", "b-worker", []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, act); err != nil {
+		t.Fatal(err)
+	}
+	raw := `agent turn aborted: Internal error: status code 401: invalid API key`
+	if err := st.Activations.Complete(ctx, "org-test", act.ID, activation.Outcome{Status: activation.StatusError, Error: raw}, started.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-worker", nil)
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	if detail.Bot.ActivationError != raw {
+		t.Fatalf("activation error = %q", detail.Bot.ActivationError)
+	}
+}
+
+func TestGetBotExplainsCancelledDeletedPromptActivation(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	seedBot(t, st, ctx, "b-worker", "# Worker")
+	started := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	act, err := activation.New("a-cancelled", "b-worker", []activation.Trigger{{Kind: activation.TriggerManual}}, started, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Activations.Create(ctx, act); err != nil {
+		t.Fatal(err)
+	}
+	raw := "send message to session ses-1: non-retryable activation error: activation prompt pmt-1 was deleted"
+	if err := st.Activations.Complete(ctx, "org-test", act.ID, activation.Outcome{Status: activation.StatusError, Error: raw}, started.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-worker", nil)
+	var detail orgapi.BotDetailDTO
+	decode(t, rec, &detail)
+	want := "The previous task was cancelled before the bot could run. Start the bot, then send it again."
+	if detail.Bot.ActivationError != want {
+		t.Fatalf("activation error = %q", detail.Bot.ActivationError)
 	}
 }
 

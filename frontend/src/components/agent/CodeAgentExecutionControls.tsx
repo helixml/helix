@@ -1,16 +1,14 @@
 import React, { FC, useState } from 'react'
-import {
-  Box,
-  Button,
-  Divider,
-  IconButton,
-  ListSubheader,
-  Menu,
-  MenuItem,
-  Stack,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Divider from '@mui/material/Divider';
+import IconButton from '@mui/material/IconButton';
+import ListSubheader from '@mui/material/ListSubheader';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import { ChevronDown, Cpu, Monitor } from 'lucide-react'
 
 import {
@@ -29,7 +27,8 @@ import CodeAgentConfigPicker from './CodeAgentConfigPicker'
 import { CodeAgentConfigChangeSource } from '../../utils/codeAgentExecutionConfig'
 import { sandboxPresetsFor } from '../../constants/sandboxPresets'
 import { useDefaultSandboxPreset } from '../../hooks/useDefaultSandboxPreset'
-import { SANDBOX_RESOLUTIONS, sandboxResolution, sandboxResolutionLabel } from '../../services/externalAgentDisplay'
+import { defaultSandboxResolution, sandboxResolution, sandboxResolutionLabel, sandboxResolutions } from '../../services/externalAgentDisplay'
+import { useNativeDisplay } from '../../hooks/useNativeDisplay'
 
 type MaybePromise = void | Promise<unknown>
 
@@ -56,6 +55,7 @@ export interface CodeAgentExecutionControlsProps {
   autoSelectDefault?: boolean
   /** Use the full row, keeping model selection left and reasoning effort right. */
   spreadAgentControls?: boolean
+  interactiveEmbedTaskId?: string
 }
 
 const compactButtonSx = {
@@ -89,6 +89,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   computeOnly = false,
   autoSelectDefault = false,
   spreadAgentControls = false,
+  interactiveEmbedTaskId,
 }) => {
   const isPhone = useIsPhone()
   const snackbar = useSnackbar()
@@ -116,9 +117,11 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
   const controlsDisabled = disabled || isSaving
   const showSandboxDisplay = !!onSandboxDisplayChange
     && runtimeEnvironment === TypesSandboxRuntime.SandboxRuntimeUbuntuDesktop
-  const resolution = sandboxResolution(sandboxDisplay)
-  const computeLabel = showSandboxDisplay && resolution !== '1080p'
-    ? `${resources.vcpus} vCPU · ${sandboxResolutionLabel(sandboxDisplay)}`
+  const nativeDisplay = useNativeDisplay()
+  const resolution = sandboxResolution(sandboxDisplay, nativeDisplay)
+  const defaultResolution = defaultSandboxResolution(nativeDisplay)
+  const computeLabel = showSandboxDisplay && resolution !== defaultResolution
+    ? `${resources.vcpus} vCPU · ${sandboxResolutionLabel(sandboxDisplay, nativeDisplay)}`
     : `${resources.vcpus} vCPU`
 
   const save = async (
@@ -146,12 +149,13 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
       value={value}
       disabled={controlsDisabled}
       autoSelectDefault={autoSelectDefault}
+      interactiveEmbedTaskId={interactiveEmbedTaskId}
       onChange={(next, source) => void save(next, source)}
     />
   )
   // Reasoning depth is a setting *of* a harness, so it has nothing to configure
   // until one is picked.
-  const reasoningControl = value?.model && !unconfigured ? (
+  const reasoningControl = !interactiveEmbedTaskId && value?.model && !unconfigured ? (
     <Tooltip title="Change reasoning and service tier">
       <Box component="span" sx={{ display: 'inline-flex' }}>
         <Button
@@ -349,7 +353,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
         {showSandboxDisplay && [
           <Divider key="display-divider" sx={{ my: 0.5 }} />,
           <ListSubheader key="display-heading" disableSticky>Display</ListSubheader>,
-          ...SANDBOX_RESOLUTIONS.map((option) => (
+          ...sandboxResolutions(nativeDisplay).map((option) => (
             <MenuItem
               key={option.value}
               selected={option.value === resolution}
@@ -362,7 +366,7 @@ const CodeAgentExecutionControls: FC<CodeAgentExecutionControlsProps> = ({
             >
               <Typography variant="body2" sx={{ flex: 1 }}>{option.label}</Typography>
               <Typography variant="caption" color="text.secondary">
-                {option.description}{option.value === '1080p' ? ' · Default' : ''}
+                {option.description}{option.value === defaultResolution ? ' · Default' : ''}
               </Typography>
             </MenuItem>
           )),

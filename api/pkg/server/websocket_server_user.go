@@ -8,7 +8,9 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	authpkg "github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -28,11 +30,26 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 	r *mux.Router,
 	path string,
 ) {
+	var serverURL string
+	if apiServer.Cfg != nil {
+		serverURL = apiServer.Cfg.WebServer.URL
+	}
+	// Browsers open this socket with the session cookie, so a foreign Origin
+	// is refused (see browserWebsocketUpgrader). userWebsocketUpgrader stays
+	// for the runner sockets, which have no browser on the other end.
+	upgrader := browserWebsocketUpgrader(serverURL, 1024)
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		// Try BFF session authentication first (from helix_session cookie)
-		// This is the primary auth method for browser clients
-		user, err := apiServer.authMiddleware.getUserFromSession(r.Context(), r)
+		// This is the primary auth method for browser clients — unless the
+		// request carries its own Helix API key (an embed key in another
+		// product's iframe), which wins over the viewer's cookie; see
+		// extractMiddleware.
+		var user *types.User
+		err := authpkg.ErrSessionNotFound
+		if !namesOwnAPIKey(r) {
+			user, err = apiServer.authMiddleware.getUserFromSession(r.Context(), r)
+		}
 		if err != nil {
 			// Session auth failed, fall back to token-based auth (API keys, runner tokens)
 			log.Trace().Err(err).Str("path", path).Msg("WebSocket session auth failed, trying token auth")
@@ -49,7 +66,11 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if rejectWaitlisted(w, user) {
+		if isRunner(user) {
+			http.Error(w, errRunnerTokenNotAccepted, http.StatusForbidden)
+			return
+		}
+		if rejectInactiveAccount(w, user) {
 			return
 		}
 
@@ -60,19 +81,32 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			return
 		}
 
-		// Look up the session owner so we subscribe to the correct NATS topic.
-		// The API always publishes to the session owner's queue, so a reviewer
-		// (different user ID) viewing someone else's session must subscribe using
-		// the owner's ID, not their own.
+		// The stream carries the session's full content, so the caller needs
+		// the same access as reading the session.
+		session, err := apiServer.Store.GetSession(r.Context(), sessionID)
+		if err != nil || session == nil {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		if err := apiServer.authorizeUserToSession(r.Context(), user, session, types.ActionGet); err != nil {
+			log.Warn().Err(err).Str("user_id", user.ID).Str("session_id", sessionID).Msg("WebSocket: not authorized for session")
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		// Subscribe to the session owner's queue: the API always publishes
+		// there, so a reviewer (different user ID) viewing someone else's
+		// session must subscribe using the owner's ID, not their own.
 		ownerID := user.ID
-		if session, err := apiServer.Store.GetSession(r.Context(), sessionID); err == nil && session != nil && session.Owner != "" {
+		if session.Owner != "" {
 			ownerID = session.Owner
 		}
 
-		conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
+		// Upgrade replies itself (403 for a foreign Origin, 400 for a bad
+		// handshake); a second write here would corrupt that reply.
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Error().Msgf("Error upgrading websocket: %s", err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Warn().Err(err).Str("origin", r.Header.Get("Origin")).Msg("Error upgrading user websocket")
 			return
 		}
 

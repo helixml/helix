@@ -107,7 +107,7 @@ func (s *ControllerSessionSuite) TestBeginSessionRejectsStartWhenOrgCannotAfford
 
 	_, err := s.controller.BeginSession(s.ctx, s.beginRequest())
 	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "insufficient credits")
+	s.Require().ErrorIs(err, ErrInsufficientCredits)
 }
 
 func (s *ControllerSessionSuite) TestBeginSessionRejectsStartWhenDesktopLimitReached() {
@@ -182,6 +182,50 @@ func (s *ControllerSessionSuite) TestBeginSessionReusesRowOnRestartWithoutCounti
 	s.Require().Equal("sbx_existing", sb.ID)
 }
 
+// A row still running when its session restarts (the stop never reached the
+// API) carries unbilled usage. The reopen clears the cursor, so it must
+// settle that usage first or it is never charged.
+func (s *ControllerSessionSuite) TestBeginSessionSettlesARowStillRunningBeforeReopening() {
+	chargedAt := time.Now().Add(-90 * time.Second)
+	startedAt := chargedAt.Add(-time.Hour)
+	existing := &types.Sandbox{
+		ID:                   "sbx_running",
+		OrganizationID:       "org_1",
+		SessionID:            "ses_1",
+		Runtime:              types.SandboxRuntimeUbuntuDesktop,
+		Status:               types.SandboxStatusRunning,
+		VCPUs:                1,
+		StartedAt:            &startedAt,
+		BillingLastChargedAt: &chargedAt,
+	}
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		SandboxBillingEnabled:               true,
+		SandboxDesktopPriceCreditsPerSecond: 1,
+		MaxConcurrentDesktopSandboxes:       5,
+	}, nil).AnyTimes()
+	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(&types.Wallet{ID: "wallet_1", OrgID: "org_1", Balance: 10000}, nil).AnyTimes()
+	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(existing, nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	gomock.InOrder(
+		s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, c store.SandboxCharge) (bool, error) {
+				s.Require().Equal(&chargedAt, c.From)
+				s.Require().InDelta(90.0, c.Amount, 2.0) // the unbilled 90s at 1 core
+				return false, nil
+			},
+		),
+		s.store.EXPECT().UpdateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, sb *types.Sandbox) (*types.Sandbox, error) {
+				s.Require().Nil(sb.BillingLastChargedAt)
+				return sb, nil
+			},
+		),
+	)
+
+	_, err := s.controller.BeginSession(s.ctx, s.beginRequest())
+	s.Require().NoError(err)
+}
+
 func (s *ControllerSessionSuite) TestMarkSessionRunningOpensBillingWindow() {
 	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(&types.Sandbox{
 		ID:        "sbx_1",
@@ -240,19 +284,13 @@ func (s *ControllerSessionSuite) TestResizeSessionSettlesChargesAtOldCoreCountFi
 		SandboxBillingEnabled:               true,
 		SandboxDesktopPriceCreditsPerSecond: 1,
 	}, nil)
-	s.store.EXPECT().GetWalletByOrg(gomock.Any(), "org_1").Return(&types.Wallet{
-		ID:      "wallet_1",
-		OrgID:   "org_1",
-		Balance: 10000,
-	}, nil)
-	s.store.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_1", gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, walletID string, amount float64, _ types.TransactionMetadata) (*types.Wallet, error) {
-			// 30 elapsed seconds at 1 credit/s/core and ONE core: ~-30, not -240.
-			s.Require().InDelta(-30.0, amount, 1.0)
-			return &types.Wallet{ID: walletID, Balance: 9970}, nil
+	s.store.EXPECT().ChargeSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c store.SandboxCharge) (bool, error) {
+			// 30 elapsed seconds at 1 credit/s/core and ONE core: ~30, not 240.
+			s.Require().InDelta(30.0, c.Amount, 1.0)
+			return false, nil
 		},
 	)
-	s.store.EXPECT().SetSandboxBillingLastChargedAt(gomock.Any(), "sbx_1", gomock.Any()).Return(nil)
 	s.store.EXPECT().SetSandboxResources(gomock.Any(), "sbx_1", 8, 16384).Return(nil)
 
 	s.Require().NoError(s.controller.ResizeSession(s.ctx, "ses_1", 8, 16384))
@@ -297,16 +335,23 @@ func (s *ControllerSessionSuite) TestDeleteRoutesSessionBackedTeardownToDesktopS
 	s.Require().Equal("ses_1", stopped)
 }
 
+// The sandbox's key is revoked before teardown, so it stops working even when
+// the desktop cannot be stopped (no stopper here; a gone host in production).
 func (s *ControllerSessionSuite) TestDeleteFailsLoudlyWhenNoDesktopStopperIsWired() {
 	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_1").Return(&types.Sandbox{
 		ID:             "sbx_1",
 		OrganizationID: "org_1",
+		Owner:          "usr_1",
 		SessionID:      "ses_1",
 		Runtime:        types.SandboxRuntimeUbuntuDesktop,
 		Status:         types.SandboxStatusRunning,
 	}, nil)
 	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
 	s.store.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_1", types.SandboxStatusStopping, "").Return(nil)
+	s.store.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{
+		OrganizationID: "org_1", Owner: "usr_1", OwnerType: types.OwnerTypeUser, SessionID: "sbx_1",
+	}).Return(&types.ApiKey{Key: "hl-sbx"}, nil)
+	s.store.EXPECT().DeleteAPIKey(gomock.Any(), "hl-sbx").Return(nil)
 
 	err := s.controller.Delete(s.ctx, "sbx_1")
 	s.Require().Error(err)

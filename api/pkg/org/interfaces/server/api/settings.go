@@ -112,6 +112,13 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if key == configregistry.MaxConcurrentActivationsKey {
+		var limit int
+		if err := json.Unmarshal([]byte(req.Value), &limit); err != nil || limit <= 0 {
+			writeError(w, http.StatusBadRequest, errors.New("worker.max_concurrent_activations must be a positive integer"))
+			return
+		}
+	}
 	if err := a.deps.Configs.Set(r.Context(), orgID, key, req.Value); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

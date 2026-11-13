@@ -61,10 +61,18 @@ describe('SessionPromptQueue', () => {
     await screen.findByText('waiting prompt')
     expect(screen.queryByText('in-flight prompt')).not.toBeInTheDocument()
     expect(screen.getByText('1 queued')).toBeInTheDocument()
+    // The queue also polls, so assert on the refreshed list rather than on how
+    // many times it was fetched.
+    mocks.listPrompts.mockResolvedValue({
+      entries: [{ id: 'prompt-2', status: 'sending', content: 'in-flight prompt', created_at: '2026-09-07T00:00:01Z' }],
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Remove from queue' }))
 
     await waitFor(() => expect(mocks.deletePrompt).toHaveBeenCalledWith('prompt-1'))
-    await waitFor(() => expect(mocks.listPrompts).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText('waiting prompt')).not.toBeInTheDocument())
+    expect(mocks.listPrompts.mock.invocationCallOrder.at(-1)).toBeGreaterThan(
+      mocks.deletePrompt.mock.invocationCallOrder[0],
+    )
   })
 
   it('offers Restart for a crashed prompt', async () => {

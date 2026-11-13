@@ -69,6 +69,10 @@ type MountConfig struct {
 // CreateDevContainerRequest creates a dev container (Zed+agent environment) for a session
 type CreateDevContainerRequest struct {
 	SessionID string `json:"session_id"`
+	// MaxSandboxes is the control plane's fallback capacity for this runner.
+	// A valid local MAX_SANDBOXES on Hydra takes precedence. Golden builds
+	// are exempt from this cap.
+	MaxSandboxes int `json:"max_sandboxes,omitempty"`
 
 	// Container configuration
 	Image         string        `json:"image"`          // e.g., "helix-ubuntu:latest"
@@ -209,6 +213,7 @@ type DevContainerResponse struct {
 	RenderNode     string `json:"render_node,omitempty"`     // /dev/dri/renderD128 or SOFTWARE
 	VCPUs          int    `json:"vcpus,omitempty"`
 	MemoryMB       int    `json:"memory_mb,omitempty"`
+	IsGoldenBuild  bool   `json:"is_golden_build,omitempty"`
 }
 
 type UpdateDevContainerResourcesRequest struct {

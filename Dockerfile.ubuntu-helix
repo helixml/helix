@@ -941,14 +941,28 @@ RUN apt-get update && \
 
 # Chrome installation - use Google Chrome on amd64, Chromium on arm64
 # Google Chrome doesn't provide arm64 Linux packages
-RUN <<_INSTALL_CHROME
+# apt's package cache and lists live in per-arch cache mounts, so a rebuild of
+# this layer reuses the Chromium packages and PPA index it downloaded last time
+# instead of needing Launchpad to be up (it often isn't: 503s from its CDN failed
+# 2.12.37's first build). The mounts are on the runner, not in the image.
+# The XtraDeb PPA's source (key fingerprint 5301FA4FD93244FBC6F6149982BB6851C64F6880,
+# as published on Launchpad) is checked in rather than added with
+# add-apt-repository, which needs Launchpad's API for the key, and which would add
+# the PPA only after the first apt-get update had already dropped its cached index.
+RUN --mount=type=cache,id=apt-cache-chrome-${TARGETARCH},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=apt-lists-chrome-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
+    --mount=type=bind,source=desktop/ubuntu-config/xtradeb-apps.sources,target=/tmp/xtradeb-apps.sources \
+    <<_INSTALL_CHROME
 set -e
 
-# Launchpad is intermittently unavailable; both `add-apt-repository`
-# (which hits launchpad.net for the PPA's GPG key) and `apt-get update`
-# (which fetches InRelease from ppa.launchpadcontent.net) fail with
-# timeouts during outages. Three consecutive CI failures on 2026-05-02
-# prompted this retry wrapper. Backoff: 5s, 15s, 30s, 60s.
+# The base image deletes downloaded packages after every apt run; keep them in
+# the cache for this step, and restore the hook for later steps.
+mv /etc/apt/apt.conf.d/docker-clean /tmp/docker-clean
+
+# Launchpad is intermittently unavailable; `apt-get update` and package
+# downloads from ppa.launchpadcontent.net fail with timeouts and 503s during
+# outages. Three consecutive CI failures on 2026-05-02 prompted this retry
+# wrapper. Backoff: 5s, 15s, 30s, 60s.
 # POSIX-compatible (no `local`) so it works under dash, the default
 # `RUN` shell.
 retry_apt() {
@@ -966,17 +980,40 @@ retry_apt() {
     done
 }
 
+# When ppa.launchpadcontent.net (the PPA's CDN) fails, launchpadlibrarian.net
+# usually still serves the same files: download the PPA packages apt wants from
+# there into its cache, where apt finds them by name and checksum.
+fetch_ppa_debs_from_librarian() {
+    apt-get install -y --print-uris "$@" \
+        | sed -n "s|^'https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu/pool/[^']*/\([^'/]*\.deb\)' \([^ ]*\) .*|\1 \2|p" \
+        | while read -r file name; do
+            echo "Fetching $file from launchpadlibrarian.net"
+            curl -fsSL --retry 3 -o "/var/cache/apt/archives/$name" \
+                "https://launchpad.net/~xtradeb/+archive/ubuntu/apps/+files/$file"
+        done
+}
+
+if [ "${TARGETARCH}" = "arm64" ]; then
+    cp /tmp/xtradeb-apps.sources /etc/apt/sources.list.d/xtradeb-ubuntu-apps-questing.sources
+fi
+
+# A failed index download keeps the cached index ("old ones used instead").
 retry_apt apt-get update
 
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Installing Chromium for arm64 (XtraDeb PPA) ==="
     # Ubuntu's chromium-browser is a snap transitional package (no snapd in containers).
     # XtraDeb PPA provides real .deb packages named "chromium" (NOT "chromium-browser").
-    retry_apt apt-get install -y software-properties-common
-    retry_apt add-apt-repository -y ppa:xtradeb/apps
-    retry_apt apt-get update
     # Install the real chromium package from XtraDeb + chromedriver
-    retry_apt apt-get install -y chromium chromium-driver
+    if ! apt-get install -y chromium chromium-driver; then
+        fetch_ppa_debs_from_librarian chromium chromium-driver || true
+        retry_apt apt-get install -y chromium chromium-driver
+    fi
+    # Without the PPA's index, "chromium" resolves to Ubuntu's snap stub instead.
+    if ! dpkg-query -W -f='${Version}' chromium | grep -q xtradeb; then
+        echo "FATAL: chromium did not come from the XtraDeb PPA: $(dpkg-query -W -f='${Version}' chromium)"
+        exit 1
+    fi
     # Remove the snap transitional chromium-browser if it got pulled in as a dependency
     apt-get remove -y chromium-browser 2>/dev/null || true
 
@@ -1079,7 +1116,7 @@ else
     echo "=== Google Chrome installed for amd64 ==="
 fi
 
-rm -rf /var/lib/apt/lists/*
+mv /tmp/docker-clean /etc/apt/apt.conf.d/docker-clean
 _INSTALL_CHROME
 
 # Set Chrome/Chromium as default browser (GNOME defaults to Firefox otherwise)
@@ -1166,6 +1203,11 @@ RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-ti
 ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
 ADD desktop/shared/helix-buildkit-cache-stats.py /usr/local/bin/helix-buildkit-cache-stats
 RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
+
+# Send the user's browser languages (HELIX_BROWSER_LANGUAGES) as Chrome's
+# Accept-Language, so sites don't localize to the runner's location.
+ADD desktop/shared/18-browser-languages.sh /etc/cont-init.d/18-browser-languages.sh
+RUN chmod 755 /etc/cont-init.d/18-browser-languages.sh
 
 # Workspace README
 RUN mkdir -p /opt/helix
@@ -1582,6 +1624,7 @@ ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devt
 RUN --mount=type=bind,source=desktop/shared/helix-chromium.sh,target=/tmp/helix-chromium.sh \
     if [ -x /usr/bin/chromium.real ]; then install -m 755 /tmp/helix-chromium.sh /usr/bin/chromium; fi
 ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
+ADD desktop/shared/helix-golden-startup.sh /usr/local/bin/helix-golden-startup
 ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
 ADD desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh
 ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
@@ -1597,7 +1640,7 @@ RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridg
     /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-git-hooks.sh \
     /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-git-mtime \
     /usr/local/bin/helix-chrome-devtools-mcp \
-    /usr/local/bin/helix-run-startup-script.sh \
+    /usr/local/bin/helix-run-startup-script.sh /usr/local/bin/helix-golden-startup \
     /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh \
     /usr/local/bin/start-settings-sync-daemon.sh \
     /usr/local/bin/start-zed-headless.sh /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh

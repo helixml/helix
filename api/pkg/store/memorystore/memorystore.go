@@ -63,6 +63,10 @@ func New() *MemoryStore {
 	}
 }
 
+func (m *MemoryStore) GetSystemSettings(_ context.Context) (*types.SystemSettings, error) {
+	return &types.SystemSettings{}, nil
+}
+
 // --- Test validation helpers (not part of store.Store interface) ---
 
 // GetAllSessions returns all sessions for test validation.
@@ -132,6 +136,46 @@ func (m *MemoryStore) UpdateSession(_ context.Context, session types.Session) (*
 	return &cp, nil
 }
 
+func (m *MemoryStore) SetSessionProviderRecovery(_ context.Context, sessionID string, recovery *types.ProviderRecovery) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	session.Metadata.Recovery = recovery
+	return nil
+}
+
+func (m *MemoryStore) ClearSessionProviderRecovery(_ context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return false, store.ErrNotFound
+	}
+	state := session.Metadata.Recovery
+	if state == nil || state.PromptID != promptID || state.InteractionID != interactionID {
+		return false, nil
+	}
+	session.Metadata.Recovery = nil
+	return true, nil
+}
+
+func (m *MemoryStore) RecordSessionAgentConfigApplied(_ context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	session.Metadata.AgentConfigAppliedAt = appliedAt
+	if handoffDelivered {
+		session.Metadata.AgentHandoffDeliveredAt = appliedAt
+	}
+	return nil
+}
+
 func (m *MemoryStore) TouchSession(_ context.Context, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -160,6 +204,15 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 	defer m.mu.RUnlock()
 	result := make([]*types.Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
+		if query.OrganizationID != "" && s.OrganizationID != query.OrganizationID {
+			continue
+		}
+		if query.OrganizationID == "" && !query.AnyOrganization && s.OrganizationID != "" {
+			continue
+		}
+		if len(query.ProviderRecoveryProviders) > 0 && (s.Metadata.Recovery == nil || !containsString(query.ProviderRecoveryProviders, s.Metadata.Recovery.Provider)) {
+			continue
+		}
 		if query.RestrictToProjects && !containsString(query.ProjectIDs, s.ProjectID) {
 			continue
 		}
@@ -242,6 +295,22 @@ func (m *MemoryStore) GetInteraction(_ context.Context, id string) (*types.Inter
 		return nil, store.ErrNotFound
 	}
 	cp := *i
+	return &cp, nil
+}
+
+func (m *MemoryStore) GetLatestInteractionByPromptID(_ context.Context, promptID string) (*types.Interaction, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var latest *types.Interaction
+	for _, interaction := range m.interactions {
+		if interaction.PromptID == promptID && (latest == nil || interaction.Created.After(latest.Created) || (interaction.Created.Equal(latest.Created) && interaction.ID > latest.ID)) {
+			latest = interaction
+		}
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	cp := *latest
 	return &cp, nil
 }
 
@@ -524,6 +593,27 @@ func (m *MemoryStore) MarkInteractionErrorIfWaiting(_ context.Context, interacti
 	return true, nil
 }
 
+func (m *MemoryStore) MarkStaleInteractionErrorIfWaiting(_ context.Context, interactionID string, generationID int, observedUpdated time.Time, reason string) (bool, error) {
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting || !existing.Updated.Equal(observedUpdated) {
+		m.mu.Unlock()
+		return false, nil
+	}
+	existing.State = types.InteractionStateError
+	existing.Error = reason
+	existing.Completed = time.Now()
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+
+	if cb != nil {
+		cb(&cp)
+	}
+	return true, nil
+}
+
 func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -536,17 +626,33 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 		if query.GenerationID >= 0 && i.GenerationID != query.GenerationID {
 			continue
 		}
+		if query.HasPendingQuestion &&
+			(i.State != types.InteractionStateWaiting || i.PendingQuestion == nil) {
+			continue
+		}
+		if !query.HasPendingQuestion && query.State != "" && i.State != query.State {
+			continue
+		}
+		if query.CompletedSuccessfully &&
+			(i.State != types.InteractionStateComplete || i.Completed.IsZero() || i.Error != "") {
+			continue
+		}
 		cp := *i
 		result = append(result, &cp)
 	}
-	// Honor the requested order. The prompt-queue busy-check relies on
-	// Order="id DESC" + PerPage=1 returning the NEWEST interaction (ULID IDs sort
-	// chronologically); the default is ascending (creation order).
-	if strings.Contains(strings.ToLower(query.Order), "desc") {
-		sort.Slice(result, func(a, b int) bool { return result[a].ID > result[b].ID })
-	} else {
-		sort.Slice(result, func(a, b int) bool { return result[a].ID < result[b].ID })
-	}
+	desc := strings.Contains(strings.ToLower(query.Order), "desc")
+	sort.Slice(result, func(a, b int) bool {
+		if result[a].Created.Equal(result[b].Created) {
+			if desc {
+				return result[a].ID > result[b].ID
+			}
+			return result[a].ID < result[b].ID
+		}
+		if desc {
+			return result[a].Created.After(result[b].Created)
+		}
+		return result[a].Created.Before(result[b].Created)
+	})
 	// Apply PerPage limit
 	if query.PerPage > 0 && len(result) > query.PerPage {
 		result = result[:query.PerPage]
@@ -619,6 +725,28 @@ func (m *MemoryStore) CreatePromptHistoryEntry(_ context.Context, entry *types.P
 	return nil
 }
 
+func (m *MemoryStore) CreatePromptHistoryEntryIfAbsent(_ context.Context, entry *types.PromptHistoryEntry) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.prompts[entry.ID]; ok {
+		return false, nil
+	}
+	cp := *entry
+	m.prompts[entry.ID] = &cp
+	return true, nil
+}
+
+func (m *MemoryStore) GetPromptHistoryEntry(_ context.Context, id string) (*types.PromptHistoryEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	entry := m.prompts[id]
+	if entry == nil {
+		return nil, nil
+	}
+	cp := *entry
+	return &cp, nil
+}
+
 func (m *MemoryStore) ListPromptHistoryBySession(_ context.Context, sessionID string) ([]*types.PromptHistoryEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -630,6 +758,27 @@ func (m *MemoryStore) ListPromptHistoryBySession(_ context.Context, sessionID st
 		}
 	}
 	return out, nil
+}
+
+func (m *MemoryStore) GetLatestActivationPromptHistoryEntry(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	prefix := system.PromptHistoryPrefix + "activation_"
+	var latest *types.PromptHistoryEntry
+	for _, entry := range m.prompts {
+		if entry.SessionID != sessionID || !strings.HasPrefix(entry.ID, prefix) {
+			continue
+		}
+		if latest == nil || entry.CreatedAt.After(latest.CreatedAt) ||
+			(entry.CreatedAt.Equal(latest.CreatedAt) && entry.ID > latest.ID) {
+			latest = entry
+		}
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	cp := *latest
+	return &cp, nil
 }
 
 // claimNextPrompt finds the oldest pending/failed prompt for the session
@@ -691,6 +840,58 @@ func (m *MemoryStore) setPromptStatus(id, status string) {
 func (m *MemoryStore) MarkPromptAsPending(_ context.Context, id string) error {
 	m.setPromptStatus(id, "pending")
 	return nil
+}
+
+func (m *MemoryStore) RecoverProviderPrompt(_ context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return false, store.ErrNotFound
+	}
+	state := session.Metadata.Recovery
+	if state == nil {
+		return false, nil
+	}
+	prompt := m.prompts[promptID]
+	interaction := m.interactions[state.InteractionID]
+	if state.PromptID != promptID || state.Attempts >= maxAttempts || state.NextCheckAt.After(now) ||
+		interaction == nil || interaction.SessionID != sessionID || interaction.State != types.InteractionStateError ||
+		prompt == nil || prompt.SessionID != sessionID || prompt.Status != "sent" {
+		return false, nil
+	}
+	state.Attempts++
+	state.NextCheckAt = nextCheckAt
+	prompt.Status = "pending"
+	prompt.NextRetryAt = nil
+	prompt.ErrorMessage = ""
+	return true, nil
+}
+
+func (m *MemoryStore) RecoverProviderPromptForConfigChange(_ context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session := m.sessions[sessionID]
+	if session == nil {
+		return false, store.ErrNotFound
+	}
+	prompt := m.prompts[promptID]
+	interaction := m.interactions[interactionID]
+	var latest *types.Interaction
+	for _, candidate := range m.interactions {
+		if candidate.SessionID == sessionID && candidate.PromptID == promptID &&
+			(latest == nil || candidate.Created.After(latest.Created) || (candidate.Created.Equal(latest.Created) && candidate.ID > latest.ID)) {
+			latest = candidate
+		}
+	}
+	if prompt == nil || prompt.SessionID != sessionID || prompt.Status != "sent" || prompt.DeletedAt != nil ||
+		interaction == nil || latest != interaction || interaction.State != types.InteractionStateError {
+		return false, nil
+	}
+	prompt.Status = "pending"
+	prompt.NextRetryAt = nil
+	prompt.ErrorMessage = ""
+	return true, nil
 }
 
 // RevertPromptToPending mirrors the Postgres store: back to pending with

@@ -160,6 +160,18 @@ type Deps struct {
 	AgentUpdater        AgentUpdater
 	AgentReader         AgentReader
 	AgentDefaultApplier AgentDefaultApplier
+	// AgentEditAuthorizer decides whether a caller who cannot manage the
+	// org may still edit a Bot (configuration, reporting lines, trigger
+	// attachments, secrets, asset links, instances, stop/restart, delete):
+	// they may when they can update the Bot's agent app. nil → only
+	// owners/admins may. A Bot with no agent app (hired before agents were
+	// linked and not yet reconciled) is editable by owners/admins only.
+	AgentEditAuthorizer AgentEditAuthorizer
+	// BotProjectAuthorizer decides whether a project may be added to a
+	// Bot's project allowlist: the Bot's hiring user (or the organization
+	// owner for a Bot without one) must be able to access it. nil → the
+	// allowlist is not validated at write time (tests).
+	BotProjectAuthorizer BotProjectAuthorizer
 
 	// GitHubTokenResolver is the production hook for "reinstate the
 	// GitHub topic + reuse the existing GitHub integration for
@@ -216,6 +228,26 @@ type Deps struct {
 
 type AgentUpdater interface {
 	UpdateAgent(ctx context.Context, appID string, patch AgentConfigPatch, name, instructions *string) error
+}
+
+// AgentEditAuthorizer reports whether the caller on ctx may update the
+// agent app appID; nil means allowed.
+type AgentEditAuthorizer interface {
+	AuthorizeAgentUpdate(ctx context.Context, appID string) error
+}
+
+// AgentEditBatchAuthorizer is an optional extension of AgentEditAuthorizer
+// for list views: it resolves the caller once and reports, per agent app,
+// whether they may update it. Unknown or unauthorized apps are absent or
+// false.
+type AgentEditBatchAuthorizer interface {
+	EditableAgents(ctx context.Context, appIDs []string) (map[string]bool, error)
+}
+
+// BotProjectAuthorizer reports whether botID may be given access to
+// projectID; nil means allowed.
+type BotProjectAuthorizer interface {
+	AuthorizeBotProject(ctx context.Context, orgID string, botID orgchart.NodeID, projectID string) error
 }
 
 type AgentReader interface {
@@ -469,7 +501,7 @@ func errStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, nodes.ErrUnknownTool), errors.Is(err, nodes.ErrInvalidInstanceProfile), errors.Is(err, instances.ErrInvalidRequest):
 		return http.StatusBadRequest
-	case errors.Is(err, instances.ErrForbidden):
+	case errors.Is(err, instances.ErrForbidden), errors.Is(err, nodes.ErrToolGrantForbidden):
 		return http.StatusForbidden
 	default:
 		return http.StatusInternalServerError

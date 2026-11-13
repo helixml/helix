@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   consumeDraft: vi.fn(),
   appendDraft: vi.fn(),
-  bots: [] as Array<{ id: string; name?: string; session_id?: string; status?: string }>,
+  bots: [] as Array<{ id: string; name?: string; session_id?: string; status?: string; activation_error?: string }>,
   listLoading: false,
   listFetching: false,
   listError: false,
@@ -166,13 +166,15 @@ describe('OrgBotSessionResolver', () => {
     expect(screen.queryByRole('heading', { name: /Meet your/i })).not.toBeInTheDocument()
   })
 
-  it('offers retry when activation fails', async () => {
+  it('shows the API error and offers retry when activation is rejected', async () => {
     mocks.bots = [{ id: 'chief-of-staff' }]
-    mocks.activate.mockRejectedValueOnce(new Error('failed'))
+    mocks.activate.mockRejectedValueOnce({
+      response: { data: { error: 'This organization is already running 32 agents. Stop one and try again.' } },
+    })
     render(<OrgBotSessionResolver />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not start chief-of-staff.',
+      'This organization is already running 32 agents. Stop one and try again.',
     )
     const retry = screen.getByRole('button', {
       name: 'Retry starting chief-of-staff',
@@ -181,6 +183,24 @@ describe('OrgBotSessionResolver', () => {
     fireEvent.click(retry)
 
     await waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows an asynchronous activation error returned by bot polling', async () => {
+    mocks.bots = [{ id: 'chief-of-staff', status: 'starting' }]
+    const view = render(<OrgBotSessionResolver />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Opening chat')
+    mocks.bots = [{
+      id: 'chief-of-staff',
+      status: 'stopped',
+      activation_error: 'This organization is already running 32 agents. Stop one and try again.',
+    }]
+    view.rerender(<OrgBotSessionResolver />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This organization is already running 32 agents. Stop one and try again.',
+    )
+    expect(mocks.activate).not.toHaveBeenCalled()
   })
 
   it('offers query retry when the bot detail lookup fails', async () => {
@@ -257,7 +277,7 @@ describe('OrgBotSessionResolver', () => {
     mocks.bots = [{ id: 'chief-of-staff' }, { id: 'another-bot', status: 'running' }]
     mocks.activate.mockRejectedValueOnce(new Error('failed'))
     const view = render(<OrgBotSessionResolver />)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not start chief-of-staff.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('failed')
 
     mocks.params = { org_id: 'my-org', bot_id: 'another-bot' }
     view.rerender(<OrgBotSessionResolver />)

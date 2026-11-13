@@ -88,6 +88,79 @@ func TestDirectAPIAuthRejectsWaitlistedUser(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, response.Code)
 }
 
+// The OpenAI/Anthropic-compatible routes are wrapped by auth() alone; a
+// request without a credential must not reach them as an empty user.
+func TestDirectAPIAuthRejectsAnonymousRequest(t *testing.T) {
+	for _, path := range []string{"/v1/messages", "/v1/models", "/v1/responses", "/v1/chat/completions"} {
+		t.Run(path, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			auth := newAuthMiddleware(nil, nil, store.NewMockStore(ctrl), authMiddlewareConfig{}, nil, nil)
+			request := httptest.NewRequest(http.MethodPost, path, nil)
+			response := httptest.NewRecorder()
+			reached := false
+
+			auth.auth(func(w http.ResponseWriter, _ *http.Request) {
+				reached = true
+				w.WriteHeader(http.StatusNoContent)
+			})(response, request)
+
+			assert.Equal(t, http.StatusUnauthorized, response.Code)
+			assert.False(t, reached, "handler must not run without a credential")
+		})
+	}
+}
+
+// The browser model picker reads /v1/models with only the BFF session
+// cookie. The cookie authenticates safe methods; a cookie-only POST (no CSRF
+// check on these routes) does not.
+func TestDirectAPIAuthAcceptsSessionCookieForSafeMethods(t *testing.T) {
+	for _, tc := range []struct {
+		method     string
+		wantStatus int
+	}{
+		{http.MethodGet, http.StatusNoContent},
+		{http.MethodPost, http.StatusUnauthorized},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			user := &types.User{ID: "user-123"}
+			if tc.method == http.MethodGet {
+				mockStore.EXPECT().GetUserSession(gomock.Any(), "session-123").Return(&types.UserSession{
+					ID: "session-123", UserID: user.ID, ExpiresAt: time.Now().Add(time.Hour), LastUsedAt: time.Now(),
+				}, nil)
+				mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(user, nil).AnyTimes()
+			}
+			auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{adminUserIDs: []string{"nobody"}}, nil,
+				authpkg.NewSessionManager(mockStore, nil, nil))
+			auth.lastSeenCache.Store(user.ID, time.Now())
+			request := httptest.NewRequest(tc.method, "/v1/models", nil)
+			request.AddCookie(&http.Cookie{Name: authpkg.SessionCookieName, Value: "session-123"})
+			response := httptest.NewRecorder()
+
+			auth.auth(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})(response, request)
+
+			assert.Equal(t, tc.wantStatus, response.Code)
+		})
+	}
+}
+
+// A CORS preflight carries no credential; the handler answers it.
+func TestDirectAPIAuthPassesPreflightToHandler(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	auth := newAuthMiddleware(nil, nil, store.NewMockStore(ctrl), authMiddlewareConfig{}, nil, nil)
+	request := httptest.NewRequest(http.MethodOptions, "/v1/chat/completions", nil)
+	response := httptest.NewRecorder()
+
+	auth.auth(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})(response, request)
+
+	assert.Equal(t, http.StatusNoContent, response.Code)
+}
+
 func TestExtractMiddlewareRejectsWaitlistedPersonalAPIKey(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
@@ -348,4 +421,45 @@ func TestGetUserFromToken_PersonalAPIKeyInheritsAdmin(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, user.Admin, "personal key keeps the owner's admin status")
 	assert.Empty(t, user.OrganizationID)
+}
+
+// A Helix API key in the Authorization header wins over the browser's own
+// Helix session cookie. An embed key in an iframe on another product's page
+// (Helix Recruiter) is sent by a browser that may also hold the viewer's
+// session; a waitlisted viewer's cookie must not turn the embed's request
+// into "waiting for approval", nor any other viewer's into theirs.
+func TestExtractMiddlewareExplicitAPIKeyBeatsSessionCookie(t *testing.T) {
+	for name, withKey := range map[string]func(*http.Request){
+		"authorization header": func(r *http.Request) { r.Header.Set("Authorization", "Bearer hl-embed") },
+		// WebSockets and EventSource cannot set headers, so the embed puts its
+		// key in the query string: this is how the desktop stream connects.
+		"query parameter": func(r *http.Request) { r.URL.RawQuery = "access_token=hl-embed" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			service := &types.User{ID: "usr-service"}
+			// No GetUserSession expectation: the viewer's session must not be read.
+			mockStore.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-embed"}).Return(&types.ApiKey{
+				Key: "hl-embed", Owner: service.ID, OwnerType: types.OwnerTypeUser, Type: types.APIkeytypeAPI,
+			}, nil)
+			mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: service.ID}).Return(service, nil).AnyTimes()
+			mockStore.EXPECT().EnsureUserMeta(gomock.Any(), types.UserMeta{ID: service.ID}).Return(&types.UserMeta{ID: service.ID}, nil).AnyTimes()
+			auth := newAuthMiddleware(nil, nil, mockStore, authMiddlewareConfig{}, nil, authpkg.NewSessionManager(mockStore, nil, nil))
+			auth.lastSeenCache.Store(service.ID, time.Now())
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/external-agents/ses_A/ws/stream", nil)
+			request.AddCookie(&http.Cookie{Name: authpkg.SessionCookieName, Value: "viewer-session"})
+			withKey(request)
+			response := httptest.NewRecorder()
+
+			var seen string
+			auth.extractMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seen = getRequestUser(r).ID
+				w.WriteHeader(http.StatusNoContent)
+			})).ServeHTTP(response, request)
+
+			assert.Equal(t, http.StatusNoContent, response.Code)
+			assert.Equal(t, service.ID, seen, "the request must be authorised as the key's owner, not the cookie's")
+		})
+	}
 }

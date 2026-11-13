@@ -135,6 +135,15 @@ type OrganizationInvitation struct {
 	// invitations are unique per (organization, email, app_id).
 	AppID      string         `json:"app_id,omitempty" gorm:"index"`
 	GrantRoles pq.StringArray `json:"grant_roles,omitempty" gorm:"type:text[];default:'{}'"`
+
+	// TokenHash is the SHA-256 of the invitation's secret token. The token
+	// itself is only ever put in the invite link (sent to Email, or handed
+	// to an org owner) and is what proves the holder received it; the ID
+	// alone, which org members can see, is not enough to accept.
+	TokenHash string `json:"-"`
+	// Token is the plaintext token, set only on the value returned when it
+	// is (re)generated. Never persisted or serialised.
+	Token string `json:"-" gorm:"-"`
 }
 
 // AddOrganizationMemberResponse covers both the immediate-membership and
@@ -171,6 +180,9 @@ type OrgUserLookupResponse struct {
 	Email    string `json:"email"`
 	Exists   bool   `json:"exists"`    // a Helix user account exists with this email
 	IsMember bool   `json:"is_member"` // user is also a member of the queried org
+	// EmailVerified — the existing account has been shown to own the address.
+	// Adding by email only adds such an account; otherwise it is invited.
+	EmailVerified bool `json:"email_verified"`
 	// IsInvited — a pending invitation exists for this email in the queried
 	// org. Used by the invite UI to disable the "Send invitation" button so
 	// admins don't accidentally double-invite.
@@ -226,6 +238,10 @@ type AuthProvider string
 const (
 	AuthProviderRegular AuthProvider = "regular" // Embedded in Helix, no external dependencies
 	AuthProviderOIDC    AuthProvider = "oidc"
+	// AuthProviderService is a non-human account an admin creates for an
+	// orchestrator (POST /admin/service-accounts). It has no password and no
+	// IdP identity, so it can only act through the API keys minted for it.
+	AuthProviderService AuthProvider = "service"
 	// TODO: oauth github, google, etc
 )
 
@@ -235,8 +251,12 @@ type User struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	// the actual token used and its type
-	Token string `json:"token"`
+	// Token is the credential the current request authenticated with. It is
+	// request state only: never stored on the user row and never serialized,
+	// because user records are embedded in responses other users read (team
+	// members, grants, project and agent owners). /auth/user returns the
+	// caller's own token through UserResponse.
+	Token string `json:"-" gorm:"-"`
 	// none, runner. keycloak, api_key
 	TokenType TokenType `json:"token_type"`
 	// if the ID of the user is contained in the env setting
@@ -245,12 +265,20 @@ type User struct {
 	// it authenticated with one. Carried so the auth middleware can apply the
 	// per-type restrictions (app keys: chat paths only; embed keys: one spec task).
 	APIKeyType APIKeyType `json:"api_key_type" gorm:"-"`
+	// EmbedInteractive: an embed key that may drive its bound session's desktop.
+	EmbedInteractive bool `json:"embed_interactive,omitempty" gorm:"-"`
 	// if the token is associated with an app
 	AppID          string `json:"app_id"`
 	ProjectID      string `json:"project_id" gorm:"-"`      // When running in Helix Code sandbox
 	SpecTaskID     string `json:"spec_task_id" gorm:"-"`    // When running in Helix Code sandbox
 	SessionID      string `json:"session_id" gorm:"-"`      // Session this API key is scoped to (ephemeral keys)
 	OrganizationID string `json:"organization_id" gorm:"-"` // Organization this API key is scoped to (ephemeral keys)
+	// RunnerID is the runner a per-runner token is bound to. Empty for the
+	// shared runner token and for every non-runner credential.
+	RunnerID string `json:"runner_id,omitempty" gorm:"-"`
+	// RunnerTokenID is the id of the per-runner token the request used, so
+	// what it opened (RevDial tunnels) can be cut when it is revoked.
+	RunnerTokenID string `json:"-" gorm:"-"`
 	// these are set by the keycloak user based on the token
 	// if it's an app token - the keycloak user is loaded from the owner of the app
 	// if it's a runner token - these values will be empty
@@ -269,12 +297,32 @@ type User struct {
 
 	AuthProvider AuthProvider `json:"auth_provider"`
 
+	// EmailVerified records that the account's owner has been shown to control
+	// Email: the identity provider asserted email_verified, an admin created the
+	// account, or the owner used a link sent to the address (invitation,
+	// password reset). A password sign-up proves nothing, so it is false until
+	// then. Resolving an account by email for a grant (adding an org or team
+	// member) requires it; anything else would hand the grant to whoever
+	// registered the address first.
+	EmailVerified bool `json:"email_verified"`
+
+	// OIDCSubject is the identity provider's subject this account is signed in
+	// with. For accounts created by SSO it equals ID; for an account created
+	// another way and later linked to an SSO identity by its verified email,
+	// it records that link so later sign-ins resolve by subject.
+	OIDCSubject string `json:"oidc_subject,omitempty" gorm:"column:oidc_subject;index"`
+
 	Password           string `json:"-" gorm:"-"`           // Temporary field for password input, not persisted
 	PasswordHash       []byte `json:"-"`                    // bcrypt hash of the password
 	MustChangePassword bool   `json:"must_change_password"` // if the user must change their password
 
 	SB          bool `json:"sb"`
 	Deactivated bool `json:"deactivated"`
+
+	// DesktopIdentity marks the single account that Helix Desktop's
+	// auto-login (DESKTOP_AUTO_LOGIN_SECRET) signs in as. The desktop flow
+	// never signs in as, or promotes, any other account.
+	DesktopIdentity bool `json:"desktop_identity,omitempty" gorm:"index"`
 
 	OnboardingCompleted   bool      `json:"onboarding_completed"`
 	OnboardingCompletedAt time.Time `json:"onboarding_completed_at"`
@@ -313,6 +361,37 @@ type User struct {
 	// AlphaFeatures lists feature flags granted to this user.
 	// Granted per-user via SQL (no deploy).
 	AlphaFeatures pq.StringArray `gorm:"type:text[];default:'{}'" json:"alpha_features"`
+}
+
+// AccountAccessDenied says why an account may not use the API. Its text is
+// shown to the caller as is.
+type AccountAccessDenied string
+
+func (e AccountAccessDenied) Error() string { return string(e) }
+
+const (
+	ErrAccountWaitlisted  AccountAccessDenied = "Account is waiting for approval"
+	ErrAccountDeactivated AccountAccessDenied = "Account is deactivated"
+	ErrAccountDeleted     AccountAccessDenied = "Account has been deleted"
+)
+
+// AccountAccessError reports why this account may not use the API, or nil
+// when it may. It is the single account-state policy for every credential
+// that acts as a user: session cookies, user tokens and API keys of any type
+// (the key carries its owner's state). Runner and other system identities
+// have none of these flags set and pass.
+func (u *User) AccountAccessError() error {
+	switch {
+	case u == nil:
+		return nil
+	case u.DeletedAt.Valid:
+		return ErrAccountDeleted
+	case u.Deactivated:
+		return ErrAccountDeactivated
+	case u.Waitlisted:
+		return ErrAccountWaitlisted
+	}
+	return nil
 }
 
 type UserSearchResponse struct {

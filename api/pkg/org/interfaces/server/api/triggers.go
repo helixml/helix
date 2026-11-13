@@ -444,6 +444,9 @@ func (a *apiHandler) createBotAttachment(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, 400, "validation_failed", err.Error())
 		return
 	}
+	if !a.authorizeBotEdit(w, r, orgID, orgchart.NodeID(r.PathValue("id")), "attachments") {
+		return
+	}
 	var req AttachmentWriteRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeAPIError(w, 400, "validation_failed", err.Error())
@@ -483,6 +486,9 @@ func (a *apiHandler) deleteBotAttachment(w http.ResponseWriter, r *http.Request)
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeAPIError(w, 400, "validation_failed", err.Error())
+		return
+	}
+	if !a.authorizeBotEdit(w, r, orgID, orgchart.NodeID(r.PathValue("id")), "attachments") {
 		return
 	}
 	rows, err := a.deps.Attachments.ListForWorker(r.Context(), orgID, orgchart.NodeID(r.PathValue("id")))

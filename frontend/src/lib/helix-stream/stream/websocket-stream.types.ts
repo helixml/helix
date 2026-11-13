@@ -36,6 +36,7 @@ export const WsMessageType = {
   AgentCursor: 0x55,      // AI agent cursor position/action
   RemoteTouch: 0x56,      // Remote user touch event
   SelfId: 0x58,           // Server tells client their own clientId
+  ClipboardChanged: 0x59, // The desktop's clipboard changed (not by a paste from a viewer)
 } as const
 
 // ============================================================================
@@ -118,6 +119,7 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "agentCursor"; agent: AgentCursorInfo }
   | { type: "remoteTouch"; touch: RemoteTouchInfo }
   | { type: "selfId"; clientId: number }
+  | { type: "clipboardChanged" }
   | { type: "reconnectAborted"; reason: string; superseded?: boolean }
   // Reconnect skipped because the tab is in the background; resumes on visibilitychange.
   | { type: "reconnectDeferred"; reason: string }

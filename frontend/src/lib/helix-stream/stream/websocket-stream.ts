@@ -437,12 +437,18 @@ export class WebSocketStream {
 
     // Clean up old WebSocket if it exists
     if (this.ws) {
+      this.input.forgetHeldKeys()
+      this.connected = false
+      this.stopHeartbeat()
+      this.stopPingInterval()
+      this.stopEventLoopTracking()
+      const oldWs = this.ws
+      this.ws = null
       try {
-        this.ws.close()
+        oldWs.close()
       } catch (e) {
         // Ignore
       }
-      this.ws = null
     }
 
     // Clean up decoders for fresh start
@@ -459,27 +465,35 @@ export class WebSocketStream {
     const wsUrl = `${protocol}//${window.location.host}/api/v1/external-agents/${encodeURIComponent(this.sessionId || '')}/ws/stream${clientIdParam}`
 
     console.log("[WebSocketStream] Connecting to:", wsUrl)
-    this.ws = new WebSocket(wsUrl)
-    this.ws.binaryType = "arraybuffer"
+    const ws = new WebSocket(wsUrl)
+    this.ws = ws
+    ws.binaryType = "arraybuffer"
 
-    this.ws.addEventListener("open", this.onOpen.bind(this))
-    this.ws.addEventListener("close", this.onClose.bind(this))
-    this.ws.addEventListener("error", this.onError.bind(this))
-    this.ws.addEventListener("message", this.onMessage.bind(this))
+    ws.addEventListener("open", () => {
+      if (this.ws === ws) this.onOpen()
+    })
+    ws.addEventListener("close", (event) => {
+      if (this.ws === ws) this.onClose(event)
+    })
+    ws.addEventListener("error", (event) => {
+      if (this.ws === ws) this.onError(event)
+    })
+    ws.addEventListener("message", (event) => {
+      if (this.ws === ws) this.onMessage(event)
+    })
 
     // Start connection timeout - if onOpen doesn't fire, force reconnect
     this.clearConnectionTimeout()
     this.connectionTimeoutId = setTimeout(() => {
+      if (this.ws !== ws) return
       console.warn(`[WebSocketStream] Connection timeout (${this.CONNECTION_TIMEOUT_MS}ms), forcing reconnect`)
       this.dispatchInfoEvent({ type: "connectionTimeout", timeoutMs: this.CONNECTION_TIMEOUT_MS })
       this.dispatchInfoEvent({ type: "error", message: "Connection timeout" })
       // Close the stuck WebSocket and trigger reconnection
-      if (this.ws) {
-        try {
-          this.ws.close()
-        } catch (e) {
-          // Ignore
-        }
+      try {
+        ws.close()
+      } catch (e) {
+        // Ignore
       }
       // onClose will handle reconnection
     }, this.CONNECTION_TIMEOUT_MS)
@@ -758,6 +772,9 @@ export class WebSocketStream {
       case WsMessageType.SelfId:
         this.handleSelfId(data)
         break
+      case WsMessageType.ClipboardChanged:
+        this.dispatchInfoEvent({ type: "clipboardChanged" })
+        break
       default:
         // Only warn on unknown types (rare, not a hot path)
         console.warn("[WebSocketStream] Unknown message type:", msgType, "hex=0x" + msgType.toString(16))
@@ -926,6 +943,10 @@ export class WebSocketStream {
     const thisGeneration = ++this.decoderGeneration
     console.log(`[WebSocketStream] Creating decoder generation ${thisGeneration}`)
 
+    // Hold frames that arrive before configure() below; see pendingVideoFrames.
+    this.decoderInitGeneration = thisGeneration
+    this.pendingVideoFrames = []
+
     // Store config for potential recovery
     this.lastVideoCodec = codec
     this.lastVideoWidth = width
@@ -965,6 +986,8 @@ export class WebSocketStream {
         if (!fallbackSupport.supported) {
           console.error("[WebSocketStream] Video codec not supported (hardware or software):", codecString)
           this.dispatchInfoEvent({ type: "error", message: `Video codec ${codecString} not supported` })
+          this.decoderInitGeneration = 0
+          this.pendingVideoFrames = []
           return
         }
         useHardwareAcceleration = "no-preference"
@@ -1062,6 +1085,33 @@ export class WebSocketStream {
         optimizeForLatency: true,
       })
       console.log("[WebSocketStream] Video decoder configured (fallback mode)")
+    }
+
+    this.flushFramesBufferedDuringDecoderInit(thisGeneration)
+  }
+
+  private bufferFrameDuringDecoderInit(data: Uint8Array) {
+    if (data.length < 15) return
+    const isKeyframe = (data[2] & 0x01) !== 0
+    if (isKeyframe) {
+      // A keyframe makes everything before it unnecessary.
+      this.pendingVideoFrames = [data]
+    } else if (this.pendingVideoFrames.length > 0 && this.pendingVideoFrames.length < this.MAX_PENDING_VIDEO_FRAMES) {
+      this.pendingVideoFrames.push(data)
+    }
+    // Delta frames with no keyframe held are undecodable; drop them.
+  }
+
+  private flushFramesBufferedDuringDecoderInit(generation: number) {
+    // A newer initVideoDecoder call owns the buffer now.
+    if (this.decoderInitGeneration !== generation) return
+    this.decoderInitGeneration = 0
+    const pending = this.pendingVideoFrames
+    this.pendingVideoFrames = []
+    if (pending.length === 0 || this.videoDecoder?.state !== "configured") return
+    console.log(`[WebSocketStream] Feeding ${pending.length} frame(s) that arrived while the decoder was configuring`)
+    for (const frame of pending) {
+      this.handleVideoFrame(frame)
     }
   }
 
@@ -1217,6 +1267,16 @@ export class WebSocketStream {
   // Track if we've received the first keyframe (needed for decoder to work)
   private receivedFirstKeyframe = false
 
+  // Video frames that arrived while initVideoDecoder was still awaiting
+  // isConfigSupported. On connect the server replays the current GOP (keyframe
+  // first) immediately after StreamInit, so those frames land before the decoder
+  // is configured; dropping them throws away the only keyframe and leaves the
+  // viewer on "Waiting for video" until the next one, which on an idle desktop is
+  // tens of seconds away. Held from the latest keyframe and fed in once configured.
+  private decoderInitGeneration = 0
+  private pendingVideoFrames: Uint8Array[] = []
+  private readonly MAX_PENDING_VIDEO_FRAMES = 240
+
   // Render watchdog. "videoStarted" fires from the DECODE path, so once decoding
   // begins nothing else watches whether pixels actually reach the canvas.
   private lastFramePaintedAt = 0
@@ -1236,7 +1296,10 @@ export class WebSocketStream {
 
   private handleVideoFrame(data: Uint8Array) {
     if (!this.videoDecoder || this.videoDecoder.state !== "configured") {
-      // Queue frames or drop them if decoder isn't ready
+      // Hold frames while the decoder is configuring; drop them otherwise
+      if (this.decoderInitGeneration !== 0) {
+        this.bufferFrameDuringDecoderInit(data)
+      }
       return
     }
 
@@ -2374,6 +2437,8 @@ export class WebSocketStream {
   private resetStreamState() {
     // Reset video state
     this.receivedFirstKeyframe = false
+    this.decoderInitGeneration = 0
+    this.pendingVideoFrames = []
     this.lastFramePaintedAt = 0
     this.renderStalled = false
     // A reconnect must not inherit the previous connection's render target state:
@@ -2580,16 +2645,7 @@ export class WebSocketStream {
       this.reconnectTimeoutId = null
     }
 
-    // Close current connection and reconnect
-    if (this.ws) {
-      try {
-        this.ws.close()
-      } catch (e) {
-        // Ignore
-      }
-    }
-
-    // Connect immediately
+    // Connect immediately; connect() owns teardown of the previous socket.
     this.connect()
   }
 

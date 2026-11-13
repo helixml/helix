@@ -2,6 +2,7 @@ package wsprotocol
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/util/sanitize"
@@ -31,12 +32,15 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 				messageToolCallName: make(map[string]string),
 				messageSubagentID:   make(map[string]string),
 			}
+			reordered := false
+			var lastRestoredMessageID string
 			for _, entry := range entries {
 				id := entry.MessageID
 				if id == "" {
 					continue
 				}
-				acc.messageOrder = append(acc.messageOrder, id)
+				lastRestoredMessageID = id
+				reordered = acc.insertMessageID(id) || reordered
 				acc.messageContent[id] = entry.Content
 				acc.messageType[id] = entry.Type
 				if entry.ToolName != "" {
@@ -55,8 +59,12 @@ func RestoreAccumulator(content string, lastMessageID string, offset int, respon
 					acc.messageSubagentID[id] = entry.SubagentID
 				}
 			}
-			if lastMessageID == "" && len(acc.messageOrder) > 0 {
-				acc.LastMessageID = acc.messageOrder[len(acc.messageOrder)-1]
+			if lastMessageID == "" {
+				acc.LastMessageID = lastRestoredMessageID
+			}
+			if reordered {
+				acc.contentDirty = true
+				acc.Rebuild()
 			}
 			return acc
 		}
@@ -109,7 +117,7 @@ type MessageAccumulator struct {
 	// completion) to avoid joining 17 MB of strings on every message.
 	contentDirty bool
 
-	// Ordered list of message IDs (insertion order)
+	// Numeric IDs follow ACP entry-index order; synthetic IDs retain relative arrival order.
 	messageOrder []string
 	// Map from message_id to its content
 	messageContent map[string]string
@@ -145,8 +153,8 @@ type MessageAccumulator struct {
 // AddMessage processes a new content update from Zed.
 //
 // If messageID was seen before, its content is replaced in-place (streaming
-// update or flush correction). If messageID is new, it is appended to the
-// ordered list. The full Content string is rebuilt after every call.
+// update or flush correction). New numeric IDs are inserted by ACP entry index;
+// synthetic IDs retain arrival order. Content is rebuilt when a caller needs it.
 func (a *MessageAccumulator) AddMessage(messageID, content string) {
 	a.AddMessageWithType(messageID, content, "")
 }
@@ -284,8 +292,9 @@ func (a *MessageAccumulator) AddMessageWithMetadata(messageID, content, entryTyp
 			a.messageSubagentID[messageID] = subagentID
 		}
 	} else {
-		// New message_id — append to order
-		a.messageOrder = append(a.messageOrder, messageID)
+		// New numeric ACP entry IDs follow transcript order even when a delayed
+		// replay arrives after newer entries. Synthetic IDs retain arrival order.
+		a.insertMessageID(messageID)
 		a.messageContent[messageID] = content
 		if entryType != "" {
 			a.messageType[messageID] = entryType
@@ -311,8 +320,38 @@ func (a *MessageAccumulator) AddMessageWithMetadata(messageID, content, entryTyp
 	a.contentDirty = true
 }
 
-// Entries returns the structured response entries in insertion order,
-// preserving the type information for each message_id.
+func (a *MessageAccumulator) insertMessageID(messageID string) bool {
+	entryIndex, err := strconv.ParseUint(messageID, 10, 64)
+	if err != nil {
+		a.messageOrder = append(a.messageOrder, messageID)
+		return false
+	}
+
+	insertAt := len(a.messageOrder)
+	for i := len(a.messageOrder) - 1; i >= 0; i-- {
+		existingID := a.messageOrder[i]
+		existingIndex, err := strconv.ParseUint(existingID, 10, 64)
+		if err != nil {
+			continue
+		}
+		if existingIndex <= entryIndex {
+			break
+		}
+		insertAt = i
+	}
+	if insertAt == len(a.messageOrder) {
+		a.messageOrder = append(a.messageOrder, messageID)
+		return false
+	}
+
+	a.messageOrder = append(a.messageOrder, "")
+	copy(a.messageOrder[insertAt+1:], a.messageOrder[insertAt:])
+	a.messageOrder[insertAt] = messageID
+	return true
+}
+
+// Entries returns structured responses in ACP transcript order. Synthetic
+// message IDs retain arrival order.
 // Entries with empty content are omitted.
 func (a *MessageAccumulator) Entries() []ResponseEntry {
 	entries := make([]ResponseEntry, 0, len(a.messageOrder))
@@ -356,7 +395,7 @@ func (a *MessageAccumulator) Rebuild() {
 }
 
 // rebuild reconstructs the legacy flat Content by joining prose and tool
-// entries in insertion order. Plan snapshots remain structured-only so their
+// entries in transcript order. Plan snapshots remain structured-only so their
 // JSON never leaks into assistant prose or downstream transcripts.
 func (a *MessageAccumulator) rebuild() {
 	// Collect non-empty parts

@@ -791,13 +791,25 @@ Examples:
 
 func newArchiveCommand() *cobra.Command {
 	var unarchive bool
+	var keepAgent bool
+	var forceStopAgent bool
 
 	cmd := &cobra.Command{
 		Use:   "archive <task-id>",
 		Short: "Archive a task (hides it from the board and stops its agent)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Archive a task. By default this also stops the task's agent and frees its\n" +
+			"sandbox, matching the desktop UI. A live agent that is mid-turn is never\n" +
+			"killed unless --stop-agent is passed. Use --keep-agent for bookkeeping only.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			request := types.SpecTaskArchiveRequest{Archived: !unarchive}
+			if !unarchive {
+				// Default: stop (frees the sandbox). --keep-agent opts out;
+				// --stop-agent additionally authorises killing a live agent.
+				stopAgent := !keepAgent
+				request.StopAgent = &stopAgent
+				request.StopAgentExplicit = forceStopAgent
+			}
 			var task types.SpecTask
 			path := "/api/v1/spec-tasks/" + args[0] + "/archive"
 			if err := taskRequest(http.MethodPatch, path, request, &task); err != nil {
@@ -807,12 +819,19 @@ func newArchiveCommand() *cobra.Command {
 				fmt.Printf("✅ Restored %s to the board\n", task.ID)
 				return nil
 			}
+			if keepAgent {
+				fmt.Printf("📦 Archived %s (agent left running)\n", task.ID)
+				return nil
+			}
 			fmt.Printf("📦 Archived %s\n", task.ID)
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&unarchive, "undo", false, "Restore an archived task to the board")
+	cmd.Flags().BoolVar(&keepAgent, "keep-agent", false, "Archive without stopping the agent (bookkeeping only; keeps its sandbox)")
+	cmd.Flags().BoolVar(&forceStopAgent, "stop-agent", false, "Also stop an agent that is still mid-turn (default refuses to kill an in-flight turn)")
+	cmd.MarkFlagsMutuallyExclusive("keep-agent", "stop-agent")
 	return cmd
 }
 

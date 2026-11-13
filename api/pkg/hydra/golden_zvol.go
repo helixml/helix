@@ -341,7 +341,10 @@ func parseSessionZvolName(name string) (string, goldenCacheKind, bool) {
 // on the external filesystem so GC knows it's in use.
 func touchExternalMarker(sessionID string, kind goldenCacheKind) {
 	externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
-	_ = os.MkdirAll(externalDir, 0755)
+	if err := os.MkdirAll(externalDir, 0755); err != nil {
+		log.Warn().Err(err).Str("dir", externalDir).Msg("Failed to create session last-active marker dir; its reap grace will run from an older time")
+		return
+	}
 	TouchSessionLastActive(externalDir)
 }
 
@@ -656,19 +659,24 @@ func cleanupSessionZvolForKind(sessionID string, kind goldenCacheKind) error {
 		}
 	}
 
-	// Destroy the clone (recursive: takes any descendant snapshots with it)
+	return destroySessionZvolForKind(sessionID, kind)
+}
+
+// destroySessionZvolForKind destroys an unmounted session clone and its mount
+// point. It never unmounts: a clone remounted since the caller unmounted it
+// fails with "dataset is busy" and is kept.
+func destroySessionZvolForKind(sessionID string, kind goldenCacheKind) error {
+	cloneName := sessionZvolNameForKind(sessionID, kind)
+	// Recursive: takes any descendant snapshots with it.
 	if err := runCmd("zfs", "destroy", "-r", cloneName); err != nil {
 		return fmt.Errorf("failed to destroy clone %s: %w", cloneName, err)
 	}
-
-	// Remove mount point directory
-	_ = os.Remove(mountPath)
+	_ = os.Remove(sessionZvolMountPathForKind(sessionID, kind))
 
 	log.Info().
 		Str("clone", cloneName).
 		Str("session_id", sessionID).
 		Msg("Cleaned up session ZFS clone")
-
 	return nil
 }
 
@@ -834,7 +842,7 @@ func ReconcilePendingGoldenPromotions() int {
 	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		projectID, kind, ok := parseGoldenZvolName(name)
 		if !ok {
-			continue // session clones that never reached the rename are reaped by GC
+			continue // a marked session clone is kept by the reaper; nothing completes it yet
 		}
 		lock := getGoldenLockForKind(projectID, kind)
 		lock.Lock()
@@ -1063,55 +1071,6 @@ func createSessionZvolForKind(sessionID string, kind goldenCacheKind) (string, e
 	return mountPath, nil
 }
 
-// GCOrphanedZvols destroys session zvols that are no longer active.
-func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
-	if !ZFSAvailable() {
-		return 0, nil
-	}
-
-	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
-	if err != nil {
-		return 0, err
-	}
-
-	var cleaned int
-	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		sessionID, kind, ok := parseSessionZvolName(name)
-		if !ok {
-			continue
-		}
-		if activeSessions[sessionID] {
-			// Refresh the external marker so that if Hydra crashes or the
-			// session runs for weeks, the marker stays fresh and GC won't
-			// destroy the zvol after the next restart.
-			externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
-			_ = os.MkdirAll(externalDir, 0755)
-			TouchSessionLastActive(externalDir)
-			continue
-		}
-
-		// Check .last-active marker on the external filesystem.
-		// The marker lives beside the session's engine data directory.
-		// which is on the parent ZFS dataset, readable without mounting the XFS zvol.
-		externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
-		age := sessionLastActiveAge(externalDir)
-		if age > 0 && age < 7*24*time.Hour {
-			continue // recently active, keep it
-		}
-		// age == 0 means no marker — pre-marker session, safe to GC since
-		// all sessions now get markers on creation and periodic refresh.
-		// age >= 7 days — stale session, GC it.
-
-		if err := cleanupSessionZvolForKind(sessionID, kind); err != nil {
-			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to GC orphaned zvol")
-			continue
-		}
-		cleaned++
-	}
-
-	return cleaned, nil
-}
-
 // zvolCreationAge returns how long ago a zvol was created, using the ZFS
 // `creation` property (unix seconds, via -p). Returns 0 if the property can't
 // be read or parsed — callers treat 0 as "unknown age" and apply their own
@@ -1134,14 +1093,17 @@ func zvolCreationAge(zvolName string) time.Duration {
 //
 // Safety contract (do not weaken):
 //   - Only ses- zvols are ever enumerated; golden-* zvols are never touched
-//     (the prefix guard filters them out, mirroring GCOrphanedZvols).
+//     (the prefix guard filters them out).
+//   - Only session (ses_) zvols are reaped: sandbox-API desktops (sbx_) share
+//     the naming scheme but are never in the session live set.
+//   - A zvol carrying a pending golden promotion is kept whatever the live set
+//     says, and a mounted one is reaped only if a plain (never lazy) unmount
+//     succeeds.
 //   - Destroys go through CleanupSessionZvol, which uses `zfs destroy -r`
 //     (lowercase). A clone-root or busy zvol fails with "has dependent clones"
 //     / "dataset is busy"; we record it as skipped and move on. We NEVER force
 //     (no `-R`, no `-f`) — refusing to destroy a busy/parent dataset is the
 //     desired behaviour.
-//   - Live sessions get their external marker refreshed so the legacy on-disk
-//     GC keeps treating them as fresh.
 func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
 	if !ZFSAvailable() {
 		return nil, nil
@@ -1149,8 +1111,8 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 
 	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
 	if err != nil {
-		log.Warn().Err(err).Msg("ReconcileOrphanZvols: failed to list zvols")
-		return nil, nil
+		log.Error().Err(err).Str("dataset", zfsParentDataset).Msg("ReconcileOrphanZvols: failed to list zvols; nothing reaped")
+		return nil, []GCSkip{{Name: zfsParentDataset, Reason: "list error: " + err.Error()}}
 	}
 
 	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -1158,23 +1120,49 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 		if !ok {
 			continue // never touch golden- or anything else
 		}
+		if !isResourceID(sessionID, "ses_") {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "not a session"})
+			continue
+		}
 
 		if liveSet[sessionID] {
-			// Live per the DB — keep, and refresh the on-disk marker so the
-			// legacy 7-day GC also keeps treating it as fresh.
-			externalDir := filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))
-			_ = os.MkdirAll(externalDir, 0755)
-			TouchSessionLastActive(externalDir)
+			// Live per the DB — keep, and refresh its last-active marker, the
+			// clock grace runs from once it stops being live.
+			touchExternalMarker(sessionID, kind)
 			skipped = append(skipped, GCSkip{Name: name, Reason: "live"})
 			continue
 		}
 
-		// Not live. Apply the grace period using zvol creation time. age == 0
-		// means we couldn't read the creation property — be conservative and
-		// skip (treat as within grace).
+		// Not live. A zvol is created at session start, so its creation age
+		// alone has passed grace by the time a long session leaves the live
+		// set. Measure from when it was last seen live or stopped instead
+		// (the external marker), falling back to creation. An unreadable
+		// creation time keeps it.
 		age := zvolCreationAge(name)
+		if age == 0 {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "age unknown"})
+			continue
+		}
+		if markerAge := fileCopyDirAge(filepath.Join(sessionsBaseDir, containerDataVolumeName(sessionID, kind))); markerAge > 0 && markerAge < age {
+			age = markerAge
+		}
 		if age < grace {
 			skipped = append(skipped, GCSkip{Name: name, Reason: "grace"})
+			continue
+		}
+
+		if !zfsDatasetExists(name) {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "gone"}) // destroyed concurrently
+			continue
+		}
+		// A promotion interrupted after `zfs promote` leaves the newest golden
+		// build on this session clone; destroying it loses that build.
+		if _, _, pending, err := pendingGoldenPromotion(name); err != nil || pending {
+			reason := "pending golden promotion"
+			if err != nil {
+				reason = "promotion state unknown: " + err.Error()
+			}
+			skipped = append(skipped, GCSkip{Name: name, Reason: reason})
 			continue
 		}
 
@@ -1183,12 +1171,27 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 			continue
 		}
 
-		if err := cleanupSessionZvolForKind(sessionID, kind); err != nil {
+		// A stopped desktop leaves its zvol mounted for a warm restart, so a
+		// mount alone does not mean it is in use. A plain unmount succeeds
+		// when idle and fails with EBUSY when something holds it; never fall
+		// through to the lazy unmount the explicit destroy path uses.
+		if mountPath := sessionZvolMountPathForKind(sessionID, kind); isMounted(mountPath) {
+			if err := runCmd("umount", mountPath); err != nil {
+				skipped = append(skipped, GCSkip{Name: name, Reason: "busy: " + err.Error()})
+				continue
+			}
+		}
+
+		if err := destroySessionZvolForKind(sessionID, kind); err != nil {
 			msg := err.Error()
-			// "has dependent clones" / "dataset is busy" → a golden clone-root
-			// or a manually-cloned descendant depends on this zvol. NEVER force.
-			if strings.Contains(msg, "dependent clones") || strings.Contains(msg, "busy") {
+			// A golden clone-root or a manually-cloned descendant depends on
+			// it, or something remounted it since the unmount. NEVER force.
+			if strings.Contains(msg, "dependent clones") {
 				skipped = append(skipped, GCSkip{Name: name, Reason: "dependent: " + msg})
+				continue
+			}
+			if strings.Contains(msg, "busy") {
+				skipped = append(skipped, GCSkip{Name: name, Reason: "busy: " + msg})
 				continue
 			}
 			log.Warn().Err(err).Str("zvol", name).Msg("ReconcileOrphanZvols: failed to destroy zvol")
@@ -1207,19 +1210,15 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 //
 // These dirs hold the inner docker storage on hosts where ZFS is unavailable
 // (the file-copy fallback in resolveDockerDataDir), and stale marker dirs on
-// ZFS hosts. The durable reaper previously ignored them entirely — only the
-// legacy in-memory GCOrphanedSessionDirs touched them, and that path skips any
-// dir without a .last-active marker forever (age == 0). Ended-session docker
-// data therefore leaked indefinitely (this is what accumulated ~1T of dead
-// docker-data dirs on a file-copy host). This closes the gap using the same
-// durable, DB-derived live-set the zvol reaper uses.
+// ZFS hosts, using the same DB-derived live set as the zvol reaper.
 func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
 	entries, err := os.ReadDir(sessionsBaseDir)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Warn().Err(err).Msg("ReconcileOrphanFileCopyDirs: failed to read sessions dir")
+		if os.IsNotExist(err) {
+			return nil, nil
 		}
-		return nil, nil
+		log.Error().Err(err).Str("dir", sessionsBaseDir).Msg("ReconcileOrphanFileCopyDirs: failed to read sessions dir; nothing reaped")
+		return nil, []GCSkip{{Name: sessionsBaseDir, Reason: "list error: " + err.Error()}}
 	}
 
 	for _, entry := range entries {
@@ -1231,10 +1230,14 @@ func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, d
 			continue
 		}
 		dir := filepath.Join(sessionsBaseDir, entry.Name())
+		if !isResourceID(sessionID, "ses_") {
+			skipped = append(skipped, GCSkip{Name: dir, Reason: "not a session"})
+			continue
+		}
 
 		if liveSet[sessionID] {
-			// Live per the DB — keep, and refresh the marker so the legacy
-			// 7-day GC also keeps treating it as fresh.
+			// Live per the DB — keep, and refresh the marker so the grace
+			// period (fileCopyDirAge) starts when the session stops being live.
 			TouchSessionLastActive(dir)
 			skipped = append(skipped, GCSkip{Name: dir, Reason: "live"})
 			continue
@@ -1266,9 +1269,8 @@ func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, d
 
 // fileCopyDirAge returns how long since a session docker-data dir was last
 // active, using the newer of the dir's own mtime and its .last-active marker.
-// Unlike sessionLastActiveAge it never returns 0 for a marker-less dir: a
-// missing marker falls back to the dir mtime, so pre-marker / crashed dirs are
-// still reapable. Returns 0 only when the dir can't be stat'd at all (treated
+// A missing marker falls back to the dir mtime, so pre-marker / crashed dirs
+// are still reapable. Returns 0 only when the dir can't be stat'd at all (treated
 // as fresh — conservative, won't reap).
 func fileCopyDirAge(dir string) time.Duration {
 	var newest time.Time

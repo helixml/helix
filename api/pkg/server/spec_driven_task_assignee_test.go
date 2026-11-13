@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -216,4 +218,115 @@ func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryReleasesFailedLaunchSessi
 	s.server.startPlanning(rr, req)
 
 	s.Equal(http.StatusOK, rr.Code)
+}
+
+func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryReleasesSessionFromDisconnectedSandbox() {
+	const (
+		starterID = "user_starter"
+		projectID = "project1"
+		taskID    = "task1"
+		sessionID = "session_failed_launch"
+	)
+
+	task := &types.SpecTask{
+		ID:                taskID,
+		ProjectID:         projectID,
+		Status:            types.TaskStatusBacklog,
+		PlanningSessionID: sessionID,
+		Metadata:          map[string]interface{}{"error": "desktop limit reached"},
+	}
+	project := &types.Project{ID: projectID, UserID: starterID}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+
+	s.store.EXPECT().GetSpecTask(gomock.Any(), taskID).Return(task, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil).Times(3)
+	executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(fmt.Errorf("dial hydra: %w", connman.ErrNoConnection))
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), sessionID, types.InteractionStateInterrupted, "retrying failed spec task").Return(nil, nil)
+	s.store.EXPECT().UpdateSpecTask(gomock.Any(), task).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.Equal(types.TaskStatusQueuedSpecGeneration, updated.Status)
+			s.Empty(updated.PlanningSessionID)
+			return nil
+		},
+	)
+	s.store.EXPECT().DeleteSession(gomock.Any(), sessionID).Return(&types.Session{ID: sessionID}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
+	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	rr := httptest.NewRecorder()
+
+	s.server.startPlanning(rr, req)
+
+	s.Equal(http.StatusOK, rr.Code)
+}
+
+func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryRejectsOtherStopErrors() {
+	const (
+		starterID = "user_starter"
+		projectID = "project1"
+		taskID    = "task1"
+		sessionID = "session_failed_launch"
+	)
+
+	task := &types.SpecTask{
+		ID:                taskID,
+		ProjectID:         projectID,
+		Status:            types.TaskStatusBacklog,
+		PlanningSessionID: sessionID,
+		Metadata:          map[string]interface{}{"error": "failed launch"},
+	}
+	project := &types.Project{ID: projectID, UserID: starterID}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+
+	s.store.EXPECT().GetSpecTask(gomock.Any(), taskID).Return(task, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil).Times(3)
+	executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(errors.New("hydra API error"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
+	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	rr := httptest.NewRecorder()
+
+	s.server.startPlanning(rr, req)
+
+	s.Equal(http.StatusInternalServerError, rr.Code)
+	s.Equal(sessionID, task.PlanningSessionID)
+}
+
+func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryDoesNotReleaseSessionWhenInterruptFails() {
+	const (
+		starterID = "user_starter"
+		projectID = "project1"
+		taskID    = "task1"
+		sessionID = "session_failed_launch"
+	)
+
+	task := &types.SpecTask{
+		ID:                taskID,
+		ProjectID:         projectID,
+		Status:            types.TaskStatusBacklog,
+		PlanningSessionID: sessionID,
+		Metadata:          map[string]interface{}{"error": "failed launch"},
+	}
+	project := &types.Project{ID: projectID, UserID: starterID}
+	executor := external_agent.NewMockExecutor(s.ctrl)
+	s.server.externalAgentExecutor = executor
+
+	s.store.EXPECT().GetSpecTask(gomock.Any(), taskID).Return(task, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil).Times(3)
+	executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(fmt.Errorf("dial hydra: %w", connman.ErrNoConnection))
+	s.store.EXPECT().ReapWaitingInteractions(gomock.Any(), sessionID, types.InteractionStateInterrupted, "retrying failed spec task").Return(nil, errors.New("database error"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
+	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	rr := httptest.NewRecorder()
+
+	s.server.startPlanning(rr, req)
+
+	s.Equal(http.StatusInternalServerError, rr.Code)
+	s.Equal(sessionID, task.PlanningSessionID)
 }

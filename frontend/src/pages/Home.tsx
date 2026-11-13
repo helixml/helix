@@ -1,17 +1,15 @@
 import React, { FC, useEffect, useState } from 'react'
-import {
-  Box,
-  Button,
-  Checkbox,
-  CircularProgress,
-  FormControlLabel,
-  ListItemIcon,
-  ListItemText,
-  Menu,
-  MenuItem,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import CircularProgress from '@mui/material/CircularProgress';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import { ChevronDown, Folder, FolderPlus, Hammer, ListTodo } from 'lucide-react'
 
 import {
@@ -278,8 +276,8 @@ const Home: FC = () => {
       }
 
       try {
-        const { keyboardLayout, timezone } = getBrowserLocale()
-        await startTask.mutateAsync({ taskId, keyboard: keyboardLayout, timezone })
+        const { keyboardLayout, timezone, languages } = getBrowserLocale()
+        await startTask.mutateAsync({ taskId, keyboard: keyboardLayout, timezone, languages })
       } catch (error) {
         snackbar.error(errorMessage(error, 'Task created, but it could not be started'))
         account.orgNavigate('chat-task', { id: selectedProjectId, taskId })

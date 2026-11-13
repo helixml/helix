@@ -120,10 +120,9 @@ export function hasLostBaseline(
   const misaligned = entryPatches.some((ep) => {
     if (ep.index >= entries.length) return false;
     const entry = entries[ep.index];
-    // Both ids known and different — our array no longer corresponds to the
-    // server's, so this patch belongs to an entry we are not holding here.
+    // A changed id is safe only when the server supplied a full replacement.
     if (entry.message_id && ep.message_id && entry.message_id !== ep.message_id) {
-      return true;
+      return (ep.patch_offset ?? 0) !== 0;
     }
     return hasPatchGap(entry.content, ep.patch_offset);
   });

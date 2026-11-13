@@ -13,6 +13,21 @@ import (
 // ErrNonRetryable marks an activation failure that durable delivery must not replay.
 var ErrNonRetryable = errors.New("non-retryable activation error")
 
+type nonRetryableError struct{ err error }
+
+func (e nonRetryableError) Error() string { return e.err.Error() }
+func (e nonRetryableError) Unwrap() []error {
+	return []error{ErrNonRetryable, e.err}
+}
+
+// NonRetryable marks err as terminal without replacing its user-facing text.
+func NonRetryable(err error) error {
+	if err == nil {
+		return nil
+	}
+	return nonRetryableError{err: err}
+}
+
 // ID is the typed identifier for one Activation row. Format
 // convention: `a-<uuid>` — mirrors `e-…` for events, `w-…` for
 // Workers, `s-…` for Topics. Empty IDs are rejected at construction

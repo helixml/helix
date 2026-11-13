@@ -17,6 +17,10 @@ import (
 
 // authorizeUserToProjectAccessGrants checks if the user can manage access grants for a project
 func (apiServer *HelixAPIServer) authorizeUserToProjectAccessGrants(ctx context.Context, user *types.User, project *types.Project, action types.Action) error {
+	if err := denyAccessGrantsToScopedKey(user); err != nil {
+		return err
+	}
+
 	// Check if user is a member of the org
 	orgMembership, err := apiServer.authorizeOrgMember(ctx, user, project.OrganizationID)
 	if err != nil {
@@ -123,7 +127,7 @@ func (apiServer *HelixAPIServer) createProjectAccessGrant(rw http.ResponseWriter
 	var req types.CreateAccessGrantRequest
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		writeErrResponse(rw, err, http.StatusBadRequest)
+		writeErrResponse(rw, jsonDecodeHTTPError(err), http.StatusBadRequest)
 		return
 	}
 

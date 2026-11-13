@@ -44,7 +44,7 @@ type CompletionOutcome struct {
 func (s *PRProposalService) RequestCompletion(ctx context.Context, taskID, summary string) (*CompletionOutcome, error) {
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
-		return nil, invalidProposal("summary is required: tell the user what was done and why the task is finished")
+		return nil, invalidCompletion("summary is required: tell the user what was done and why the task is finished")
 	}
 	var out *CompletionOutcome
 	var newRequest bool
@@ -54,20 +54,20 @@ func (s *PRProposalService) RequestCompletion(ctx context.Context, taskID, summa
 			return err
 		}
 		if !completableStatuses[task.Status] {
-			return invalidProposal("the task is in %q; it can only be marked complete while you are working on it", task.Status)
+			return invalidCompletion("the task is in %q; it can only be marked complete while you are working on it", task.Status)
 		}
 		outstanding, err := s.HasOutstanding(ctx, task.ID)
 		if err != nil {
 			return err
 		}
 		if outstanding {
-			return conflictingProposal("a pull request proposal is still pending, approved but not opened, or failed; wait for it to be resolved (or ask the user to reject it) before marking the task complete")
+			return conflictingCompletion("a pull request proposal is still pending, approved but not opened, or failed; wait for it to be resolved (or ask the user to reject it) before marking the task complete")
 		}
 		out = &CompletionOutcome{Task: task, OpenPRs: openPRs(task)}
 		// Postgres keeps microseconds; the request's attention key is derived
 		// from this time, so it must survive the round trip unchanged.
 		now := time.Now().Truncate(time.Microsecond)
-		if task.AutoApprovePullRequests {
+		if task.AutoApprovePullRequests && s.currentAutoApprover(ctx, task) != nil {
 			completeTask(task, now)
 			out.Done = true
 		} else {
@@ -96,7 +96,8 @@ func (s *PRProposalService) RequestCompletion(ctx context.Context, taskID, summa
 
 // DecideCompletion applies the user's decision. Approving marks the task done
 // (stopping its desktop) whether or not the agent asked — the user may finish a
-// task at any time. Rejecting a pending request clears it and passes the
+// task at any point while it is being worked on, but not one still waiting in
+// the backlog or a queue. Rejecting a pending request clears it and passes the
 // user's feedback to the agent.
 func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.User, taskID string, req *types.CompletionDecisionRequest) (*types.SpecTask, error) {
 	switch req.Decision {
@@ -104,7 +105,7 @@ func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.Us
 		return s.CompleteTask(ctx, taskID)
 	case types.CompletionDecisionReject:
 	default:
-		return nil, invalidProposal("decision must be %q or %q", types.CompletionDecisionApprove, types.CompletionDecisionReject)
+		return nil, invalidCompletion("decision must be %q or %q", types.CompletionDecisionApprove, types.CompletionDecisionReject)
 	}
 	var task *types.SpecTask
 	var key string
@@ -114,7 +115,7 @@ func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.Us
 			return err
 		}
 		if task.CompletionRequestedAt == nil {
-			return conflictingProposal("the agent has not asked to complete this task")
+			return conflictingCompletion("the agent has not asked to complete this task")
 		}
 		key = CompletionRequestAttentionKey(task)
 		task.CompletionRequestedAt = nil
@@ -137,7 +138,8 @@ func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.Us
 }
 
 // CompleteTask marks a task done on a person's or org Bot's say-so, with or
-// without a pending request from the agent.
+// without a pending request from the agent, provided the task is being worked
+// on (completableStatuses).
 func (s *PRProposalService) CompleteTask(ctx context.Context, taskID string) (*types.SpecTask, error) {
 	var task *types.SpecTask
 	err := s.git.WithRepoLock("task:"+taskID, func() error {
@@ -146,10 +148,16 @@ func (s *PRProposalService) CompleteTask(ctx context.Context, taskID string) (*t
 			return err
 		}
 		if task.Status == types.TaskStatusDone {
-			return conflictingProposal("the task is already done")
+			return conflictingCompletion("the task is already done")
 		}
 		if task.Archived {
-			return conflictingProposal("the task is archived")
+			return conflictingCompletion("the task is archived")
+		}
+		// Done is the exit of the pipeline: a task that has not reached
+		// planning or implementation (backlog, queued, failed) cannot skip
+		// straight to it.
+		if !completableStatuses[task.Status] {
+			return conflictingCompletion("the task is in %q; only a task that is being worked on can be marked done", task.Status)
 		}
 		completeTask(task, time.Now())
 		return s.store.UpdateSpecTask(ctx, task)
@@ -268,7 +276,7 @@ func MarkTaskCompleteGuidance(hasPullRequests bool) string {
 	}
 	return "**Finishing the task:** The task is never marked done automatically — not even when your pull requests merge, because work often continues after a merge. " +
 		"When the work is finished (or the user tells you it is), call `mark_task_complete` with a summary of what was delivered. " + confirm + " " +
-		"Do not call it while your pull requests are still open: users merge them on GitHub/GitLab/Azure DevOps themselves, so tell the user which ones are waiting to be merged. " +
+		"Do not call it while your pull requests are still open: users merge them themselves (on GitHub/GitLab/Azure DevOps, or on the pull request page in Helix for Helix-hosted repositories), so tell the user which ones are waiting to be merged. " +
 		"You get a message here when each one is merged or closed; after a merge, check whether follow-up work is needed before you finish. " +
 		"Tasks that need no code changes (research, analysis, docs on the helix-specs branch) finish the same way, with no pull request."
 }
@@ -310,4 +318,23 @@ func BuildPRSettledPrompt(task *types.SpecTask, pr types.RepoPR) string {
 			"if follow-up work is needed, carry on and propose another pull request."
 	}
 	return msg
+}
+
+// completionError reads as a completion error but matches ErrPRProposalInvalid
+// or ErrPRProposalConflict, so handlers map it to 400 or 409 like the pull
+// request proposal errors it shares a service with.
+type completionError struct {
+	kind error
+	msg  string
+}
+
+func (e *completionError) Error() string        { return e.msg }
+func (e *completionError) Is(target error) bool { return target == e.kind }
+
+func invalidCompletion(format string, args ...any) error {
+	return &completionError{kind: ErrPRProposalInvalid, msg: "invalid completion request: " + fmt.Sprintf(format, args...)}
+}
+
+func conflictingCompletion(format string, args ...any) error {
+	return &completionError{kind: ErrPRProposalConflict, msg: "completion conflict: " + fmt.Sprintf(format, args...)}
 }

@@ -30,10 +30,20 @@ func NewClientWithPAT(token string) *Client {
 // with an optional base URL for GitHub Enterprise instances.
 // If baseURL is empty, uses github.com.
 func NewClientWithPATAndBaseURL(token, baseURL string) *Client {
+	return NewClientWithPATBaseURLAndHTTPClient(token, baseURL, nil)
+}
+
+// NewClientWithPATBaseURLAndHTTPClient is NewClientWithPATAndBaseURL with the
+// underlying transport taken from httpClient (nil = http.DefaultClient). Use
+// it with a netguard client when baseURL is caller-supplied.
+func NewClientWithPATBaseURLAndHTTPClient(token, baseURL string, httpClient *http.Client) *Client {
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: token},
 	)
+	if httpClient != nil {
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
+	}
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
 
@@ -74,7 +84,11 @@ func NewClientWithOAuthAndBaseURL(accessToken, baseURL string) *Client {
 // access token), pointed at GHES when baseURL is non-empty. Shared by
 // NewClientWithGitHubApp and MintInstallationToken.
 func newInstallationTransport(appID, installationID int64, privateKey, baseURL string) (*ghinstallation.Transport, error) {
-	itr, err := ghinstallation.New(http.DefaultTransport, appID, installationID, []byte(privateKey))
+	return newInstallationTransportWithBase(http.DefaultTransport, appID, installationID, privateKey, baseURL)
+}
+
+func newInstallationTransportWithBase(base http.RoundTripper, appID, installationID int64, privateKey, baseURL string) (*ghinstallation.Transport, error) {
+	itr, err := ghinstallation.New(base, appID, installationID, []byte(privateKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitHub App transport: %w", err)
 	}
@@ -91,13 +105,31 @@ func newInstallationTransport(appID, installationID int64, privateKey, baseURL s
 // and privateKey is the PEM-encoded private key for JWT signing.
 // baseURL is optional for GitHub Enterprise instances (empty for github.com).
 func NewClientWithGitHubApp(appID, installationID int64, privateKey, baseURL string) (*Client, error) {
-	itr, err := newInstallationTransport(appID, installationID, privateKey, baseURL)
+	return NewClientWithGitHubAppAndHTTPClient(appID, installationID, privateKey, baseURL, nil)
+}
+
+// NewClientWithGitHubAppAndHTTPClient is NewClientWithGitHubApp with every
+// request (token exchange and API calls) sent through httpClient's transport,
+// keeping its timeout and redirect policy (nil = library default). Use it
+// with a netguard client when baseURL is caller-supplied.
+func NewClientWithGitHubAppAndHTTPClient(appID, installationID int64, privateKey, baseURL string, httpClient *http.Client) (*Client, error) {
+	base := http.DefaultTransport
+	apiClient := &http.Client{}
+	if httpClient != nil {
+		if httpClient.Transport != nil {
+			base = httpClient.Transport
+		}
+		apiClient.Timeout = httpClient.Timeout
+		apiClient.CheckRedirect = httpClient.CheckRedirect
+	}
+	itr, err := newInstallationTransportWithBase(base, appID, installationID, privateKey, baseURL)
 	if err != nil {
 		return nil, err
 	}
+	apiClient.Transport = itr
 
 	ctx := context.Background()
-	client := github.NewClient(&http.Client{Transport: itr})
+	client := github.NewClient(apiClient)
 
 	// Configure for GitHub Enterprise if base URL is provided
 	if baseURL != "" {
@@ -572,6 +604,55 @@ func (c *Client) ForkRepository(ctx context.Context, owner, repo, organization s
 	}
 
 	return forkedRepo, nil
+}
+
+// ListUserOrganizations lists the organizations the authenticated user is a
+// member of (GET /user/orgs).
+func (c *Client) ListUserOrganizations(ctx context.Context) ([]*github.Organization, error) {
+	var all []*github.Organization
+	opt := &github.ListOptions{PerPage: 100}
+	for {
+		orgs, resp, err := c.client.Organizations.List(ctx, "", opt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list organizations: %w", err)
+		}
+		all = append(all, orgs...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+	return all, nil
+}
+
+// CreateRepositoryFromTemplate generates a new repository from a template
+// repository (POST /repos/{template}/generate). Only the template's default
+// branch is copied.
+func (c *Client) CreateRepositoryFromTemplate(ctx context.Context, templateOwner, templateRepo, owner, name, description string, private bool) (*github.Repository, error) {
+	repo, _, err := c.client.Repositories.CreateFromTemplate(ctx, templateOwner, templateRepo, &github.TemplateRepoRequest{
+		Owner:              github.String(owner),
+		Name:               github.String(name),
+		Description:        github.String(description),
+		Private:            github.Bool(private),
+		IncludeAllBranches: github.Bool(false),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create repository from template %s/%s: %w", templateOwner, templateRepo, err)
+	}
+	return repo, nil
+}
+
+// BranchExists reports whether a branch exists in a repository. A 404 is
+// reported as false, not as an error.
+func (c *Client) BranchExists(ctx context.Context, owner, repo, branch string) (bool, error) {
+	_, resp, err := c.client.Repositories.GetBranch(ctx, owner, repo, branch, 0)
+	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusNotFound {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to get branch %s: %w", branch, err)
+	}
+	return true, nil
 }
 
 // ForkExists checks if a fork of the given repo already exists in the user's account or organization

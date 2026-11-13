@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import RobustPromptInput from './RobustPromptInput'
@@ -8,6 +8,8 @@ import { QUEUE_DISPATCH_GRACE_MS } from '../../utils/promptQueueVisibility'
 const updateInterrupt = vi.fn()
 const saveToHistory = vi.fn()
 const clearDraft = vi.fn()
+const setDraft = vi.fn()
+let draft = ''
 
 let pendingPrompts: PromptHistoryEntry[] = []
 
@@ -18,8 +20,8 @@ vi.mock('../../hooks/usePromptHistory', async () => {
   return {
     ...actual,
     usePromptHistory: () => ({
-      draft: '',
-      setDraft: vi.fn(),
+      draft,
+      setDraft,
       saveToHistory,
       markAsSent: vi.fn(),
       markAsFailed: vi.fn(),
@@ -32,6 +34,10 @@ vi.mock('../../hooks/usePromptHistory', async () => {
       clearDraft,
     }),
   }
+})
+
+beforeEach(() => {
+  draft = ''
 })
 
 vi.mock('./useSandboxComposerSuggestions', () => {
@@ -107,6 +113,56 @@ describe('RobustPromptInput autofocus', () => {
     )
 
     await waitFor(() => expect(view.container.querySelector('textarea')).toHaveFocus())
+  })
+})
+
+describe('RobustPromptInput direct send', () => {
+  beforeEach(() => {
+    clearDraft.mockClear()
+    setDraft.mockClear()
+  })
+
+  it('clears before the send finishes and restores the draft when it is refused', async () => {
+    draft = 'Some really good barbecue chefs'
+    let finishSend: (sent: boolean) => void = () => {}
+    const onSend = vi.fn(() => new Promise<boolean>((resolve) => {
+      finishSend = resolve
+    }))
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        sendMode="direct"
+        onSend={onSend}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(onSend).toHaveBeenCalledWith('Some really good barbecue chefs', true, [])
+    expect(clearDraft).toHaveBeenCalledTimes(1)
+    expect(setDraft).not.toHaveBeenCalled()
+
+    finishSend(false)
+    await waitFor(() => expect(setDraft).toHaveBeenCalledWith('Some really good barbecue chefs'))
+  })
+
+  it('restores the draft when sending throws', async () => {
+    draft = 'Try this again'
+    const error = new Error('send failed')
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        sendMode="direct"
+        onSend={vi.fn().mockRejectedValue(error)}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(setDraft).toHaveBeenCalledWith('Try this again'))
+    expect(errorLog).toHaveBeenCalledWith('Failed to send prompt:', error)
+    errorLog.mockRestore()
   })
 })
 
@@ -190,8 +246,13 @@ describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', ()
 // out of the way when it is (spec tasks).
 describe('RobustPromptInput client-side queue pump', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     saveToHistory.mockClear()
     pendingPrompts = []
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('dispatches a pending message via onSend when there is no spec task', async () => {
@@ -200,10 +261,8 @@ describe('RobustPromptInput client-side queue pump', () => {
     render(
       <RobustPromptInput sessionId="ses_test" projectId="prj_1" onSend={onSend} />
     )
-    await waitFor(
-      () => expect(onSend).toHaveBeenCalledWith('hello worker', false),
-      { timeout: 2000 },
-    )
+    await act(() => vi.advanceTimersByTimeAsync(1000))
+    expect(onSend).toHaveBeenCalledWith('hello worker', false)
   })
 
   it('does NOT pump the queue when the backend queue is enabled (spec task)', async () => {
@@ -218,8 +277,8 @@ describe('RobustPromptInput client-side queue pump', () => {
         onSend={onSend}
       />
     )
-    // Give the pump's 500ms/300ms timers room to (not) fire.
-    await new Promise((r) => setTimeout(r, 800))
+    // Run past the pump's 500ms/300ms timers.
+    await act(() => vi.advanceTimersByTimeAsync(1000))
     expect(onSend).not.toHaveBeenCalled()
   })
 })
@@ -314,11 +373,20 @@ describe('RobustPromptInput queue panel only appears for genuinely queued prompt
     expect(screen.getByText('2 queued')).toBeInTheDocument()
   })
 
-  it('reveals an undispatched prompt once the grace window elapses', async () => {
-    pendingPrompts = [mkEntry('a', Date.now() - (QUEUE_DISPATCH_GRACE_MS - 150))]
-    renderQueued()
-    expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText('1 queued')).toBeInTheDocument())
+  it('reveals an undispatched prompt once the grace window elapses', () => {
+    // A frozen clock: a slow render must not eat into the grace window.
+    vi.useFakeTimers()
+    try {
+      pendingPrompts = [mkEntry('a', Date.now())]
+      renderQueued()
+      expect(screen.queryByText(/queued/)).not.toBeInTheDocument()
+      act(() => {
+        vi.advanceTimersByTime(QUEUE_DISPATCH_GRACE_MS + 100)
+      })
+      expect(screen.getByText('1 queued')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -507,6 +575,102 @@ describe('RobustPromptInput rich attachments', () => {
 
     expect(onSend).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Preview diagram.png' })).toBeInTheDocument()
+  })
+
+  describe('desktop copy placeholder image', () => {
+    // A 1x1 PNG header padded to 88 bytes: the placeholder as Chrome on Linux
+    // hands it back after re-encoding it through the OS clipboard.
+    const pngFile = (width: number, height: number, size: number, name: string) => {
+      const bytes = new Uint8Array(size)
+      bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+      const view = new DataView(bytes.buffer)
+      view.setUint32(16, width)
+      view.setUint32(20, height)
+      return new File([bytes], name, { type: 'image/png' })
+    }
+
+    let insertText: ReturnType<typeof vi.fn>
+    beforeEach(() => {
+      insertText = vi.fn(() => true)
+      Object.defineProperty(document, 'execCommand', { configurable: true, value: insertText })
+    })
+
+    const renderComposer = (onFileUpload: (file: File) => Promise<string>) => {
+      render(<RobustPromptInput sessionId="ses_test" onSend={vi.fn()} onFileUpload={onFileUpload} />)
+      return screen.getByPlaceholderText('Send message to agent...')
+    }
+
+    const paste = (target: HTMLElement, files: File[], text: string) =>
+      fireEvent.paste(target, {
+        clipboardData: {
+          files,
+          items: [],
+          getData: (type: string) => (type === 'text/plain' ? text : ''),
+        },
+      })
+
+    it('pastes desktop-copied text as text instead of the placeholder', async () => {
+      const onFileUpload = vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`)
+      const composer = renderComposer(onFileUpload)
+
+      paste(composer, [pngFile(1, 1, 88, 'image.png')], 'hello from the desktop')
+
+      await waitFor(() => expect(insertText).toHaveBeenCalledWith('insertText', false, 'hello from the desktop'))
+      expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+      expect(onFileUpload).not.toHaveBeenCalled()
+    })
+
+    it('still attaches a real image pasted alongside text', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      paste(composer, [pngFile(64, 64, 4096, 'screenshot.png')], 'caption')
+
+      expect(await screen.findByRole('button', { name: 'Preview screenshot.png' })).toBeInTheDocument()
+      expect(insertText).not.toHaveBeenCalled()
+    })
+
+    it('still inserts the text when the image header cannot be read', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+      const unreadable = pngFile(1, 1, 88, 'image.png')
+      Object.defineProperty(unreadable, 'slice', {
+        value: () => ({ arrayBuffer: () => Promise.reject(new Error('NotReadableError')) }),
+      })
+
+      paste(composer, [unreadable], 'hello from wispr')
+
+      await waitFor(() => expect(insertText).toHaveBeenCalledWith('insertText', false, 'hello from wispr'))
+      expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+    })
+
+    it('writes the text into the draft when the browser refuses the insert', async () => {
+      insertText.mockReturnValue(false)
+      setDraft.mockClear()
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      paste(composer, [pngFile(1, 1, 88, 'image.png')], 'hello from wispr')
+
+      await waitFor(() => expect(setDraft).toHaveBeenCalledWith('hello from wispr'))
+    })
+
+    it('leaves large images to the synchronous attach path', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      const notPrevented = paste(composer, [pngFile(1, 1, 200 * 1024, 'photo.png')], 'caption')
+
+      expect(notPrevented).toBe(false)
+      expect(await screen.findByRole('button', { name: 'Preview photo.png' })).toBeInTheDocument()
+      expect(insertText).not.toHaveBeenCalled()
+    })
+
+    it('still converts a large desktop text paste into a text attachment', async () => {
+      const composer = renderComposer(vi.fn(async (file: File) => `/home/retro/work/incoming/${file.name}`))
+
+      paste(composer, [pngFile(1, 1, 88, 'image.png')], 'x'.repeat(20000))
+
+      expect(await screen.findByText(/pasted-text-.*\.txt/)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Preview image.png' })).not.toBeInTheDocument()
+      expect(insertText).not.toHaveBeenCalled()
+    })
   })
 
   it('keeps a failed upload visible and blocks send until it is retried', async () => {

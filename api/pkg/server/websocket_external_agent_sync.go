@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
 
 // ErrNoExternalAgentWS is returned by sendCommandToExternalAgent when no
@@ -71,6 +72,18 @@ func isAgentCrashError(errMsg string) bool {
 		}
 	}
 	return false
+}
+
+// agentConnectFailureMarker is how Zed words a thread_load_error raised before
+// the agent process ever connected, e.g. when installing the agent's npm
+// package fails because the registry is unreachable. See thread_service.rs.
+const agentConnectFailureMarker = "agent connect failed"
+
+// isAgentConnectError reports whether errMsg is a failure to start or connect
+// the agent, as opposed to a failure inside a loaded session. No session was
+// loaded, so the thread cannot be its cause.
+func isAgentConnectError(errMsg string) bool {
+	return strings.Contains(errMsg, agentConnectFailureMarker)
 }
 
 func isMissingCodexRolloutError(errMsg string) bool {
@@ -474,8 +487,8 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 			// Initialize readiness tracking - we'll wait for agent_ready before sending continue prompt
 			// This prevents race conditions where we send prompts before the agent is ready
-			apiServer.externalAgentWSManager.initReadinessState(helixSessionID, needsContinue, nil)
-			defer apiServer.externalAgentWSManager.cleanupReadinessState(helixSessionID)
+			readiness := apiServer.externalAgentWSManager.initReadinessState(helixSessionID, needsContinue, nil)
+			defer apiServer.externalAgentWSManager.cleanupReadinessState(helixSessionID, readiness)
 
 			// Clear stale streaming context from previous connection.
 			apiServer.flushAndClearStreamingContext(ctx, helixSessionID)
@@ -1884,6 +1897,19 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				break
 			}
 		}
+		if targetInteraction == nil && len(interactions) >= 1000 {
+			mapped, lookupErr := apiServer.Controller.Options.Store.GetInteraction(ctx, expectedInteractionID)
+			if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				log.Error().Err(lookupErr).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", expectedInteractionID).
+					Msg("Failed to load mapped interaction for streaming context")
+				return nil
+			}
+			if mapped != nil && mapped.SessionID == helixSessionID && mapped.GenerationID == helixSession.GenerationID {
+				targetInteraction = mapped
+			}
+		}
 	}
 	// Durable correlation: the in-memory request map does not survive an API
 	// restart, so an agent that keeps working across one addresses its turn by a
@@ -1908,11 +1934,30 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	//
 	// `complete` is never revived: that turn legitimately finished.
 	if targetInteraction == nil && requestID != "" {
-		for i := len(interactions) - 1; i >= 0; i-- {
-			if interactions[i].ExternalAgentRequestID != requestID {
-				continue
+		var candidate *types.Interaction
+		if len(interactions) < 1000 {
+			for i := len(interactions) - 1; i >= 0; i-- {
+				if interactions[i].ExternalAgentRequestID != requestID {
+					continue
+				}
+				candidate = interactions[i]
+				break
 			}
-			candidate := interactions[i]
+		}
+		if candidate == nil && len(interactions) >= 1000 {
+			durable, lookupErr := apiServer.Controller.Options.Store.GetInteractionByExternalAgentRequestID(ctx, requestID)
+			if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				log.Error().Err(lookupErr).
+					Str("session_id", helixSessionID).
+					Str("request_id", requestID).
+					Msg("Failed to load durable interaction for streaming context")
+				return nil
+			}
+			if durable != nil && durable.SessionID == helixSessionID && durable.GenerationID == helixSession.GenerationID {
+				candidate = durable
+			}
+		}
+		if candidate != nil {
 			if candidate.State == types.InteractionStateError &&
 				candidate.Completed.IsZero() &&
 				!isAgentCrashError(candidate.Error) {
@@ -1929,22 +1974,38 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 					log.Error().Err(err).
 						Str("interaction_id", candidate.ID).
 						Msg("Failed to revive errored interaction for live turn")
-					break
+					return nil
 				}
 			}
 			if candidate.State == types.InteractionStateWaiting {
 				targetInteraction = candidate
 			}
-			break
 		}
 	}
 	// Fallback: find most recent waiting interaction (for backward compat / old Zed without request_id)
-	if targetInteraction == nil {
+	if targetInteraction == nil && len(interactions) < 1000 {
 		for i := len(interactions) - 1; i >= 0; i-- {
 			if interactions[i].State == types.InteractionStateWaiting {
 				targetInteraction = interactions[i]
 				break
 			}
+		}
+	}
+	if targetInteraction == nil && len(interactions) >= 1000 {
+		waiting, _, listErr := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: helixSession.GenerationID,
+			PerPage:      1,
+			State:        types.InteractionStateWaiting,
+			Order:        "created DESC, id DESC",
+		})
+		if listErr != nil {
+			log.Error().Err(listErr).Str("session_id", helixSessionID).
+				Msg("Failed to find waiting interaction for streaming context")
+			return nil
+		}
+		if len(waiting) > 0 {
+			targetInteraction = waiting[0]
 		}
 	}
 	// After an API restart, the most recent interaction may have been marked as
@@ -1960,9 +2021,28 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	// handleMessageCompleted's request_id-mapping resolver — see
 	// architecture-simplifications.md §1; broadening this scan does not fix that and
 	// risks misrouting, so it stays conservative.
-	if targetInteraction == nil && len(interactions) > 0 {
-		last := interactions[len(interactions)-1]
-		if last.State == types.InteractionStateError && last.Error == "Interrupted" {
+	if targetInteraction == nil {
+		var last *types.Interaction
+		if len(interactions) > 0 {
+			last = interactions[len(interactions)-1]
+		}
+		if len(interactions) >= 1000 {
+			latest, _, listErr := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+				SessionID:    helixSessionID,
+				GenerationID: helixSession.GenerationID,
+				PerPage:      1,
+				Order:        "created DESC, id DESC",
+			})
+			if listErr != nil {
+				log.Error().Err(listErr).Str("session_id", helixSessionID).
+					Msg("Failed to find latest interaction for streaming context recovery")
+				return nil
+			}
+			if len(latest) > 0 {
+				last = latest[0]
+			}
+		}
+		if last != nil && last.State == types.InteractionStateError && last.Error == "Interrupted" {
 			last.State = types.InteractionStateWaiting
 			last.Error = ""
 			last.Completed = time.Time{}
@@ -2407,7 +2487,7 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 		// resume path will deliver it when the agent reconnects via WebSocket. Wrap the sentinel so
 		// callers (e.g. sendQueuedPromptToSession) can recognise this as an expected
 		// transient state via errors.Is and avoid surfacing it as a queue failure.
-		go apiServer.autoStartDevContainerForSession(sessionID)
+		go apiServer.autoStartDevContainerForSession(context.Background(), sessionID)
 		return fmt.Errorf("session %s: %w", sessionID, ErrNoExternalAgentWS)
 	}
 
@@ -2671,9 +2751,10 @@ func (manager *ExternalAgentWSManager) listConnections() []types.ExternalAgentCo
 // These methods track whether the agent in a session is ready to receive messages.
 // This prevents race conditions where we send prompts before Zed has loaded the agent.
 
-// initReadinessState initializes readiness tracking for a session
-// Returns a callback that should be called when agent_ready is received (or on timeout)
-func (manager *ExternalAgentWSManager) initReadinessState(sessionID string, needsContinue bool, onReady func()) {
+// initReadinessState initializes readiness tracking for a session and returns
+// the new state. The connection that created it passes that state back to
+// cleanupReadinessState, so it only ever removes its own.
+func (manager *ExternalAgentWSManager) initReadinessState(sessionID string, needsContinue bool, onReady func()) *SessionReadinessState {
 	manager.readinessMu.Lock()
 	defer manager.readinessMu.Unlock()
 
@@ -2707,6 +2788,7 @@ func (manager *ExternalAgentWSManager) initReadinessState(sessionID string, need
 		Str("session_id", sessionID).
 		Bool("needs_continue", needsContinue).
 		Msg("[READINESS] Initialized readiness tracking for session")
+	return state
 }
 
 // markSessionReady marks a session as ready and flushes pending messages.
@@ -2879,18 +2961,23 @@ func (manager *ExternalAgentWSManager) queueOrSend(sessionID string, cmd types.E
 	return true
 }
 
-// cleanupReadinessState removes readiness tracking for a session
-func (manager *ExternalAgentWSManager) cleanupReadinessState(sessionID string) {
+// cleanupReadinessState removes the session's readiness tracking if it is
+// still the state passed in as owned. When a session reconnects, the new connection installs
+// its own state before the old connection's teardown runs; that teardown must
+// leave the successor's state (and its queued commands) alone.
+func (manager *ExternalAgentWSManager) cleanupReadinessState(sessionID string, owned *SessionReadinessState) {
 	manager.readinessMu.Lock()
 	defer manager.readinessMu.Unlock()
 
-	if state, exists := manager.readinessState[sessionID]; exists {
-		if state.TimeoutTimer != nil {
-			state.TimeoutTimer.Stop()
-		}
-		delete(manager.readinessState, sessionID)
-		log.Debug().Str("session_id", sessionID).Msg("Cleaned up readiness state")
+	state, exists := manager.readinessState[sessionID]
+	if !exists || state != owned {
+		return
 	}
+	if state.TimeoutTimer != nil {
+		state.TimeoutTimer.Stop()
+	}
+	delete(manager.readinessState, sessionID)
+	log.Debug().Str("session_id", sessionID).Msg("Cleaned up readiness state")
 }
 
 // handleChatResponse processes complete chat response from external agent
@@ -3163,21 +3250,20 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
 			SessionID:    helixSessionID,
 			GenerationID: helixSession.GenerationID,
-			PerPage:      1000,
+			PerPage:      1,
+			State:        types.InteractionStateWaiting,
+			Order:        "created DESC, id DESC",
 		})
 		if err != nil {
 			return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
 		}
 
-		for i := len(interactions) - 1; i >= 0; i-- {
-			if interactions[i].State == types.InteractionStateWaiting {
-				targetInteractionID = interactions[i].ID
-				log.Info().
-					Str("helix_session_id", helixSessionID).
-					Str("interaction_id", interactions[i].ID).
-					Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (no request_id mapping)")
-				break
-			}
+		if len(interactions) > 0 {
+			targetInteractionID = interactions[0].ID
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", interactions[0].ID).
+				Msg("✅ [HELIX] Fallback: found waiting interaction via DB scan (no request_id mapping)")
 		}
 	}
 
@@ -3385,6 +3471,12 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		} else {
 			log.Info().Str("helix_session_id", helixSessionID).
 				Msg("♻️ [HELIX] Reset auto-restart budget after successful turn")
+		}
+	}
+	if helixSession.Metadata.Recovery != nil {
+		if err := apiServer.Store.SetSessionProviderRecovery(context.Background(), helixSessionID, nil); err != nil {
+			log.Warn().Err(err).Str("helix_session_id", helixSessionID).
+				Msg("Failed to clear provider recovery after successful turn")
 		}
 	}
 
@@ -3677,7 +3769,7 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
 			PerPage:      1,
-			Order:        "id DESC",
+			Order:        "created DESC, id DESC",
 		})
 		if err != nil {
 			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
@@ -3853,7 +3945,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
 			PerPage:      1,
-			Order:        "id DESC",
+			Order:        "created DESC, id DESC",
 		})
 		if recheckErr == nil && len(latestInteractions) > 0 && latestInteractions[0].State == types.InteractionStateWaiting {
 			// Before reporting "busy", check whether this Waiting interaction is
@@ -4057,9 +4149,10 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 }
 
 // autoStartDevContainerForSession boots the dev container for any zed_external
-// session that has no live WebSocket connection. Fire-and-forget — the caller's
-// message is already persisted and will be picked up by the reconnect resume path
-// when the agent reconnects.
+// session that has no live WebSocket connection. Callers usually run it
+// detached — the caller's message is already persisted and will be picked up by
+// the reconnect resume path when the agent reconnects. Failures are logged here;
+// the error is returned for callers that act on its cause.
 //
 // Handles three session shapes via startDevContainerForSession:
 //   - spec-task sessions  (session.Metadata.SpecTaskID set)
@@ -4068,23 +4161,22 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 //
 // Sessions with none of the above are logged and skipped (we cannot invent project
 // config). Non-zed_external sessions are also skipped (they have no desktop to wake).
-func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID string) {
-	ctx := context.Background()
+func (apiServer *HelixAPIServer) autoStartDevContainerForSession(ctx context.Context, sessionID string) error {
 	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("autoStartDevContainerForSession: failed to get session")
-		return
+		return fmt.Errorf("get session %s: %w", sessionID, err)
 	}
 	if session == nil {
 		log.Warn().Str("session_id", sessionID).Msg("autoStartDevContainerForSession: session is nil")
-		return
+		return fmt.Errorf("session %s not found", sessionID)
 	}
 	if session.Metadata.AgentType != "zed_external" {
 		log.Debug().
 			Str("session_id", sessionID).
 			Str("agent_type", session.Metadata.AgentType).
 			Msg("autoStartDevContainerForSession: not a zed_external session, skipping")
-		return
+		return nil
 	}
 
 	log.Info().
@@ -4098,7 +4190,9 @@ func (apiServer *HelixAPIServer) autoStartDevContainerForSession(sessionID strin
 			Str("session_id", sessionID).
 			Str("spec_task_id", session.Metadata.SpecTaskID).
 			Msg("Failed to auto-start dev container")
+		return startErr
 	}
+	return nil
 }
 
 // truncateString truncates a string to maxLen characters
@@ -4397,8 +4491,7 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 // (e.g. desktop replay during reconnect).
 // genericACPAbortMarker identifies the generic mid-turn abort string that Zed
 // emits when an ACP turn errors without a cause (see
-// zed/crates/external_websocket_sync/src/thread_service.rs). It is the only
-// message we attempt to reclassify — specific errors are left untouched.
+// zed/crates/external_websocket_sync/src/thread_service.rs).
 const genericACPAbortMarker = "exited mid-turn or hit max tokens"
 
 // providerFailureLookback bounds how far back a failed provider call may be and
@@ -4408,8 +4501,10 @@ const genericACPAbortMarker = "exited mid-turn or hit max tokens"
 // presented as the cause.
 const providerFailureLookback = 3 * time.Minute
 
-// maybeExplainProviderFailure replaces the generic ACP mid-turn abort message
-// with the provider error that actually caused it.
+const maxProviderRecoveryAttempts = 3
+
+// maybeExplainProviderFailure replaces opaque ACP transport errors with a
+// user-facing provider explanation only when a recent failed LLM call proves it.
 //
 // Zed's AcpThreadEvent::Error carries no cause (see
 // zed/crates/acp_thread/src/acp_thread.rs — run_turn logs the error and emits a
@@ -4422,16 +4517,25 @@ const providerFailureLookback = 3 * time.Minute
 // Returns errorMsg unchanged when the message is not the generic one, when no
 // recent call failed, or when the store is unavailable — a wrong explanation is
 // worse than a vague one.
-func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context, helixSessionID, errorMsg string) string {
-	if !strings.Contains(errorMsg, genericACPAbortMarker) || helixSessionID == "" {
-		return errorMsg
+func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context, helixSessionID, errorMsg string) (string, *types.LLMCall) {
+	if !isOpaqueProviderAbort(errorMsg) || helixSessionID == "" {
+		return errorMsg, nil
 	}
-	detail, ok := apiServer.recentProviderFailure(ctx, helixSessionID)
+	failure, ok := apiServer.recentProviderFailure(ctx, helixSessionID)
 	if !ok {
-		return errorMsg
+		return errorMsg, nil
 	}
-	return fmt.Sprintf("Agent turn aborted: the model provider failed and the coding agent gave up retrying. "+
-		"Last provider error: %s.", detail)
+	return "The AI model was temporarily unavailable, so this task did not run.", failure.call
+}
+
+func isOpaqueProviderAbort(errorMsg string) bool {
+	return strings.Contains(errorMsg, genericACPAbortMarker) ||
+		(strings.Contains(errorMsg, "agent turn aborted") && system.Has5xxStatusCode(errorMsg))
+}
+
+type recentProviderFailureResult struct {
+	detail string
+	call   *types.LLMCall
 }
 
 // recentProviderFailure returns a one-line description of the session's most
@@ -4439,9 +4543,9 @@ func (apiServer *HelixAPIServer) maybeExplainProviderFailure(ctx context.Context
 // failed" — when one happened within providerFailureLookback. Both the turn
 // abort and thread-load failure paths attach it, because the agent only ever
 // reports a generic service failure while llm_calls holds the actual reason.
-func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, helixSessionID string) (string, bool) {
+func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, helixSessionID string) (recentProviderFailureResult, bool) {
 	if helixSessionID == "" {
-		return "", false
+		return recentProviderFailureResult{}, false
 	}
 	calls, _, err := apiServer.Store.ListLLMCalls(ctx, &store.ListLLMCallsQuery{
 		SessionID: helixSessionID,
@@ -4449,7 +4553,7 @@ func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, heli
 		PerPage:   10,
 	})
 	if err != nil || len(calls) == 0 {
-		return "", false
+		return recentProviderFailureResult{}, false
 	}
 	// ListLLMCalls orders by created DESC, so the first failure we meet is the
 	// most recent one.
@@ -4464,7 +4568,7 @@ func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, heli
 		}
 	}
 	if failure == nil || time.Since(failure.Created) > providerFailureLookback {
-		return "", false
+		return recentProviderFailureResult{}, false
 	}
 
 	// Count how many consecutive recent calls failed the same way. One failure
@@ -4489,7 +4593,53 @@ func (apiServer *HelixAPIServer) recentProviderFailure(ctx context.Context, heli
 	if attempts > 1 {
 		detail += fmt.Sprintf(". %d consecutive requests failed", attempts)
 	}
-	return detail, true
+	return recentProviderFailureResult{detail: detail, call: failure}, true
+}
+
+func providerRecoveryDelay(attempts int) time.Duration {
+	switch attempts {
+	case 0:
+		return time.Minute
+	case 1:
+		return 5 * time.Minute
+	default:
+		return 30 * time.Minute
+	}
+}
+
+func (apiServer *HelixAPIServer) recordProviderRecovery(ctx context.Context, interaction *types.Interaction, failure *types.LLMCall) bool {
+	if interaction == nil || interaction.PromptID == "" || failure == nil || failure.Provider == "" {
+		return false
+	}
+	session, err := apiServer.Store.GetSession(ctx, interaction.SessionID)
+	if err != nil || session.Metadata.OrgWorkerID == "" || !session.Metadata.AutoRestartOnCrash {
+		return false
+	}
+	attempts := 0
+	if current := session.Metadata.Recovery; current != nil && current.PromptID == interaction.PromptID && current.Provider == failure.Provider {
+		attempts = current.Attempts
+	}
+	if attempts >= maxProviderRecoveryAttempts {
+		return false
+	}
+	failedAt := failure.Updated
+	if failedAt.IsZero() {
+		failedAt = time.Now()
+	}
+	session.Metadata.Recovery = &types.ProviderRecovery{
+		Provider:      failure.Provider,
+		Model:         failure.Model,
+		PromptID:      interaction.PromptID,
+		InteractionID: interaction.ID,
+		Attempts:      attempts,
+		FailedAt:      failedAt,
+		NextCheckAt:   time.Now().Add(providerRecoveryDelay(attempts)),
+	}
+	if err := apiServer.Store.SetSessionProviderRecovery(ctx, session.ID, session.Metadata.Recovery); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to record provider recovery")
+		return false
+	}
+	return true
 }
 
 // maybeReclassifySubscriptionAuthError rewrites the generic ACP mid-turn abort
@@ -4615,8 +4765,8 @@ func (apiServer *HelixAPIServer) reapplyThreadLoadErrorAfterSilence(helixSession
 // in llm_calls and is what the operator actually needs to see.
 func (apiServer *HelixAPIServer) commitThreadLoadFailure(ctx context.Context, helixSession *types.Session, target *types.Interaction, acpThreadID, errorMsg string) {
 	helixSessionID := helixSession.ID
-	if detail, ok := apiServer.recentProviderFailure(ctx, helixSessionID); ok {
-		errorMsg = fmt.Sprintf("%s. Last model provider error: %s", errorMsg, detail)
+	if failure, ok := apiServer.recentProviderFailure(ctx, helixSessionID); ok {
+		errorMsg = fmt.Sprintf("%s. Last model provider error: %s", errorMsg, failure.detail)
 	}
 	target.State = types.InteractionStateError
 	target.Error = fmt.Sprintf("Thread load failed: %s", errorMsg)
@@ -5080,7 +5230,7 @@ func (apiServer *HelixAPIServer) publishEntryPatchesToFrontend(
 	var entryPatches []types.EntryPatch
 	for i, entry := range currentEntries {
 		var prevContent string
-		if i < len(previousEntries) {
+		if i < len(previousEntries) && previousEntries[i].MessageID == entry.MessageID {
 			prevContent = previousEntries[i].Content
 		}
 		// Skip entries that haven't changed at all

@@ -75,27 +75,53 @@ if docker info >/dev/null 2>&1; then
         # desktop is still running. Desktop PID 1 does not handle SIGTERM
         # either, so `docker stop` alone would SIGKILL straight through it.
         log "Stopping inner dockerd in ${#containers[@]} container(s) (up to ${DESKTOP_DOCKERD_TIMEOUT}s)"
+        quiesce_pids=()
         for c in "${containers[@]}"; do
             # shellcheck disable=SC2016 # expanded by the container's shell
             timeout "$((DESKTOP_DOCKERD_TIMEOUT + 5))" docker exec -u root "$c" sh -c '
                 [ -f /var/run/docker.pid ] || exit 0
-                touch /tmp/.dockerd-stop
                 pid=$(cat /var/run/docker.pid) || exit 0
-                kill -TERM "$pid" 2>/dev/null || exit 0
-                for _ in $(seq 1 "$1"); do
-                    kill -0 "$pid" 2>/dev/null || exit 0
+                supervisor=$(awk '\''$1 == "PPid:" { print $2 }'\'' "/proc/$pid/status") || exit 1
+                case "$supervisor" in
+                    ""|*[!0-9]*) exit 1 ;;
+                esac
+                [ "$supervisor" -gt 1 ] || exit 1
+                touch /tmp/.dockerd-stop
+                kill -TERM "$pid" 2>/dev/null || true
+                remaining=$1
+                while kill -0 "$pid" 2>/dev/null; do
+                    [ "$remaining" -gt 0 ] || exit 1
                     sleep 1
+                    remaining=$((remaining - 1))
                 done
-                exit 1' sh "$DESKTOP_DOCKERD_TIMEOUT" >/dev/null 2>&1 &
+                while kill -0 "$supervisor" 2>/dev/null; do
+                    [ "$remaining" -gt 0 ] || exit 1
+                    sleep 1
+                    remaining=$((remaining - 1))
+                done
+                rm -f /tmp/.dockerd-stop' sh "$DESKTOP_DOCKERD_TIMEOUT" >/dev/null 2>&1 &
+            quiesce_pids+=("$!")
         done
-        wait
+        for i in "${!quiesce_pids[@]}"; do
+            wait "${quiesce_pids[$i]}" || log "Inner dockerd in container ${containers[$i]} did not quiesce cleanly"
+        done
 
-        # 3. Stop the desktops themselves (docker stop runs them in parallel).
-        # Their state is already flushed above, and their PID 1 ignores
-        # SIGTERM, so a short grace is enough.
-        log "Stopping ${#containers[@]} container(s) (grace ${DESKTOP_STOP_TIMEOUT}s)"
-        timeout "$((DESKTOP_STOP_TIMEOUT + 30))" docker stop -t "$DESKTOP_STOP_TIMEOUT" "${containers[@]}" >/dev/null 2>&1 ||
-            log "Some containers did not stop cleanly"
+        # 3. Stop non-persistent desktops themselves (docker stop runs them in
+        # parallel). Explicitly stopping a persistent container disables its
+        # unless-stopped restart policy across this dockerd restart.
+        containers_to_stop=()
+        for c in "${containers[@]}"; do
+            persistent=$(docker inspect -f '{{ index .Config.Labels "helix.persistent" }}' "$c" 2>/dev/null) || {
+                log "Could not inspect container $c; keeping it for dockerd restart"
+                continue
+            }
+            [ "$persistent" = "true" ] || containers_to_stop+=("$c")
+        done
+        if [ "${#containers_to_stop[@]}" -gt 0 ]; then
+            log "Stopping ${#containers_to_stop[@]} non-persistent container(s) (grace ${DESKTOP_STOP_TIMEOUT}s)"
+            timeout "$((DESKTOP_STOP_TIMEOUT + 30))" docker stop -t "$DESKTOP_STOP_TIMEOUT" "${containers_to_stop[@]}" >/dev/null 2>&1 ||
+                log "Some non-persistent containers did not stop cleanly"
+        fi
     fi
 fi
 

@@ -24,9 +24,18 @@ var ErrSessionNotFound = errors.New("helix session not found")
 // Neither blocks on the turn, so neither hits the external-agent response
 // timeout; the Spawner observes completion via pollUntilDone + the mirror.
 type SessionClient interface {
-	StartSession(ctx context.Context, params StartSessionParams) (sessionID string, err error)
-	SendMessage(ctx context.Context, sessionID, prompt string) error
+	StartSession(ctx context.Context, params StartSessionParams) (DeliveryResult, error)
+	SendMessage(ctx context.Context, sessionID, prompt, deliveryID string, resetSession bool) (DeliveryResult, error)
+	GetDeliveryOutput(ctx context.Context, delivery DeliveryResult) (types.SessionOutputResponse, error)
 	ServerStatus(ctx context.Context) (ServerStatus, error)
+}
+
+type DeliveryResult struct {
+	SessionID             string
+	InteractionID         string
+	PromptID              string
+	PreviousInteractionID string
+	Completed             bool
 }
 
 // StartSessionParams configures one-time creation of a worker's session.
@@ -44,6 +53,7 @@ type StartSessionParams struct {
 	WorkerID           string
 	Instructions       string
 	InteractionTrigger string
+	DeliveryID         string
 	// Launch is the resolved sandbox runtime + size for the worker's
 	// container, stored on the session so every launch path honours it.
 	Launch SessionLaunchConfig
@@ -131,6 +141,8 @@ type SendPromptParams struct {
 	WorkerID           string
 	Instructions       string
 	InteractionTrigger string
+	DeliveryID         string
+	ResetSession       bool
 	Launch             SessionLaunchConfig
 	OnSessionID        func(sessionID string)
 }
@@ -143,31 +155,32 @@ type SendPromptParams struct {
 //     caller persists the new id.
 const exploratoryRole = "exploratory"
 
-func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptParams) (sessionID string, fresh bool, err error) {
+func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptParams) (result DeliveryResult, fresh bool, err error) {
 	if params.Prompt == "" {
-		return "", false, fmt.Errorf("EnsureAndSend: Prompt is required")
+		return DeliveryResult{}, false, fmt.Errorf("EnsureAndSend: Prompt is required")
 	}
 	if params.ProjectID == "" && params.AppID == "" {
-		return "", false, fmt.Errorf("EnsureAndSend: ProjectID or AppID is required")
+		return DeliveryResult{}, false, fmt.Errorf("EnsureAndSend: ProjectID or AppID is required")
 	}
 	if params.AgentType == "" {
-		return "", false, fmt.Errorf("EnsureAndSend: AgentType is required")
+		return DeliveryResult{}, false, fmt.Errorf("EnsureAndSend: AgentType is required")
 	}
 
 	if params.SessionID != "" {
-		if err := client.SendMessage(ctx, params.SessionID, params.Prompt); err != nil {
-			return "", false, fmt.Errorf("send message to session %s: %w", params.SessionID, err)
+		result, err := client.SendMessage(ctx, params.SessionID, params.Prompt, params.DeliveryID, params.ResetSession)
+		if err != nil {
+			return DeliveryResult{}, false, fmt.Errorf("send message to session %s: %w", params.SessionID, err)
 		}
 		if params.OnSessionID != nil {
-			params.OnSessionID(params.SessionID)
+			params.OnSessionID(result.SessionID)
 		}
-		return params.SessionID, false, nil
+		return result, false, nil
 	}
 
 	if err := checkDesktopQuota(ctx, client, params.Launch); err != nil {
-		return "", false, err
+		return DeliveryResult{}, false, err
 	}
-	sid, err := client.StartSession(ctx, StartSessionParams{
+	result, err = client.StartSession(ctx, StartSessionParams{
 		Name:               params.SessionName,
 		ProjectID:          params.ProjectID,
 		OrganizationID:     params.OrganizationID,
@@ -179,15 +192,16 @@ func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptP
 		WorkerID:           params.WorkerID,
 		Instructions:       params.Instructions,
 		InteractionTrigger: params.InteractionTrigger,
+		DeliveryID:         params.DeliveryID,
 		Launch:             params.Launch,
 	})
 	if err != nil {
-		return "", false, fmt.Errorf("start helix session: %w", err)
+		return DeliveryResult{}, false, fmt.Errorf("start helix session: %w", err)
 	}
 	if params.OnSessionID != nil {
-		params.OnSessionID(sid)
+		params.OnSessionID(result.SessionID)
 	}
-	return sid, true, nil
+	return result, true, nil
 }
 
 // SessionPreamble exposes the late-joiner catch-up snapshot the

@@ -21,11 +21,13 @@ func TestQueueRetriesFailedActivation(t *testing.T) {
 
 	var mu sync.Mutex
 	attempts := 0
+	deliveryIDs := make([]string, 0, 2)
 	completed := make(chan struct{})
-	q, err := New(context.Background(), n, func(context.Context, string, orgchart.NodeID, []activation.Trigger) error {
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
 		mu.Lock()
 		defer mu.Unlock()
 		attempts++
+		deliveryIDs = append(deliveryIDs, triggers[0].DeliveryID)
 		if attempts == 1 {
 			return errors.New("transient")
 		}
@@ -44,7 +46,42 @@ func TestQueueRetriesFailedActivation(t *testing.T) {
 
 	mu.Lock()
 	require.Equal(t, 2, attempts)
+	require.NotEmpty(t, deliveryIDs[0])
+	require.Equal(t, deliveryIDs[0], deliveryIDs[1])
 	mu.Unlock()
+}
+
+func TestQueueAssignsDistinctDeliveryIDsToSeparatePublications(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	deliveryIDs := make(chan string, 2)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		deliveryIDs <- triggers[0].DeliveryID
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	trigger := activation.Trigger{Kind: activation.TriggerEvent, EventID: "same-event"}
+	q.Enqueue("org-test", "agent-a", trigger)
+	q.Enqueue("org-test", "agent-a", trigger)
+
+	receive := func() string {
+		select {
+		case id := <-deliveryIDs:
+			return id
+		case <-time.After(5 * time.Second):
+			t.Fatal("activation was not delivered")
+			return ""
+		}
+	}
+	first := receive()
+	second := receive()
+	require.NotEmpty(t, first)
+	require.NotEmpty(t, second)
+	require.NotEqual(t, first, second)
 }
 
 func TestQueueDoesNotRetryNonRetryableActivation(t *testing.T) {

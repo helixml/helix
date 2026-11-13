@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -484,7 +485,14 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 		return nil
 	}
 
-	planningLimit, reviewLimit, implementationLimit := getProjectWIPLimits(project)
+	implementationDefault := types.DefaultFreeImplementationTasks
+	if latestTask.JustDoItMode {
+		implementationDefault, err = ProjectImplementationWIPLimit(ctx, o.store, project)
+		if err != nil {
+			return fmt.Errorf("resolve implementation WIP limit: %w", err)
+		}
+	}
+	planningLimit, reviewLimit, implementationLimit := getProjectWIPLimits(project, implementationDefault)
 	planningCount := countTasksByStatus(allProjectTasks,
 		types.TaskStatusQueuedSpecGeneration,
 		types.TaskStatusSpecGeneration,
@@ -588,10 +596,10 @@ func (o *SpecTaskOrchestrator) getBacklogProjectLock(projectID string) (*sync.Mu
 	return lock.(*sync.Mutex), nil
 }
 
-func getProjectWIPLimits(project *types.Project) (int, int, int) {
+func getProjectWIPLimits(project *types.Project, implementationDefault int) (int, int, int) {
 	planningLimit := 3
 	reviewLimit := 2
-	implementationLimit := 5
+	implementationLimit := implementationDefault
 
 	if project.Metadata.BoardSettings != nil {
 		if project.Metadata.BoardSettings.WIPLimits.Planning > 0 {
@@ -606,6 +614,32 @@ func getProjectWIPLimits(project *types.Project) (int, int, int) {
 	}
 
 	return planningLimit, reviewLimit, implementationLimit
+}
+
+func ProjectImplementationWIPLimit(ctx context.Context, projectStore store.Store, project *types.Project) (int, error) {
+	if project.Metadata.BoardSettings != nil && project.Metadata.BoardSettings.WIPLimits.Implementation > 0 {
+		return project.Metadata.BoardSettings.WIPLimits.Implementation, nil
+	}
+	settings, err := projectStore.GetSystemSettings(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if !settings.EnforceQuotas {
+		return types.DefaultFreeImplementationTasks, nil
+	}
+	var wallet *types.Wallet
+	if project.OrganizationID != "" {
+		wallet, err = projectStore.GetWalletByOrg(ctx, project.OrganizationID)
+	} else if project.UserID != "" {
+		wallet, err = projectStore.GetWalletByUser(ctx, project.UserID)
+	}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return 0, err
+	}
+	if wallet.UsesProQuotaTier() {
+		return types.DefaultProImplementationTasks, nil
+	}
+	return types.DefaultFreeImplementationTasks, nil
 }
 
 func countTasksByStatus(tasks []*types.SpecTask, statuses ...types.SpecTaskStatus) int {
@@ -660,7 +694,7 @@ func PlanningQueueReason(project *types.Project, projectTasks []*types.SpecTask,
 		return reason
 	}
 
-	planningLimit, reviewLimit, _ := getProjectWIPLimits(project)
+	planningLimit, reviewLimit, _ := getProjectWIPLimits(project, types.DefaultFreeImplementationTasks)
 	planningCount := countTasksByStatus(projectTasks, types.TaskStatusSpecGeneration)
 	reviewCount := countTasksByStatus(projectTasks,
 		types.TaskStatusSpecReview,
@@ -683,12 +717,12 @@ func PlanningQueueReason(project *types.Project, projectTasks []*types.SpecTask,
 // start now, otherwise the reason. Explicit starts can enter the queue without
 // passing through handleBacklog, so the queued-state gate must enforce the WIP
 // limit as well as dependencies.
-func ImplementationQueueReason(project *types.Project, projectTasks []*types.SpecTask, task *types.SpecTask) string {
+func ImplementationQueueReason(project *types.Project, projectTasks []*types.SpecTask, task *types.SpecTask, implementationDefault int) string {
 	if reason := dependencyQueueReason(projectTasks, task); reason != "" {
 		return reason
 	}
 
-	_, _, implementationLimit := getProjectWIPLimits(project)
+	_, _, implementationLimit := getProjectWIPLimits(project, implementationDefault)
 	implementationCount := countTasksByStatus(projectTasks,
 		types.TaskStatusImplementationQueued,
 		types.TaskStatusImplementation,
@@ -698,6 +732,74 @@ func ImplementationQueueReason(project *types.Project, projectTasks []*types.Spe
 			countPhrase(implementationCount, "task"), implementationLimit)
 	}
 	return ""
+}
+
+// sandboxAdmissionSettleWindow is how long a freshly promoted task's sandbox
+// may take to appear in Runner heartbeats (ActiveSandboxes). Promotions inside
+// this window are counted against the free-slot budget by the store-level
+// admission check, so heartbeat lag cannot let promotions overshoot.
+const sandboxAdmissionSettleWindow = 2 * time.Minute
+
+// specTaskPlacement mirrors how HydraExecutor places a spec task's sandbox:
+// both runtimes use the "ubuntu" image key, and only a headless-ubuntu task
+// skips the display (render-capable host) requirement.
+func specTaskPlacement(task *types.SpecTask) (versionKey string, requiresDisplay bool) {
+	return "ubuntu", types.EffectiveSpecTaskSandboxRuntime(task.SandboxRuntime) != types.SandboxRuntimeHeadlessUbuntu
+}
+
+// sandboxCapacityBudget reports how many more sandboxes placement could start
+// for task right now. It mirrors FindAvailableSandboxInstance, so the gate and
+// placement cannot disagree:
+//
+//   - Only online, freshly heartbeating Runners that are EligibleForPlacement
+//     for the task's image (render-capable when it needs a display) count.
+//     Ineligible Runners no longer inflate capacity.
+//   - In-use comes from each Runner's reported ActiveSandboxes, which counts
+//     every live sandbox (planning desktops, implementation, any other
+//     session), not only implementation rows.
+//
+// Only a RUNNER-CONFIRMED cap (MaxSandboxesFromRunner) is trusted. An
+// unconfirmed cap is the API's HELIX_SANDBOX_MAX_DEV_CONTAINERS fallback, which
+// can overstate (or, at its -1 default, wrongly claim unlimited) what the
+// Runner enforces, so it neither adds capacity nor disables the gate.
+//
+// gated=false means do not gate (fail open): no eligible Runner has confirmed a
+// finite cap, or one has confirmed unlimited capacity. Heartbeats lag
+// promotions, so the caller pairs this budget with the store's atomic
+// admission check (TransitionSpecTaskStatusWithinCapacity).
+func (o *SpecTaskOrchestrator) sandboxCapacityBudget(ctx context.Context, task *types.SpecTask) (budget int, gated bool, err error) {
+	instances, err := o.store.ListSandboxInstances(ctx)
+	if err != nil {
+		return 0, false, fmt.Errorf("listing sandbox instances for capacity gate: %w", err)
+	}
+
+	versionKey, requiresDisplay := specTaskPlacement(task)
+	staleThreshold := time.Now().Add(-config.DefaultSandboxDispatchStaleThreshold)
+	free := 0
+	confirmed := false
+	for _, inst := range instances {
+		if inst.Status != "online" || inst.LastSeen.Before(staleThreshold) {
+			continue
+		}
+		if !inst.EligibleForPlacement(versionKey, requiresDisplay) {
+			continue
+		}
+		if !inst.MaxSandboxesFromRunner {
+			continue
+		}
+		if inst.MaxSandboxes <= 0 {
+			// Runner-confirmed unlimited (AtCapacity never trips): no gate.
+			return 0, false, nil
+		}
+		confirmed = true
+		if slots := inst.MaxSandboxes - inst.ActiveSandboxes; slots > 0 {
+			free += slots
+		}
+	}
+	if !confirmed {
+		return 0, false, nil
+	}
+	return free, true, nil
 }
 
 // countPhrase renders "1 task is" / "3 tasks are" with correct grammar.
@@ -745,7 +847,7 @@ func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, t
 	}
 
 	if reason := PlanningQueueReason(project, projectTasks, latestTask); reason != "" {
-		planningLimit, reviewLimit, _ := getProjectWIPLimits(project)
+		planningLimit, reviewLimit, _ := getProjectWIPLimits(project, types.DefaultFreeImplementationTasks)
 		planningCount := countTasksByStatus(projectTasks, types.TaskStatusSpecGeneration)
 		reviewCount := countTasksByStatus(projectTasks,
 			types.TaskStatusSpecReview,
@@ -828,7 +930,11 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 			break
 		}
 	}
-	if reason := ImplementationQueueReason(project, projectTasks, latestTask); reason != "" {
+	implementationDefault, err := ProjectImplementationWIPLimit(ctx, o.store, project)
+	if err != nil {
+		return fmt.Errorf("resolve implementation WIP limit: %w", err)
+	}
+	if reason := ImplementationQueueReason(project, projectTasks, latestTask, implementationDefault); reason != "" {
 		log.Info().
 			Str("task_id", latestTask.ID).
 			Str("project_id", latestTask.ProjectID).
@@ -837,17 +943,48 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 		return nil
 	}
 
+	// Gate on real sandbox capacity so we never promote a task placement cannot
+	// start: when every eligible Runner's confirmed cap is used up, the task
+	// stays queued and the orchestration loop retries it as capacity frees,
+	// instead of starting it and failing with ErrAllSandboxHostsFull.
+	budget, gated, err := o.sandboxCapacityBudget(ctx, latestTask)
+	if err != nil {
+		// Fail open: a transient capacity-query error must not wedge the queue.
+		log.Warn().Err(err).
+			Str("task_id", latestTask.ID).
+			Msg("Sandbox capacity check failed; promoting without the capacity gate")
+		gated = false
+	}
+
 	// Claim capacity before launching the goroutine. The claim must be durable:
 	// projectLock only serializes one API process, while multiple replicas can
-	// observe the same queued task concurrently.
+	// observe the same queued task concurrently. When gated, the capacity
+	// decision happens inside the claim's transaction under a cluster-wide
+	// advisory lock, so two replicas cannot both take the last free slot.
 	now := time.Now()
-	claimed, err := o.store.TransitionSpecTaskStatus(
-		ctx,
-		latestTask.ID,
-		[]types.SpecTaskStatus{types.TaskStatusQueuedImplementation},
-		types.TaskStatusImplementation,
-		nil,
-	)
+	from := []types.SpecTaskStatus{types.TaskStatusQueuedImplementation}
+	var claimed bool
+	if gated {
+		var full bool
+		if budget > 0 {
+			claimed, full, err = o.store.TransitionSpecTaskStatusWithinCapacity(
+				ctx, latestTask.ID, from, types.TaskStatusImplementation,
+				now.Add(-sandboxAdmissionSettleWindow), budget,
+			)
+		} else {
+			full = true
+		}
+		if err == nil && full {
+			log.Info().
+				Str("task_id", latestTask.ID).
+				Str("project_id", latestTask.ProjectID).
+				Int("free_sandbox_slots", budget).
+				Msg("Leaving spec task queued - sandbox capacity is full")
+			return nil
+		}
+	} else {
+		claimed, err = o.store.TransitionSpecTaskStatus(ctx, latestTask.ID, from, types.TaskStatusImplementation, nil)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to reserve implementation WIP slot: %w", err)
 	}

@@ -94,6 +94,9 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	// 2. Load server config and set up database connection
 	cfg, err := config.LoadServerConfig()
 	require.NoError(t, err, "Failed to load server config")
+	// The mock GitHub API is a local listener; tools refuse private
+	// destinations unless explicitly allowed.
+	cfg.Tools.AllowPrivateNetworks = true
 
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
@@ -223,7 +226,7 @@ paths:
 					ID:       "test-assistant",
 					Name:     "Test Assistant",
 					Provider: "togetherai",
-					Model:    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+					Model:    "openai/gpt-oss-120b",
 					APIs:     []types.AssistantAPI{githubTool},
 				},
 			},
@@ -336,7 +339,7 @@ paths:
 
 		// Create a simple chat completion request without any OpenAI tool specifications
 		chatCompletionRequest := oai.ChatCompletionRequest{
-			Model:  "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+			Model:  "openai/gpt-oss-120b",
 			Stream: true,
 			Messages: []oai.ChatCompletionMessage{
 				{

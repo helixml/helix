@@ -38,6 +38,10 @@ const (
 
 	// reconnectPollInterval is how often to check if reconnection completed
 	reconnectPollInterval = 10 * time.Millisecond
+
+	// reconnectBackoffStep is the linear backoff between failed dials:
+	// attempt N waits N steps.
+	reconnectBackoffStep = time.Second
 )
 
 // DialFunc is a function that creates a new connection to the server
@@ -71,9 +75,10 @@ type SessionReplay interface {
 type ResilientProxy struct {
 	// Configuration
 	sessionID   string
-	dialFunc    DialFunc      // Function to dial server (via connman)
-	upgradeFunc UpgradeFunc   // Function to upgrade connection to WebSocket
-	replay      SessionReplay // Optional per-connection state to re-send after reconnect
+	dialFunc    DialFunc       // Function to dial server (via connman)
+	upgradeFunc UpgradeFunc    // Function to upgrade connection to WebSocket
+	replay      SessionReplay  // Optional per-connection state to re-send after reconnect
+	activity    ClientObserver // Optional observer of client bytes (e.g. InputActivity)
 	bufferSize  int
 
 	// Connections
@@ -99,6 +104,7 @@ type ResilientProxy struct {
 	reconnectDone chan struct{} // Signals reconnection completed
 	reconnectMu   sync.Mutex    // Protects reconnection initiation
 	serverError   chan error    // Channel to signal server errors for reconnection
+	backoffStep   time.Duration // reconnectBackoffStep except in tests
 
 	// Stats
 	reconnectCount      atomic.Int64
@@ -115,8 +121,17 @@ type ResilientProxyConfig struct {
 	UpgradeFunc UpgradeFunc
 	// Replay re-sends per-connection state the client established on the original
 	// socket (the desktop stream's init frame). Nil disables replay.
-	Replay     SessionReplay
+	Replay SessionReplay
+	// Activity sees every byte the client sends (e.g. InputActivity). Nil
+	// disables it.
+	Activity   ClientObserver
 	BufferSize int // Size of each direction's buffer (default 512KB)
+}
+
+// ClientObserver is handed the client's bytes, in order, before they are
+// forwarded.
+type ClientObserver interface {
+	Observe(b []byte)
 }
 
 // NewResilientProxy creates a new resilient proxy
@@ -133,12 +148,14 @@ func NewResilientProxy(cfg ResilientProxyConfig) *ResilientProxy {
 		dialFunc:      cfg.DialFunc,
 		upgradeFunc:   cfg.UpgradeFunc,
 		replay:        cfg.Replay,
+		activity:      cfg.Activity,
 		bufferSize:    bufSize,
 		inputBuffer:   make([]byte, bufSize),
 		outputBuffer:  make([]byte, bufSize),
 		done:          make(chan struct{}),
 		reconnectDone: make(chan struct{}),
 		serverError:   make(chan error, 2), // Buffered for both directions
+		backoffStep:   reconnectBackoffStep,
 	}
 }
 
@@ -265,6 +282,9 @@ func (p *ResilientProxy) copyClientToServer(ctx context.Context) error {
 		// regardless of which path the data takes.
 		if p.replay != nil {
 			p.replay.Observe(buf[:n])
+		}
+		if p.activity != nil {
+			p.activity.Observe(buf[:n])
 		}
 
 		// If reconnecting, buffer the data and wait
@@ -527,7 +547,7 @@ func (p *ResilientProxy) reconnect(ctx context.Context) error {
 			select {
 			case <-reconnectCtx.Done():
 				return reconnectCtx.Err()
-			case <-time.After(time.Duration(attempt) * time.Second):
+			case <-time.After(time.Duration(attempt) * p.backoffStep):
 				continue
 			}
 		}

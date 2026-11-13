@@ -65,7 +65,7 @@ type fakeHelixClient struct {
 	lastSyncLaunch SessionLaunchConfig
 }
 
-func (f *fakeHelixClient) StartSession(ctx context.Context, params StartSessionParams) (string, error) {
+func (f *fakeHelixClient) StartSession(ctx context.Context, params StartSessionParams) (DeliveryResult, error) {
 	atomic.AddInt32(&f.startCalls, 1)
 	f.mu.Lock()
 	f.lastStartParams = params
@@ -75,22 +75,27 @@ func (f *fakeHelixClient) StartSession(ctx context.Context, params StartSessionP
 		select {
 		case <-block:
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return DeliveryResult{}, ctx.Err()
 		}
 	}
 	if f.startErr != nil {
-		return "", f.startErr
+		return DeliveryResult{}, f.startErr
 	}
-	return f.startSessionID, nil
+	return DeliveryResult{SessionID: f.startSessionID}, nil
 }
 
-func (f *fakeHelixClient) SendMessage(_ context.Context, sessionID, prompt string) error {
+func (f *fakeHelixClient) SendMessage(ctx context.Context, sessionID, prompt, _ string, resetSession bool) (DeliveryResult, error) {
+	if resetSession {
+		if err := f.ClearSession(ctx, sessionID); err != nil {
+			return DeliveryResult{}, fmt.Errorf("clear session: %w", err)
+		}
+	}
 	atomic.AddInt32(&f.sendCalls, 1)
 	f.mu.Lock()
 	f.lastSendSID = sessionID
 	f.lastSendBody = prompt
 	f.mu.Unlock()
-	return f.sendErr
+	return DeliveryResult{SessionID: sessionID}, f.sendErr
 }
 
 func (f *fakeHelixClient) ClearSession(_ context.Context, sessionID string) error {
@@ -143,6 +148,10 @@ func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionO
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeHelixClient) GetDeliveryOutput(ctx context.Context, _ DeliveryResult) (types.SessionOutputResponse, error) {
+	return f.GetOutput(ctx, "")
 }
 
 func (f *fakeHelixClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
@@ -672,9 +681,30 @@ func TestPollUntilDoneMarksInsufficientBalanceNonRetryable(t *testing.T) {
 	}
 	cfg := SpawnerConfig{Client: fc, PollInitial: time.Millisecond, PollMax: time.Millisecond}
 
-	err := cfg.pollUntilDone(context.Background(), "ses-test", "", func(string) {})
+	err := cfg.pollUntilDone(context.Background(), DeliveryResult{SessionID: "ses-test"}, func(string) {})
 	if !errors.Is(err, activation.ErrNonRetryable) {
 		t.Fatalf("error = %v, want activation.ErrNonRetryable", err)
+	}
+}
+
+func TestPollUntilDoneAcceptsExactInitialInteraction(t *testing.T) {
+	t.Parallel()
+	fc := &fakeHelixClient{outputs: []types.SessionOutputResponse{{
+		InteractionID: "int-delivery",
+		Status:        "complete",
+		Output:        "ok",
+	}}}
+	cfg := SpawnerConfig{Client: fc, PollInitial: time.Millisecond, PollMax: time.Millisecond}
+
+	err := cfg.pollUntilDone(context.Background(), DeliveryResult{
+		SessionID:     "ses-test",
+		InteractionID: "int-delivery",
+	}, func(string) {})
+	if err != nil {
+		t.Fatalf("poll exact interaction: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.outputCalls); got != 1 {
+		t.Fatalf("output calls = %d, want 1", got)
 	}
 }
 
@@ -871,14 +901,14 @@ func (c *concurrencyClient) track() func() {
 	return func() { atomic.AddInt32(c.inflight, -1) }
 }
 
-func (c *concurrencyClient) StartSession(ctx context.Context, params StartSessionParams) (string, error) {
+func (c *concurrencyClient) StartSession(ctx context.Context, params StartSessionParams) (DeliveryResult, error) {
 	defer c.track()()
 	return c.inner.StartSession(ctx, params)
 }
 
-func (c *concurrencyClient) SendMessage(ctx context.Context, sessionID, prompt string) error {
+func (c *concurrencyClient) SendMessage(ctx context.Context, sessionID, prompt, deliveryID string, resetSession bool) (DeliveryResult, error) {
 	defer c.track()()
-	return c.inner.SendMessage(ctx, sessionID, prompt)
+	return c.inner.SendMessage(ctx, sessionID, prompt, deliveryID, resetSession)
 }
 
 func (c *concurrencyClient) ClearSession(ctx context.Context, sessionID string) error {
@@ -895,6 +925,10 @@ func (c *concurrencyClient) ServerStatus(ctx context.Context) (ServerStatus, err
 
 func (c *concurrencyClient) GetOutput(ctx context.Context, sid string) (types.SessionOutputResponse, error) {
 	return c.inner.GetOutput(ctx, sid)
+}
+
+func (c *concurrencyClient) GetDeliveryOutput(ctx context.Context, delivery DeliveryResult) (types.SessionOutputResponse, error) {
+	return c.inner.GetDeliveryOutput(ctx, delivery)
 }
 
 func (c *concurrencyClient) StopExternalAgent(ctx context.Context, sid string) error {
@@ -1068,23 +1102,15 @@ func TestSpawnerRecordsActivationRowOnError(t *testing.T) {
 	if a.Outcome.Error == "" {
 		t.Error("Outcome.Error empty on error path")
 	}
+	fc.startErr = nil
+	fc.startSessionID = "ses-retry"
+	fc.outputs = []types.SessionOutputResponse{{Status: "complete", Output: "ok"}}
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("activation slot was not released after failure: %v", err)
+	}
 }
 
-// TestSpawnerHonorsSharedSemaphore pins the mechanism that replaced the
-// cross-tenant-leaking cached spawner
-// (design/2026-06-09-org-multitenancy-spawner-leak.md).
-//
-// The old host wrapper cached ONE inner Spawner (and so one org's
-// frozen OrgID) to share a single inflight cap. The fix
-// rebuilds a per-org SpawnerConfig every activation and instead shares
-// the cap via SpawnerConfig.Sem. If Spawner ignores cfg.Sem and mints
-// its own semaphore from MaxInflight, the global cap is silently lost.
-//
-// Here we inject a shared semaphore whose only slot is already taken.
-// A correct Spawner blocks on it and returns the context error without
-// starting a session; a Spawner that ignored cfg.Sem would sail past
-// and call StartChat.
-func TestSpawnerHonorsSharedSemaphore(t *testing.T) {
+func TestSpawnerReturnsVisibleErrorAtOrganizationCapacity(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)
 	fc := &fakeHelixClient{
@@ -1092,27 +1118,96 @@ func TestSpawnerHonorsSharedSemaphore(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	cfg := newHelixCfg(t, fc, s)
-	sem := make(chan struct{}, 1)
-	sem <- struct{}{} // occupy the only slot — no inflight budget left
-	cfg.Sem = sem
+	cfg.MaxInflight = 1
+	cfg.Limiter = NewInflightLimiter()
+	_, release, ok := cfg.Limiter.TryAcquire("org-test", cfg.MaxInflight)
+	if !ok {
+		t.Fatal("occupy organization slot")
+	}
+	defer release()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	err := Spawner(cfg)(ctx, "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected context.DeadlineExceeded while the shared semaphore is full, got %v", err)
+	err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}})
+	if !errors.Is(err, ErrActivationCapacity) || !errors.Is(err, activation.ErrNonRetryable) {
+		t.Fatalf("error = %v, want capacity and non-retryable", err)
+	}
+	if !strings.Contains(err.Error(), "1 bot activations are already running for this organization (limit 1)") {
+		t.Fatalf("error is not actionable: %v", err)
 	}
 	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
-		t.Fatalf("StartChat fired %d times despite a full shared semaphore — Spawner ignored cfg.Sem and the global inflight cap is lost", got)
+		t.Fatalf("StartChat fired %d times at capacity", got)
 	}
+	rows, listErr := s.Activations.ListForWorker(context.Background(), "org-test", wid, 1)
+	if listErr != nil || len(rows) != 1 || !rows[0].IsCompleted() {
+		t.Fatalf("capacity failure was not completed in audit: rows=%+v err=%v", rows, listErr)
+	}
+	if rows[0].Outcome.Error != err.Error() {
+		t.Fatalf("audit error = %q, want %q", rows[0].Outcome.Error, err.Error())
+	}
+	eventErr := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent}})
+	if !errors.Is(eventErr, ErrActivationCapacity) || errors.Is(eventErr, activation.ErrNonRetryable) {
+		t.Fatalf("automatic event error = %v, want retryable capacity error", eventErr)
+	}
+}
 
-	// Free the slot; the next activation must now proceed to completion,
-	// proving the gate was the semaphore and nothing else.
-	<-sem
-	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
-		t.Fatalf("activation with a free shared-semaphore slot must succeed, got %v", err)
+func TestInflightLimiterIsolatesOrganizationsAndReleases(t *testing.T) {
+	limiter := NewInflightLimiter()
+	_, releaseA, ok := limiter.TryAcquire("org-a", 1)
+	if !ok {
+		t.Fatal("acquire org-a")
 	}
-	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
-		t.Fatalf("StartChat calls = %d, want 1 after the slot freed", got)
+	if active, _, ok := limiter.TryAcquire("org-a", 1); ok || active != 1 {
+		t.Fatalf("second org-a acquire = active %d, ok %v", active, ok)
 	}
+	_, releaseB, ok := limiter.TryAcquire("org-b", 2)
+	if !ok {
+		t.Fatal("org-b should have independent capacity")
+	}
+	_, releaseB2, ok := limiter.TryAcquire("org-b", 2)
+	if !ok {
+		t.Fatal("org-b should use its own higher limit")
+	}
+	if active, _, ok := limiter.TryAcquire("org-b", 2); ok || active != 2 {
+		t.Fatalf("third org-b acquire = active %d, ok %v", active, ok)
+	}
+	releaseB2()
+	releaseB()
+	releaseA()
+	if _, release, ok := limiter.TryAcquire("org-a", 1); !ok {
+		t.Fatal("org-a slot was not released")
+	} else {
+		release()
+	}
+}
+
+func TestInflightLimiterConcurrentCap(t *testing.T) {
+	limiter := NewInflightLimiter()
+	const attempts = 100
+	const limit = 7
+	attempted := make(chan struct{}, attempts)
+	releaseGate := make(chan struct{})
+	var acquired atomic.Int32
+	var wg sync.WaitGroup
+	for range attempts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, release, ok := limiter.TryAcquire("org-a", limit)
+			if ok {
+				acquired.Add(1)
+			}
+			attempted <- struct{}{}
+			if ok {
+				<-releaseGate
+				release()
+			}
+		}()
+	}
+	for range attempts {
+		<-attempted
+	}
+	if got := acquired.Load(); got != limit {
+		t.Fatalf("concurrent acquisitions = %d, want %d", got, limit)
+	}
+	close(releaseGate)
+	wg.Wait()
 }

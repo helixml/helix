@@ -290,17 +290,13 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 	}
 
 	// Load the MOST RECENT interaction so we can check if the session is busy.
-	// CRITICAL: ListInteractions defaults to "id ASC" (oldest first). With
-	// PerPage=100 and 165 interactions, we'd get interactions 1-100 and
-	// interactions[len-1] would be the 100th — almost always Complete from
-	// hours ago — so the busy check would always say "idle" and the queue
-	// would dispatch on top of an actively-streaming Zed turn.
-	// Order DESC + PerPage 1 returns just the newest interaction.
+	// DESC + PerPage 1 returns just the newest interaction instead of an old
+	// complete turn from the first page of a long session.
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    sessionID,
 		GenerationID: session.GenerationID,
 		PerPage:      1,
-		Order:        "id DESC",
+		Order:        "created DESC, id DESC",
 	})
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
@@ -700,7 +696,7 @@ func (apiServer *HelixAPIServer) cancelActiveTurn(ctx context.Context, sessionID
 		return "", fmt.Errorf("get session for cancel: %w", err)
 	}
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID: sessionID, GenerationID: session.GenerationID, PerPage: 1000, Order: "id DESC",
+		SessionID: sessionID, GenerationID: session.GenerationID, PerPage: 1000, Order: "created DESC, id DESC",
 	})
 	if err != nil {
 		return "", fmt.Errorf("list interactions for cancel: %w", err)
@@ -1015,6 +1011,12 @@ func (apiServer *HelixAPIServer) unifiedSearch(_ http.ResponseWriter, req *http.
 	user := getRequestUser(req)
 	if user == nil {
 		return nil, system.NewHTTPError401("user not found")
+	}
+	// The search spans everything its owner has, across organizations and
+	// projects; an org-, project- or session-scoped key would read past its
+	// scope.
+	if isScopedAPIKeyCaller(user) {
+		return nil, system.NewHTTPError403("search is not available to scoped API keys")
 	}
 
 	query := req.URL.Query()

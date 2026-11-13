@@ -30,8 +30,12 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 
 	if query.OrganizationID != "" {
 		q = q.Where("organization_id = ?", query.OrganizationID)
-	} else {
+	} else if !query.AnyOrganization {
 		q = q.Where("organization_id IS NULL OR organization_id = ''")
+	}
+
+	if len(query.ProviderRecoveryProviders) > 0 {
+		q = q.Where("config->'provider_recovery'->>'provider' IN ?", query.ProviderRecoveryProviders)
 	}
 
 	if query.AppID != "" {
@@ -323,6 +327,44 @@ func (s *PostgresStore) UpdateSessionMetadata(ctx context.Context, sessionID str
 	return nil
 }
 
+func (s *PostgresStore) SetSessionProviderRecovery(ctx context.Context, sessionID string, recovery *types.ProviderRecovery) error {
+	if sessionID == "" {
+		return fmt.Errorf("id not specified")
+	}
+	update := gorm.Expr("config - 'provider_recovery'")
+	if recovery != nil {
+		payload, err := json.Marshal(map[string]any{"provider_recovery": recovery})
+		if err != nil {
+			return err
+		}
+		update = gorm.Expr("config || ?::jsonb", string(payload))
+	}
+	return s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).Update("config", update).Error
+}
+
+func (s *PostgresStore) ClearSessionProviderRecovery(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	result := s.gdb.WithContext(ctx).Model(&types.Session{}).
+		Where("id = ? AND config->'provider_recovery'->>'prompt_id' = ? AND config->'provider_recovery'->>'interaction_id' = ?", sessionID, promptID, interactionID).
+		Update("config", gorm.Expr("config - 'provider_recovery'"))
+	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) RecordSessionAgentConfigApplied(ctx context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error {
+	if sessionID == "" {
+		return fmt.Errorf("id not specified")
+	}
+	metadata := map[string]time.Time{"agent_config_applied_at": appliedAt}
+	if handoffDelivered {
+		metadata["agent_handoff_delivered_at"] = appliedAt
+	}
+	payload, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("encode agent config applied timestamps: %w", err)
+	}
+	return s.gdb.WithContext(ctx).Model(&types.Session{}).Where("id = ?", sessionID).
+		Update("config", gorm.Expr("config || ?::jsonb", string(payload))).Error
+}
+
 func (s *PostgresStore) ClaimSessionAutoRestart(ctx context.Context, sessionID string, restartedAt, before time.Time) (bool, error) {
 	if sessionID == "" {
 		return false, fmt.Errorf("id not specified")
@@ -417,17 +459,19 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 	return &session, nil
 }
 
-// ClearStaleStartingSessions clears external_agent_status and status_message
-// for sessions stuck in "starting" or "restarting" state. Called on API startup
-// — if the API just started, no session can legitimately be mid-startup, and a
-// restart interrupted mid-teardown would otherwise pin the session on a spinner
-// forever (nothing else clears "restarting").
+// ClearStaleStartingSessions marks sessions stuck in "starting" or "restarting"
+// state as "stopped" and clears status_message. Called on API startup — if the
+// API just started, no session can legitimately be mid-startup, and a restart
+// interrupted mid-teardown would otherwise pin the session on a spinner forever
+// (nothing else clears "restarting"). "stopped", not "": a session with no
+// lifecycle state reads as one whose first launch has not begun yet. Discovery
+// upgrades the row to "running" if the container did come up.
 func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("config->>'external_agent_status' IN ?", []string{"starting", "restarting"}).
 		Updates(map[string]interface{}{
-			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
+			"config": gorm.Expr(`config || '{"external_agent_status":"stopped","status_message":""}'::jsonb`),
 		})
 	return result.RowsAffected, result.Error
 }
@@ -493,13 +537,13 @@ func (s *PostgresStore) MarkSessionRestarting(ctx context.Context, sessionID str
 		}).Error
 }
 
-// ClearSessionStartingStatus reverts external_agent_status from "starting" or
-// "restarting" back to empty (and clears status_message), but ONLY if a boot is
+// ClearSessionStartingStatus moves external_agent_status from "starting" or
+// "restarting" to "stopped" (and clears status_message), but ONLY if a boot is
 // actually marked in flight. Used by the auto-wake worker after retry
 // exhaustion, and by the restart handler on its error paths, so the frontend
-// spinner returns to "Desktop Paused" instead of sitting on "Starting
-// Desktop..." forever. Targeted JSONB merge for the same race reasons as
-// MarkSessionStartingIfIdle.
+// spinner returns to "Desktop Paused" with a Start button instead of sitting on
+// "Starting Desktop..." forever. Targeted JSONB merge for the same race reasons
+// as MarkSessionStartingIfIdle.
 func (s *PostgresStore) ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error) {
 	if sessionID == "" {
 		return false, errors.New("session_id is required")
@@ -509,7 +553,7 @@ func (s *PostgresStore) ClearSessionStartingStatus(ctx context.Context, sessionI
 		Where("id = ?", sessionID).
 		Where("config->>'external_agent_status' IN ?", []string{"starting", "restarting"}).
 		Updates(map[string]interface{}{
-			"config": gorm.Expr(`config || '{"external_agent_status":"","status_message":""}'::jsonb`),
+			"config": gorm.Expr(`config || '{"external_agent_status":"stopped","status_message":""}'::jsonb`),
 		})
 	if result.Error != nil {
 		return false, result.Error

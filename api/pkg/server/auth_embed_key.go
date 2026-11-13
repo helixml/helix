@@ -75,7 +75,7 @@ type embedRule struct {
 //     reads the desktop. The video stream is allowed but forced read-only; see
 //     desktop_stream_readonly.go.
 //   - Every mutation of the task itself (PUT /spec-tasks/{id}, labels, archive,
-//     execution-config PATCH, start-planning) — an end user must not be able to
+//     execution-config PATCH, start-planning, pr-proposals decide) — an end user must not be able to
 //     re-point or reconfigure the agent run they are talking to.
 var embedRules = []embedRule{
 	// Bootstrap. The embed page redirects to /login unless /auth/authenticated
@@ -92,11 +92,19 @@ var embedRules = []embedRule{
 	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/zed-threads", scope: scopeTask},
 	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/clone-groups", scope: scopeTask},
 	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/attachments", scope: scopeTask},
+	// The task's pull request proposals, which the chat polls to show what the
+	// agent wants to open. Read only: approving or rejecting one
+	// (POST .../pr-proposals/{id}/decide) grants push rights and is an owner's
+	// decision, so it has no rule here.
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/pr-proposals", scope: scopeTask},
 
 	// The one conversation this key may read and post to.
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/interactions", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/step-info", scope: scopeSession},
+	// The session's coding identity, the session-shaped twin of the task's
+	// execution-config read above. The PATCH stays denied.
+	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/execution-config", scope: scopeSession},
 	// Inline visualizations the agent published into this conversation. The
 	// handler reads them from this session's own folder only.
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/visualization", scope: scopeSession},
@@ -123,6 +131,21 @@ var embedRules = []embedRule{
 	// about the one session/task the key already reads.
 	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/foreground-thread", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/progress", scope: scopeTask},
+}
+
+// embedInteractiveRules are granted ONLY to interactive embed keys: driving the
+// bound session's desktop. Interactive keys are minted for the desktop's own
+// operator (a tenant watching and taking over its own agent) — never for a
+// public page — and remain confined to their one session like every rule above.
+var embedInteractiveRules = []embedRule{
+	{methods: []string{"GET", "PATCH"}, prefix: "/api/v1/spec-tasks/", suffix: "/interactive-embed-model", scope: scopeTask},
+	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", suffix: "/operator-access", scope: scopeSession},
+	{methods: []string{"GET"}, prefix: "/api/v1/external-agents/", suffix: "/ws/input", scope: scopeSession},
+	{methods: []string{"GET", "POST"}, prefix: "/api/v1/external-agents/", suffix: "/clipboard", scope: scopeSession},
+	// Starting the desktop again once it has stopped (Helix restarted, or the
+	// sandbox idled out). Without it the operator sees "Desktop paused" with a
+	// Start button that is refused, and has to abandon the run.
+	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/resume", scope: scopeSession},
 }
 
 // embedBodyRules covers endpoints whose subject is in the JSON body rather than
@@ -177,6 +200,7 @@ var embedNeutered = map[string]string{
 	"/api/v1/organizations":          "[]",
 	"/api/v1/agents":                 "[]",
 	"/api/v1/claude-subscriptions":   "[]",
+	"/api/v1/codex-subscriptions":    "[]",
 	"/api/v1/oauth/providers":        "[]",
 	"/api/v1/oauth/connections":      "[]",
 	"/api/v1/provider-endpoints":     "[]",
@@ -252,7 +276,11 @@ func embedKeyAllows(user *types.User, r *http.Request) bool {
 		return embedSubjectInScope(user, rule.scope, id)
 	}
 
-	for _, rule := range embedRules {
+	rules := embedRules
+	if user.EmbedInteractive {
+		rules = append(append([]embedRule{}, embedRules...), embedInteractiveRules...)
+	}
+	for _, rule := range rules {
 		if !rule.matchesMethod(r.Method) {
 			continue
 		}

@@ -205,6 +205,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.StepInfo{},
 		&types.RunnerProfile{},
 		&types.RunnerAssignment{},
+		&types.RunnerToken{},
 		&types.SlackThread{},
 		&types.TeamsThread{},
 		&types.CrispThread{},
@@ -214,6 +215,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Wallet{},
 		&types.Transaction{},
 		&types.TopUp{},
+		&types.SubscriptionInvoiceCredit{},
 		&types.Project{},
 		&types.Artifact{},
 		&types.ArtifactVersion{},
@@ -221,8 +223,9 @@ func (s *PostgresStore) runMigrations() error {
 		&types.WebhookEndpoint{},
 		&types.WebhookEvent{},
 		&types.WebhookDelivery{},
-		&types.ProjectAuditLog{}, // Audit trail for project activity
-		&types.OrgAuditLog{},     // Audit trail for Helix org activity
+		&types.ProjectAuditLog{},   // Audit trail for project activity
+		&types.OrgAuditLog{},       // Audit trail for Helix org activity
+		&types.RequestAuditEvent{}, // Audit trail for API requests (incident forensics)
 		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
@@ -235,6 +238,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.SpecTaskGitPushEvent{},
 		&types.SpecTaskAttachment{},
 		&types.GitRepository{},
+		&types.GitPullRequest{},
 		&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},
@@ -257,9 +261,20 @@ func (s *PostgresStore) runMigrations() error {
 		&types.ProjectWebServiceState{},
 		&types.WebServiceDeploy{},
 		&types.SandboxCacheState{}, // golden_builds
+		&types.WebPage{},
 	)
 	if err != nil {
 		return err
+	}
+	// users.token held whatever bearer token a request carried when the row
+	// was last saved. User.Token is no longer persisted; clear stored values.
+	// A no-op once cleared, and skipped where the column never existed.
+	if s.gdb.Migrator().HasColumn("users", "token") {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"UPDATE users SET token = '' WHERE token IS NOT NULL AND token <> ''",
+		).Error; err != nil {
+			return fmt.Errorf("failed to clear stored user tokens: %w", err)
+		}
 	}
 	if err := s.gdb.WithContext(context.Background()).Exec(
 		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_request_id ON llm_calls (request_id)",
@@ -282,7 +297,15 @@ func (s *PostgresStore) runMigrations() error {
 	).Error; err != nil {
 		return fmt.Errorf("failed to create sessions config lookup index: %w", err)
 	}
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_config_provider_recovery_provider ON sessions ((config->'provider_recovery'->>'provider'))",
+	).Error; err != nil {
+		return fmt.Errorf("failed to create sessions provider recovery index: %w", err)
+	}
 	if err := s.backfillAgentKinds(context.Background()); err != nil {
+		return err
+	}
+	if err := s.backfillEmailVerified(context.Background()); err != nil {
 		return err
 	}
 
@@ -841,9 +864,8 @@ func (s *PostgresStore) ensureDefaultProject(ctx context.Context) error {
 			Metadata: types.ProjectMetadata{
 				BoardSettings: &types.BoardSettings{
 					WIPLimits: types.WIPLimits{
-						Planning:       3,
-						Review:         2,
-						Implementation: 5,
+						Planning: 3,
+						Review:   2,
 					},
 				},
 			},

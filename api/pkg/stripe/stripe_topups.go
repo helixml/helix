@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -13,6 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/checkout/session"
+	"github.com/stripe/stripe-go/v76/webhookendpoint"
 )
 
 const (
@@ -93,12 +95,60 @@ func (s *Stripe) GetTopUpSessionURL(
 		CancelURL:  stripe.String(cancelURL),
 	}
 
+	if err := s.ensureTopUpWebhookEvents(); err != nil {
+		return "", err
+	}
+
 	newSession, err := session.New(checkoutParams)
 	if err != nil {
 		return "", err
 	}
 
 	return newSession.URL, nil
+}
+
+func (s *Stripe) ensureTopUpWebhookEvents() error {
+	if s.cfg.WebhookEndpointID == "" {
+		return fmt.Errorf("stripe webhook endpoint ID is required for credit top-ups")
+	}
+
+	endpoint, err := webhookendpoint.Get(s.cfg.WebhookEndpointID, nil)
+	if err != nil {
+		return fmt.Errorf("get Stripe webhook endpoint: %w", err)
+	}
+	if endpoint.ID != s.cfg.WebhookEndpointID || endpoint.Status != "enabled" {
+		return fmt.Errorf("Stripe webhook endpoint %s is not enabled", s.cfg.WebhookEndpointID)
+	}
+
+	requiredEvents := []string{
+		string(stripe.EventTypeCheckoutSessionCompleted),
+		string(stripe.EventTypePaymentIntentSucceeded),
+	}
+	hasRequiredEvents := func(events []string) bool {
+		return slices.Contains(events, "*") ||
+			(slices.Contains(events, requiredEvents[0]) && slices.Contains(events, requiredEvents[1]))
+	}
+	if hasRequiredEvents(endpoint.EnabledEvents) {
+		return nil
+	}
+
+	enabledEvents := slices.Clone(endpoint.EnabledEvents)
+	for _, event := range requiredEvents {
+		if !slices.Contains(enabledEvents, event) {
+			enabledEvents = append(enabledEvents, event)
+		}
+	}
+	endpoint, err = webhookendpoint.Update(s.cfg.WebhookEndpointID, &stripe.WebhookEndpointParams{
+		EnabledEvents: stripe.StringSlice(enabledEvents),
+	})
+	if err != nil {
+		return fmt.Errorf("update Stripe webhook endpoint: %w", err)
+	}
+	if endpoint.ID != s.cfg.WebhookEndpointID || endpoint.Status != "enabled" ||
+		!hasRequiredEvents(endpoint.EnabledEvents) {
+		return fmt.Errorf("Stripe webhook endpoint %s is missing required credit events", s.cfg.WebhookEndpointID)
+	}
+	return nil
 }
 
 func (s *Stripe) handleTopUpEvent(event stripe.Event) error {

@@ -25,7 +25,7 @@ func managedAssetTestDeps(t *testing.T) (Deps, *assetapp.Service, *orgstore.Stor
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	nodeSvc := nodes.New(nodes.Deps{Nodes: st.Nodes})
 	_, err := nodeSvc.Create(context.Background(), "org-1", nodes.CreateParams{
-		ID: "chief-of-staff", Content: "# Chief of Staff", Tools: OwnerBotTools(),
+		ID: "chief-of-staff", Content: "# Chief of Staff", Tools: OwnerBotTools(), Grantor: nodes.Grantor{Admin: true},
 	})
 	require.NoError(t, err)
 	_, err = nodeSvc.Create(context.Background(), "org-1", nodes.CreateParams{

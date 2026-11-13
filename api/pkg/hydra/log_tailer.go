@@ -48,6 +48,10 @@ const serviceLogDirRescanInterval = 10 * time.Second
 // not take down the whole aggregator. Safe to call with a nil buf
 // (turns into a no-op).
 func StartServiceLogTailers(ctx context.Context, buf *LogBuffer, dir string) {
+	startServiceLogTailers(ctx, buf, dir, serviceLogDirRescanInterval)
+}
+
+func startServiceLogTailers(ctx context.Context, buf *LogBuffer, dir string, rescanInterval time.Duration) {
 	if buf == nil {
 		return
 	}
@@ -76,7 +80,7 @@ func StartServiceLogTailers(ctx context.Context, buf *LogBuffer, dir string) {
 
 	// Rescan loop: pick up files created after hydra started.
 	go func() {
-		t := time.NewTicker(serviceLogDirRescanInterval)
+		t := time.NewTicker(rescanInterval)
 		defer t.Stop()
 		for {
 			select {

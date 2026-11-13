@@ -1,43 +1,39 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import {
-  Card,
-  CardContent,
-  Box,
-  Typography,
-  Button,
-  IconButton,
-  Tooltip,
-  Alert,
-  CircularProgress,
-  LinearProgress,
-  keyframes,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  ListItemText,
-  Chip,
-} from "@mui/material";
-import {
-  Description as SpecIcon,
-  Visibility as ViewIcon,
-  CheckCircle as ApproveIcon,
-  Stop as StopIcon,
-  RocketLaunch as LaunchIcon,
-  Close as CloseIcon,
-  Circle as CircleIcon,
-  CheckCircle as CheckCircleIcon,
-  RadioButtonUnchecked as UncheckedIcon,
-  AccountTree as BatchIcon,
-  Delete as DeleteIcon,
-  Archive as ArchiveIcon,
-  Unarchive as UnarchiveIcon,
-  RemoveCircleOutline as RemoveFromQueueIcon,
-  Undo as UndoIcon,
-  Schedule as ScheduleIcon,
-} from "@mui/icons-material";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import Alert from "@mui/material/Alert";
+import CircularProgress from "@mui/material/CircularProgress";
+import LinearProgress from "@mui/material/LinearProgress";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
+import Chip from "@mui/material/Chip";
+import { keyframes } from "@mui/material/styles";
+import SpecIcon from "@mui/icons-material/Description";
+import ViewIcon from "@mui/icons-material/Visibility";
+import ApproveIcon from "@mui/icons-material/CheckCircle";
+import StopIcon from "@mui/icons-material/Stop";
+import LaunchIcon from "@mui/icons-material/RocketLaunch";
+import CloseIcon from "@mui/icons-material/Close";
+import CircleIcon from "@mui/icons-material/Circle";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import UncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import BatchIcon from "@mui/icons-material/AccountTree";
+import DeleteIcon from "@mui/icons-material/Delete";
+import ArchiveIcon from "@mui/icons-material/Archive";
+import UnarchiveIcon from "@mui/icons-material/Unarchive";
+import RemoveFromQueueIcon from "@mui/icons-material/RemoveCircleOutline";
+import UndoIcon from "@mui/icons-material/Undo";
+import ScheduleIcon from "@mui/icons-material/Schedule";
 import {
   EllipsisVertical,
   Flag,
@@ -827,15 +823,10 @@ function TaskCardInner({
           }}
         >
           <Tooltip
-            title={
-              <span style={{ whiteSpace: "pre-wrap" }}>
-                {(() => {
-                  const created = formatCreatedAt(task.created_at);
-                  const body = task.original_prompt || task.description || task.name;
-                  return created ? `Created ${created}\n\n${body}` : body;
-                })()}
-              </span>
-            }
+            title={(() => {
+              const created = formatCreatedAt(task.created_at);
+              return created ? `Created ${created}` : "";
+            })()}
             placement="top"
             enterDelay={500}
             arrow

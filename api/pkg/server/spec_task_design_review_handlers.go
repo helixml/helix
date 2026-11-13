@@ -324,7 +324,7 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 
 	var req types.SpecTaskDesignReviewDocumentUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("invalid request: %s", err.Error()), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	filename, err := designReviewDocumentFilename(req.DocumentType)
@@ -506,7 +506,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 	var req types.SpecTaskDesignReviewSubmitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -710,7 +710,7 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 
 	var req types.SpecTaskDesignReviewCommentCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -1374,6 +1374,7 @@ func (s *HelixAPIServer) startDevContainerForSession(ctx context.Context, sessio
 
 	agent := &types.DesktopAgent{
 		SessionID:   session.ID,
+		SandboxID:   session.SandboxID,
 		UserID:      session.Owner,
 		Input:       "Resume session",
 		ProjectPath: "workspace",

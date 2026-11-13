@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -46,6 +48,9 @@ func (s *ProviderHandlersSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.RAG.EmbeddingsProvider = string(types.ProviderOpenAI)
+	// These tests model self-hosted providers on localhost; the default
+	// (blocked) policy is covered in provider_endpoint_ssrf_test.go.
+	cfg.Providers.AllowPrivateNetworks = true
 
 	s.store = store.NewMockStore(ctrl)
 	s.openAiClient = openai.NewMockClient(ctrl)
@@ -506,6 +511,7 @@ func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_ValidatesCanonicalNam
 				s.store.EXPECT().CreateProviderEndpoint(gomock.Any(), gomock.Any()).Return(nil, errors.New("create reached"))
 			}
 
+			tt.endpoint.BaseURL = "https://api.anthropic.com/v1"
 			body, err := json.Marshal(tt.endpoint)
 			s.Require().NoError(err)
 			req := httptest.NewRequest(http.MethodPost, "/v1/provider-endpoints", bytes.NewReader(body)).WithContext(s.authCtx)
@@ -583,6 +589,7 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_ValidatesRenameAndTyp
 					})
 			}
 
+			tt.update.BaseURL = "https://api.anthropic.com/v1"
 			body, err := json.Marshal(tt.update)
 			s.Require().NoError(err)
 			req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+tt.existing.ID, bytes.NewReader(body))
@@ -631,10 +638,9 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListO
 	s.Equal("hermes", result.Models[0].OwnedBy)
 }
 
-// Upstream returning an empty list with a static Models list configured should
-// also fall back to the synthesized list (some endpoints answer /v1/models with
-// `{"data":[]}`).
-func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListOnEmptyUpstream() {
+// A successful empty discovery response is authoritative. Configured models
+// must not be offered when the upstream says none are available.
+func (s *ProviderHandlersSuite) TestGetProviderModels_EmptyUpstreamExcludesStaticList() {
 	endpoint := &types.ProviderEndpoint{
 		Name:    "hermes",
 		Owner:   "user_id_2",
@@ -644,18 +650,11 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_SynthesizesFromStaticListO
 
 	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
 	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return([]types.OpenAIModel{}, nil)
-	s.modelInfoProvider.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("not found")).Times(2)
 
 	result, err := s.server.getProviderModels(context.Background(), endpoint)
 	s.Require().NoError(err)
 	s.NoError(result.Degraded)
-	s.Require().Len(result.Models, 2)
-	s.Equal("hermes-agent", result.Models[0].ID)
-	s.Equal("hermes-mini", result.Models[1].ID)
-	for _, m := range result.Models {
-		s.Equal("chat", m.Type)
-		s.True(m.Enabled)
-	}
+	s.Empty(result.Models)
 }
 
 // When upstream errors AND no static Models list is set AND no cache entry
@@ -737,10 +736,8 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_GetClientErrorIsHardFailur
 		"config errors must not be tagged as upstream-unreachable")
 }
 
-// Static Models list takes precedence over both the upstream call AND a stale
-// cache entry — if the operator explicitly configured a model list, that's the
-// declared source of truth. Captures the priority for the cross-axis case the
-// previous tests didn't cover.
+// Without any prior successful discovery, a static Models list is the source
+// of truth for an endpoint that does not implement /v1/models.
 func (s *ProviderHandlersSuite) TestGetProviderModels_StaticListBeatsCacheOnUpstreamError() {
 	endpoint := &types.ProviderEndpoint{
 		Name:    "static-wins",
@@ -767,6 +764,37 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_StaticListBeatsCacheOnUpst
 	s.Require().Len(result.Models, 1)
 	s.Equal("explicit-model", result.Models[0].ID,
 		"static list must win over stale cache when upstream errors")
+}
+
+func (s *ProviderHandlersSuite) TestGetProviderModels_OutageDoesNotResurrectModelMissingFromPriorDiscovery() {
+	endpoint := &types.ProviderEndpoint{
+		Name:    "bunker",
+		Owner:   "org_birding",
+		BaseURL: "https://bunker.local",
+		Models:  []string{"glm-5.3-flash", "qwen3.8-flash-next"},
+	}
+	fetchedAt := time.Now().Add(-10 * time.Minute)
+	effective, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "glm-5.3-flash", Enabled: true}},
+		FetchedAt: fetchedAt,
+	})
+	catalogue, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "glm-5.3-flash", Enabled: true}},
+		FetchedAt: fetchedAt,
+	})
+	s.server.cache.SetWithTTL(modelCacheKey(endpoint.Name, endpoint.Owner), string(effective), 1, time.Hour)
+	s.server.cache.SetWithTTL(catalogueCacheKey(endpoint.Name, endpoint.Owner), string(catalogue), 1, time.Hour)
+	s.server.cache.Wait()
+
+	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
+	s.openAiClient.EXPECT().ListModels(gomock.Any()).Return(nil, errors.New("connection refused"))
+
+	result, err := s.server.getProviderModels(context.Background(), endpoint)
+
+	s.Require().NoError(err)
+	s.Require().Error(result.Degraded)
+	s.Require().Len(result.Models, 1)
+	s.Equal("glm-5.3-flash", result.Models[0].ID)
 }
 
 // A successful fresh fetch must persist to the cache so future refreshes can
@@ -963,6 +991,37 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotSwitchT
 
 	s.Equal(http.StatusForbidden, rr.Code)
 	s.Contains(rr.Body.String(), "Only admins can update global endpoints")
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotAddAPIKeyFile() {
+	endpointID := "ep_123"
+	apiKeyFile := "/run/secrets/provider-key"
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	body, err := json.Marshal(types.UpdateProviderEndpoint{APIKeyFromFile: &apiKeyFile})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+	rr := httptest.NewRecorder()
+
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code)
+	s.Contains(rr.Body.String(), "Only admins can add endpoints with API key path auth")
 }
 
 // A non-admin who owns a global endpoint (e.g. one an admin switched to global,
@@ -1524,7 +1583,7 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_EnabledListFiltersCatalogu
 		Name:    "openrouter",
 		Owner:   "user_wl",
 		BaseURL: "https://openrouter.ai/api/v1",
-		Models:  []string{"anthropic/claude-opus-5", "pinned/not-upstream"},
+		Models:  []string{"anthropic/claude-opus-5", "qwen3.8-flash-next"},
 	}
 
 	s.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(s.openAiClient, nil)
@@ -1537,14 +1596,10 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_EnabledListFiltersCatalogu
 
 	result, err := s.server.getProviderModels(context.Background(), endpoint)
 	s.Require().NoError(err)
-	s.Require().Len(result.Models, 2)
-	// Upstream metadata is kept for models that exist upstream...
+	s.Require().Len(result.Models, 1)
+	// Upstream metadata is kept for models that exist upstream.
 	s.Equal("anthropic/claude-opus-5", result.Models[0].ID)
 	s.Equal(200000, result.Models[0].ContextLength)
-	// ...and an enabled id the upstream doesn't advertise is still offered, so
-	// pinning a model an aggregator temporarily drops keeps working.
-	s.Equal("pinned/not-upstream", result.Models[1].ID)
-	s.True(result.Models[1].Enabled)
 }
 
 // The catalogue read powers the model picker itself, so it must NOT apply the
@@ -1599,4 +1654,323 @@ func (s *ProviderHandlersSuite) TestGetProviderModels_SharedBaseURLKeepsSeparate
 	s.Require().NoError(err)
 	s.Require().Len(resB.Models, 1)
 	s.Equal("model-b", resB.Models[0].ID)
+}
+
+func TestGlobalProviderEndpointUsesConfiguredAnthropicBaseURL(t *testing.T) {
+	cfg := &config.ServerConfig{}
+	cfg.Providers.Anthropic.BaseURL = "https://gateway.example.com/anthropic/v1"
+	server := &HelixAPIServer{Cfg: cfg}
+
+	endpoint := server.globalProviderEndpoint(types.ProviderAnthropic)
+
+	require.Equal(t, "https://gateway.example.com/anthropic/v1", endpoint.BaseURL)
+}
+
+func (s *ProviderHandlersSuite) putEndpointModels(endpoint *types.ProviderEndpoint, models []string) *httptest.ResponseRecorder {
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: endpoint.ID}).Return(endpoint, nil)
+
+	body, err := json.Marshal(types.UpdateProviderEndpointModels{Models: models})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/provider-endpoints/"+endpoint.ID+"/models", bytes.NewReader(body)).WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpoint.ID})
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpointModels(rr, req)
+	return rr
+}
+
+// TST-01-201: the models PUT accepted traversal-shaped and free-text model
+// names. Each must now be rejected with 400 and nothing persisted.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpointModels_RejectsInvalidModelIDs() {
+	pocs := [][]string{
+		{"gpt-4o-mini", "../../etc/passwd", "model with spaces"},
+		{"", "", "dup", "dup", "gpt-4o-mini", "../../etc/passwd", "model with spaces"},
+		{"../../etc/passwd"},
+		{"model with spaces"},
+		{"/etc/passwd"},
+		{"models/../secret"},
+		{"a//b"},
+		{"trailing/"},
+		{`..\..\windows`},
+		{"gpt-4o?x=1"},
+		{"gpt-4o#frag"},
+		{"tab\there"},
+		{strings.Repeat("a", maxProviderModelIDLength+1)},
+	}
+	for _, models := range pocs {
+		s.Run(strings.Join(models, ","), func() {
+			endpoint := &types.ProviderEndpoint{ID: "pe_1", Name: "openai", Owner: "user_id", OwnerType: types.OwnerTypeUser,
+				EndpointType: types.ProviderEndpointTypeUser, Models: []string{"gpt-4o"}}
+			// No UpdateProviderEndpoint expectation: gomock fails the test if it is called.
+			rr := s.putEndpointModels(endpoint, models)
+			s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+			s.Equal([]string{"gpt-4o"}, []string(endpoint.Models), "rejected request must not mutate the endpoint")
+		})
+	}
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpointModels_AcceptsRealModelIDs() {
+	endpoint := &types.ProviderEndpoint{ID: "pe_1", Name: "openai", Owner: "user_id", OwnerType: types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeUser}
+	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) { return ep, nil })
+
+	rr := s.putEndpointModels(endpoint, []string{
+		"", " gpt-4o-mini ", "gpt-4o-mini", "llama3:8b", "meta-llama/Llama-3.1-8B-Instruct",
+		"claude-3-5-sonnet@20240620", "us.anthropic.claude-3-5-sonnet-20241022-v2:0", "accounts/fireworks/models/qwen2p5-72b", "~anthropic/claude-opus-latest",
+	})
+	s.Require().Equal(http.StatusOK, rr.Code, rr.Body.String())
+
+	var resp types.ProviderEndpoint
+	s.Require().NoError(json.Unmarshal(rr.Body.Bytes(), &resp))
+	s.Equal([]string{
+		"gpt-4o-mini", "llama3:8b", "meta-llama/Llama-3.1-8B-Instruct",
+		"claude-3-5-sonnet@20240620", "us.anthropic.claude-3-5-sonnet-20241022-v2:0", "accounts/fireworks/models/qwen2p5-72b", "~anthropic/claude-opus-latest",
+	}, []string(resp.Models))
+}
+
+// The general create/update endpoints also write Models, so they must apply
+// the same validation or TST-01-201 is just moved to a different route.
+func (s *ProviderHandlersSuite) TestCreateAndUpdateProviderEndpoint_RejectInvalidModelIDs() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{adminUserIDs: []string{"user_id"}}}
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+
+	s.Run("create", func() {
+		s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil).AnyTimes()
+		body, err := json.Marshal(types.ProviderEndpoint{Name: "my-ollama", BaseURL: "http://localhost:11434",
+			Models: []string{"llama3", "../../etc/passwd"}})
+		s.Require().NoError(err)
+		req := httptest.NewRequest(http.MethodPost, "/v1/provider-endpoints", bytes.NewReader(body)).WithContext(s.authCtx)
+		rr := httptest.NewRecorder()
+		s.server.createProviderEndpoint(rr, req)
+		s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+	})
+
+	s.Run("update", func() {
+		existing := &types.ProviderEndpoint{ID: "pe_1", Name: "my-ollama", Owner: "user_id", OwnerType: types.OwnerTypeUser,
+			EndpointType: types.ProviderEndpointTypeUser}
+		s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: existing.ID}).Return(existing, nil)
+		body, err := json.Marshal(types.UpdateProviderEndpoint{Name: "my-ollama", EndpointType: types.ProviderEndpointTypeUser,
+			Models: []string{"model with spaces"}})
+		s.Require().NoError(err)
+		req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+existing.ID, bytes.NewReader(body)).WithContext(s.authCtx)
+		req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+		rr := httptest.NewRecorder()
+		s.server.updateProviderEndpoint(rr, req)
+		s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+	})
+}
+
+// TST-01-200: create accepted {} and name-only bodies, stored arbitrary
+// base_url values without shape validation, and echoed Go type names back in
+// decode errors. Each PoC must now be a 400 that never reaches the store.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_RejectsDegenerateAndMalformedBodies() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{adminUserIDs: []string{"user_id"}}}
+
+	cases := []struct {
+		name    string
+		body    string
+		wantMsg string
+	}{
+		{"empty object", `{}`, "name is required"},
+		{"name only", `{"name":"LOGIC-PE1"}`, "base_url is required"},
+		{"whitespace name", `{"name":"   ","base_url":"https://api.openai.com/v1"}`, "name is required"},
+		{"control char name", "{\"name\":\"a\\u0000b\",\"base_url\":\"https://api.openai.com/v1\"}", "control characters"},
+		{"overlong name", `{"name":"` + strings.Repeat("a", maxProviderEndpointNameLength+1) + `","base_url":"https://api.openai.com/v1"}`, "name exceeds"},
+		{"relative url", `{"name":"x","base_url":"/v1"}`, "only http and https"},
+		{"no scheme", `{"name":"x","base_url":"api.openai.com/v1"}`, "only http and https"},
+		{"file scheme", `{"name":"x","base_url":"file:///etc/passwd"}`, "only http and https"},
+		{"gopher scheme", `{"name":"x","base_url":"gopher://127.0.0.1:6379/_"}`, "only http and https"},
+		{"opaque", `{"name":"x","base_url":"http:example.com"}`, "missing host"},
+		{"no host", `{"name":"x","base_url":"https:///v1"}`, "missing host"},
+		{"userinfo", `{"name":"x","base_url":"https://user:pass@example.com/v1","api_key":"k"}`, "must not embed credentials"},
+		{"fragment", `{"name":"x","base_url":"https://example.com/v1#frag"}`, "fragment"},
+		{"unparseable", `{"name":"x","base_url":"https://exa mple.com/v1"}`, "invalid URL"},
+		{"vertex with bad scheme", `{"name":"v","vertex_project_id":"p","base_url":"gopher://x"}`, "only http and https"},
+		{"vertex with embedded credentials", `{"name":"v","vertex_project_id":"p","base_url":"https://u:p@example.com"}`, "must not embed credentials"},
+		{"overlong url", `{"name":"x","base_url":"https://example.com/` + strings.Repeat("a", maxProviderEndpointBaseURLLength) + `"}`, "base_url exceeds"},
+		{"models wrong type", `{"name":"x","base_url":"https://example.com/v1","models":"not-an-array"}`, `field "models" has the wrong type`},
+		{"not json", `not json`, "must be a valid JSON object"},
+		{"empty body", ``, "must be a valid JSON object"},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+			// No ListProviderEndpoints/CreateProviderEndpoint expectations:
+			// gomock fails the test if validation lets the request through.
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/provider-endpoints", strings.NewReader(tc.body)).WithContext(s.authCtx)
+			rr := httptest.NewRecorder()
+			s.server.createProviderEndpoint(rr, req)
+
+			s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+			s.Contains(rr.Body.String(), tc.wantMsg)
+			for _, leak := range []string{"Go struct", "pq.StringArray", "ProviderEndpoint.", "json: "} {
+				s.NotContains(rr.Body.String(), leak)
+			}
+		})
+	}
+}
+
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_AcceptsValidShapes() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{adminUserIDs: []string{"user_id"}}}
+
+	cases := []struct {
+		name     string
+		endpoint types.ProviderEndpoint
+		wantURL  string
+	}{
+		{"https", types.ProviderEndpoint{Name: "openai", BaseURL: "https://api.openai.com/v1"}, "https://api.openai.com/v1"},
+		{"http with port, trimmed", types.ProviderEndpoint{Name: " my-ollama ", BaseURL: "  http://localhost:11434/v1 "}, "http://localhost:11434/v1"},
+		{"query string", types.ProviderEndpoint{Name: "azure", BaseURL: "https://x.openai.azure.com/openai?api-version=2024-06-01"}, "https://x.openai.azure.com/openai?api-version=2024-06-01"},
+		{"vertex without base_url", types.ProviderEndpoint{Name: "vertex", VertexProjectID: "proj-1", VertexRegion: "us-east5", VertexCredentialsJSON: `{"type":"service_account"}`}, ""},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+			s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return(nil, nil)
+			s.store.EXPECT().CreateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
+					s.Equal(tc.wantURL, ep.BaseURL)
+					s.Equal(strings.TrimSpace(tc.endpoint.Name), ep.Name)
+					return nil, errors.New("create reached")
+				})
+
+			body, err := json.Marshal(tc.endpoint)
+			s.Require().NoError(err)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/provider-endpoints", bytes.NewReader(body)).WithContext(s.authCtx)
+			rr := httptest.NewRecorder()
+			s.server.createProviderEndpoint(rr, req)
+			s.Contains(rr.Body.String(), "create reached")
+		})
+	}
+}
+
+// Update applies the same shape rules to the resulting endpoint, so a create
+// guard cannot be bypassed by creating a valid endpoint and then blanking it.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_RejectsMalformedShape() {
+	cases := []struct {
+		name    string
+		body    string
+		wantMsg string
+	}{
+		{"blank base_url", `{"name":"my-endpoint","base_url":""}`, "base_url is required"},
+		{"omitted base_url", `{"name":"my-endpoint"}`, "base_url is required"},
+		{"bad scheme", `{"name":"my-endpoint","base_url":"ftp://example.com"}`, "only http and https"},
+		{"models wrong type", `{"name":"my-endpoint","base_url":"https://example.com","models":"x"}`, `field "models" has the wrong type`},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			existing := &types.ProviderEndpoint{ID: "pe_1", Name: "my-endpoint", BaseURL: "https://example.com/v1",
+				Owner: "user_id", OwnerType: types.OwnerTypeUser, EndpointType: types.ProviderEndpointTypeUser}
+			s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{ProvidersManagementEnabled: true}, nil)
+			s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: existing.ID}).Return(existing, nil)
+
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/provider-endpoints/pe_1", strings.NewReader(tc.body)).WithContext(s.authCtx)
+			req = mux.SetURLVars(req, map[string]string{"id": existing.ID})
+			rr := httptest.NewRecorder()
+			s.server.updateProviderEndpoint(rr, req)
+
+			s.Equal(http.StatusBadRequest, rr.Code, rr.Body.String())
+			s.Contains(rr.Body.String(), tc.wantMsg)
+			s.NotContains(rr.Body.String(), "Go struct")
+		})
+	}
+}
+
+// Non-admins must not be able to make the server read a Vertex credentials
+// file from its own filesystem.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_NonAdminCannotAddVertexCredentialsFile() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{}}
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil).AnyTimes()
+
+	body, err := json.Marshal(types.ProviderEndpoint{
+		Name:                  "my-vertex",
+		EndpointType:          types.ProviderEndpointTypeUser,
+		VertexProjectID:       "my-project",
+		VertexRegion:          "global",
+		VertexCredentialsFile: "/run/secrets/vertex.json",
+	})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPost, "/v1/provider-endpoints", bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	rr := httptest.NewRecorder()
+
+	s.server.createProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code, rr.Body.String())
+}
+
+// User endpoints must bring their own service account key: no fallback to the
+// server's Google identity and no credential types that read local files or
+// contact arbitrary token URLs.
+func (s *ProviderHandlersSuite) TestCreateProviderEndpoint_RejectsUnsafeVertexSettings() {
+	s.server.authMiddleware = &authMiddleware{store: s.store, cfg: authMiddlewareConfig{}}
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{ID: "user_id"}, nil).AnyTimes()
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil).AnyTimes()
+
+	cases := map[string]types.ProviderEndpoint{
+		"no credentials": {VertexRegion: "global"},
+		"external account": {
+			VertexRegion:          "global",
+			VertexCredentialsJSON: `{"type":"external_account","token_url":"https://attacker.example/token","credential_source":{"file":"/proc/self/environ"}}`,
+		},
+		"host in region": {
+			VertexRegion:          "attacker.example/",
+			VertexCredentialsJSON: `{"type":"service_account"}`,
+		},
+	}
+	for name, endpoint := range cases {
+		endpoint.Name = "my-vertex"
+		endpoint.EndpointType = types.ProviderEndpointTypeUser
+		endpoint.VertexProjectID = "my-project"
+		body, err := json.Marshal(endpoint)
+		s.Require().NoError(err)
+		req := httptest.NewRequest(http.MethodPost, "/v1/provider-endpoints", bytes.NewReader(body))
+		req = req.WithContext(s.authCtx)
+		rr := httptest.NewRecorder()
+
+		s.server.createProviderEndpoint(rr, req)
+
+		s.Equal(http.StatusBadRequest, rr.Code, "%s: %s", name, rr.Body.String())
+	}
+}
+
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotAddVertexCredentialsFile() {
+	endpointID := "ep_123"
+	credentialsFile := "/run/secrets/vertex.json"
+	existing := &types.ProviderEndpoint{
+		ID:                    endpointID,
+		Name:                  "my-vertex",
+		Owner:                 "user_id",
+		OwnerType:             types.OwnerTypeUser,
+		EndpointType:          types.ProviderEndpointTypeUser,
+		VertexProjectID:       "my-project",
+		VertexRegion:          "global",
+		VertexCredentialsJSON: `{"type":"service_account"}`,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	body, err := json.Marshal(types.UpdateProviderEndpoint{VertexCredentialsFile: &credentialsFile})
+	s.Require().NoError(err)
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+	rr := httptest.NewRecorder()
+
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code, rr.Body.String())
 }

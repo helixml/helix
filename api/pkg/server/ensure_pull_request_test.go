@@ -159,7 +159,7 @@ func (f *fakeGitRepoService) GetLocalBranchSHA(ctx context.Context, repoID, bran
 func (f *fakeGitRepoService) GetExternalRepoStatus(_ context.Context, _, _ string) (*types.ExternalStatus, error) {
 	panic("GetExternalRepoStatus unexpected")
 }
-func (f *fakeGitRepoService) GetRepoLock(_ string) *sync.Mutex { panic("GetRepoLock unexpected") }
+func (f *fakeGitRepoService) GetRepoLock(_ string) *services.RepoLock { panic("GetRepoLock unexpected") }
 func (f *fakeGitRepoService) WithExternalRepoRead(_ context.Context, _ *types.GitRepository, _ func() error) error {
 	panic("WithExternalRepoRead unexpected")
 }

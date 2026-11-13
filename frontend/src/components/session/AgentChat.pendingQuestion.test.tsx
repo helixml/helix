@@ -1,7 +1,8 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TypesInteractionState, type TypesInteraction } from "../../api/api";
 import AgentChat from "./AgentChat";
 
 const pendingQuestion = {
@@ -15,9 +16,20 @@ const pendingQuestion = {
     },
   ],
 };
+const { latestInteractions, newInference, pendingQuestionInteractions, sessionQueueEntries } = vi.hoisted(() => ({
+  latestInteractions: {
+    current: {
+      totalCount: 12,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    },
+  },
+  newInference: vi.fn(),
+  pendingQuestionInteractions: { current: [] as TypesInteraction[] },
+  sessionQueueEntries: { current: [] as Array<{ id: string }> },
+}));
 
 vi.mock("../../contexts/streaming", () => ({
-  useStreaming: () => ({ NewInference: vi.fn() }),
+  useStreaming: () => ({ NewInference: newInference }),
 }));
 
 vi.mock("../../hooks/useApi", () => ({
@@ -29,18 +41,22 @@ vi.mock("../../hooks/useSnackbar", () => ({
 }));
 
 vi.mock("../../services/sessionService", () => ({
-  useListInteractions: () => ({
+  useListInteractions: (
+    _sessionId: string,
+    _page: number,
+    _perPage: number,
+    _order: string,
+    options?: { pendingQuestionOnly?: boolean },
+  ) => ({
     data: {
-      data: {
-        totalCount: 2,
-        interactions: [
-          {
-            id: "interaction-1",
-            state: "waiting",
-            pending_question: pendingQuestion,
+      data: options?.pendingQuestionOnly
+        ? {
+            totalCount: pendingQuestionInteractions.current.length,
+            interactions: pendingQuestionInteractions.current,
+          }
+        : {
+            ...latestInteractions.current,
           },
-        ],
-      },
     },
     refetch: vi.fn(),
   }),
@@ -51,48 +67,284 @@ vi.mock("../../services/specTaskService", () => ({
 }));
 
 vi.mock("../common/RobustPromptInput", () => ({
-  default: ({ hasAttachedHeader }: { hasAttachedHeader?: boolean }) => (
-    <div
+  default: ({ hasAttachedHeader, onSend, onWillSend, sendMode }: {
+    hasAttachedHeader?: boolean;
+    onSend: (message: string) => Promise<void>;
+    onWillSend?: () => void;
+    sendMode: "queued" | "direct";
+  }) => (
+    <button
       data-testid="composer"
       data-has-attached-header={String(hasAttachedHeader)}
-    />
+      onClick={() => {
+        onWillSend?.();
+        if (sendMode === "direct") void onSend("hello");
+      }}
+    >
+      Send
+    </button>
   ),
 }));
 
 vi.mock("./EmbeddedSessionView", () => ({
   default: React.forwardRef(function EmbeddedSessionView(
-    { trailingContent }: { trailingContent?: React.ReactNode },
+    { assistantPortraitIndex, trailingContent }: { assistantPortraitIndex?: number; trailingContent?: React.ReactNode },
     _ref,
   ) {
-    return <div data-testid="session-view">{trailingContent}</div>;
+    return <div data-testid="session-view" data-portrait-index={assistantPortraitIndex}>{trailingContent}</div>;
   }),
 }));
 
 vi.mock("./PendingQuestionCard", () => ({
-  default: () => <div data-testid="pending-question" />,
+  default: ({ interactionId }: { interactionId: string }) => (
+    <div data-testid="pending-question" data-interaction-id={interactionId} />
+  ),
 }));
 
 vi.mock("./useSessionPromptQueue", () => ({
   useSessionPromptQueue: () => ({
-    entries: [],
+    entries: sessionQueueEntries.current,
     remove: vi.fn(),
     restartAgent: vi.fn(),
   }),
 }));
 
-describe("AgentChat pending question placement", () => {
-  it("puts the pending question at the end of the scrolling thread", () => {
-    render(<AgentChat sessionId="session-1" />);
+vi.mock("./SessionPromptQueue", () => ({
+  default: () => <div data-testid="session-prompt-queue" />,
+}));
 
-    const question = screen.getByTestId("pending-question");
-    expect(screen.getByTestId("session-view")).toContainElement(question);
-    expect(screen.getByTestId("composer")).toHaveAttribute(
-      "data-has-attached-header",
-      "false",
-    );
+describe("AgentChat pending question placement", () => {
+  beforeEach(() => {
+    latestInteractions.current = {
+      totalCount: 12,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    };
+    newInference.mockReset();
+    newInference.mockResolvedValue(undefined);
+    sessionQueueEntries.current = [];
+    pendingQuestionInteractions.current = [{
+      id: "interaction-old",
+      state: TypesInteractionState.InteractionStateWaiting,
+      pending_question: pendingQuestion,
+    }];
   });
 
-  it("puts action cards in the thread, before the pending question", () => {
+  it("keeps the welcome composer mounted until the first send succeeds", async () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+    let finishSend: () => void = () => {};
+    newInference.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishSend = resolve;
+    }));
+    render(<AgentChat sessionId="session-1" minimal />);
+
+    fireEvent.click(screen.getByTestId("composer"));
+
+    expect(screen.getByText("What would you like to know?")).toBeInTheDocument();
+    await act(async () => finishSend());
+    await waitFor(() => {
+      expect(screen.queryByText("What would you like to know?")).not.toBeInTheDocument();
+    });
+  });
+
+  it("fills the composer from a starter prompt in a full empty bot chat", () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+    const onSelectStarter = vi.fn();
+
+    render(
+      <AgentChat
+        sessionId="session-1"
+        orgBot={{ id: "chief-of-staff", name: "Chief of Staff" } as any}
+        welcomeWhenEmpty
+        welcomeHeading="Start a conversation"
+        starterPrompts={[
+          "Help me set up my team of bots",
+          "Help me prioritize",
+          "What can you help with?",
+        ]}
+        onSelectStarter={onSelectStarter}
+      />,
+    );
+
+    expect(screen.getByText("Start a conversation")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /help me prioritize/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /what can you help with/i })).toBeInTheDocument();
+    expect(screen.getByTestId("composer")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /help me set up my team of bots/i }));
+    expect(onSelectStarter).toHaveBeenCalledWith("Help me set up my team of bots");
+    expect(newInference).not.toHaveBeenCalled();
+  });
+
+  it("shows starters after the Chief's org hire briefing", () => {
+    latestInteractions.current = {
+      totalCount: 1,
+      interactions: [{ id: "interaction-new", state: "complete", trigger: "org_hire" }],
+    } as any;
+    pendingQuestionInteractions.current = [];
+
+    render(
+      <AgentChat
+        sessionId="session-1"
+        welcomeWhenEmpty
+        welcomeHeading="How can I help?"
+        starterPrompts={["Help me set up my team of bots"]}
+        onSelectStarter={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("How can I help?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /help me set up my team of bots/i })).toBeInTheDocument();
+  });
+
+  it.each([
+    [TypesInteractionState.InteractionStateError, "setup failed"],
+    [TypesInteractionState.InteractionStateWaiting, undefined],
+  ])("keeps a %s org hire interaction visible", (state, error) => {
+    latestInteractions.current = {
+      totalCount: 1,
+      interactions: [{ id: "interaction-new", state, trigger: "org_hire", error }],
+    } as any;
+    pendingQuestionInteractions.current = [];
+
+    render(
+      <AgentChat
+        sessionId="session-1"
+        welcomeWhenEmpty
+        welcomeHeading="How can I help?"
+        starterPrompts={["Help me set up my team of bots"]}
+        onSelectStarter={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("does not replace a single ordinary bot interaction with starters", () => {
+    latestInteractions.current = {
+      totalCount: 1,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    };
+    pendingQuestionInteractions.current = [];
+
+    render(
+      <AgentChat
+        sessionId="session-1"
+        welcomeWhenEmpty
+        welcomeHeading="How can I help?"
+        starterPrompts={["Help me set up my team of bots"]}
+      />,
+    );
+
+    expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("does not replace multiple bot interactions with starters", () => {
+    latestInteractions.current = {
+      totalCount: 2,
+      interactions: [{ id: "interaction-new", state: "complete", trigger: "org_hire" }],
+    } as any;
+    pendingQuestionInteractions.current = [];
+
+    render(
+      <AgentChat
+        sessionId="session-1"
+        welcomeWhenEmpty
+        welcomeHeading="How can I help?"
+        starterPrompts={["Help me set up my team of bots"]}
+        onSelectStarter={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("shows a queued prompt instead of empty-chat starters", () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+    sessionQueueEntries.current = [{ id: "queued-prompt" }];
+
+    render(
+      <AgentChat
+        sessionId="session-1"
+        showSessionPromptQueue
+        welcomeWhenEmpty
+        welcomeHeading="How can I help?"
+        starterPrompts={["Help me set up my team of bots"]}
+        onSelectStarter={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+    expect(screen.getByTestId("session-prompt-queue")).toBeInTheDocument();
+  });
+
+  it("does not restore the welcome after a queued prompt leaves the queue", () => {
+    latestInteractions.current = {
+      totalCount: 1,
+      interactions: [{ id: "interaction-new", state: "complete", trigger: "org_hire" }],
+    } as any;
+    pendingQuestionInteractions.current = [];
+    const onWillSend = vi.fn();
+    const onWelcomeChange = vi.fn();
+    const props = {
+      sessionId: "session-1",
+      showSessionPromptQueue: true,
+      welcomeWhenEmpty: true,
+      welcomeHeading: "How can I help?",
+      starterPrompts: ["Help me set up my team of bots"],
+      onSelectStarter: vi.fn(),
+      onWillSend,
+      onWelcomeChange,
+    };
+    const view = render(<AgentChat {...props} />);
+
+    expect(screen.getByText("How can I help?")).toBeInTheDocument();
+    expect(onWelcomeChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByTestId("composer"));
+    expect(onWillSend).toHaveBeenCalledTimes(1);
+    expect(newInference).not.toHaveBeenCalled();
+
+    sessionQueueEntries.current = [{ id: "queued-prompt" }];
+    view.rerender(<AgentChat {...props} />);
+    expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(onWelcomeChange).toHaveBeenLastCalledWith(false);
+    expect(screen.getByTestId("session-prompt-queue")).toBeInTheDocument();
+
+    sessionQueueEntries.current = [];
+    view.rerender(<AgentChat {...props} />);
+    expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("leaves an empty standard task chat on the existing thread surface", () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+
+    render(<AgentChat sessionId="session-1" />);
+
+    expect(screen.queryByText("What would you like to know?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("passes the persisted portrait into an active bot conversation", () => {
+    pendingQuestionInteractions.current = [];
+    render(
+      <AgentChat
+        sessionId="session-1"
+        orgBot={{ id: "b-joke-writer", name: "Joke Writer", portrait_index: 0 } as any}
+        welcomeWhenEmpty
+      />,
+    );
+
+    expect(screen.getByTestId("session-view")).toHaveAttribute("data-portrait-index", "0");
+  });
+
+  it("puts a question older than the loaded transcript after newer replies and action cards", () => {
     render(
       <AgentChat
         sessionId="session-1"
@@ -102,8 +354,24 @@ describe("AgentChat pending question placement", () => {
 
     const card = screen.getByTestId("pr-proposal");
     expect(screen.getByTestId("session-view")).toContainElement(card);
-    expect(card.compareDocumentPosition(screen.getByTestId("pending-question"))).toBe(
+    const question = screen.getByTestId("pending-question");
+    expect(question).toHaveAttribute("data-interaction-id", "interaction-old");
+    expect(card.compareDocumentPosition(question)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(screen.getByTestId("composer")).toHaveAttribute(
+      "data-has-attached-header",
+      "false",
+    );
+  });
+
+  it("removes a question when the pending-question query refreshes", () => {
+    const view = render(<AgentChat sessionId="session-1" />);
+    expect(screen.getByTestId("pending-question")).toBeInTheDocument();
+
+    pendingQuestionInteractions.current = [];
+    view.rerender(<AgentChat sessionId="session-1" />);
+
+    expect(screen.queryByTestId("pending-question")).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ActivitySummary, { formatActivityDuration } from "./ActivitySummary";
 
@@ -40,7 +40,15 @@ describe("ActivitySummary", () => {
     expect(screen.queryByText("all activity")).not.toBeInTheDocument();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("shows the live working label and activity indicator", () => {
+    // Freeze the clock: on a slow runner a second can pass between building
+    // startedAt and the first render, which made this read "2m 6s".
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     renderSummary(true);
 
     expect(screen.getByText("Working for 2m 5s")).toBeInTheDocument();

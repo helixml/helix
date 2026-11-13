@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/helixml/helix/api/pkg/netguard"
 )
 
 type Provider string
@@ -100,6 +102,20 @@ type ProviderEndpoint struct {
 	AvailableModels []OpenAIModel          `json:"available_models" gorm:"-"`
 	Status          ProviderEndpointStatus `json:"status" gorm:"-"` // If we can't fetch models
 	Error           string                 `json:"error" gorm:"-"`
+}
+
+// OutboundPolicy returns the destination policy for requests to the
+// endpoint's BaseURL, or nil when the endpoint is unrestricted. Global
+// endpoints can only be created or edited by Helix admins, who already control
+// the server's own provider config, so they may target any address. User and
+// org endpoints are tenant-controlled and must not be usable to make the API
+// server reach link-local, metadata or (unless allowPrivate) internal
+// addresses (TST-01-270).
+func (e *ProviderEndpoint) OutboundPolicy(allowPrivate bool) *netguard.Policy {
+	if e.EndpointType == ProviderEndpointTypeGlobal {
+		return nil
+	}
+	return &netguard.Policy{AllowPrivate: allowPrivate}
 }
 
 // ProviderEndpointModels is the model picker payload for one provider endpoint:

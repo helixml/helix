@@ -16,7 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// fakeSecretStore is a minimal stateful store.Store: only the two methods
+// fakeSecretStore is a minimal stateful store.Store: only the methods
 // the secret delete handler touches are real. Every other method is
 // promoted from the (nil) embedded interface and must not be called.
 type fakeSecretStore struct {
@@ -30,6 +30,12 @@ func (f *fakeSecretStore) GetSecret(_ context.Context, id string) (*types.Secret
 		return nil, store.ErrNotFound
 	}
 	return s, nil
+}
+
+// GetProject serves the secret's project: deleting a project secret is
+// authorized against its project, which user-1 owns.
+func (f *fakeSecretStore) GetProject(_ context.Context, id string) (*types.Project, error) {
+	return &types.Project{ID: id, UserID: "user-1"}, nil
 }
 
 func (f *fakeSecretStore) DeleteSecret(_ context.Context, id string) error {

@@ -75,12 +75,13 @@ export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?
   },
 ];
 
-export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number, order?: string) => [
+export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number, order?: string, pendingQuestionOnly?: boolean) => [
   "interactions",
   sessionId,
   page,
   perPage,
   order,
+  ...(pendingQuestionOnly ? ["pending_question"] : []),
 ];
 
 // useListSessionSteps returns the steps for a session, it includes
@@ -367,17 +368,18 @@ export function useListInteractions(
   page?: number,
   perPage?: number,
   order?: 'asc' | 'desc',
-  options?: { enabled?: boolean; refetchInterval?: number | false }
+  options?: { enabled?: boolean; refetchInterval?: number | false; pendingQuestionOnly?: boolean }
 ) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
   return useQuery({
-    queryKey: LIST_INTERACTIONS_QUERY_KEY(sessionId, page, perPage, order),
+    queryKey: LIST_INTERACTIONS_QUERY_KEY(sessionId, page, perPage, order, options?.pendingQuestionOnly),
     queryFn: () => apiClient.v1SessionsInteractionsDetail(sessionId, {
       page: page ?? 0,
       per_page: perPage ?? 20,
       order: order,
+      pending_question: options?.pendingQuestionOnly,
     }),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,

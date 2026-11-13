@@ -1,14 +1,17 @@
 package services
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +20,7 @@ import (
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"code.gitea.io/gitea/modules/setting"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -71,13 +75,22 @@ type GitRepositoryService struct {
 	// All compound operations (read+sync, write+push, receive-pack+push) must hold
 	// the lock for the entire duration to prevent concurrent syncs from overwriting
 	// commits between receive-pack and upstream push.
-	repoLocks map[string]*sync.Mutex
+	repoLocks map[string]*RepoLock
 	locksMu   sync.Mutex // protects repoLocks map
+
+	// upstreamFailedAt records the last failed upstream fetch/push per repo so
+	// best-effort pre-syncs can skip a known-bad upstream instead of stalling.
+	upstreamFailedAt   map[string]time.Time
+	upstreamFailedAtMu sync.Mutex
 
 	// prListCache absorbs duplicate ListPullRequests calls (orchestrator polls,
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
 	// rate limit. Set on construction; safe for concurrent use.
 	prListCache *prListCache
+
+	// outboundPolicy, when set, restricts the addresses external repository
+	// URLs may reach (see SetOutboundPolicy).
+	outboundPolicy *netguard.Policy
 
 	// githubReviewWebhooksURL enables PR review feedback for spec tasks: when
 	// set, creating a GitHub pull request also installs (idempotently) a
@@ -85,6 +98,13 @@ type GitRepositoryService struct {
 	// deliveries. Deliveries are signed with a per-repo secret stored on the
 	// repo row. Set via SetGitHubReviewWebhooks from server wiring.
 	githubReviewWebhooksURL string
+
+	// compatBaseURL / compatDispatch bridge the go-github client used for
+	// Helix-hosted repositories to this instance's in-process
+	// GitHub-compatible API (see SetInternalGitHubCompat). Set from server
+	// wiring; both empty means internal pull requests are unavailable.
+	compatBaseURL  string
+	compatDispatch InternalCompatDispatch
 }
 
 // NewGitRepositoryService creates a new git repository service
@@ -103,28 +123,29 @@ func NewGitRepositoryService(
 	}
 
 	return &GitRepositoryService{
-		store:           store,
-		filestoreBase:   filestoreBase,
-		gitRepoBase:     gitRepoBase,
-		serverBaseURL:   strings.TrimSuffix(serverBaseURL, "/"),
-		gitUserName:     gitUserName,
-		gitUserEmail:    gitUserEmail,
-		enableGitServer: true,
-		testMode:        false,
-		repoLocks:       make(map[string]*sync.Mutex),
-		prListCache:     newPRListCache(defaultPRListCacheTTL),
+		store:            store,
+		filestoreBase:    filestoreBase,
+		gitRepoBase:      gitRepoBase,
+		serverBaseURL:    strings.TrimSuffix(serverBaseURL, "/"),
+		gitUserName:      gitUserName,
+		gitUserEmail:     gitUserEmail,
+		enableGitServer:  true,
+		testMode:         false,
+		repoLocks:        make(map[string]*RepoLock),
+		upstreamFailedAt: make(map[string]time.Time),
+		prListCache:      newPRListCache(defaultPRListCacheTTL),
 	}
 }
 
 // GetRepoLock returns the mutex for a specific repository.
 // Used by GitHTTPServer to serialize push operations with other git operations.
-func (s *GitRepositoryService) GetRepoLock(repoID string) *sync.Mutex {
+func (s *GitRepositoryService) GetRepoLock(repoID string) *RepoLock {
 	s.locksMu.Lock()
 	defer s.locksMu.Unlock()
 
 	lock, ok := s.repoLocks[repoID]
 	if !ok {
-		lock = &sync.Mutex{}
+		lock = newRepoLock()
 		s.repoLocks[repoID] = lock
 	}
 	return lock
@@ -245,6 +266,8 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 // middle repo but not pushed to upstream. This can happen if we crash between
 // receive-pack completing and the upstream push completing.
 func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
+	startedAt := time.Now()
+
 	// List all repos from database
 	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{})
 	if err != nil {
@@ -259,9 +282,22 @@ func (s *GitRepositoryService) recoverIncompletePushes(ctx context.Context) {
 			continue
 		}
 
+		// A process that died mid-sync never cleared its in-progress marker.
+		// Upstream git runs in-process, so any marker from before this
+		// process started is stale.
+		if repo.SyncInProgressSince != nil && repo.SyncInProgressSince.Before(startedAt) {
+			if err := s.store.ClearStaleGitRepositorySync(ctx, repo.ID, *repo.SyncInProgressSince, "upstream sync interrupted by API restart"); err != nil {
+				log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to clear stale sync-in-progress marker")
+			}
+		}
+
 		// Check if repo directory exists
 		if _, err := os.Stat(repo.LocalPath); os.IsNotExist(err) {
 			continue
+		}
+
+		if err := scrubRemoteCredentials(ctx, repo.LocalPath); err != nil {
+			log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to remove credentials from stored remote URL")
 		}
 
 		// Refresh all remote-tracking refs once per repository. Fetching each
@@ -337,9 +373,10 @@ func (s *GitRepositoryService) listLocalBranches(ctx context.Context, repoPath s
 }
 
 func (s *GitRepositoryService) fetchRemoteTrackingRefsForRecovery(ctx context.Context, repo *types.GitRepository) error {
-	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
+	remote := s.upstreamRemoteForRepo(ctx, repo)
 	return Fetch(ctx, repo.LocalPath, FetchOptions{
-		Remote:   fetchURL,
+		Remote:   remote.URL,
+		Env:      remote.env(),
 		Force:    true,
 		Prune:    true,
 		Timeout:  5 * time.Minute,
@@ -487,7 +524,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 				"README.md": fmt.Sprintf("# %s\n\n%s\n", request.Name, request.Description),
 			}
 		}
-		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, true, request.CreatorName, request.CreatorEmail)
+		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, initialFiles, request.InitialExecutableFiles, true, request.CreatorName, request.CreatorEmail)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize git repository: %w", err)
 		}
@@ -496,18 +533,11 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		// This ensures the repo exists in Helix before Kodit tries to index it
 		log.Info().
 			Str("repo_id", repoID).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 			Str("oauth_connection_id", gitRepo.OAuthConnectionID).
 			Msg("Cloning external repository using native git...")
 
-		// Build authenticated URL for clone
-		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
-
-		// Use native git clone via gitea/git module
-		err = giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
-			Bare:   true,
-			Mirror: true, // Clone ALL branches, tags, and refs
-		})
+		err = cloneUpstreamMirror(ctx, s.upstreamRemoteForRepo(ctx, gitRepo), repoPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to clone external repository: %w", err)
 		}
@@ -538,7 +568,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 
 		log.Info().
 			Str("repo_id", repoID).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 			Int("branches", len(gitRepo.Branches)).
 			Msg("Successfully cloned external repository")
 	}
@@ -566,7 +596,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		Str("repo_id", repoID).
 		Str("repo_path", repoPath).
 		Str("repo_type", string(gitRepo.RepoType)).
-		Str("external_url", gitRepo.ExternalURL).
+		Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 		Msg("Created git repository")
 
 	// Register with Kodit if kodit_indexing is enabled
@@ -691,15 +721,11 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 			repoPath := filepath.Join(s.gitRepoBase, gitRepo.ID)
 			log.Info().
 				Str("repo_id", gitRepo.ID).
-				Str("external_url", gitRepo.ExternalURL).
+				Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 				Str("repo_path", repoPath).
 				Msg("Starting async clone using native git")
 
-			cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
-			cloneErr := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
-				Bare:   true,
-				Mirror: true,
-			})
+			cloneErr := cloneUpstreamMirror(ctx, s.upstreamRemoteForRepo(ctx, gitRepo), repoPath)
 			if cloneErr != nil {
 				return recordCloneError(fmt.Errorf("clone failed: %w", cloneErr))
 			}
@@ -733,7 +759,7 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 
 			log.Info().
 				Str("repo_id", gitRepo.ID).
-				Str("external_url", gitRepo.ExternalURL).
+				Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 				Int("branches", len(gitRepo.Branches)).
 				Msg("Async clone completed successfully")
 			return nil
@@ -853,12 +879,13 @@ func (s *GitRepositoryService) GetExternalRepoStatus(ctx context.Context, repoID
 	}
 
 	// Build authenticated URL for fetch
-	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
 
 	// Fetch from remote to update remote-tracking ref
 	refSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branchName, branchName)
 	err = Fetch(ctx, gitRepo.LocalPath, FetchOptions{
-		Remote:   fetchURL,
+		Remote:   remote.URL,
+		Env:      remote.env(),
 		RefSpecs: []string{refSpec},
 		Force:    true,
 		Timeout:  2 * time.Minute,
@@ -1068,6 +1095,10 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
 	}
 
+	if err := s.store.DeleteGitPullRequestsForRepository(ctx, repoID); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository pull requests")
+	}
+
 	if err := s.store.DeleteGitRepository(ctx, repoID); err != nil {
 		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository metadata")
 	}
@@ -1237,6 +1268,15 @@ func (s *GitRepositoryService) BuildAuthenticatedCloneURL(repoID, apiKey string)
 	return strings.Replace(baseURL, "://", fmt.Sprintf("://api:%s@", apiKey), 1) + "/git/" + repoID
 }
 
+// initialFileMode is the mode an initial file is written with; git records
+// 100755 for the executable ones.
+func initialFileMode(path string, executable []string) os.FileMode {
+	if slices.Contains(executable, path) {
+		return 0755
+	}
+	return 0644
+}
+
 // initializeGitRepository initializes a new git repository with initial files
 // userName and userEmail are required - must be the actual user's credentials for enterprise deployments
 //
@@ -1246,6 +1286,7 @@ func (s *GitRepositoryService) initializeGitRepository(
 	defaultBranch string,
 	repoName string,
 	initialFiles map[string]string,
+	executableFiles []string,
 	isBare bool,
 	userName string,
 	userEmail string,
@@ -1300,7 +1341,7 @@ func (s *GitRepositoryService) initializeGitRepository(
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return fmt.Errorf("failed to create directory %s: %w", dir, err)
 			}
-			if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			if err := os.WriteFile(fullPath, []byte(content), initialFileMode(filePath, executableFiles)); err != nil {
 				return fmt.Errorf("failed to write file %s: %w", filePath, err)
 			}
 		}
@@ -1401,7 +1442,7 @@ func (s *GitRepositoryService) initializeGitRepository(
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(fullPath, []byte(content), initialFileMode(filePath, executableFiles)); err != nil {
 			return fmt.Errorf("failed to write file %s: %w", filePath, err)
 		}
 	}
@@ -1467,11 +1508,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 
 	// For external repos, clone if not exists
 	if gitRepo.ExternalURL != "" && !repoExists {
-		cloneURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
-		err := giteagit.Clone(ctx, cloneURL, repoPath, giteagit.CloneRepoOptions{
-			Bare:   true,
-			Mirror: true, // Clone ALL branches, tags, and refs - not just the default branch
-		})
+		err := cloneUpstreamMirror(ctx, s.upstreamRemoteForRepo(ctx, gitRepo), repoPath)
 		if err != nil {
 			return fmt.Errorf("failed to clone git repository: %w", err)
 		}
@@ -1483,7 +1520,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 
 		log.Info().
 			Str("repo_id", gitRepo.ID).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 			Msg("Cloned external repository as bare repo")
 	}
 
@@ -2550,12 +2587,10 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 // mirror intentionally does not prune because it also contains Helix-only refs,
 // so listing its refs would keep branches that were deleted upstream.
 func (s *GitRepositoryService) listExternalBranches(ctx context.Context, repo *types.GitRepository) ([]string, error) {
-	fetchURL := s.buildAuthenticatedCloneURLForRepo(ctx, repo)
-	stdout, _, err := gitcmd.NewCommand("ls-remote", "--heads").
-		AddDynamicArguments(fetchURL).
-		RunStdString(ctx, &gitcmd.RunOpts{Timeout: 5 * time.Minute})
+	remote := s.upstreamRemoteForRepo(ctx, repo)
+	stdout, stderr, err := runUpstreamGit(ctx, "", time.Minute, remote.env(), "ls-remote", "--heads", "--", remote.URL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list upstream branches: %w", err)
+		return nil, upstreamGitError("list upstream branches", err, stderr)
 	}
 
 	return parseLsRemoteBranches(stdout), nil
@@ -2600,10 +2635,9 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 	lock.Lock()
 	defer lock.Unlock()
 
-	// Build authenticated URL for external repo
-	authURL := s.buildAuthenticatedCloneURLForRepo(ctx, gitRepo)
+	remote := s.upstreamRemoteForRepo(ctx, gitRepo)
 
-	wc, err := s.getExternalWorkingCopy(ctx, authURL, gitRepo.LocalPath, branchName)
+	wc, err := s.getExternalWorkingCopy(ctx, remote, gitRepo.LocalPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to create working copy: %w", err)
 	}
@@ -2615,7 +2649,7 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 			Str("branch", branchName).
 			Msg("Pulling changes from external repository")
 
-		err = wc.Pull(ctx, authURL)
+		err = wc.Pull(ctx, remote)
 		if err != nil {
 			return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
 		}
@@ -2627,7 +2661,7 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 		Bool("force", force).
 		Msg("Pushing changes to external repository")
 
-	err = wc.PushToOrigin(ctx, branchName, force, authURL)
+	err = wc.PushToOrigin(ctx, branchName, force, remote)
 	if err != nil {
 		return fmt.Errorf("failed to push changes to external: %w", err)
 	}
@@ -2698,27 +2732,50 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 	return nil
 }
 
-// buildAuthenticatedCloneURLForRepo returns the external URL with embedded credentials for native git clone
-// This is used by gitea/git module which expects credentials in the URL
-func (s *GitRepositoryService) buildAuthenticatedCloneURLForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) string {
-	if gitRepo.ExternalURL == "" {
-		return ""
-	}
-
-	// Get credentials based on repository type and OAuth connection
+// upstreamRemoteForRepo returns the external URL and the credentials to send with it.
+func (s *GitRepositoryService) upstreamRemoteForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) upstreamRemote {
 	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
-	if password == "" {
-		return gitRepo.ExternalURL
-	}
+	return s.pinUpstream(ctx, newUpstreamRemote(gitRepo.ExternalURL, username, password))
+}
 
-	// Build authenticated URL
-	authURL, err := BuildAuthenticatedURL(gitRepo.ExternalURL, username, password)
-	if err != nil {
-		log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to build authenticated URL, using original")
-		return gitRepo.ExternalURL
-	}
+// SetOutboundPolicy restricts the addresses external repository URLs may
+// reach. Each upstream command is pinned to addresses the policy approved
+// at the time the remote was prepared.
+func (s *GitRepositoryService) SetOutboundPolicy(policy netguard.Policy) {
+	s.outboundPolicy = &policy
+}
 
-	return authURL
+// adoPolicy is the outbound policy for Azure DevOps organization URLs:
+// the configured one, or the strict default.
+func (s *GitRepositoryService) adoPolicy() netguard.Policy {
+	if s.outboundPolicy == nil {
+		return netguard.Policy{}
+	}
+	return *s.outboundPolicy
+}
+
+// gitProviderAPITimeout bounds one git provider API request made through
+// providerHTTPClient.
+const gitProviderAPITimeout = 60 * time.Second
+
+// providerHTTPClient returns the HTTP client for a GitHub, GitLab or
+// Bitbucket API at baseURL. A repository-supplied (self-hosted) baseURL gets
+// a client guarded by the outbound policy, so it cannot reach loopback,
+// internal services or cloud metadata, including through a redirect (each
+// hop is re-checked); "" keeps the SDK default for the public host.
+func (s *GitRepositoryService) providerHTTPClient(baseURL string) *http.Client {
+	if baseURL == "" {
+		return nil
+	}
+	return s.adoPolicy().NewRedirectingClient(gitProviderAPITimeout)
+}
+
+// pinUpstream applies the outbound policy, when one is set, to remote.
+func (s *GitRepositoryService) pinUpstream(ctx context.Context, remote upstreamRemote) upstreamRemote {
+	if s.outboundPolicy == nil {
+		return remote
+	}
+	return remote.pin(ctx, *s.outboundPolicy)
 }
 
 // getCredentialsForRepo returns username and password/token for a repository
@@ -2735,7 +2792,7 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 		})
 		if err == nil {
 			for _, conn := range connections {
-				if oauthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
+				if OAuthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
 					return oauthGitUsername(gitRepo.ExternalType), conn.AccessToken
 				}
 			}
@@ -2775,15 +2832,17 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 		if gitRepo.GitHub != nil && gitRepo.GitHub.PersonalAccessToken != "" {
 			return "x-access-token", gitRepo.GitHub.PersonalAccessToken
 		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
+		if gitRepo.Password != "" {
+			// A PAT linked from the project dialogs arrives as a password with
+			// no username; GitHub ignores the username for token auth.
+			return cmp.Or(gitRepo.Username, "x-access-token"), gitRepo.Password
 		}
 	case types.ExternalRepositoryTypeGitLab:
 		if gitRepo.GitLab != nil && gitRepo.GitLab.PersonalAccessToken != "" {
 			return "oauth2", gitRepo.GitLab.PersonalAccessToken
 		}
-		if gitRepo.Username != "" && gitRepo.Password != "" {
-			return gitRepo.Username, gitRepo.Password
+		if gitRepo.Password != "" {
+			return cmp.Or(gitRepo.Username, "oauth2"), gitRepo.Password
 		}
 	case types.ExternalRepositoryTypeBitbucket:
 		if gitRepo.Username != "" && gitRepo.Password != "" {
@@ -2816,7 +2875,7 @@ func (s *GitRepositoryService) newestLiveOAuthToken(ctx context.Context, userID 
 	}
 	var newest *types.OAuthConnection
 	for _, conn := range conns {
-		if !oauthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
+		if !OAuthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
 			continue
 		}
 		if newest == nil || conn.UpdatedAt.After(newest.UpdatedAt) {
@@ -2862,7 +2921,9 @@ func OAuthProviderTypeForRepo(t types.ExternalRepositoryType) types.OAuthProvide
 	}
 }
 
-func oauthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
+// OAuthConnectionMatchesProvider reports whether conn is a connection to the
+// given provider, including custom providers whose name contains the type.
+func OAuthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
 	return conn != nil && (conn.Provider.Type == providerType ||
 		(conn.Provider.Type == types.OAuthProviderTypeCustom && strings.Contains(strings.ToLower(conn.Provider.Name), string(providerType))))
 }
@@ -2895,7 +2956,7 @@ func (s *GitRepositoryService) GetActingAccountHandle(ctx context.Context, gitRe
 		conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: actingUserID})
 		if err == nil {
 			for _, conn := range conns {
-				if oauthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
+				if OAuthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
 					return "@" + conn.ProviderUsername
 				}
 			}

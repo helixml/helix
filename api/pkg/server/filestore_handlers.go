@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/controller"
@@ -28,11 +30,15 @@ import (
 func (s *HelixAPIServer) filestoreViewerHandler(w http.ResponseWriter, r *http.Request) {
 	// if the session is "shared" then anyone can see the files inside the session
 	// if the user is admin then can see anything
-	// if the user is runner then can see anything
+	// the runner token is refused (no runner-token client reads the filestore)
 	// if the path is part of the user path then can see it
 	// if path has presign URL
 	// otherwise access denied
 	canAccess, err := s.isFilestoreRouteAuthorized(r)
+	if errors.Is(err, errRunnerTokenRefused) {
+		http.Error(w, errRunnerTokenNotAccepted, http.StatusForbidden)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -60,8 +66,100 @@ func (s *HelixAPIServer) filestoreViewerHandler(w http.ResponseWriter, r *http.R
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 
-		s.fileServerHandler.ServeHTTP(w, r)
+		s.fileServerHandler.ServeHTTP(&servedFileResponseWriter{ResponseWriter: w, filename: path.Base(r.URL.Path)}, r)
 	}
+}
+
+// inlineServedMediaTypes are the media types a browser may render directly
+// when it navigates to a user-supplied file served from the application
+// origin. Anything else is delivered as a download: HTML, SVG, XML and
+// scripts would otherwise execute with the viewer's session.
+var inlineServedMediaTypes = map[string]struct{}{
+	"image/png":                {},
+	"image/jpeg":               {},
+	"image/gif":                {},
+	"image/webp":               {},
+	"image/bmp":                {},
+	"image/avif":               {},
+	"image/x-icon":             {},
+	"image/vnd.microsoft.icon": {},
+	"application/pdf":          {},
+	"application/json":         {},
+	"text/plain":               {},
+	"text/csv":                 {},
+	"text/markdown":            {},
+}
+
+func servedFileRendersInline(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return false
+	}
+	mediaType = strings.ToLower(mediaType)
+	if _, ok := inlineServedMediaTypes[mediaType]; ok {
+		return true
+	}
+	// A multi-range response wraps the parts' own types; a browser only
+	// requests one for a resource it is already rendering.
+	if mediaType == "multipart/byteranges" {
+		return true
+	}
+	return strings.HasPrefix(mediaType, "audio/") || strings.HasPrefix(mediaType, "video/") || strings.HasPrefix(mediaType, "font/")
+}
+
+// applyServedFilePolicy finalises the headers of a response that streams a
+// file users control (filestore contents, desktop attachments, workspace
+// files). The declared Content-Type is kept so programmatic readers still
+// work, but it is never sniffed, and types that are not safe to render on
+// this origin are sent as a sandboxed download.
+func applyServedFilePolicy(header http.Header, filename string) {
+	header.Set("X-Content-Type-Options", "nosniff")
+	if header.Get("Content-Type") == "" {
+		header.Set("Content-Type", "application/octet-stream")
+	}
+	if servedFileRendersInline(header.Get("Content-Type")) {
+		return
+	}
+	disposition := "attachment"
+	if filename != "" && filename != "." && filename != "/" {
+		if formatted := mime.FormatMediaType("attachment", map[string]string{"filename": filename}); formatted != "" {
+			disposition = formatted
+		}
+	}
+	header.Set("Content-Disposition", disposition)
+	header.Set("Content-Security-Policy", "sandbox; default-src 'none'")
+}
+
+// servedFileResponseWriter applies applyServedFilePolicy once the wrapped
+// handler (http.FileServer) has chosen the Content-Type, just before the
+// status line is written.
+type servedFileResponseWriter struct {
+	http.ResponseWriter
+	filename    string
+	wroteHeader bool
+}
+
+func (w *servedFileResponseWriter) WriteHeader(status int) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		// Redirects and 304s carry no file body to police.
+		if status < 300 || status >= 400 {
+			applyServedFilePolicy(w.Header(), w.filename)
+		}
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *servedFileResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// Unwrap exposes the underlying writer to http.ResponseController.
+func (w *servedFileResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 // given a full filestore route (i.e. one that starts with /dev/users/XXX)
@@ -89,10 +187,11 @@ func (s *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, er
 		Str("user_type", string(user.Type)).
 		Msg("User information from request")
 
-	// a runner can see all files
+	// The runner token authenticates sandbox hosts and kodit, not a person, and
+	// none of them read the filestore. Refuse it rather than let it fall
+	// through to the per-user path check as "runner-system".
 	if isRunner(user) {
-		logger.Debug().Msg("User is a runner, allowing access")
-		return true, nil
+		return false, errRunnerTokenRefused
 	}
 
 	// an admin user can see all files
@@ -144,13 +243,17 @@ func (s *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, er
 		return false, err
 	}
 
+	// The user prefix must match on a path-segment boundary: "dev/users/usr_a"
+	// is not a prefix of "dev/users/usr_ab/...".
+	inUserPath := req.URL.Path == userPath || strings.HasPrefix(req.URL.Path, userPath+"/")
+
 	logger.Info().
 		Str("user_path", userPath).
 		Str("url_path", req.URL.Path).
-		Bool("path_match", strings.HasPrefix(req.URL.Path, userPath)).
+		Bool("path_match", inUserPath).
 		Msg("Checking if path is in user's filestore")
 
-	if strings.HasPrefix(req.URL.Path, userPath) {
+	if inUserPath {
 		logger.Debug().Msg("Path is in user's filestore, allowing access")
 		return true, nil
 	}

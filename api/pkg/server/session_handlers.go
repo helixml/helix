@@ -18,11 +18,13 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/llm"
 	openai "github.com/sashabaranov/go-openai"
+	"gorm.io/gorm"
 
 	"github.com/rs/zerolog/log"
 )
@@ -81,16 +83,23 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 	}
 	ctx := req.Context()
 	user := getRequestUser(req)
+	// This route sits on the optional-auth router; refuse anonymous callers
+	// before the lookup so the response does not depend on whether the id exists.
+	if !hasUser(user) {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		writeStoreLookupError(rw, err, "session")
 		return
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusForbidden)
+		log.Ctx(ctx).Debug().Err(err).Str("session_id", id).Msg("session access refused")
+		http.Error(rw, "not authorized to access this session", http.StatusForbidden)
 		return
 	}
 
@@ -110,7 +119,8 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 	// count + max updated_at (single aggregate query), and runtime agent status.
 	interactionCount, maxInteractionUpdated, err := apiServer.Store.GetInteractionsSummary(ctx, id, session.GenerationID)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		log.Ctx(ctx).Error().Err(err).Str("session_id", id).Msg("failed to load session interactions")
+		http.Error(rw, "failed to load session", http.StatusInternalServerError)
 		return
 	}
 
@@ -145,7 +155,8 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 			PerPage:      1000,
 		})
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			log.Ctx(ctx).Error().Err(err).Str("session_id", id).Msg("failed to load session interactions")
+			http.Error(rw, "failed to load session", http.StatusInternalServerError)
 			return
 		}
 		session.Interactions = interactions
@@ -226,16 +237,26 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	}
 	if orgID != "" {
 		// Lookup org
+		// An unknown org and one the caller cannot use answer the same 404
+		// without echoing the requested reference.
 		org, err := apiServer.lookupOrg(ctx, orgID)
 		if err != nil {
-			return nil, system.NewHTTPError404(err.Error())
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			log.Ctx(ctx).Error().Err(err).Msg("failed to look up organization for session list")
+			return nil, system.NewHTTPError500("failed to look up organization")
 		}
 
 		orgID = org.ID
 
 		membership, err := apiServer.authorizeOrgMember(ctx, user, orgID)
 		if err != nil {
-			return nil, system.NewHTTPError403(err.Error())
+			if errors.Is(err, store.ErrNotFound) || errors.Is(err, orgstore.ErrKeyOrgScope) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			log.Ctx(ctx).Error().Err(err).Msg("failed to check organization membership for session list")
+			return nil, system.NewHTTPError500("failed to check organization membership")
 		}
 
 		query.OrganizationID = orgID
@@ -263,6 +284,25 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		// When no organization is specified, we only want personal sessions
 		// Setting empty string explicitly ensures we only get sessions with no organization
 		query.OrganizationID = ""
+	}
+
+	// A project-scoped key lists only its own project's sessions.
+	if user.ProjectID != "" {
+		if projectID != "" && projectID != user.ProjectID {
+			return nil, system.NewHTTPError403(errProjectScopedKey.Error())
+		}
+		allowed := []string{user.ProjectID}
+		if query.RestrictToProjects {
+			// Already bounded (e.g. owner_id): keep only the key's project.
+			allowed = allowed[:0]
+			for _, id := range query.ProjectIDs {
+				if id == user.ProjectID {
+					allowed = append(allowed, id)
+				}
+			}
+		}
+		query.RestrictToProjects = true
+		query.ProjectIDs = allowed
 	}
 
 	// Parse query parameters
@@ -412,12 +452,19 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, storeLookupError(err, "session")
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionDelete)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if apiServer.externalAgentExecutor != nil &&
+		(session.ModelName == "external_agent" || session.Metadata.AgentType == string(types.AgentTypeZedExternal)) {
+		if err := destroyDesktopUnlessHostGone(ctx, apiServer.externalAgentExecutor, session.ID, ""); err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
 	}
 
 	// Revoke any preview-token vhost routes pointing at this session
@@ -458,7 +505,7 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, storeLookupError(err, "session")
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
@@ -474,7 +521,7 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 
 	err = json.NewDecoder(req.Body).Decode(&update)
 	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if update.Name != nil {
@@ -604,7 +651,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	var startReq types.SessionChatRequest
 	err = json.Unmarshal(body, &startReq)
 	if err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -823,7 +870,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	if startReq.SessionID != "" {
 		session, err = s.Store.GetSession(ctx, startReq.SessionID)
 		if err != nil {
-			http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", startReq.SessionID, err), http.StatusInternalServerError)
+			writeStoreLookupError(rw, err, "session")
 			return
 		}
 
@@ -1238,9 +1285,6 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	}
 
 	ownerID := user.ID
-	if user.TokenType == types.TokenTypeRunner {
-		ownerID = oai.RunnerID
-	}
 
 	lastInteraction := session.Interactions[len(session.Interactions)-1]
 
@@ -1507,9 +1551,6 @@ func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.Us
 	defer cancel()
 
 	ownerID := user.ID
-	if user.TokenType == types.TokenTypeRunner {
-		ownerID = oai.RunnerID
-	}
 
 	// Get last interaction ID
 	lastInteractionID := "n/a"
@@ -2006,7 +2047,7 @@ func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionI
 		log.Info().
 			Str("session_id", sessionID).
 			Msg("External agent is disconnected; starting desktop before readiness wait")
-		go s.autoStartDevContainerForSession(sessionID)
+		go s.autoStartDevContainerForSession(context.Background(), sessionID)
 	}
 
 	log.Info().
@@ -2200,7 +2241,7 @@ func (s *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Req
 
 	session, err := s.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", id, err))
+		return nil, storeLookupError(err, "session")
 	}
 
 	err = s.authorizeUserToSession(ctx, user, session, types.ActionGet)
@@ -2244,7 +2285,7 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	if session.Owner != user.ID {
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 		http.Error(rw, "you are not allowed to access this session", http.StatusForbidden)
 		return
 	}
@@ -2329,7 +2370,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			Err(err).
 			Str("session_id", id).
 			Msg("Failed to get session for resume")
-		http.Error(rw, fmt.Sprintf("session not found: %s", err.Error()), http.StatusNotFound)
+		writeStoreLookupError(rw, err, "session")
 		return
 	}
 
@@ -2382,6 +2423,7 @@ func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.
 
 	agent := &types.DesktopAgent{
 		SessionID:   id,
+		SandboxID:   session.SandboxID,
 		UserID:      user.ID,
 		Input:       "Resume session",
 		ProjectPath: "workspace",
@@ -2603,9 +2645,7 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 		return nil, system.NewHTTPError400("session does not have an external Zed agent")
 	}
 
-	// Stop the desktop agent container
-	err = s.externalAgentExecutor.StopDesktop(ctx, sessionID)
-	if err != nil {
+	if err := s.stopSessionAgent(ctx, sessionID, "external agent session stopped"); err != nil {
 		log.Error().
 			Err(err).
 			Str("session_id", sessionID).
@@ -2881,7 +2921,7 @@ func (s *HelixAPIServer) threadIsWedged(ctx context.Context, session *types.Sess
 		SessionID:    session.ID,
 		GenerationID: session.GenerationID,
 		PerPage:      1,
-		Order:        "id DESC",
+		Order:        "created DESC, id DESC",
 	})
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", session.ID).
@@ -2900,6 +2940,23 @@ func (s *HelixAPIServer) threadIsWedged(ctx context.Context, session *types.Sess
 	// The last turn errored: reset ONLY if the error is a genuine thread/agent
 	// wedge. Auth/provider/rate-limit/transport/cancel errors are not.
 	return isAgentCrashError(last.Error) || isAuthoritativeMissingThreadError(last.Error)
+}
+
+// lastTurnFailedToConnectAgent reports whether the session's last turn failed
+// because the agent never connected (see isAgentConnectError). A read error
+// returns false, which keeps auto-restart's default of resetting the thread.
+func (s *HelixAPIServer) lastTurnFailedToConnectAgent(ctx context.Context, session *types.Session) bool {
+	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		PerPage:      1,
+		Order:        "created DESC, id DESC",
+	})
+	if err != nil || len(interactions) == 0 {
+		return false
+	}
+	last := interactions[0]
+	return last.State == types.InteractionStateError && isAgentConnectError(last.Error)
 }
 
 // restartSessionContainer is the single canonical "restart the agent" backend
@@ -3122,12 +3179,24 @@ func (s *HelixAPIServer) maybeAutoRestartCrashedAgent(sessionID string) {
 		return
 	}
 
-	// Autonomous crash recovery ALWAYS resets the thread: the trigger is a genuine
+	// Autonomous crash recovery resets the thread: the trigger is a genuine
 	// crash (thread_load_error / chat_response_error), which frequently means a
 	// poisoned thread that would reproduce the wedge on reattach. Boot progress
 	// (a fresh thread that reaches agent_ready) is worth more than the lost
 	// conversation for an unattended surface, and the crashed prompt is re-fed.
-	if _, herr := s.restartSessionContainer(ctx, user, fresh, true); herr != nil {
+	//
+	// The exception is an agent that never connected (its npm install failed,
+	// say, because DNS was broken). No session was loaded, so the thread is not
+	// poisoned, and resetting it would throw away the whole conversation over a
+	// fault in the environment. Keep it so the restart reloads it.
+	resetThread := !s.lastTurnFailedToConnectAgent(ctx, fresh)
+	if !resetThread {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("zed_thread_id", fresh.Metadata.ZedThreadID).
+			Msg("Auto-restart: agent never connected — keeping the thread")
+	}
+	if _, herr := s.restartSessionContainer(ctx, user, fresh, resetThread); herr != nil {
 		log.Error().
 			Str("session_id", sessionID).
 			Str("error", herr.Error()).
@@ -3295,9 +3364,29 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		session.Metadata.ZedAgentName = runtime.ZedAgentName()
 	}
 
-	session, err = appendOrOverwrite(session, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process session messages: %w", err)
+	var existingDelivery *types.Interaction
+	if req.InteractionID != "" {
+		existingDelivery, err = s.Store.GetInteraction(ctx, req.InteractionID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("load existing activation interaction: %w", err)
+		}
+		if existingDelivery != nil {
+			if existingDelivery.SessionID != session.ID || existingDelivery.PromptMessage != message {
+				return nil, fmt.Errorf("interaction delivery ID %s conflicts with another message", req.InteractionID)
+			}
+			if existingDelivery.State != types.InteractionStateWaiting {
+				return session, nil
+			}
+		}
+	}
+	if existingDelivery == nil {
+		session, err = appendOrOverwrite(session, req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process session messages: %w", err)
+		}
+		if req.InteractionID != "" {
+			session.Interactions[len(session.Interactions)-1].ID = req.InteractionID
+		}
 	}
 	if err := s.snapshotLatestCodeAgentInteraction(ctx, session); err != nil {
 		return nil, fmt.Errorf("failed to snapshot coding configuration: %w", err)
@@ -3307,13 +3396,16 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		return nil, fmt.Errorf("failed to write session: %w", err)
 	}
 
-	if err := s.Controller.WriteInteractions(ctx, session.Interactions...); err != nil {
-		return nil, fmt.Errorf("failed to write interactions: %w", err)
+	if existingDelivery == nil {
+		if err := s.Controller.WriteInteractions(ctx, session.Interactions...); err != nil {
+			return nil, fmt.Errorf("failed to write interactions: %w", err)
+		}
 	}
 
 	zedAgent := &types.DesktopAgent{
 		OrganizationID: session.OrganizationID,
 		SessionID:      session.ID,
+		SandboxID:      session.SandboxID,
 		UserID:         userID,
 		Input:          "Initialize Zed development environment",
 		ProjectPath:    "workspace",
@@ -3541,7 +3633,7 @@ func (s *HelixAPIServer) ensureSessionAgent(_ http.ResponseWriter, r *http.Reque
 
 	// Same canonical path waitForExternalAgentReady uses. Detached, because the
 	// caller is polling rather than waiting on this request.
-	go s.autoStartDevContainerForSession(sessionID)
+	go s.autoStartDevContainerForSession(context.Background(), sessionID)
 
 	return &EnsureAgentResponse{Starting: true}, nil
 }

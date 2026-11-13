@@ -49,7 +49,7 @@ func (apiServer *HelixAPIServer) reportAgentStartupError(_ http.ResponseWriter, 
 
 	var body AgentStartupErrorRequest
 	if err := json.NewDecoder(io.LimitReader(req.Body, maxAgentStartupErrorLength+1024)).Decode(&body); err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("invalid request body: %v", err))
+		return nil, jsonDecodeHTTPError(err)
 	}
 	body.Error = strings.TrimSpace(body.Error)
 	if body.Error == "" {
@@ -72,7 +72,7 @@ func (apiServer *HelixAPIServer) reportAgentStartupError(_ http.ResponseWriter, 
 		SessionID:    sessionID,
 		GenerationID: session.GenerationID,
 		PerPage:      1,
-		Order:        "created DESC",
+		Order:        "created DESC, id DESC",
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to load latest interaction: %v", err))

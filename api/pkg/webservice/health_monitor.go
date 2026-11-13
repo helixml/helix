@@ -30,6 +30,7 @@ type HealthMonitor struct {
 	fails       map[string]int       // projectID -> consecutive probe failures
 	lastRecov   map[string]time.Time // projectID -> last recovery trigger time
 	recovFails  map[string]int       // projectID -> consecutive FAILED recoveries (drives backoff + looping alert)
+	recovering  map[string]bool      // projectID -> recovery goroutine is still running
 	prevActive  map[string]struct{}  // active project set from the last tick (for metric GC)
 	projectInfo map[string]webServiceMetricInfo
 }
@@ -64,6 +65,7 @@ func NewHealthMonitor(s store.Store, c *Controller) *HealthMonitor {
 		fails:         map[string]int{},
 		lastRecov:     map[string]time.Time{},
 		recovFails:    map[string]int{},
+		recovering:    map[string]bool{},
 		prevActive:    map[string]struct{}{},
 		projectInfo:   map[string]webServiceMetricInfo{},
 	}
@@ -238,6 +240,10 @@ func (m *HealthMonitor) onFailure(projectID string) {
 	m.mu.Lock()
 	m.fails[projectID]++
 	n := m.fails[projectID]
+	if m.recovering[projectID] {
+		m.mu.Unlock()
+		return
+	}
 	// Exponential backoff after failed recoveries: don't hammer a persistently
 	// broken service every cooldown (bad commit, image-pull failure, dead
 	// runner). Grows cooldown by 2^recovFails, capped at maxRecoveryBackoff so
@@ -250,6 +256,7 @@ func (m *HealthMonitor) onFailure(projectID string) {
 	}
 	m.lastRecov[projectID] = time.Now()
 	m.fails[projectID] = 0
+	m.recovering[projectID] = true
 	m.mu.Unlock()
 
 	log.Warn().Str("project_id", projectID).Int("consecutive_failures", n).
@@ -291,6 +298,7 @@ func (m *HealthMonitor) backoffFor(projectID string) time.Duration {
 // failing recoveries on 2026-09-27. So we wait for the deploy to reach a
 // terminal state and record that.
 func (m *HealthMonitor) doRecover(projectID string) {
+	defer m.finishRecovery(projectID)
 	defer recoverGoroutine("healthMonitor.doRecover project="+projectID, func(any) {
 		m.recordRecoveryResult(projectID, false)
 	})
@@ -304,11 +312,29 @@ func (m *HealthMonitor) doRecover(projectID string) {
 	}
 	timer.ObserveDuration()
 	if err != nil {
+		if IsRecoveryDeferred(err) {
+			log.Warn().Err(err).Str("project_id", projectID).Msg("health-monitor: auto-recovery deferred until the next probe")
+			m.recordRecoveryDeferred(projectID)
+			return
+		}
 		log.Error().Err(err).Str("project_id", projectID).Msg("health-monitor: auto-recovery failed")
 		m.recordRecoveryResult(projectID, false)
 		return
 	}
 	m.recordRecoveryResult(projectID, true)
+}
+
+func (m *HealthMonitor) finishRecovery(projectID string) {
+	m.mu.Lock()
+	delete(m.recovering, projectID)
+	m.mu.Unlock()
+}
+
+func (m *HealthMonitor) recordRecoveryDeferred(projectID string) {
+	m.mu.Lock()
+	delete(m.lastRecov, projectID)
+	m.fails[projectID] = m.failThreshold - 1
+	m.mu.Unlock()
 }
 
 // awaitDeploy blocks until the named deploy reaches a terminal status,

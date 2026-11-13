@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // requireTriggerAgentKind reports whether triggers may be attached to this agent.
@@ -43,10 +46,18 @@ func requireTriggerAgentKind(app *types.Agent) error {
 // key, a person who left), and without it such a trigger can never be cleaned up by
 // anyone while the cron scheduler goes on firing it.
 func (s *HelixAPIServer) authorizeUserToTrigger(ctx context.Context, user *types.User, trigger *types.TriggerConfiguration) error {
-	if trigger.Owner == user.ID {
+	if trigger.Owner == user.ID && user.ProjectID == "" {
 		return nil
 	}
 	app, err := s.Store.GetApp(ctx, trigger.AppID)
+	if trigger.Owner == user.ID {
+		// The creator shortcut must not carry a project-scoped key past its
+		// project: the trigger runs as an agent the project may not use.
+		if err != nil {
+			return fmt.Errorf("%w: %v", errProjectScopedKey, err)
+		}
+		return s.enforceKeyAppScope(ctx, user, app, types.ActionUpdate)
+	}
 	if err != nil {
 		return fmt.Errorf("could not load the agent this trigger belongs to: %w", err)
 	}
@@ -62,6 +73,23 @@ func (s *HelixAPIServer) authorizeUserToTrigger(ctx context.Context, user *types
 // @Param trigger_type query string false "Trigger type, defaults to 'cron'"
 // @Router /api/v1/triggers [get]
 // @Security BearerAuth
+// checkTriggerRecipients rejects a cron trigger whose notification emails
+// include addresses Helix would not deliver to: each must belong to the
+// trigger owner or a member of the app's organization (the same rule
+// notification.CheckRecipients applies when sending).
+func (s *HelixAPIServer) checkTriggerRecipients(ctx context.Context, ownerID, orgID string, trigger *types.Trigger) *system.HTTPError {
+	if trigger.Cron == nil || len(trigger.Cron.Emails) == 0 {
+		return nil
+	}
+	_, rejected := notification.CheckRecipients(ctx, s.Store, ownerID, orgID, trigger.Cron.Emails)
+	if len(rejected) == 0 {
+		return nil
+	}
+	return system.NewHTTPError400(fmt.Sprintf(
+		"Notification emails must belong to you or to members of the agent's organization. Not allowed: %s",
+		strings.Join(rejected, ", ")))
+}
+
 func (s *HelixAPIServer) listTriggers(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerConfiguration, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -86,8 +114,12 @@ func (s *HelixAPIServer) listTriggers(_ http.ResponseWriter, r *http.Request) ([
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// For cron triggers populate next run information
+	// For cron triggers populate next run information; webhook triggers get
+	// their URL (and a secret, if they predate secrets).
 	for idx, trigger := range triggers {
+		triggers[idx] = s.backfillWebhookTriggerSecret(ctx, trigger)
+		s.populateWebhookTriggerURL(triggers[idx])
+		trigger = triggers[idx]
 		if trigger.Trigger.Cron != nil {
 			triggers[idx].OK = true
 			triggers[idx].Status = cron.NextRunFormatted(trigger.Trigger.Cron)
@@ -167,10 +199,9 @@ func (s *HelixAPIServer) listAppTriggers(_ http.ResponseWriter, r *http.Request)
 	}
 
 	// Populate WebhookURL for applicable triggers
-	for idx, trigger := range triggers {
-		if trigger.Trigger.AzureDevOps != nil && trigger.Trigger.AzureDevOps.Enabled {
-			triggers[idx].WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, trigger.ID)
-		}
+	for idx := range triggers {
+		triggers[idx] = s.backfillWebhookTriggerSecret(ctx, triggers[idx])
+		s.populateWebhookTriggerURL(triggers[idx])
 	}
 
 	return triggers, nil
@@ -220,16 +251,21 @@ func (s *HelixAPIServer) createAppTrigger(_ http.ResponseWriter, r *http.Request
 	triggerConfig.Owner = user.ID
 	triggerConfig.OwnerType = types.OwnerTypeUser
 
+	if httpErr := s.checkTriggerRecipients(ctx, triggerConfig.Owner, triggerConfig.OrganizationID, &triggerConfig.Trigger); httpErr != nil {
+		return nil, httpErr
+	}
+
+	if _, err := ensureWebhookTriggerSecret(&triggerConfig.Trigger, nil); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	// Create the trigger configuration
 	created, err := s.Store.CreateTriggerConfiguration(ctx, triggerConfig)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Populate WebhookURL for applicable triggers
-	if created.Trigger.AzureDevOps != nil && created.Trigger.AzureDevOps.Enabled {
-		created.WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, created.ID)
-	}
+	s.populateWebhookTriggerURL(created)
 
 	return created, nil
 }
@@ -329,6 +365,15 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 		return nil, system.NewHTTPError404("Trigger configuration not found")
 	}
 
+	// The trigger keeps its owner; its organization follows the target app.
+	if httpErr := s.checkTriggerRecipients(ctx, existingTrigger.Owner, app.OrganizationID, &updatedTrigger.Trigger); httpErr != nil {
+		return nil, httpErr
+	}
+
+	if _, err := ensureWebhookTriggerSecret(&updatedTrigger.Trigger, &existingTrigger.Trigger); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	// Update the trigger configuration fields
 	existingTrigger.Name = updatedTrigger.Name
 	existingTrigger.Trigger = updatedTrigger.Trigger
@@ -342,10 +387,7 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Populate WebhookURL for applicable triggers
-	if updated.Trigger.AzureDevOps != nil && updated.Trigger.AzureDevOps.Enabled {
-		updated.WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, updated.ID)
-	}
+	s.populateWebhookTriggerURL(updated)
 
 	return updated, nil
 }
@@ -375,19 +417,32 @@ func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Reques
 
 	app, err := s.Store.GetAppWithTools(ctx, triggerConfig.AppID)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, storeLookupError(err, "agent")
 	}
 
 	// Authorize user to execute triggers for this app
 	err = s.authorizeUserToApp(ctx, user, app, types.ActionGet)
 	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
+		log.Debug().Err(err).Str("trigger_id", triggerID).Msg("trigger execute refused")
+		return nil, system.NewHTTPError403("not authorized to execute this trigger")
 	}
 
-	// Execute the trigger
+	// A disabled or archived trigger stays off: the scheduler skips it, and a
+	// manual run must not start the work the operator paused.
+	if !triggerConfig.Enabled || triggerConfig.Archived {
+		return nil, system.NewHTTPError409("trigger is disabled; enable it before running it")
+	}
+	if triggerConfig.Trigger.Cron == nil {
+		return nil, system.NewHTTPError400("only scheduled (cron) triggers can be run manually")
+	}
+
 	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, s.specDrivenTaskService, s, app, user.ID, triggerID, triggerConfig.Trigger.Cron, triggerConfig.Name)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		log.Error().Err(err).Str("trigger_id", triggerID).Str("app_id", app.ID).Msg("manual trigger execution failed")
+		if isModelResolutionError(err) {
+			return nil, system.NewHTTPError422("the agent's model could not be resolved; check the model and provider configured for this agent")
+		}
+		return nil, system.NewHTTPError500("trigger execution failed")
 	}
 
 	return response, nil
@@ -412,11 +467,14 @@ func (s *HelixAPIServer) listTriggerExecutions(_ http.ResponseWriter, r *http.Re
 	user := getRequestUser(r)
 
 	// Load trigger to verify it exists and for authorization
-	_, err := s.Store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{
+	trigger, err := s.Store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{
 		ID:    triggerID,
 		Owner: user.ID,
 	})
 	if err != nil {
+		return nil, system.NewHTTPError404("Trigger configuration not found")
+	}
+	if err := s.authorizeUserToTrigger(ctx, user, trigger); err != nil {
 		return nil, system.NewHTTPError404("Trigger configuration not found")
 	}
 

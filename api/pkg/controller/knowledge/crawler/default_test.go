@@ -128,8 +128,9 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 	// colly's AllowedDomains doesn't work with IP addresses
 	d.disableDomainCheck = true
 
-	// Set a short timeout to avoid waiting too long for the non-routable address
+	// Short timeouts so the non-routable address fails fast.
 	d.pageTimeout = 100 * time.Millisecond
+	d.requestTimeout = 100 * time.Millisecond
 
 	docs, err := d.Crawl(context.Background())
 	require.NoError(t, err)
@@ -218,7 +219,7 @@ func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
 
 	ctx := context.Background()
 
-	b, err := browserManager.GetBrowser()
+	b, err := browserManager.GetBrowser(context.Background())
 	require.NoError(t, err)
 
 	fixtureURL := "data:text/html;charset=utf-8," + url.PathEscape(deterministicHTML)

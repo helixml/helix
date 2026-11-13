@@ -17,6 +17,7 @@ import (
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	assetapp "github.com/helixml/helix/api/pkg/org/application/assets"
 	"github.com/helixml/helix/api/pkg/org/application/attachments"
@@ -38,6 +39,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/workersecrets"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/briefing"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -72,7 +74,11 @@ import (
 // mounted under /api/v1/orgs/{org}/. The React UI at
 // /orgs/:org_id/* consumes those endpoints.
 type helixOrgHandlers struct {
-	api     http.Handler
+	api http.Handler
+	// botMCP serves one Bot's MCP surface, with org, bot, and acting user
+	// bound on the request context by the authenticated gateway backend.
+	// It is not reachable through `api`.
+	botMCP  http.Handler
 	configs *configregistry.Registry
 	// mcpServer is the org MCP server behind `api`. Held directly so the
 	// spec-task MCP backend can serve a project-scoped caller through the
@@ -173,6 +179,7 @@ type orgWorkerRuntime struct {
 		GetApp(ctx context.Context, id string) (*types.App, error)
 		GetSandboxBySession(ctx context.Context, sessionID string) (*types.Sandbox, error)
 		GetLatestInteractionsForSessions(ctx context.Context, sessionIDs []string) (map[string]*types.Interaction, error)
+		ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
 	}
 	// configs resolves the org's default sandbox config so the DTO can show
 	// what a Bot with no config of its own will actually launch with.
@@ -344,6 +351,30 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 	return s.SessionID, nil
 }
 
+func (o orgWorkerRuntime) LatestSuccessfulTurnStartedAt(ctx context.Context, orgID string, workerID orgchart.NodeID) (time.Time, error) {
+	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if s.SessionID == "" {
+		return time.Time{}, nil
+	}
+	interactions, _, err := o.sessions.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:             s.SessionID,
+		GenerationID:          -1,
+		PerPage:               1,
+		CompletedSuccessfully: true,
+		Order:                 "created DESC, id DESC",
+	})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("list successful turns for session %s: %w", s.SessionID, err)
+	}
+	if len(interactions) == 0 {
+		return time.Time{}, nil
+	}
+	return interactions[0].Created, nil
+}
+
 // botSessionResetter implements helixorgapi.BotSessionResetter: it fully
 // removes a bot's current session so restartBotAgent's follow-up Activate
 // provisions a genuinely fresh one. Composed of two existing high-level
@@ -477,7 +508,7 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 	botsSvc := nodes.New(nodes.Deps{
 		Nodes: st.Nodes, Lines: st.ReportingLines, Reconciler: deps.Reconciler,
 		Now: deps.Now, NewID: deps.NewID,
-		BaseTools: mcptools.BaseReadTools, KnownTools: knownTools,
+		BaseTools: mcptools.BaseReadTools, GrantableTools: mcptools.DefaultBotTools(), KnownTools: knownTools,
 		OnToolsChanged:    deps.ToolChangeNotifier,
 		OnRestartRequired: deps.RestartRequiredNotifier,
 	})
@@ -513,16 +544,24 @@ func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebu
 // the /orgs/{org}/ catch-all on the auth router, the org MCP backend,
 // plus the long-lived stream-cron and Socket Mode goroutines. Every
 // org-shaped route + lifecycle hook lives here.
+//
+// A subsystem already held on s.helixOrg is mounted as is instead of being
+// initialised again; route tests use that to mount the real routes without
+// the Postgres-backed org store.
 func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
-	orgHandlers, err := initHelixOrgHandler(ctx, helixOrgConfig{
-		LocalFSPath: s.Cfg.FileStore.LocalFSPath,
-		APIServer:   s,
-	}, s.Store)
-	if err != nil {
-		return fmt.Errorf("initialise helix-org: %w", err)
-	}
+	orgHandlers := s.helixOrg
 	if orgHandlers == nil {
-		return nil
+		var err error
+		orgHandlers, err = initHelixOrgHandler(ctx, helixOrgConfig{
+			LocalFSPath: s.Cfg.FileStore.LocalFSPath,
+			APIServer:   s,
+		}, s.Store)
+		if err != nil {
+			return fmt.Errorf("initialise helix-org: %w", err)
+		}
+		if orgHandlers == nil {
+			return nil
+		}
 	}
 	// Hold the subsystem handle (the Slack handlers reach the per-workspace
 	// Trigger reconciler through it) and register the post-mutation hook so
@@ -572,7 +611,8 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	// prefix so these exact paths win the match.
 	if orgHandlers.publicGitHubManifestCallback != nil {
 		insecureRouter.
-			Handle("/orgs/{org}/github/app-manifest/callback", orgHandlers.publicGitHubManifestCallback).
+			Handle("/orgs/{org}/github/app-manifest/callback",
+				s.authMiddleware.extractMiddleware(orgHandlers.publicGitHubManifestCallback)).
 			Methods(http.MethodGet)
 	}
 	// /api/v1/slack/events — single global inbound Slack Events API
@@ -589,7 +629,7 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	// session cookie); authenticated by the encrypted ?state= carrying
 	// the org id.
 	insecureRouter.
-		HandleFunc("/slack/oauth/callback", s.slackOAuthCallback).
+		Handle("/slack/oauth/callback", s.slackOAuthCallbackHandler()).
 		Methods(http.MethodGet)
 	// Socket Mode ingress — long-lived, only active when the global app
 	// is configured for it. Started like streamCron.
@@ -664,6 +704,11 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	// JS processors' http.* calls follow the same outbound policy as
+	// user-configured tools.
+	processor.SetJSHTTPPolicy(netguard.Policy{AllowPrivate: cfg.APIServer.Cfg.Tools.AllowPrivateNetworks})
+	processor.SetJSRunTimeout(cfg.APIServer.Cfg.Organizations.JSProcessorTimeout)
 
 	// Convert the retired Topic model into Triggers, Processor inputs and
 	// Worker attachments. Runs once per boot before anything reads the
@@ -762,6 +807,9 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	if err != nil {
 		return nil, fmt.Errorf("init spec tasks: %w", err)
 	}
+	// A Bot's project allowlist reaches only projects its hiring user may
+	// access; the same RBAC the REST spec-task routes apply.
+	specTasks = specTasks.WithProjectAuthorizer(inProcClient)
 	deps.SpecTasks = specTasks
 	deps.ProjectAccess = specTasks
 
@@ -1247,6 +1295,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Ensurer:    projectApplier,
 		Dispatcher: dispatcher,
 		Sessions:   workerRuntime,
+		Progress:   workerRuntime,
 		Stopper:    sessionResetter,
 		Resetter:   sessionResetter,
 		Canceller:  activationCanceller,
@@ -1376,8 +1425,13 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		AgentUpdater:        inProcClient,
 		AgentReader:         inProcClient,
 		AgentDefaultApplier: inProcClient,
-		Tools:               reg,
-		ProjectEnsurer:      projectApplier,
+		AgentEditAuthorizer: inProcClient,
+		// The project allowlist is checked at write time against the Bot's
+		// hiring user (organization owner for a Bot without one), the same
+		// identity the spec-task runtime authorizes per call.
+		BotProjectAuthorizer: botProjectAuthorizer{orgStore: st, authorize: inProcClient.AuthorizeProject},
+		Tools:                reg,
+		ProjectEnsurer:       projectApplier,
 		// Production: the github topic transport's Token() falls
 		// back to whatever GitHub OAuth connection the org members
 		// have already authorised, so operators don't have to paste a
@@ -1408,7 +1462,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		GitHubInstallation: gitHubInt.InstallationStatus,
 		GitHubAppRepos:     gitHubInt.AppRepos,
 		// GitHubManifestStart builds the "create the Helix app" manifest flow.
-		GitHubManifestStart: helixorg.NewGitHubManifestStart(cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.WebURL()),
+		GitHubManifestStart: helixorg.NewGitHubManifestStart(cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.WebURL(), requestUserIDFromContext),
 		// PublicServerURL is the externally-reachable base URL the
 		// auto-installed GitHub webhook should POST back to. Helix's
 		// SERVER_URL env var is the canonical place it lives.
@@ -1534,11 +1588,14 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	publicGitHubManifestCallback := helixorg.NewGitHubManifestCallbackHandler(
 		cfg.APIServer.getEncryptionKey, helixStore, deps.NewID,
 		cfg.APIServer.Cfg.GitHub.WebURL(), cfg.APIServer.Cfg.GitHub.APIBaseURL(),
+		func(r *http.Request) string { return requestUserIDFromContext(r.Context()) },
 	)
 
 	// The Chief of Staff seeder reuses the same lifecycle service as REST bot
 	// creation; botStore backs idempotency checks.
-	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Nodes, botStore: st.Nodes}
+	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Nodes, botStore: st.Nodes, owner: func(ctx context.Context, orgID string) (*types.User, error) {
+		return resolveOrgOwner(ctx, helixStore, orgID)
+	}}
 	// Bootstrap-time reconcile re-seeds / tool-backfills Chief of Staff (idempotent — unions any
 	// new OwnerBotTools entries onto existing CoS). Runs once per org per
 	// process via ensureBootstrap.
@@ -1551,6 +1608,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 
 	return &helixOrgHandlers{
 		api:                           orgServer.Handler(extras...),
+		botMCP:                        orgServer.BotMCPHandler(),
 		configs:                       configReg,
 		mcpServer:                     orgServer,
 		scope:                         scope,
@@ -1788,6 +1846,10 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 	runtime, credentials, provider, model := resolveWorkerAgentConfig(ctx, orgID, d.Cfg)
 	specsMandate, _ := d.Cfg.GetString(ctx, orgID, "worker.specs_mandate")
 	sandboxRuntime, sandboxResources := d.Cfg.GetDefaultSandboxConfig(ctx, orgID)
+	maxInflight, err := d.Cfg.GetMaxConcurrentActivations(ctx, orgID)
+	if err != nil {
+		return runtimehelix.SpawnerConfig{}, fmt.Errorf("read organization activation limit: %w", err)
+	}
 	return runtimehelix.SpawnerConfig{
 		Client:           d.SpawnerClient,
 		ProjectService:   d.ProjectSvc,
@@ -1800,6 +1862,7 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 		SandboxRuntime:   sandboxRuntime,
 		SandboxResources: sandboxResources,
 		SpecsMandate:     specsMandate,
+		MaxInflight:      maxInflight,
 		Store:            d.OrgStore,
 		Hub:              d.Hub,
 		PubSub:           d.PubSub,
@@ -1822,16 +1885,13 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 //
 // Building per activation is cheap (a handful of config-registry
 // reads) and ensures newly provisioned apps use current org defaults.
-// Existing apps retain their own configuration. The one thing the old cache
-// legitimately provided — a single process-wide inflight cap — is
-// preserved by minting one shared semaphore here and injecting it into
-// each per-activation config via SpawnerConfig.Sem.
+// Existing apps retain their own configuration. A shared limiter tracks
+// each organization's independent inflight count.
 //
 // The dynamic applier still runs first to provision or fast-path the
 // per-Worker project.
 func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
-	// One inflight cap shared across every per-org spawner config.
-	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
+	limiter := runtimehelix.NewInflightLimiter()
 	return func(ctx context.Context, orgID string, workerID orgchart.NodeID, triggers []activation.Trigger) error {
 		ctx = helixorgserver.WithOrgID(ctx, orgID)
 		// Apply (or fast-path) the per-Worker project with the current
@@ -1842,14 +1902,13 @@ func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 			}
 		}
 		// Rebuild the SpawnerConfig for THIS org on every activation —
-		// never reuse another org's config. The shared semaphore keeps
-		// the global inflight cap intact.
+		// never reuse another org's config.
 		cfgVal, err := buildHelixOrgSpawnerConfig(ctx, orgID, d)
 		if err != nil {
 			return fmt.Errorf("helix-org spawner not configured: %w", err)
 		}
 		cfgVal.Mirror = d.Mirror // process-wide singleton; not per-org config
-		cfgVal.Sem = sem
+		cfgVal.Limiter = limiter
 		log.Trace().
 			Str("org_id", orgID).
 			Str("worker_id", string(workerID)).

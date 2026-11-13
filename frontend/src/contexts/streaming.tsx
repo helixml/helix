@@ -664,20 +664,28 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
           // Apply each entry patch
           for (const ep of entryPatches) {
             if (ep.index < currentEntries.length) {
+              const currentEntry = currentEntries[ep.index];
+              const sameMessage =
+                !currentEntry.message_id || currentEntry.message_id === ep.message_id;
               currentEntries[ep.index] = {
                 type: ep.type as "text" | "tool_call",
                 content: applyPatch(
-                  currentEntries[ep.index].content,
+                  currentEntry.content,
                   ep.patch_offset,
                   ep.patch,
                   ep.total_length,
                 ),
                 message_id: ep.message_id,
-                tool_name: ep.tool_name || currentEntries[ep.index].tool_name,
-                tool_status: ep.tool_status || currentEntries[ep.index].tool_status,
-                tool_call_id: ep.tool_call_id || currentEntries[ep.index].tool_call_id,
-                tool_call_name: ep.tool_call_name || currentEntries[ep.index].tool_call_name,
-                subagent_id: ep.subagent_id || currentEntries[ep.index].subagent_id,
+                tool_name:
+                  ep.tool_name || (sameMessage ? currentEntry.tool_name : undefined),
+                tool_status:
+                  ep.tool_status || (sameMessage ? currentEntry.tool_status : undefined),
+                tool_call_id:
+                  ep.tool_call_id || (sameMessage ? currentEntry.tool_call_id : undefined),
+                tool_call_name:
+                  ep.tool_call_name || (sameMessage ? currentEntry.tool_call_name : undefined),
+                subagent_id:
+                  ep.subagent_id || (sameMessage ? currentEntry.subagent_id : undefined),
               };
             }
           }

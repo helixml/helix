@@ -2,13 +2,16 @@ package api_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func TestTriggerCRUDAndStaleRevision(t *testing.T) {
@@ -189,5 +192,60 @@ func TestTriggerDTOCarriesResolvedActivation(t *testing.T) {
 	}
 	if loc.Activation.URL != "" {
 		t.Errorf("local Activation.URL = %q, want empty", loc.Activation.URL)
+	}
+}
+
+type fakeAgentEditAuthorizer struct{ allowed map[string]bool }
+
+func (f fakeAgentEditAuthorizer) AuthorizeAgentUpdate(_ context.Context, appID string) error {
+	if f.allowed[appID] {
+		return nil
+	}
+	return errors.New("not allowed")
+}
+
+// A member may change a bot's trigger attachments only when they can edit
+// that bot's agent app; owners and admins always may.
+func TestBotAttachmentsRequireAgentEditForMembers(t *testing.T) {
+	n := 0
+	deps, st, _ := newDepsClock(t,
+		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		func() string { n++; return fmt.Sprintf("id-%d", n) },
+	)
+	ctx := context.Background()
+	for id, app := range map[string]string{"w-mine": "app-mine", "w-theirs": "app-theirs"} {
+		b, err := orgchart.NewNode(orgchart.NodeID(id), "# Worker", nil, time.Now().UTC(), "org-test")
+		if err != nil {
+			t.Fatalf("NewNode: %v", err)
+		}
+		if err := st.Nodes.Create(ctx, b.WithAgentID(app)); err != nil {
+			t.Fatalf("create bot: %v", err)
+		}
+	}
+	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{allowed: map[string]bool{"app-mine": true}}
+	h := orgapi.Handler(deps)
+
+	var tr orgapi.TriggerDTO
+	decode(t, do(t, h, http.MethodPost, "/triggers", map[string]any{"name": "Incoming", "kind": "local"}), &tr)
+	body := map[string]any{"source": map[string]any{"kind": "trigger", "trigger_id": tr.ID}}
+
+	if rec := doAsRole(t, h, http.MethodPost, "/bots/w-theirs/attachments", body, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("member attach to another's bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	rec := doAsRole(t, h, http.MethodPost, "/bots/w-mine/attachments", body, types.OrganizationRoleMember, false)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("member attach to editable bot: status=%d body=%s", rec.Code, rec.Body)
+	}
+	var att orgapi.AttachmentDTO
+	decode(t, rec, &att)
+	if rec := doAsRole(t, h, http.MethodPost, "/bots/w-theirs/attachments", body, types.OrganizationRoleOwner, false); rec.Code != http.StatusCreated {
+		t.Fatalf("owner attach: status=%d body=%s", rec.Code, rec.Body)
+	}
+
+	// Detach follows the same rule.
+	deps.AgentEditAuthorizer = fakeAgentEditAuthorizer{}
+	h = orgapi.Handler(deps)
+	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-mine/attachments/"+att.ID, nil, types.OrganizationRoleMember, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("member detach without agent edit: status=%d body=%s", rec.Code, rec.Body)
 	}
 }

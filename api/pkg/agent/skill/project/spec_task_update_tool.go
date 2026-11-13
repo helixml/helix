@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -177,6 +178,9 @@ func (t *UpdateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 	}
 
 	if priority, ok := args["priority"].(string); ok && priority != "" {
+		if !types.SpecTaskPriority(priority).Valid() {
+			return "", errors.New("invalid priority: must be low, medium, high, or critical")
+		}
 		task.Priority = types.SpecTaskPriority(priority)
 		updatedFields = append(updatedFields, "priority")
 	}

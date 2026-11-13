@@ -47,6 +47,8 @@ const baseProps = {
   onRegenerate: vi.fn(),
 };
 
+const vertexServiceDisabledError = String.raw`Anthropic API request failed with status 403: {\"error\":{\"code\":403,\"status\":\"PERMISSION_DENIED\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"SERVICE_DISABLED\",\"domain\":\"googleapis.com\",\"metadata\":{\"service\":\"aiplatform.googleapis.com\"}}]}}`;
+
 describe("InteractionInference error display", () => {
   beforeEach(() => {
     params.org_id = "org_1";
@@ -140,12 +142,17 @@ describe("InteractionInference error display", () => {
   it.each([
     "Agent startup failed: failed to fetch config: status 422: provider \"openai\" is not enabled for coding-agent runtime \"codex_cli\" in this organization",
     "This agent's provider is not available to the organization. Configure the provider for the organization, then select it again in the agent settings.",
+    vertexServiceDisabledError,
+    `failed to load thread: status 500: ${vertexServiceDisabledError}`,
+    "Anthropic provider not configured: set ANTHROPIC_VERTEX_PROJECT_ID for Vertex AI, or ANTHROPIC_API_KEY for direct API access",
   ])("links bot provider errors to its settings", (error) => {
     render(<InteractionInference {...baseProps} error={error} />);
 
-    expect(screen.getByText("Provider setup required")).toBeInTheDocument();
+    expect(screen.getByText("Model provider unavailable")).toBeInTheDocument();
     expect(
-      screen.getByText("Configure this bot's provider and model."),
+      screen.getByText(
+        "This bot's model provider is unavailable. Choose an available provider and model in bot settings.",
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Configure provider" }));
@@ -155,9 +162,27 @@ describe("InteractionInference error display", () => {
     });
   });
 
-  it("keeps provider errors unchanged outside bot chat", () => {
+  it.each([
+    "Anthropic API request failed with status 403: SERVICE_DISABLED for storage.googleapis.com",
+    "Anthropic API request failed: SERVICE_DISABLED for aiplatform.googleapis.com",
+    "HTTP 403: SERVICE_DISABLED for aiplatform.googleapis.com",
+  ])("keeps unrelated service errors unchanged", (error) => {
+    render(<InteractionInference {...baseProps} error={error} />);
+
+    expect(screen.getByText("We couldn’t complete that request")).toBeInTheDocument();
+    expect(screen.getByText(error)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Retry/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Configure provider" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "provider \"openai\" is not enabled for coding-agent runtime \"codex_cli\" in this organization",
+    vertexServiceDisabledError,
+    "Anthropic provider not configured: set ANTHROPIC_API_KEY",
+  ])("keeps provider errors unchanged outside bot chat", (error) => {
     params.bot_id = "";
-    const error = "provider \"openai\" is not enabled for coding-agent runtime \"codex_cli\" in this organization";
 
     render(<InteractionInference {...baseProps} error={error} />);
 

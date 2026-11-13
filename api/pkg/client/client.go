@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/websearch"
 )
 
 type Client interface {
@@ -140,6 +141,13 @@ type Client interface {
 	UpdateOwnPassword(ctx context.Context, newPassword string) error
 	AdminResetPassword(ctx context.Context, userID string, newPassword string) (*types.User, error)
 	AdminDeleteUser(ctx context.Context, userID string) error
+
+	// Web search (Exa-compatible)
+	WebSearch(ctx context.Context, req *websearch.SearchRequest) (*websearch.SearchResponse, error)
+	WebSearchContents(ctx context.Context, req *websearch.ContentsRequest) (*websearch.ContentsResponse, error)
+	WebSearchFindSimilar(ctx context.Context, req *websearch.FindSimilarRequest) (*websearch.FindSimilarResponse, error)
+	WebSearchAnswer(ctx context.Context, req *websearch.AnswerRequest) (*websearch.AnswerResponse, error)
+	StreamWebSearchAnswer(ctx context.Context, req *websearch.AnswerRequest, onEvent func(websearch.AnswerEvent) error) error
 }
 
 type SessionFilter struct {

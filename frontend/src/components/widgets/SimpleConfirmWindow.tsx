@@ -8,6 +8,9 @@ const SimpleConfirmWindow: FC<React.PropsWithChildren<{
   message?: string,
   confirmTitle?: string,
   cancelTitle?: string,
+  // Optional extra content rendered under the message, e.g. an option
+  // checkbox that changes what the confirm action does.
+  children?: React.ReactNode,
   onCancel: {
     (): void,
   },
@@ -20,6 +23,7 @@ const SimpleConfirmWindow: FC<React.PropsWithChildren<{
   message = 'Are you sure?',
   confirmTitle = 'Confirm',
   cancelTitle = 'Cancel',
+  children,
   onCancel,
   onSubmit,
 }) => {
@@ -53,6 +57,7 @@ const SimpleConfirmWindow: FC<React.PropsWithChildren<{
             { message }
           </Typography>
         </Box>
+        {children}
       </Box>
     </Window>
   )

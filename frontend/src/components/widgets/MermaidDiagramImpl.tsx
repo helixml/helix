@@ -1,42 +1,21 @@
 import React, { useEffect, useRef, useState, FC } from 'react'
 import mermaid from 'mermaid'
-import {
-  Box,
-  CircularProgress,
-  Alert,
-  useTheme,
-  Dialog,
-  DialogContent,
-  IconButton,
-  Slider,
-  Typography,
-  Stack,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
+import Dialog from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
+import IconButton from '@mui/material/IconButton';
+import Slider from '@mui/material/Slider';
+import Typography from '@mui/material/Typography';
+import Stack from '@mui/material/Stack';
+import { useTheme } from '@mui/material/styles';
 import { X as CloseIcon, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react'
+import { MERMAID_CONFIG } from './mermaidConfig'
+import { sanitizeMermaidSvg } from './sanitizeMermaidSvg'
 
-// Initialize mermaid with dark theme settings
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'dark',
-  themeVariables: {
-    primaryColor: '#00d5ff',
-    primaryTextColor: '#fff',
-    primaryBorderColor: '#00d5ff',
-    lineColor: '#00d5ff',
-    secondaryColor: '#1e1e1e',
-    tertiaryColor: '#2d2d2d',
-    background: '#121212',
-    mainBkg: '#1e1e1e',
-    nodeBorder: '#00d5ff',
-    clusterBkg: '#2d2d2d',
-    clusterBorder: '#00d5ff',
-    titleColor: '#fff',
-    edgeLabelBackground: '#1e1e1e',
-    nodeTextColor: '#fff',
-  },
-  fontFamily: 'system-ui, -apple-system, sans-serif',
-  securityLevel: 'loose',
-})
+// Initialize mermaid with dark theme settings (strict security level)
+mermaid.initialize(MERMAID_CONFIG)
 
 interface MermaidDiagramProps {
   code: string
@@ -76,7 +55,8 @@ const MermaidDiagram: FC<MermaidDiagramProps> = ({
       try {
         const id = generateId()
         const { svg: renderedSvg } = await mermaid.render(id, code.trim())
-        setSvg(renderedSvg)
+        // Diagram text is untrusted; never inject mermaid output unsanitised (TST-01-293).
+        setSvg(sanitizeMermaidSvg(renderedSvg))
       } catch (err) {
         console.error('[MermaidDiagram] Rendering error:', err)
         setError(err instanceof Error ? err.message : 'Failed to render diagram')

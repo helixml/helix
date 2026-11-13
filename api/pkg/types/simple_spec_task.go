@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -18,6 +20,44 @@ const (
 	SpecTaskPriorityHigh     SpecTaskPriority = "high"
 	SpecTaskPriorityCritical SpecTaskPriority = "critical"
 )
+
+// Valid reports whether p is one of the documented priorities.
+func (p SpecTaskPriority) Valid() bool {
+	switch p {
+	case SpecTaskPriorityLow, SpecTaskPriorityMedium, SpecTaskPriorityHigh, SpecTaskPriorityCritical:
+		return true
+	default:
+		return false
+	}
+}
+
+const (
+	SpecTaskTypeFeature  = "feature"
+	SpecTaskTypeBug      = "bug"
+	SpecTaskTypeRefactor = "refactor"
+)
+
+// ValidSpecTaskType reports whether t is in the closed spec task type vocabulary.
+func ValidSpecTaskType(t string) bool {
+	switch t {
+	case SpecTaskTypeFeature, SpecTaskTypeBug, SpecTaskTypeRefactor:
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateSpecTaskTypeAndPriority rejects values outside the documented enums.
+// Empty values mean "unset" and are accepted.
+func ValidateSpecTaskTypeAndPriority(taskType string, priority SpecTaskPriority) error {
+	if taskType != "" && !ValidSpecTaskType(taskType) {
+		return errors.New("invalid type: must be feature, bug, or refactor")
+	}
+	if priority != "" && !priority.Valid() {
+		return errors.New("invalid priority: must be low, medium, high, or critical")
+	}
+	return nil
+}
 
 // BranchMode determines how branches are configured for a task
 type BranchMode string
@@ -89,6 +129,10 @@ type StartPlanningOptions struct {
 	KeyboardLayout string `json:"keyboard_layout,omitempty"`
 	// Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris")
 	Timezone string `json:"timezone,omitempty"`
+	// Languages is the user's browser language preference list (navigator.languages),
+	// comma-separated BCP 47 tags (e.g., "en-GB,en"). The desktop's browser sends these
+	// as Accept-Language so websites don't pick the language of the runner's location.
+	Languages string `json:"languages,omitempty"`
 }
 
 // Compile-time fallback for the spec task sandbox size. Config overrides it at
@@ -149,6 +193,7 @@ var SpecTaskSandboxPresets = []SandboxResourceOverrides{
 	{VCPUs: 8, MemoryMB: 16384},
 	{VCPUs: 12, MemoryMB: 24576},
 	{VCPUs: 16, MemoryMB: 32768},
+	{VCPUs: 32, MemoryMB: 65536},
 }
 
 // DefaultSpecTaskSandboxResources returns the operator-configured default, or
@@ -207,24 +252,90 @@ func specTaskSandboxVCPUList() string {
 // list, for tool descriptions and validation errors.
 func SpecTaskSandboxVCPUList() string { return specTaskSandboxVCPUList() }
 
-// Sandbox display resolution presets. Empty resolves to 1080p.
+// SpecTaskSandboxPresetList renders every rung as "N CPU/M GB", for validation
+// errors shown to a user who picked a size.
+func SpecTaskSandboxPresetList() string {
+	rungs := make([]string, 0, len(SpecTaskSandboxPresets))
+	for _, preset := range SpecTaskSandboxPresets {
+		rungs = append(rungs, fmt.Sprintf("%d CPU/%d GB", preset.VCPUs, preset.MemoryMB/1024))
+	}
+	return strings.Join(rungs, ", ")
+}
+
+// Sandbox display resolution presets. Empty resolves to native where the host
+// reported its display (Helix for Mac), 1080p otherwise.
 const (
-	SandboxResolution1080p = "1080p"
-	SandboxResolution4K    = "4k"
-	SandboxResolution5K    = "5k"
+	SandboxResolution1080p  = "1080p"
+	SandboxResolution4K     = "4k"
+	SandboxResolution5K     = "5k"
+	SandboxResolutionNative = "native"
 )
 
 // SandboxDisplay is the virtual desktop resolution for a SpecTask's sandbox.
-// Nil or empty resolves to 1080p at 100% zoom. The size is fixed when the
-// desktop container starts, so changes apply on the next start.
+// Nil or empty resolves to DefaultSandboxResolution(). The size is fixed when
+// the desktop container starts, so changes apply on the next start.
 type SandboxDisplay struct {
-	Resolution string `json:"resolution,omitempty"` // "1080p" (default), "4k", or "5k"
-	ZoomLevel  int    `json:"zoom_level,omitempty"` // GNOME zoom percentage; 0 => 100 for 1080p, 200 for 4k/5k
+	Resolution string `json:"resolution,omitempty"` // "1080p", "4k", "5k" or "native"; empty => DefaultSandboxResolution()
+	ZoomLevel  int    `json:"zoom_level,omitempty"` // GNOME zoom percentage; 0 => the preset's default
+}
+
+// NativeDisplay is the "native" resolution preset: a 16:9 desktop as wide, in
+// pixels, as the host's own screen, at the screen's scale. Helix for Mac
+// measures the Mac's main display and passes it to the API
+// (HELIX_NATIVE_DISPLAY_*), so desktops look like the laptop they run on.
+type NativeDisplay struct {
+	Width     int `json:"width"`
+	Height    int `json:"height"`
+	ZoomLevel int `json:"zoom_level"`
+}
+
+// nativeDisplay holds the host's display, or nil where none was reported.
+// Set once at startup by config.LoadServerConfig.
+var nativeDisplay atomic.Pointer[NativeDisplay]
+
+// SetNativeDisplay installs the host's display for the "native" preset and as
+// the default resolution. A zero width clears it.
+func SetNativeDisplay(d NativeDisplay) error {
+	if d.Width == 0 && d.Height == 0 {
+		nativeDisplay.Store(nil)
+		return nil
+	}
+	if d.Width < 640 || d.Height < 360 || d.Width > 5120 || d.Height > 2880 {
+		return fmt.Errorf("native display %dx%d is outside 640x360..5120x2880", d.Width, d.Height)
+	}
+	if d.ZoomLevel < 100 || d.ZoomLevel > 300 {
+		return fmt.Errorf("native display zoom_level %d must be between 100 and 300", d.ZoomLevel)
+	}
+	nativeDisplay.Store(&d)
+	return nil
+}
+
+// GetNativeDisplay returns the host's display, or nil if none was reported.
+func GetNativeDisplay() *NativeDisplay {
+	if d := nativeDisplay.Load(); d != nil {
+		native := *d
+		return &native
+	}
+	return nil
+}
+
+// DefaultSandboxResolution is the preset a desktop gets when none is chosen:
+// native where the host reported its display, 1080p otherwise.
+func DefaultSandboxResolution() string {
+	if nativeDisplay.Load() != nil {
+		return SandboxResolutionNative
+	}
+	return SandboxResolution1080p
 }
 
 // SandboxResolutionSize returns the pixel size of a resolution preset.
 func SandboxResolutionSize(resolution string) (width, height int, ok bool) {
 	switch resolution {
+	case SandboxResolutionNative:
+		if d := nativeDisplay.Load(); d != nil {
+			return d.Width, d.Height, true
+		}
+		return 0, 0, false
 	case SandboxResolution5K:
 		return 5120, 2880, true
 	case SandboxResolution4K:
@@ -241,6 +352,10 @@ func SandboxResolutionDefaultZoom(resolution string) int {
 	switch resolution {
 	case SandboxResolution5K, SandboxResolution4K:
 		return 200
+	case SandboxResolutionNative:
+		if d := nativeDisplay.Load(); d != nil {
+			return d.ZoomLevel
+		}
 	}
 	return 100
 }
@@ -251,7 +366,10 @@ func (d *SandboxDisplay) Validate() error {
 	}
 	if d.Resolution != "" {
 		if _, _, ok := SandboxResolutionSize(d.Resolution); !ok {
-			return fmt.Errorf("invalid sandbox display resolution %q: must be 1080p, 4k or 5k", d.Resolution)
+			if d.Resolution == SandboxResolutionNative {
+				return fmt.Errorf("sandbox display resolution %q is only available where the host reports its display (Helix for Mac)", d.Resolution)
+			}
+			return fmt.Errorf("invalid sandbox display resolution %q: must be 1080p, 4k, 5k or native", d.Resolution)
 		}
 	}
 	if d.ZoomLevel != 0 && (d.ZoomLevel < 100 || d.ZoomLevel > 300) {
@@ -260,10 +378,14 @@ func (d *SandboxDisplay) Validate() error {
 	return nil
 }
 
-// EffectiveResolution returns the preset name, never empty.
+// EffectiveResolution returns the preset name, never empty. A "native"
+// setting falls back to the default if the host no longer reports a display.
 func (d *SandboxDisplay) EffectiveResolution() string {
 	if d == nil || d.Resolution == "" {
-		return SandboxResolution1080p
+		return DefaultSandboxResolution()
+	}
+	if _, _, ok := SandboxResolutionSize(d.Resolution); !ok {
+		return DefaultSandboxResolution()
 	}
 	return d.Resolution
 }
@@ -703,6 +825,7 @@ type SpecTaskUpdateRequest struct {
 	DependsOn               []string         `json:"depends_on"`                                  // IDs of tasks this task depends on
 	AssigneeID              *string          `json:"assignee_id,omitempty"`                       // Pointer to allow clearing (set to empty string to unassign)
 	AgentTools              *[]string        `json:"agent_tools,omitempty"`                       // Extra Helix MCP tools for this task, on top of the project's
+	Archived                *bool            `json:"archived,omitempty" swaggerignore:"true"`     // Rejected: archiving goes through PATCH /spec-tasks/{taskId}/archive
 }
 
 // SpecTaskExecutionConfigUpdateRequest replaces exactly one of the task's
@@ -868,6 +991,42 @@ func (SpecTaskExternalAgent) TableName() string {
 
 type SpecTaskArchiveRequest struct {
 	Archived bool `json:"archived"`
+	// StopAgent controls whether archiving stops the task's external agent and
+	// frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
+	// that is mid-turn unless the caller says so explicitly.
+	StopAgent *bool `json:"stop_agent,omitempty"`
+	// StopAgentExplicit records that the caller supplied StopAgent. Archiving
+	// never kills an agent that is mid-turn unless the caller said so
+	// explicitly — see issue #3427.
+	StopAgentExplicit bool `json:"-" yaml:"-"`
+}
+
+// StopAgentEnabled reports whether archiving should stop the task's agent.
+// The zero value keeps the historical default (stop), so existing callers and
+// clients that do not send the field are unaffected.
+func (r SpecTaskArchiveRequest) StopAgentEnabled() bool {
+	if r.StopAgent == nil {
+		return true
+	}
+	return *r.StopAgent
+}
+
+// UnmarshalJSON keeps StopAgentExplicit honest: it is true only when the
+// request actually carried a stop_agent key, not merely because it defaulted.
+func (r *SpecTaskArchiveRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Archived  bool  `json:"archived"`
+		StopAgent *bool `json:"stop_agent"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*r = SpecTaskArchiveRequest{
+		Archived:          raw.Archived,
+		StopAgent:         raw.StopAgent,
+		StopAgentExplicit: raw.StopAgent != nil,
+	}
+	return nil
 }
 
 // CloneGroup tracks a batch of cloned tasks from the same source

@@ -61,7 +61,7 @@ func (s *HelixAPIServer) createEvaluationSuite(_ http.ResponseWriter, req *http.
 
 	var suite types.EvaluationSuite
 	if err := json.NewDecoder(req.Body).Decode(&suite); err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body: %s", err))
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	if suite.Name == "" {
@@ -153,7 +153,7 @@ func (s *HelixAPIServer) updateEvaluationSuite(_ http.ResponseWriter, req *http.
 
 	var suite types.EvaluationSuite
 	if err := json.NewDecoder(req.Body).Decode(&suite); err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body: %s", err))
+		return nil, jsonDecodeHTTPError(err)
 	}
 
 	suite.ID = id
@@ -341,6 +341,8 @@ func (s *HelixAPIServer) startEvaluationRun(_ http.ResponseWriter, req *http.Req
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create evaluation run: %s", err))
 	}
+	response := *createdRun
+	s.redactEvaluationRun(ctx, user, app, &response)
 
 	// Run evaluation in background
 	go func() {
@@ -356,7 +358,7 @@ func (s *HelixAPIServer) startEvaluationRun(_ http.ResponseWriter, req *http.Req
 		})
 	}()
 
-	return createdRun, nil
+	return &response, nil
 }
 
 // listEvaluationRuns godoc
@@ -376,7 +378,7 @@ func (s *HelixAPIServer) listEvaluationRuns(_ http.ResponseWriter, req *http.Req
 	agentID := mux.Vars(req)["agent_id"]
 	suiteID := mux.Vars(req)["id"]
 
-	_, httpErr := s.getAppForEvaluation(ctx, user, agentID)
+	app, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		return nil, httpErr
 	}
@@ -390,7 +392,9 @@ func (s *HelixAPIServer) listEvaluationRuns(_ http.ResponseWriter, req *http.Req
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	_ = user // used for auth via getAppForEvaluation
+	for _, run := range runs {
+		s.redactEvaluationRun(ctx, user, app, run)
+	}
 	return runs, nil
 }
 
@@ -411,7 +415,7 @@ func (s *HelixAPIServer) getEvaluationRun(_ http.ResponseWriter, req *http.Reque
 	runID := mux.Vars(req)["run_id"]
 	agentID := mux.Vars(req)["agent_id"]
 
-	_, httpErr := s.getAppForEvaluation(ctx, user, agentID)
+	app, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		return nil, httpErr
 	}
@@ -423,7 +427,12 @@ func (s *HelixAPIServer) getEvaluationRun(_ http.ResponseWriter, req *http.Reque
 		}
 		return nil, system.NewHTTPError500(err.Error())
 	}
+	// Access was checked against agentID: the run must belong to it.
+	if run.AppID != agentID {
+		return nil, system.NewHTTPError404("evaluation run not found")
+	}
 
+	s.redactEvaluationRun(ctx, user, app, run)
 	return run, nil
 }
 
@@ -447,6 +456,17 @@ func (s *HelixAPIServer) deleteEvaluationRun(_ http.ResponseWriter, req *http.Re
 	_, httpErr := s.getAppForEvaluation(ctx, user, agentID)
 	if httpErr != nil {
 		return nil, httpErr
+	}
+
+	run, err := s.Store.GetEvaluationRun(ctx, runID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			return nil, system.NewHTTPError404("evaluation run not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	if run.AppID != agentID {
+		return nil, system.NewHTTPError404("evaluation run not found")
 	}
 
 	if err := s.Store.DeleteEvaluationRun(ctx, runID); err != nil {
@@ -480,6 +500,10 @@ func (s *HelixAPIServer) streamEvaluationRun(w http.ResponseWriter, req *http.Re
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
+		return
+	}
+	if run.AppID != agentID {
+		http.Error(w, "run not found", http.StatusNotFound)
 		return
 	}
 
@@ -545,6 +569,15 @@ func (s *HelixAPIServer) streamEvaluationRun(w http.ResponseWriter, req *http.Re
 }
 
 // --- Helper ---
+
+// redactEvaluationRun masks the agent credentials captured in a run's config
+// snapshot unless the caller may edit the agent.
+func (s *HelixAPIServer) redactEvaluationRun(ctx context.Context, user *types.User, app *types.App, run *types.EvaluationRun) {
+	if run == nil || s.canUpdateApp(ctx, user, app) {
+		return
+	}
+	run.AppConfigSnapshot = maskedAgentConfig(run.AppConfigSnapshot)
+}
 
 func (s *HelixAPIServer) getAppForEvaluation(ctx context.Context, user *types.User, agentID string) (*types.App, *system.HTTPError) {
 	if agentID == "" {

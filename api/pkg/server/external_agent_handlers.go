@@ -36,7 +36,14 @@ import (
 //
 // On failure it writes the HTTP error response and returns false. Returns true
 // if the id is a session OR a sandbox the caller is allowed to view.
-func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req *http.Request, id string) bool {
+// desktopInputActivityInterval bounds how often viewer input on a desktop
+// stream refreshes the session's activity time (see InputActivity).
+const desktopInputActivityInterval = time.Minute
+
+// action is the access the caller needs on a session: ActionGet to watch a
+// desktop, ActionUpdate to drive it. Sandboxes have no per-resource grants, so
+// org membership is the check for either.
+func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req *http.Request, id string, action types.Action) bool {
 	user := getRequestUser(req)
 	if user == nil {
 		http.Error(res, "unauthorized", http.StatusUnauthorized)
@@ -45,7 +52,7 @@ func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req
 	// Sessions are the original/default case — try them first so existing
 	// external-agent flows hit the well-trodden path.
 	if session, err := apiServer.Store.GetSession(req.Context(), id); err == nil {
-		if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet); err != nil {
+		if err := apiServer.authorizeUserToSession(req.Context(), user, session, action); err != nil {
 			http.Error(res, err.Error(), http.StatusForbidden)
 			return false
 		}
@@ -223,10 +230,22 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgentHandler(res http.Resp
 		return
 	}
 
-	var command types.ExternalAgentCommand
-	err := json.NewDecoder(req.Body).Decode(&command)
+	// The command is written verbatim to the session's agent and can start its
+	// container, so the caller must be allowed to change that session.
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
 	if err != nil {
-		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
+		http.Error(res, "session not found", http.StatusNotFound)
+		return
+	}
+	if err := apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionUpdate); err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	var command types.ExternalAgentCommand
+	err = json.NewDecoder(req.Body).Decode(&command)
+	if err != nil {
+		http.Error(res, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -251,7 +270,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	sessionID := vars["sessionID"]
 
 	// Accept either a Helix session id or a sandbox id.
-	if !apiServer.authorizeDesktopID(res, req, sessionID) {
+	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionGet) {
 		return
 	}
 
@@ -364,6 +383,7 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		contentType = "image/jpeg"
 	}
 	res.Header().Set("Content-Type", contentType)
+	applyServedFilePolicy(res.Header(), "screenshot")
 	res.Write(imageData) //nolint:errcheck
 
 }
@@ -710,7 +730,7 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 	}
 
 	// Verify ownership
-	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionGet)
+	err = apiServer.authorizeUserToSession(req.Context(), user, session, types.ActionUpdate)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusForbidden)
 		return
@@ -1045,6 +1065,9 @@ func (apiServer *HelixAPIServer) getExternalAgentFile(res http.ResponseWriter, r
 			res.Header().Set(header, value)
 		}
 	}
+	// The desktop's headers describe the file but do not decide how this
+	// origin renders it: the attachment was uploaded by a session member.
+	applyServedFilePolicy(res.Header(), filename)
 	res.WriteHeader(fileResp.StatusCode)
 	if _, err := io.Copy(res, fileResp.Body); err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to stream chat attachment")
@@ -1096,7 +1119,7 @@ func (apiServer *HelixAPIServer) configurePendingSession(res http.ResponseWriter
 	// Parse request body (for compatibility)
 	var configReq ConfigurePendingSessionRequest
 	if err := json.NewDecoder(req.Body).Decode(&configReq); err != nil {
-		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
+		http.Error(res, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 
@@ -1131,8 +1154,12 @@ func (apiServer *HelixAPIServer) proxyInputWebSocket(res http.ResponseWriter, re
 	vars := mux.Vars(req)
 	sessionID := vars["sessionID"]
 
-	// Accept either a Helix session id or a sandbox id.
-	if !apiServer.authorizeDesktopID(res, req, sessionID) {
+	// Accept either a Helix session id or a sandbox id. Input drives the
+	// desktop, so it needs the same access as other writes to the session.
+	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionUpdate) {
+		return
+	}
+	if !apiServer.allowBrowserWebsocketOrigin(res, req) {
 		return
 	}
 
@@ -1309,7 +1336,10 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	// Accept either a Helix session id or a sandbox id — both register their
 	// desktop-bridge under `desktop-{id}` via RevDial, so once authz passes the
 	// proxy logic below is uniform.
-	if !apiServer.authorizeDesktopID(res, req, sessionID) {
+	if !apiServer.authorizeDesktopID(res, req, sessionID, types.ActionGet) {
+		return
+	}
+	if !apiServer.allowBrowserWebsocketOrigin(res, req) {
 		return
 	}
 
@@ -1500,15 +1530,28 @@ func (apiServer *HelixAPIServer) proxyStreamWebSocket(res http.ResponseWriter, r
 	// re-grant input to an embed-key viewer.
 	streamInitReplay := proxy.NewStreamInitReplay()
 
-	// Create resilient proxy
-	resilientProxy := proxy.NewResilientProxy(proxy.ResilientProxyConfig{
+	proxyConfig := proxy.ResilientProxyConfig{
 		SessionID:   proxySessionID,
 		ClientConn:  clientConn,
 		ServerConn:  serverConn,
 		DialFunc:    dialFunc,
 		UpgradeFunc: upgradeFunc,
 		Replay:      streamInitReplay,
-	})
+	}
+	// Keyboard, mouse and touch input from the viewer counts as activity for the
+	// desktop idle checker, which otherwise only sees chat interactions and
+	// would stop a desktop someone is working in directly. Read-only viewers
+	// can't drive the desktop, so their input doesn't count.
+	if !desktopStreamIsReadOnly(req) {
+		proxyConfig.Activity = proxy.NewInputActivity(desktopInputActivityInterval, func() {
+			if err := apiServer.Store.TouchSession(context.Background(), sessionID); err != nil {
+				log.Debug().Err(err).Str("session_id", sessionID).Msg("failed to record desktop input activity")
+			}
+		})
+	}
+
+	// Create resilient proxy
+	resilientProxy := proxy.NewResilientProxy(proxyConfig)
 	defer resilientProxy.Close()
 
 	// Publish the proxy reference so that a subsequent supersede (above) can

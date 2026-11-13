@@ -18,6 +18,7 @@ import LMStudioModels from '../components/providers/LMStudioModels'
 import Page from '../components/system/Page'
 import ShadcnAreaChart, { ShadcnSeries } from '../components/usage/ShadcnAreaChart'
 import SimpleTable, { ITableField } from '../components/widgets/SimpleTable'
+import { isEnvConfiguredEndpoint } from '../components/providers/types'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import {
@@ -382,7 +383,7 @@ export default function ProviderDetail({
           </Box>
         </Stack>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          {embedded && account.admin && provider.id && provider.id !== '-' && (
+          {embedded && account.admin && provider.id && !isEnvConfiguredEndpoint(provider) && (
             <Button
               aria-label="Edit provider"
               variant="outlined"

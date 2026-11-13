@@ -51,8 +51,9 @@ func (s *StartDevContainerForSessionSuite) TearDownTest() {
 // TestSpecTaskShape: session has SpecTaskID — load spec task, take project/org from it.
 func (s *StartDevContainerForSessionSuite) TestSpecTaskShape() {
 	session := &types.Session{
-		ID:    "ses_spec",
-		Owner: "user-1",
+		ID:        "ses_spec",
+		Owner:     "user-1",
+		SandboxID: "runner-original",
 		Metadata: types.SessionMetadata{
 			AgentType:  "zed_external",
 			SpecTaskID: "spt_abc",
@@ -80,6 +81,7 @@ func (s *StartDevContainerForSessionSuite) TestSpecTaskShape() {
 	s.NoError(err)
 	s.Require().NotNil(captured)
 	s.Equal("ses_spec", captured.SessionID)
+	s.Equal("runner-original", captured.SandboxID)
 	s.Equal("spt_abc", captured.SpecTaskID)
 	s.Equal("prj_from_spectask", captured.ProjectID)
 	s.Equal("org_from_spectask", captured.OrganizationID)
@@ -211,9 +213,18 @@ func (s *StartDevContainerForSessionSuite) TestReadinessWaitWakesStoppedExplorat
 		},
 	)
 	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
-	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	// The auto-start runs in its own goroutine and outlives the readiness
+	// wait; the test must not end (and gomock verify) before it finishes.
+	autoStartDone := make(chan struct{})
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ types.Session) (*types.Session, error) {
+			close(autoStartDone)
+			return session, nil
+		},
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- s.server.waitForExternalAgentReady(ctx, session.ID, time.Second)
@@ -226,4 +237,10 @@ func (s *StartDevContainerForSessionSuite) TestReadinessWaitWakesStoppedExplorat
 		s.FailNow("desktop was not started before readiness wait")
 	}
 	s.ErrorContains(<-errCh, "timeout waiting for external agent to be ready")
+
+	select {
+	case <-autoStartDone:
+	case <-time.After(5 * time.Second):
+		s.FailNow("auto-start did not finish persisting the session")
+	}
 }

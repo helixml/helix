@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
@@ -49,6 +50,9 @@ type Client interface {
 // ClientOptions holds optional configuration for the OpenAI client
 type ClientOptions struct {
 	TLSSkipVerify bool
+	// Outbound, when set, restricts which addresses the client may connect
+	// to and disables redirect following. Used for tenant-supplied base URLs.
+	Outbound *netguard.Policy
 }
 
 // New creates a new OpenAI client with the given API key and base URL.
@@ -94,6 +98,10 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 		Timeout:   5 * time.Minute, // 5 minute timeout for embedding requests
 		Transport: transport,
 	}
+	if opts.Outbound != nil {
+		opts.Outbound.GuardTransport(transport)
+		httpClient.CheckRedirect = netguard.NoRedirects
+	}
 
 	// Use our interceptor with the custom timeout and universal rate limiter
 	rateLimiter := NewUniversalRateLimiter(baseURL)
@@ -113,6 +121,7 @@ func NewWithOptions(apiKey string, baseURL string, billingEnabled bool, opts Cli
 		apiKey:         apiKey,
 		models:         models,
 		billingEnabled: billingEnabled,
+		retryDelay:     delayBetweenRetries,
 	}
 }
 
@@ -124,7 +133,10 @@ type RetryableClient struct {
 	apiKey         string
 	models         []string
 	billingEnabled bool
-	isAnthropic    bool // true if this client is for an Anthropic-compatible provider
+	// retryDelay is the base of retry-go's exponential backoff between chat
+	// completion attempts. Always delayBetweenRetries outside tests.
+	retryDelay  time.Duration
+	isAnthropic bool // true if this client is for an Anthropic-compatible provider
 }
 
 // SetIsAnthropic marks this client as an Anthropic-compatible provider.
@@ -204,7 +216,7 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 		return nil
 	},
 		retry.Attempts(retries),
-		retry.Delay(delayBetweenRetries),
+		retry.Delay(c.retryDelay),
 		retry.LastErrorOnly(true),
 		retry.Context(ctx),
 	)
@@ -335,7 +347,7 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 		return nil
 	},
 		retry.Attempts(retries),
-		retry.Delay(delayBetweenRetries),
+		retry.Delay(c.retryDelay),
 		retry.LastErrorOnly(true),
 		retry.Context(ctx),
 	)

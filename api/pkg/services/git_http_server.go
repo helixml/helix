@@ -87,6 +87,16 @@ func (fw *flushingWriter) Write(p []byte) (n int, err error) {
 
 // GitHTTPServer provides HTTP access to git repositories using native git.
 // This replaces the go-git based implementation for better performance and reliability.
+// Bounded waits for the per-repo lock. A pull only needs the lock for its
+// optional upstream pre-sync, so it gives up quickly and serves local data.
+// Variables so tests can shorten them.
+var (
+	uploadPackLockWait    = 5 * time.Second
+	uploadPackSyncTimeout = 30 * time.Second
+	uploadPackSyncBackoff = 2 * time.Minute
+	receivePackLockWait   = 60 * time.Second
+)
+
 type GitHTTPServer struct {
 	store            store.Store
 	gitRepoService   *GitRepositoryService
@@ -125,6 +135,18 @@ func (s *GitHTTPServer) SetPRProposals(svc *PRProposalService) {
 // branch. Used by the api server to wire up the web-service auto-deploy.
 func (s *GitHTTPServer) SetOnDefaultBranchPush(fn func(ctx context.Context, repoID, branch, userID string)) {
 	s.onDefaultBranchPush = fn
+}
+
+// NotifyDefaultBranchMerged fires the default-branch hook after the server
+// itself merged into an internal repo's default branch (Accept, auto-merge).
+// Those merges move the ref without a receive-pack, so without this the
+// web-service auto-deploy only ran for direct pushes to main. External repos
+// are skipped: their merge is pushed upstream and deployed from there.
+func (s *GitHTTPServer) NotifyDefaultBranchMerged(repo *types.GitRepository, branch, userID string) {
+	if s == nil || s.onDefaultBranchPush == nil || repo == nil || repo.IsExternal || branch == "" || branch != repo.DefaultBranch {
+		return
+	}
+	go s.onDefaultBranchPush(context.Background(), repo.ID, branch, userID)
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -234,8 +256,8 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Invalid API key", http.StatusUnauthorized)
 			return
 		}
-		if user.Waitlisted {
-			http.Error(w, "Account is waiting for approval", http.StatusForbidden)
+		if err := user.AccountAccessError(); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		if !s.keyTypeAllowsGit(r, keyRecord) {
@@ -294,6 +316,11 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	if err != nil {
 		return nil, nil, fmt.Errorf("user not found: %w", err)
 	}
+	// Carry the key's scope so repository authorization can confine a
+	// project-scoped key to its project, as the API auth middleware does.
+	user.ProjectID = apiKeyRecord.ProjectID
+	user.SpecTaskID = apiKeyRecord.SpecTaskID
+	user.SessionID = apiKeyRecord.SessionID
 
 	return user, apiKeyRecord, nil
 }
@@ -304,7 +331,12 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 //   - A bot instance key may only clone and fetch its own project's
 //     repositories: its sandbox reads untrusted input, and the repository is
 //     operator-authored, so pushing and every other repository are denied.
+//   - A key bound to a sandbox outside any project has no repositories of
+//     its own, so it would otherwise reach every repository of its owner.
 func (s *GitHTTPServer) keyTypeAllowsGit(r *http.Request, key *types.ApiKey) bool {
+	if key.ProjectID == "" && system.IsSandboxID(key.SessionID) {
+		return false
+	}
 	switch key.Type {
 	case types.APIkeytypeEmbed:
 		return false
@@ -489,13 +521,23 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	// If this is an external repository, sync from upstream BEFORE serving the pull.
 	// Acquire repo lock to serialize with concurrent pushes and prevent race conditions.
 	// Wrap in func() to ensure defer works correctly for panic safety.
-	if repo != nil && repo.ExternalURL != "" {
+	// The pre-sync is best-effort: skip it and serve the local mirror when the
+	// lock is held (e.g. an upstream push is still running) or the upstream
+	// failed recently, and bound it so a stalled upstream can't stall pulls.
+	if repo != nil && repo.ExternalURL != "" && s.gitRepoService.UpstreamFailedWithin(repoID, uploadPackSyncBackoff) {
+		log.Info().Str("repo_id", repoID).Msg("Upstream failed recently - serving pull from local mirror without upstream sync")
+	} else if repo != nil && repo.ExternalURL != "" {
 		func() {
 			lock := s.gitRepoService.GetRepoLock(repoID)
-			lock.Lock()
+			if err := lock.LockTimeout(r.Context(), uploadPackLockWait); err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Msg("Repository busy - serving pull from local mirror without upstream sync")
+				return
+			}
 			defer lock.Unlock()
-			log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before serving pull")
-			if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
+			log.Info().Str("repo_id", repoID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before serving pull")
+			syncCtx, cancel := context.WithTimeout(r.Context(), uploadPackSyncTimeout)
+			defer cancel()
+			if err := s.gitRepoService.SyncAllBranches(syncCtx, repoID, true); err != nil {
 				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
 			} else {
 				log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
@@ -588,7 +630,11 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	apiKey := s.extractAPIKey(r)
 	restriction, err := s.getBranchRestrictionForAPIKey(r.Context(), apiKey, repoID)
 	if err != nil {
+		// Without the key record we cannot tell whether this is a restricted
+		// agent key, so refuse rather than push unrestricted.
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get branch restriction for API key")
+		http.Error(w, "Push denied: could not resolve push permissions; try again", http.StatusServiceUnavailable)
+		return
 	}
 	if restriction != nil && restriction.IsAgentKey && restriction.ErrorMessage != "" {
 		log.Error().Str("repo_id", repoID).Str("error", restriction.ErrorMessage).Msg("Agent push denied")
@@ -605,14 +651,18 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	// could overwrite commits between receive-pack and upstream push.
 	// The lock MUST be held for the entire push flow: sync -> receive-pack -> upstream push.
 	lock := s.gitRepoService.GetRepoLock(repoID)
-	lock.Lock()
+	if err := lock.LockTimeout(r.Context(), receivePackLockWait); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("Repository busy - rejecting push")
+		http.Error(w, "Repository busy syncing with upstream, retry shortly", http.StatusServiceUnavailable)
+		return
+	}
 	defer lock.Unlock()
 
 	// If this is an external repository, sync from upstream BEFORE accepting the push.
 	// This keeps mirrored branches current; SyncAllBranches deliberately excludes
 	// the local-authoritative helix-specs branch.
 	if repo != nil && repo.ExternalURL != "" && !planningOnlyPush {
-		log.Info().Str("repo_id", repoID).Str("external_url", repo.ExternalURL).Msg("Syncing from upstream before accepting push")
+		log.Info().Str("repo_id", repoID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before accepting push")
 		if err := s.gitRepoService.SyncAllBranches(r.Context(), repoID, true); err != nil {
 			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream - rejecting push")
 			http.Error(w, "Conflict: "+err.Error(), http.StatusConflict)
@@ -752,9 +802,23 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			}
 		}
 
+		// helix-specs is served from Helix, so its upstream publication must not
+		// keep the client (and every other git operation on the repo) waiting.
+		// The goroutine takes the repo lock once this handler releases it.
+		for branch, isForce := range pushedBranchesMap {
+			if isLocalAuthoritativeBranch(branch) {
+				s.wg.Add(1)
+				go s.publishLocalAuthoritativeBranch(repoID, branch, isForce, pushUserID)
+			}
+		}
+
 		upstreamPushFailed := false
 		var pushErr error
 		for branch, isForce := range pushedBranchesMap {
+			if isLocalAuthoritativeBranch(branch) {
+				continue
+			}
+
 			// Create per-branch timeout so later branches don't get starved
 			branchCtx, branchCancel := context.WithTimeout(context.Background(), 90*time.Second)
 
@@ -762,14 +826,6 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, isForce, pushUserID)
 			branchCancel()
 
-			if err != nil && isLocalAuthoritativeBranch(branch) {
-				log.Warn().
-					Err(err).
-					Str("repo_id", repoID).
-					Str("branch", branch).
-					Msg("Upstream publication failed; retained local-authoritative branch")
-				continue
-			}
 			if err != nil {
 				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Failed to push branch to upstream - rolling back")
 				upstreamPushFailed = true
@@ -813,6 +869,32 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			s.handlePostPushHook(context.Background(), repoID, repo.LocalPath, pushedBranches)
 		}()
 	}
+}
+
+// specsPublishTimeout bounds a background helix-specs publication, including
+// the wait for the repo lock held by the push that triggered it.
+const specsPublishTimeout = 10 * time.Minute
+
+// publishLocalAuthoritativeBranch pushes a local-authoritative branch upstream in
+// the background. Failures are logged and recorded on the repository; the commit
+// stays in Helix and is retried by startup recovery or the next push.
+func (s *GitHTTPServer) publishLocalAuthoritativeBranch(repoID, branch string, force bool, userID string) {
+	defer s.wg.Done()
+	ctx, cancel := context.WithTimeout(context.Background(), specsPublishTimeout)
+	defer cancel()
+
+	lock := s.gitRepoService.GetRepoLock(repoID)
+	if err := lock.LockContext(ctx); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Str("branch", branch).Msg("Upstream publication skipped; repository lock not acquired")
+		return
+	}
+	defer lock.Unlock()
+
+	if err := s.gitRepoService.PushBranchToRemote(ctx, repoID, branch, force, userID); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Str("branch", branch).Msg("Upstream publication failed; retained local-authoritative branch")
+		return
+	}
+	log.Info().Str("repo_id", repoID).Str("branch", branch).Msg("Published local-authoritative branch to upstream")
 }
 
 // isContextCanceledOrKilled checks if the error is due to context cancellation or process being killed
@@ -1023,8 +1105,9 @@ func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, rep
 		return false
 	}
 
-	// Repository owner can always read the repository
-	if user.ID == repo.OwnerID {
+	// Repository owner can always read the repository, unless their key is
+	// confined to a project: then authorizeFn decides.
+	if user.ID == repo.OwnerID && user.ProjectID == "" {
 		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasReadAccess: user is repo owner, allowing")
 		return true
 	}
@@ -1051,8 +1134,9 @@ func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, re
 		return false
 	}
 
-	// Repository owner can always write to the repository
-	if user.ID == repo.OwnerID {
+	// Repository owner can always write to the repository, unless their key
+	// is confined to a project: then authorizeFn decides.
+	if user.ID == repo.OwnerID && user.ProjectID == "" {
 		log.Debug().Str("repo_id", repoID).Str("user_id", user.ID).Msg("hasWriteAccess: user is repo owner, allowing")
 		return true
 	}
@@ -1078,6 +1162,11 @@ func (s *GitHTTPServer) handleCloneInfo(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
 
+	if !s.hasReadAccess(r.Context(), s.getUser(r), repoID) {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
+
 	cloneURL := s.GetCloneURL(repoID)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1087,6 +1176,11 @@ func (s *GitHTTPServer) handleCloneInfo(w http.ResponseWriter, r *http.Request) 
 func (s *GitHTTPServer) handleRepositoryStatus(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
+
+	if !s.hasReadAccess(r.Context(), s.getUser(r), repoID) {
+		http.Error(w, "Repository not found", http.StatusNotFound)
+		return
+	}
 
 	repoPath, repo, err := s.getRepoPath(r.Context(), repoID)
 	if err != nil {
@@ -1182,17 +1276,20 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				continue
 			}
 
-			// Autonomous runs have nobody to click Accept. On an internal repo
-			// there is also no PR path (CreatePullRequest rejects a repo with no
-			// ExternalURL), so without this the branch is never merged by any
-			// route: it just accumulates commits, diverges from main, and
-			// eventually cannot even fast-forward. That is how a fortnight of
-			// chris-outreach memory ended up stranded across five branches.
-			if isAutonomousRun(task.Type) && !repo.IsExternal {
+			// Autonomous runs have nobody to click Accept. When the repo has no
+			// pull-request path in play, the branch would otherwise never be
+			// merged by any route: it just accumulates commits, diverges from
+			// main, and eventually cannot even fast-forward. That is how a
+			// fortnight of chris-outreach memory ended up stranded across five
+			// branches. Helix-hosted repos DO have pull requests now — but only
+			// through a proposal a human approves, so when the task has one in
+			// flight (tracked PR or outstanding proposal) the PR flow owns the
+			// merge and the auto-merge must stay out of the way. The repo passed
+			// on is not necessarily the project default: a bot contributing to a
+			// shared internal repo pushes there while the default repo is
+			// external.
+			if isAutonomousRun(task.Type) && !repo.IsExternal && len(task.RepoPullRequests) == 0 && !s.taskHasOutstandingProposal(ctx, task.ID) {
 				s.wg.Add(1)
-				// Pass the repo that was pushed to. It is not necessarily the
-				// project default — a bot contributing to a shared internal repo
-				// pushes there while the project's default repo is external.
 				go func(taskID string, pushedRepo *types.GitRepository) {
 					defer s.wg.Done()
 					s.tryAutoMergeBotRun(context.Background(), taskID, pushedRepo)
@@ -1351,6 +1448,7 @@ func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID stri
 		return
 	}
 	DismissTaskAttentionEvents(ctx, s.store, task.ID)
+	s.NotifyDefaultBranchMerged(repo, targetBranch, task.ImplementationApprovedBy)
 
 	log.Info().
 		Str("task_id", task.ID).
@@ -1383,6 +1481,20 @@ func isAutonomousRun(taskType string) bool {
 	default:
 		return false
 	}
+}
+
+// taskHasOutstandingProposal reports whether the task is waiting on (or has
+// opened) a pull request through the proposal flow, in which case the PR owns
+// the merge and the autonomous fast-forward must not shortcut it.
+func (s *GitHTTPServer) taskHasOutstandingProposal(ctx context.Context, taskID string) bool {
+	if s.prProposals == nil {
+		return false
+	}
+	outstanding, err := s.prProposals.HasOutstanding(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	return outstanding
 }
 
 // tryAutoMergeBotRun fast-forward merges an autonomous bot run's feature branch
@@ -1447,6 +1559,7 @@ func (s *GitHTTPServer) tryAutoMergeBotRun(ctx context.Context, taskID string, r
 		log.Error().Err(err).Str("task_id", task.ID).Msg("bot auto-merge: failed to record merge on task")
 		return
 	}
+	s.NotifyDefaultBranchMerged(repo, repo.DefaultBranch, task.UserID)
 
 	log.Info().
 		Str("task_id", task.ID).

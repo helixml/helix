@@ -84,6 +84,16 @@ type GitRepository struct {
 	// Clone progress tracking for async cloning
 	CloneError    string         `json:"clone_error,omitempty"`                                      // Error message if cloning failed
 	CloneProgress *CloneProgress `json:"clone_progress,omitempty" gorm:"type:jsonb;serializer:json"` // Live progress during cloning
+
+	// Upstream sync health (external repos). Written only via MarkGitRepositorySync{Started,Finished}.
+	GitRepositorySyncState
+}
+
+// GitRepositorySyncState reports the health of upstream fetches and pushes.
+type GitRepositorySyncState struct {
+	LastSyncAt          *time.Time `json:"last_sync_at,omitempty"`           // Last successful upstream fetch or push
+	LastSyncError       string     `json:"last_sync_error,omitempty"`        // Error from the most recent failed upstream operation; cleared on success
+	SyncInProgressSince *time.Time `json:"sync_in_progress_since,omitempty"` // Set while an upstream operation is running
 }
 
 type AzureDevOps struct {
@@ -145,15 +155,18 @@ const (
 
 // GitRepositoryCreateRequest represents a request to create a new repository
 type GitRepositoryCreateRequest struct {
-	Name           string                 `json:"name"`
-	Description    string                 `json:"description"`
-	RepoType       GitRepositoryType      `json:"repo_type"`
-	OwnerID        string                 `json:"owner_id"`
-	OrganizationID string                 `json:"organization_id,omitempty"` // Organization ID - required for access control
-	ProjectID      string                 `json:"project_id,omitempty"`
-	InitialFiles   map[string]string      `json:"initial_files,omitempty"`
-	DefaultBranch  string                 `json:"default_branch,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	Name           string            `json:"name"`
+	Description    string            `json:"description"`
+	RepoType       GitRepositoryType `json:"repo_type"`
+	OwnerID        string            `json:"owner_id"`
+	OrganizationID string            `json:"organization_id,omitempty"` // Organization ID - required for access control
+	ProjectID      string            `json:"project_id,omitempty"`
+	InitialFiles   map[string]string `json:"initial_files,omitempty"`
+	// InitialExecutableFiles lists paths in InitialFiles committed as executable
+	// (mode 100755), e.g. scripts a template expects to run as ./script.
+	InitialExecutableFiles []string               `json:"initial_executable_files,omitempty"`
+	DefaultBranch          string                 `json:"default_branch,omitempty"`
+	Metadata               map[string]interface{} `json:"metadata,omitempty"`
 
 	IsExternal   bool                   `json:"is_external"`   // True for GitHub/GitLab/ADO, false for Helix-hosted
 	ExternalURL  string                 `json:"external_url"`  // Full URL to external repo (e.g., https://github.com/org/repo)

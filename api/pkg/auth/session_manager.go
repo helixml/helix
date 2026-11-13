@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 )
 
@@ -39,6 +40,11 @@ const (
 var (
 	ErrSessionNotFound = errors.New("session not found")
 	ErrSessionExpired  = errors.New("session expired")
+	// ErrSessionProviderMismatch is returned for a session created under a
+	// different AUTH_PROVIDER than the one now configured, e.g. a password
+	// session on a deployment that has since moved to OIDC. Such a session
+	// skipped the current provider's sign-in checks, so it is discarded.
+	ErrSessionProviderMismatch = errors.New("session was created by a different auth provider")
 )
 
 // SessionManager handles user session lifecycle in the BFF pattern
@@ -47,14 +53,20 @@ type SessionManager struct {
 	store      store.Store
 	oidcClient OIDC
 	cfg        *config.ServerConfig
+
+	refreshGroup  singleflight.Group
+	refreshRetry  refreshRetryGate
+	endedSessions rateLimiter
 }
 
 // NewSessionManager creates a new session manager
 func NewSessionManager(store store.Store, oidcClient OIDC, cfg *config.ServerConfig) *SessionManager {
 	return &SessionManager{
-		store:      store,
-		oidcClient: oidcClient,
-		cfg:        cfg,
+		store:         store,
+		oidcClient:    oidcClient,
+		cfg:           cfg,
+		refreshRetry:  refreshRetryGate{interval: oidcRefreshRetryInterval},
+		endedSessions: rateLimiter{limit: endedSessionLimit, window: endedSessionWindow},
 	}
 }
 
@@ -66,10 +78,10 @@ func (sm *SessionManager) CreateSession(
 	r *http.Request,
 	userID string,
 	authProvider types.AuthProvider,
-	oidcAccessToken, oidcRefreshToken string,
+	oidcAccessToken, oidcRefreshToken, oidcIDToken string,
 	oidcTokenExpiry time.Time,
 ) (*types.UserSession, error) {
-	return sm.createSessionWithDuration(ctx, w, r, userID, authProvider, oidcAccessToken, oidcRefreshToken, oidcTokenExpiry, DefaultSessionDuration)
+	return sm.createSessionWithDuration(ctx, w, r, userID, authProvider, oidcAccessToken, oidcRefreshToken, oidcIDToken, oidcTokenExpiry, DefaultSessionDuration)
 }
 
 // CreateDesktopSession creates a user session with a very long expiry
@@ -115,7 +127,7 @@ func (sm *SessionManager) createSessionWithDuration(
 	r *http.Request,
 	userID string,
 	authProvider types.AuthProvider,
-	oidcAccessToken, oidcRefreshToken string,
+	oidcAccessToken, oidcRefreshToken, oidcIDToken string,
 	oidcTokenExpiry time.Time,
 	duration time.Duration,
 ) (*types.UserSession, error) {
@@ -126,6 +138,7 @@ func (sm *SessionManager) createSessionWithDuration(
 		ExpiresAt:        time.Now().Add(duration),
 		OIDCAccessToken:  oidcAccessToken,
 		OIDCRefreshToken: oidcRefreshToken,
+		OIDCIDToken:      oidcIDToken,
 		OIDCTokenExpiry:  oidcTokenExpiry,
 		UserAgent:        r.UserAgent(),
 		IPAddress:        getClientIP(r),
@@ -186,12 +199,30 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 		return nil, ErrSessionExpired
 	}
 
+	if sm.cfg != nil && session.AuthProvider != sm.cfg.Auth.Provider {
+		log.Warn().
+			Str("session_id", session.ID).
+			Str("session_auth_provider", string(session.AuthProvider)).
+			Str("configured_auth_provider", string(sm.cfg.Auth.Provider)).
+			Msg("Rejecting session created by a different auth provider")
+		_ = sm.store.DeleteUserSession(ctx, session.ID)
+		return nil, ErrSessionProviderMismatch
+	}
+
 	// For OIDC sessions, check if access token needs refresh
 	if session.NeedsOIDCRefresh() && sm.oidcClient != nil {
-		if err := sm.refreshOIDCToken(ctx, session); err != nil {
+		refreshed, err := sm.refreshSessionOIDC(ctx, session)
+		switch {
+		case errors.Is(err, ErrSessionRevoked), errors.Is(err, ErrSessionNotFound):
+			return nil, err
+		case err != nil:
+			// The session stays valid: session auth does not validate the OIDC
+			// access token on each request, so a stale one does not lock the
+			// user out. The retry gate keeps the next requests from asking the
+			// provider again straight away.
 			log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to refresh OIDC token")
-			// Continue with potentially expired token - the API call might still work
-			// or will fail and force re-login
+		default:
+			session = refreshed
 		}
 	}
 
@@ -203,34 +234,6 @@ func (sm *SessionManager) GetSessionFromRequest(ctx context.Context, r *http.Req
 	}
 
 	return session, nil
-}
-
-// refreshOIDCToken refreshes the OIDC access token using the refresh token
-func (sm *SessionManager) refreshOIDCToken(ctx context.Context, session *types.UserSession) error {
-	if session.OIDCRefreshToken == "" {
-		return errors.New("no refresh token available")
-	}
-
-	newToken, err := sm.oidcClient.RefreshAccessToken(ctx, session.OIDCRefreshToken)
-	if err != nil {
-		return err
-	}
-
-	// Update session with new tokens
-	session.UpdateOIDCTokens(newToken.AccessToken, newToken.RefreshToken, newToken.Expiry)
-
-	// Persist the updated session
-	_, err = sm.store.UpdateUserSession(ctx, session)
-	if err != nil {
-		return err
-	}
-
-	log.Debug().
-		Str("session_id", session.ID).
-		Time("new_expiry", newToken.Expiry).
-		Msg("Refreshed OIDC token for session")
-
-	return nil
 }
 
 // DeleteSession removes a session and clears the session cookie
@@ -258,6 +261,29 @@ func (sm *SessionManager) DeleteAllUserSessions(ctx context.Context, w http.Resp
 	sm.ClearSessionCookie(w)
 
 	log.Info().Str("user_id", userID).Msg("Deleted all user sessions")
+	return nil
+}
+
+// RevokeUserSessions deletes the user's sessions after a credential change,
+// keeping only keepSessionID (the session that made the change) when it is
+// set. Unlike DeleteAllUserSessions it writes no cookies, so callers decide
+// what the current browser keeps.
+func (sm *SessionManager) RevokeUserSessions(ctx context.Context, userID, keepSessionID string) error {
+	if keepSessionID == "" {
+		return sm.store.DeleteUserSessionsByUser(ctx, userID)
+	}
+	sessions, err := sm.store.GetUserSessionsByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		if session.ID == keepSessionID {
+			continue
+		}
+		if err := sm.store.DeleteUserSession(ctx, session.ID); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -426,7 +452,7 @@ func (sm *SessionManager) refreshExpiredSessions(ctx context.Context) {
 	log.Debug().Int("count", len(sessions)).Msg("Refreshing OIDC tokens for sessions")
 
 	for _, session := range sessions {
-		if err := sm.refreshOIDCToken(ctx, session); err != nil {
+		if _, err := sm.refreshSessionOIDC(ctx, session); err != nil && !errors.Is(err, ErrSessionRevoked) {
 			log.Warn().
 				Err(err).
 				Str("session_id", session.ID).

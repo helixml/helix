@@ -456,20 +456,24 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
     setDeleteGrantId(grantId);
   };
 
-  // Copy the same accept link the invitation email contains, so the owner can
-  // send it directly (chat, SMS) instead of relying on the email arriving.
-  // Signing in through it consumes every pending invitation for that email.
+  // Issue a fresh invite link (owners only) so the owner can send it directly
+  // (chat, SMS) instead of relying on the email arriving. The link carries a
+  // new secret token, so earlier links — including the emailed one — stop
+  // working.
   const handleCopyInviteLink = async (invitation: TypesOrganizationInvitation) => {
-    if (!invitation.id) return;
-    const link = `${window.location.origin}/login?invitation=${encodeURIComponent(invitation.id)}`;
+    if (!effectiveOrganizationId || !invitation.id) return;
+    let link = '';
     try {
+      const resp = await api.getApiClient().v1OrganizationsInvitationsLinkCreate(effectiveOrganizationId, invitation.id);
+      link = resp.data?.url || '';
+      if (!link) throw new Error('no link returned');
       await copyTextToClipboard(link);
       setOrgAddSnackbarSeverity('info');
-      setOrgAddSnackbar(`Invite link for ${invitation.email || 'user'} copied to clipboard.`);
+      setOrgAddSnackbar(`New invite link for ${invitation.email || 'user'} copied to clipboard. Earlier links no longer work.`);
     } catch (error) {
       console.error('Failed to copy invite link:', error);
       setOrgAddSnackbarSeverity('error');
-      setOrgAddSnackbar(`Could not copy automatically. Invite link: ${link}`);
+      setOrgAddSnackbar(link ? `Could not copy automatically. Invite link: ${link}` : 'Could not create an invite link.');
     }
   };
 

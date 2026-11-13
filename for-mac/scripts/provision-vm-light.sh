@@ -38,7 +38,11 @@ HELIX_VERSION=""
 # Ubuntu 26.04 LTS (Resolute)
 UBUNTU_URL="https://cloud-images.ubuntu.com/releases/resolute/release-20260713/ubuntu-26.04-server-cloudimg-arm64.img"
 UBUNTU_SHA256="b95c8625a2d524f7fa6e2b4583e5b56d92ed7212178b0c2c150a4f68e45830f2"
-UBUNTU_IMG="ubuntu-cloud.img"
+# Pinned and checksummed, so cached outside VM_DIR: CI deletes VM_DIR after
+# every run, and re-downloading made each release depend on reaching
+# cloud-images.ubuntu.com from the Mac runner.
+UBUNTU_IMG_CACHE_DIR="${HELIX_VM_CACHE_DIR:-$(dirname "$VM_DIR")/cache}"
+UBUNTU_IMG="${UBUNTU_IMG_CACHE_DIR}/ubuntu-cloud-${UBUNTU_SHA256}.img"
 
 # UEFI firmware (from Homebrew QEMU)
 EFI_CODE="/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
@@ -171,19 +175,25 @@ boot_provisioning_vm() {
 # =============================================================================
 
 if ! step_done "download"; then
-    if [ ! -f "${VM_DIR}/${UBUNTU_IMG}" ]; then
+    if [ ! -f "$UBUNTU_IMG" ]; then
         log "Downloading Ubuntu 26.04 LTS ARM64 cloud image..."
-        curl -L -o "${VM_DIR}/${UBUNTU_IMG}" "$UBUNTU_URL"
+        mkdir -p "$UBUNTU_IMG_CACHE_DIR"
+        curl -fL --retry 5 --retry-all-errors --connect-timeout 30 \
+            -o "${UBUNTU_IMG}.part" "$UBUNTU_URL"
+        mv "${UBUNTU_IMG}.part" "$UBUNTU_IMG"
     else
-        log "Ubuntu cloud image already downloaded"
+        log "Using cached Ubuntu cloud image: $UBUNTU_IMG"
     fi
-    ACTUAL_SHA256=$(shasum -a 256 "${VM_DIR}/${UBUNTU_IMG}" | awk '{print $1}') || ACTUAL_SHA256=""
+    ACTUAL_SHA256=$(shasum -a 256 "$UBUNTU_IMG" | awk '{print $1}') || ACTUAL_SHA256=""
     if [ "$ACTUAL_SHA256" != "$UBUNTU_SHA256" ]; then
         log "ERROR: Ubuntu cloud image checksum mismatch"
-        rm -f "${VM_DIR}/${UBUNTU_IMG}"
+        rm -f "$UBUNTU_IMG"
         exit 1
     fi
     log "Ubuntu cloud image checksum verified"
+    # Drop images left behind by an earlier UBUNTU_SHA256 pin.
+    find "$UBUNTU_IMG_CACHE_DIR" -maxdepth 1 -name 'ubuntu-cloud-*.img*' \
+        ! -name "$(basename "$UBUNTU_IMG")" -delete
     mark_step "download"
 fi
 
@@ -193,7 +203,7 @@ fi
 
 if ! step_done "disk"; then
     log "Creating root disk (${DISK_SIZE})..."
-    cp "${VM_DIR}/${UBUNTU_IMG}" "${VM_DIR}/disk.qcow2.tmp"
+    cp "$UBUNTU_IMG" "${VM_DIR}/disk.qcow2.tmp"
     qemu-img resize "${VM_DIR}/disk.qcow2.tmp" "$DISK_SIZE"
     mv "${VM_DIR}/disk.qcow2.tmp" "${VM_DIR}/disk.qcow2"
 
@@ -532,10 +542,18 @@ run_ssh() { $SSH_CMD "$@"; }
 # =============================================================================
 
 if ! step_done "install_zfs"; then
-    log "Installing ZFS 2.4.1+ from arter97 PPA..."
-    run_ssh "sudo add-apt-repository -y ppa:arter97/zfs && sudo apt-get update && sudo apt-get install -y zfsutils-linux" || {
-        log "ZFS install may need a reboot for DKMS. Continuing..."
-    }
+    log "Installing ZFS from Ubuntu's archive..."
+    # The kernel module comes with Ubuntu's kernel; only the userland is installed
+    # here, so there is no DKMS build to wait for. Ubuntu 26.04's zfsutils-linux
+    # (2.4.1, which has the fast_dedup DDT fix) matches that module, and its
+    # archive is mirrored, unlike the Launchpad PPA used before. An image without
+    # zpool can't import the data pool and the app hangs at "Setting up storage".
+    for attempt in 1 2 3; do
+        run_ssh "sudo apt-get update && sudo apt-get install -y zfsutils-linux && zpool version" && break
+        [ "$attempt" -lt 3 ] || { log "ERROR: ZFS install failed"; exit 1; }
+        log "ZFS install failed (attempt $attempt), retrying in 30s..."
+        sleep 30
+    done
     mark_step "install_zfs"
 fi
 
@@ -573,6 +591,26 @@ SVCEOF"
 
     run_ssh "sudo systemctl daemon-reload && sudo systemctl enable helix-drm-manager"
     mark_step "install_drm_manager"
+fi
+
+# =============================================================================
+# Step 6b: Let chrony step the clock whenever it is off
+# =============================================================================
+# The VM's vCPUs stop while the Mac sleeps, so after every lid close the guest
+# clock is behind by the sleep time. Ubuntu's chrony.conf has "makestep 1 3",
+# which only steps during the first three updates after boot; after that it
+# slews, which takes weeks for an hours-long gap. A VM seen 8h behind broke
+# apt ("Release file is not valid yet") and puts certificate and token expiry
+# checks at risk. Step whenever the offset exceeds a second.
+
+if ! step_done "configure_chrony"; then
+    log "Configuring chrony to step the clock after host sleep..."
+    run_ssh "sudo tee /etc/chrony/conf.d/helix-vm.conf > /dev/null << 'CHRONYEOF'
+# Helix for Mac: the VM pauses while the Mac sleeps. Step the clock whenever it
+# is more than 1s off, not only at boot (Ubuntu default: makestep 1 3).
+makestep 1 -1
+CHRONYEOF"
+    mark_step "configure_chrony"
 fi
 
 # =============================================================================

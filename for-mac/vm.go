@@ -1551,7 +1551,7 @@ if [ -n "$LICENSE_KEY" ]; then
         CHANGED=1
     fi
 fi
-
+%s
 # Persist env to ZFS
 if [ $CHANGED -eq 1 ]; then
     sudo cp "$ENV_FILE" /helix/config/env.vm
@@ -1575,6 +1575,7 @@ fi
 		vm.config.FrameExportPort,
 		vm.runnerToken, vm.postgresPassword, vm.encryptionKey, vm.jwtSecret,
 		vm.licenseKey,
+		laptopNativeDisplayEnvScript(),
 		vm.consolePassword, vm.consolePassword, vm.consolePassword)
 
 	out, err := vm.runSSH("Inject env", script)

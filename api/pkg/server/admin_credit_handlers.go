@@ -148,7 +148,7 @@ func (apiServer *HelixAPIServer) adminGrantCredits(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("request body is required")
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		return nil, system.NewHTTPError400("invalid request body: " + err.Error())
+		return nil, jsonDecodeHTTPError(err)
 	}
 	if body.Credits <= 0 {
 		return nil, system.NewHTTPError400("credits must be greater than 0")

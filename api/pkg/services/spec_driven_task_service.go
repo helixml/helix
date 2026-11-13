@@ -254,6 +254,9 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	if branchMode == types.BranchModeExisting && strings.TrimSpace(req.WorkingBranch) == "" {
 		return nil, fmt.Errorf("working branch is required for existing branch mode")
 	}
+	if err := req.ValidateBranchFields(); err != nil {
+		return nil, err
+	}
 
 	// An explicit name wins; otherwise derive one from the prompt.
 	taskName := strings.TrimSpace(req.Name)
@@ -1063,13 +1066,7 @@ Follow these guidelines when making changes:
 - Verify: `+"`git branch --show-current`"+` should show %s
 - Make your changes
 - Push: `+"`git push origin %s`", branchName, branchName)
-	hasPullRequests := false
-	for _, repo := range projectRepos {
-		if repo.ExternalURL != "" {
-			hasPullRequests = true
-			break
-		}
-	}
+	hasPullRequests := ProjectUsesPullRequests(project, projectRepos)
 	if hasPullRequests {
 		gitInstructions += "\n\n" + PullRequestProposalGuidance(branchName)
 	}
@@ -1253,6 +1250,14 @@ func buildEnvWithLocale(userAPIKey string, opts types.StartPlanningOptions) []st
 		log.Debug().Str("timezone", opts.Timezone).Msg("Adding timezone to container env")
 	}
 
+	// Add browser languages so the desktop browser sends the user's Accept-Language
+	// instead of whatever websites infer from the runner's IP address.
+	// Sanitized again here because PlanningOptions is persisted on the task.
+	if languages := types.SanitizeBrowserLanguages(opts.Languages); languages != "" {
+		env = append(env, fmt.Sprintf("HELIX_BROWSER_LANGUAGES=%s", languages))
+		log.Debug().Str("languages", languages).Msg("Adding browser languages to container env")
+	}
+
 	return env
 }
 
@@ -1403,7 +1408,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 					return fmt.Errorf("%s", FormatDivergenceErrorForUser(divergeErr, repo.Name))
 				}
 				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", effectiveBaseBranch).Msg("Failed to sync from remote")
-				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
+				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", RedactURLCredentials(repo.ExternalURL), redactURLSecretInError(err, repo.ExternalURL))
 			}
 		}
 
@@ -2089,15 +2094,32 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		keyType = types.APIkeytypeBotInstance
 	}
 
-	// Check for existing session-scoped key of that type. The type is part of
-	// the lookup so a full key minted before an instance existed is never
-	// reused for it.
+	// Derive project ID and spec task ID from session metadata. A bot
+	// instance's key is bound to its project: git access is limited to it.
+	// So is a project's exploratory desktop: it works across the project
+	// (its spec tasks and their sessions), so its key is confined to the
+	// project rather than to its single session.
+	projectID, specTaskID := sessionKeyScope(session)
+	if session.Metadata.SpecTaskID != "" {
+		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get spec task for API key attribution")
+		} else {
+			projectID = specTask.ProjectID
+		}
+	}
+
+	// Check for existing session-scoped key of that type and scope. Type and
+	// project are part of the lookup so a broader key minted earlier (before
+	// an instance existed, or before exploratory keys carried their project)
+	// is never reused.
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: req.OrganizationID,
 		Owner:          req.UserID,
 		OwnerType:      types.OwnerTypeUser,
 		SessionID:      req.SessionID,
 		Type:           keyType,
+		ProjectID:      projectID,
 	})
 	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
@@ -2105,22 +2127,6 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 
 	if existing != nil {
 		return existing.Key, nil
-	}
-
-	// Derive project ID and spec task ID from session metadata. A bot
-	// instance's key is bound to its project: git access is limited to it.
-	var projectID, specTaskID string
-	if keyType == types.APIkeytypeBotInstance {
-		projectID = session.ProjectID
-	}
-	if session.Metadata.SpecTaskID != "" {
-		specTaskID = session.Metadata.SpecTaskID
-		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
-		if err != nil {
-			log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get spec task for API key attribution")
-		} else {
-			projectID = specTask.ProjectID
-		}
 	}
 
 	newKey, err := system.GenerateAPIKey()
@@ -2249,6 +2255,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	zedAgent := &types.DesktopAgent{
 		OrganizationID:      task.OrganizationID,
 		SessionID:           session.ID,
+		SandboxID:           session.SandboxID,
 		UserID:              task.UserID,
 		Input:               "Resuming Zed development environment after container restart",
 		ProjectPath:         "workspace",
@@ -2413,4 +2420,44 @@ func (s *SpecDrivenTaskService) prepopulateClonedSpecs(ctx context.Context, task
 	}
 
 	return nil
+}
+
+// ProjectUsesPullRequests reports whether a task's agent delivers work as pull
+// requests: always for external repositories, and for Helix-hosted ones when
+// the project opts in (HelixRepoPullRequests).
+func ProjectUsesPullRequests(project *types.Project, repos []*types.GitRepository) bool {
+	if project != nil && project.HelixRepoPullRequests {
+		return true
+	}
+	for _, repo := range repos {
+		if repo.ExternalURL != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// sessionKeyScope is the project and spec task a session's API key is
+// confined to, before the spec task's own project is looked up.
+//   - A spec task session: its spec task (and that task's project).
+//   - A bot instance: its project.
+//   - A project's exploratory desktop (not a helix-org worker, which runs
+//     with its own org-level reach): its project.
+//   - Anything else (a plain chat, an org worker): no project; the key is
+//     confined to its session instead.
+func sessionKeyScope(session *types.Session) (projectID, specTaskID string) {
+	projectID = session.ProjectID
+	if projectID == "" {
+		projectID = session.Metadata.ProjectID
+	}
+	switch {
+	case session.Metadata.SpecTaskID != "":
+		return projectID, session.Metadata.SpecTaskID
+	case session.Metadata.SessionRole == types.SessionRoleOrgBotInstance:
+		return session.ProjectID, ""
+	case session.Metadata.SessionRole == "exploratory" && session.Metadata.OrgWorkerID == "":
+		return projectID, ""
+	default:
+		return "", ""
+	}
 }

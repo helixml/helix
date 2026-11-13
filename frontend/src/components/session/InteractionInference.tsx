@@ -605,18 +605,23 @@ export const InteractionInference: FC<{
     && (
       /provider is not available to the organization/i.test(error)
       || /provider ".+" is not enabled for coding-agent (?:runtime|harness) ".+" in this organization/i.test(error)
+      || (/anthropic/i.test(error)
+        && /\b403\b/.test(error)
+        && /SERVICE_DISABLED/i.test(error)
+        && /aiplatform\.googleapis\.com/i.test(error))
+      || /anthropic provider not configured/i.test(error)
     );
   const errorTitle = isInsufficientBalance
     ? "More credits needed"
     : isBotProviderUnavailable
-      ? "Provider setup required"
+      ? "Model provider unavailable"
       : "We couldn’t complete that request";
   const errorMessage = isInsufficientBalance
     ? hasCredits
       ? "Credits are available now. Retry to continue."
       : "Your organization doesn’t have enough credits. Add credits to continue."
     : isBotProviderUnavailable
-      ? "Configure this bot's provider and model."
+      ? "This bot's model provider is unavailable. Choose an available provider and model in bot settings."
       : error;
   const handleCancel =
     externalHandleCancel ||

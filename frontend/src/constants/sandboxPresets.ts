@@ -20,6 +20,7 @@ export const SANDBOX_PRESETS: SandboxPreset[] = [
   { vcpus: 8, memory_mb: 16384, label: '8 CPU', description: '16 GB RAM' },
   { vcpus: 12, memory_mb: 24576, label: '12 CPU', description: '24 GB RAM' },
   { vcpus: 16, memory_mb: 32768, label: '16 CPU', description: '32 GB RAM' },
+  { vcpus: 32, memory_mb: 65536, label: '32 CPU', description: '64 GB RAM' },
 ]
 
 /** Mirrors DefaultSpecTaskSandboxVCPUs / DefaultSpecTaskSandboxMemoryMB. */

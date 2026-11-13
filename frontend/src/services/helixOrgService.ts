@@ -405,9 +405,11 @@ export function useActivateBot(orgIDOverride?: string) {
       const res = await api.getApiClient().v1OrgsBotsActivateCreate(botId, orgID)
       return res.data as BotActivateDTO
     },
-    onSuccess: (_data, botId) => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    onSuccess: async (_data, botId) => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) }),
+        qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) }),
+      ])
     },
   })
 }

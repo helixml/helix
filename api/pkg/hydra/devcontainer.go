@@ -85,6 +85,10 @@ type DevContainerManager struct {
 	containers map[string]*DevContainer
 	mu         sync.RWMutex
 
+	admissionMu        sync.Mutex
+	creatingContainers map[string]chan struct{}
+	maxSandboxes       int
+
 	// Golden build results, keyed by projectID. Persists after container deletion
 	// so the API can query the outcome.
 	goldenBuildResults   map[string]*GoldenBuildResult
@@ -109,24 +113,25 @@ func NewDevContainerManager(manager *Manager) *DevContainerManager {
 // also fans inner-container logs into the supplied LogBuffer. Pass nil to
 // disable buffering (equivalent to NewDevContainerManager).
 func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer) *DevContainerManager {
+	maxSandboxes, _ := types.ParseSandboxMaxSandboxes(os.Getenv("MAX_SANDBOXES"))
 	dm := &DevContainerManager{
 		manager:            manager,
 		containers:         make(map[string]*DevContainer),
+		creatingContainers: make(map[string]chan struct{}),
+		maxSandboxes:       maxSandboxes,
 		goldenBuildResults: make(map[string]*GoldenBuildResult),
 		goldenCopyProgress: make(map[string]*GoldenCopyProgress),
 		logBuffer:          logBuffer,
 	}
 
-	// GC orphaned session dirs on startup and periodically
+	// Golden-cache housekeeping on startup and every 10 minutes. Session data
+	// is reaped only by ReconcileGC, against the API's database live set.
 	go func() {
-		// Run immediately on startup (no active sessions yet, cleans all orphans)
-		dm.GCOrphanedSessions()
-
-		// Then run every 10 minutes
+		maintainGoldenCaches()
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			dm.GCOrphanedSessions()
+			maintainGoldenCaches()
 		}
 	}()
 
@@ -165,6 +170,27 @@ func (dm *DevContainerManager) getDockerClient(socketPath string) (*client.Clien
 		client.WithHost("unix://"+socketPath),
 		client.WithAPIVersionNegotiation(),
 	)
+}
+
+// Ready verifies that Hydra can accept a new dev container.
+func (dm *DevContainerManager) Ready(ctx context.Context) error {
+	dockerClient := dm.docker
+	closeClient := false
+	if dockerClient == nil {
+		var err error
+		dockerClient, err = dm.getDockerClient("")
+		if err != nil {
+			return fmt.Errorf("create Docker client: %w", err)
+		}
+		closeClient = true
+	}
+	if closeClient {
+		defer dockerClient.Close()
+	}
+	if _, err := dockerClient.Ping(ctx); err != nil {
+		return fmt.Errorf("ping Docker daemon: %w", err)
+	}
+	return checkDiskPressureForStart()
 }
 
 // validateImageVersion validates that the image has a specific version tag, never :latest.
@@ -427,6 +453,92 @@ func recoverImageFromSources(ctx context.Context, dockerClient imageRecoveryClie
 	return false
 }
 
+func (dm *DevContainerManager) reserveContainerSlot(ctx context.Context, sessionID string, maxSandboxes int, running func() (map[string]struct{}, error)) (func(), error) {
+	for {
+		dm.admissionMu.Lock()
+		if dm.creatingContainers == nil {
+			dm.creatingContainers = make(map[string]chan struct{})
+		}
+		if done, creating := dm.creatingContainers[sessionID]; creating {
+			dm.admissionMu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		runningSessions, err := running()
+		if err != nil {
+			dm.admissionMu.Unlock()
+			return nil, fmt.Errorf("list running dev containers for capacity admission: %w", err)
+		}
+		for creatingSessionID := range dm.creatingContainers {
+			runningSessions[creatingSessionID] = struct{}{}
+		}
+		_, alreadyRunning := runningSessions[sessionID]
+		if !alreadyRunning && len(runningSessions) >= maxSandboxes {
+			dm.admissionMu.Unlock()
+			return nil, fmt.Errorf("runner is at capacity (%d/%d dev containers); raise MAX_SANDBOXES or add runners", len(runningSessions), maxSandboxes)
+		}
+
+		done := make(chan struct{})
+		dm.creatingContainers[sessionID] = done
+		dm.admissionMu.Unlock()
+		return func() {
+			dm.admissionMu.Lock()
+			delete(dm.creatingContainers, sessionID)
+			close(done)
+			dm.admissionMu.Unlock()
+		}, nil
+	}
+}
+
+func runningCapacitySessions(ctx context.Context, dockerClient *client.Client) (map[string]struct{}, error) {
+	containers, err := dockerClient.ContainerList(ctx, container.ListOptions{All: false})
+	if err != nil {
+		return nil, err
+	}
+
+	sessions := make(map[string]struct{}, len(containers))
+	for _, runningContainer := range containers {
+		if runningContainer.Labels[containerGoldenBuildLabel] == "true" {
+			continue
+		}
+		sessionID := runningContainer.Labels[containerSessionIDLabel]
+		if sessionID == "" {
+			for _, name := range runningContainer.Names {
+				if parts := strings.Split(strings.TrimPrefix(name, "/"), "-external-"); len(parts) == 2 {
+					sessionID = "ses_" + parts[1]
+					break
+				}
+			}
+		}
+		if sessionID != "" {
+			sessions[sessionID] = struct{}{}
+		}
+	}
+	return sessions, nil
+}
+
+func trackedExistingContainer(req *CreateDevContainerRequest, existing dockertypes.ContainerJSON, ipAddress string) *DevContainer {
+	isGoldenBuild := existing.Config != nil && existing.Config.Labels[containerGoldenBuildLabel] == "true"
+	projectID := ""
+	if existing.Config != nil {
+		projectID = existing.Config.Labels[containerProjectIDLabel]
+	}
+	return &DevContainer{
+		SessionID:       req.SessionID,
+		ContainerID:     existing.ID,
+		ContainerName:   req.ContainerName,
+		IPAddress:       ipAddress,
+		IsGoldenBuild:   isGoldenBuild,
+		ProjectID:       projectID,
+		goldenCacheKind: cacheKindFromContainer(existing),
+	}
+}
+
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
 	// Validate that image has a specific version tag - never accept :latest.
@@ -480,6 +592,20 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 	defer dockerClient.Close()
+
+	maxSandboxes := req.MaxSandboxes
+	if dm.maxSandboxes == -1 || dm.maxSandboxes > 0 {
+		maxSandboxes = dm.maxSandboxes
+	}
+	if !req.GoldenBuild && maxSandboxes > 0 {
+		release, err := dm.reserveContainerSlot(ctx, req.SessionID, maxSandboxes, func() (map[string]struct{}, error) {
+			return runningCapacitySessions(ctx, dockerClient)
+		})
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
 	if req.DiskSizeGB > 0 {
 		if _, _, inspectErr := dockerClient.ImageInspectWithRaw(ctx, resolvedImage); inspectErr != nil {
 			if !dm.tryRecoverImage(ctx, dockerClient, resolvedImage, req.Image) {
@@ -538,25 +664,8 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 	}
 
-	// Ensure mount source directories exist before creating container
-	for _, m := range req.Mounts {
-		// Skip volume mounts (Docker creates named volumes automatically)
-		if m.Type == "volume" {
-			continue
-		}
-		// Skip socket files and runtime directories - they're not directories to create
-		if m.Source == "" ||
-			strings.HasPrefix(m.Source, "/run/") ||
-			strings.HasPrefix(m.Source, "/var/run/") ||
-			strings.HasSuffix(m.Source, ".sock") {
-			continue
-		}
-		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(m.Source, 0755); err != nil {
-			log.Warn().Err(err).Str("path", m.Source).Msg("Failed to create mount source directory")
-		} else {
-			log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
-		}
+	if err := prepareMountSources(req); err != nil {
+		return nil, err
 	}
 	if err := materializeWorkspaceFiles(req.Mounts, req.WorkspaceFiles); err != nil {
 		return nil, fmt.Errorf("materialize workspace files: %w", err)
@@ -637,13 +746,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 			// Track container in our map
 			dm.mu.Lock()
-			dm.containers[req.SessionID] = &DevContainer{
-				SessionID:       req.SessionID,
-				ContainerID:     existingContainer.ID,
-				ContainerName:   req.ContainerName,
-				IPAddress:       ipAddress,
-				goldenCacheKind: cacheKindFromContainer(existingContainer),
-			}
+			dm.containers[req.SessionID] = trackedExistingContainer(req, existingContainer, ipAddress)
 			dm.mu.Unlock()
 
 			return &DevContainerResponse{
@@ -707,13 +810,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 			// Track container
 			dm.mu.Lock()
-			dm.containers[req.SessionID] = &DevContainer{
-				SessionID:       req.SessionID,
-				ContainerID:     existingContainer.ID,
-				ContainerName:   req.ContainerName,
-				IPAddress:       ipAddress,
-				goldenCacheKind: cacheKindFromContainer(existingContainer),
-			}
+			dm.containers[req.SessionID] = trackedExistingContainer(req, inspect, ipAddress)
 			dm.mu.Unlock()
 
 			log.Info().
@@ -876,6 +973,36 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		GPUVendor:      gpuVendor,
 		RenderNode:     renderNode,
 	}, nil
+}
+
+func prepareMountSources(req *CreateDevContainerRequest) error {
+	for _, m := range req.Mounts {
+		if m.Type == "volume" {
+			continue
+		}
+		if m.Source == "" ||
+			strings.HasPrefix(m.Source, "/run/") ||
+			strings.HasPrefix(m.Source, "/var/run/") ||
+			strings.HasSuffix(m.Source, ".sock") {
+			continue
+		}
+
+		rootlessPersistentData := (req.RootlessContainerEngine || req.DesktopRootless) &&
+			req.Persistent && !m.ReadOnly && m.Destination == "/data"
+		if rootlessPersistentData {
+			if err := prepareRootlessPersistentDataMount(m.Source); err != nil {
+				return fmt.Errorf("prepare rootless persistent data mount %s: %w", m.Source, err)
+			}
+			log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
+			continue
+		}
+		if err := os.MkdirAll(m.Source, 0o755); err != nil {
+			log.Warn().Err(err).Str("path", m.Source).Msg("Failed to create mount source directory")
+			continue
+		}
+		log.Debug().Str("path", m.Source).Msg("Ensured mount source directory exists")
+	}
+	return nil
 }
 
 // Legacy desktop containers persisted process-bound engine state beside
@@ -1598,15 +1725,35 @@ func cacheKindFromMounts(mounts []dockertypes.MountPoint) goldenCacheKind {
 	return dockerGoldenCache
 }
 
+// ContainerDataRootAvailable reports whether desktops' container data can live
+// below /container-docker: CONTAINER_DOCKER_PATH is set, or the sandbox mounts
+// /container-docker (install.sh and the dev compose file always do). Without
+// it, desktops use plain Docker volumes and golden caches are unavailable.
+func ContainerDataRootAvailable() bool {
+	return os.Getenv("CONTAINER_DOCKER_PATH") != "" || isMounted(containerDockerRoot)
+}
+
+// dockerVolumesDir is the sandbox dockerd's named-volume store.
+var dockerVolumesDir = "/var/lib/docker/volumes"
+
+// dockerVolumeExists reports whether a session already has its container data
+// in a named volume (created before the sandbox had a container data root), so
+// a restart keeps that data rather than starting from an empty dir.
+func dockerVolumeExists(name string) bool {
+	_, err := os.Stat(filepath.Join(dockerVolumesDir, name))
+	return err == nil
+}
+
 // buildMounts builds the mount configuration
 func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mount.Mount, error) {
 	var mounts []mount.Mount
 
-	// CONTAINER_DOCKER_PATH: if set, per-session inner dockerd data uses bind mounts
-	// from a ZFS-backed path instead of Docker named volumes. This keeps the sandbox's
-	// own Docker storage on the root disk (so provisioned desktop images persist)
-	// while inner dockerd data benefits from ZFS dedup+compression.
-	containerDockerPath := os.Getenv("CONTAINER_DOCKER_PATH")
+	// When the sandbox has a container data root (/container-docker), per-session
+	// inner dockerd data uses bind mounts below it instead of Docker named
+	// volumes, which is what lets Hydra build and seed golden caches. This keeps
+	// the sandbox's own Docker storage separate (so provisioned desktop images
+	// persist) and lets the data root sit on ZFS for dedup and clones.
+	containerDataRoot := ContainerDataRootAvailable()
 
 	for _, m := range req.Mounts {
 		if (req.RootlessContainerEngine || req.DesktopRootless) && m.Destination == "/run/user/1000" {
@@ -1622,9 +1769,10 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 		//
 		// Rootful and rootless Docker each seed from their own compatible
 		// project golden cache.
-		if containerDockerPath != "" && m.Type == "volume" &&
+		if containerDataRoot && m.Type == "volume" &&
 			(m.Destination == "/var/lib/docker" ||
-				m.Destination == "/home/retro/.local/share/docker") {
+				m.Destination == "/home/retro/.local/share/docker") &&
+			!dockerVolumeExists(m.Source) {
 			volumeName := m.Source
 
 			dockerDir, err := dm.resolveDockerDataDir(req, volumeName)
@@ -2220,9 +2368,9 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	// For normal sessions, we intentionally do NOT clean up the session Docker
 	// data directory here. This allows session restarts to reuse the existing
 	// Docker data instead of re-copying 30+ GB of golden cache (~28s).
-	// The periodic GCOrphanedSessions() (every 10 min) handles cleanup of
-	// session dirs that no longer have a running container.
-	if os.Getenv("CONTAINER_DOCKER_PATH") != "" {
+	// ReconcileGC reaps it once the session is gone from the database and
+	// past the grace period.
+	if ContainerDataRootAvailable() {
 		if dc.IsGoldenBuild && dc.ProjectID != "" {
 			log.Info().
 				Str("project_id", dc.ProjectID).
@@ -2319,33 +2467,15 @@ func (dm *DevContainerManager) autoCommitHelixSpecs(ctx context.Context, dockerC
 	}
 }
 
-// GCOrphanedSessions removes session Docker data directories that don't have
-// running containers, and cleans up stale golden cache state.
-// Should be called periodically and on startup.
-func (dm *DevContainerManager) GCOrphanedSessions() {
-	if os.Getenv("CONTAINER_DOCKER_PATH") == "" {
-		return // Not using per-session docker dirs
+// maintainGoldenCaches finishes interrupted golden promotions and removes
+// golden-cache state nothing uses any more. It never touches session data.
+func maintainGoldenCaches() {
+	if !ContainerDataRootAvailable() {
+		return
 	}
 
-	dm.mu.RLock()
-	active := make(map[string]bool, len(dm.containers))
-	for sessionID := range dm.containers {
-		active[sessionID] = true
-	}
-	dm.mu.RUnlock()
-
-	removed, freed, err := GCOrphanedSessionDirs(active)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to GC orphaned session dirs")
-	}
-	if removed > 0 {
-		log.Info().Int("removed", removed).Int64("freed_bytes", freed).Msg("Session GC completed")
-	}
-
-	// Also clean up stale golden cache state:
-	// - .old directories from failed promotions
-	// - Stale .building lock files from crashed golden builds
-	// - Golden caches not accessed in 30 days
+	// .old directories from failed promotions, stale .building locks from
+	// crashed golden builds, and golden caches not accessed in 30 days.
 	goldenCleaned, goldenFreed, err := GCStaleGoldenDirs(30 * 24 * time.Hour)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to GC stale golden dirs")
@@ -2354,28 +2484,15 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 		log.Info().Int("removed", goldenCleaned).Int64("freed_bytes", goldenFreed).Msg("Golden GC completed")
 	}
 
-	// GC orphaned ZFS zvols (sessions that no longer have running containers)
-	// and clean up old file-based golden dirs that have been migrated to zvols
-	if ZFSAvailable() {
-		// Before GC: an interrupted promotion's golden must be finished, not reaped.
-		if n := ReconcilePendingGoldenPromotions(); n > 0 {
-			log.Info().Int("completed", n).Msg("Completed pending golden promotions")
-		}
-
-		zvolsCleaned, err := GCOrphanedZvols(active)
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to GC orphaned zvols")
-		}
-		if zvolsCleaned > 0 {
-			log.Info().Int("removed", zvolsCleaned).Msg("Orphaned zvol GC completed")
-		}
-
-		GCMigratedGoldenDirs()
-
-		snapsCleaned := GCStaleSnapshots()
-		if snapsCleaned > 0 {
-			log.Info().Int("removed", snapsCleaned).Msg("Stale snapshot GC completed")
-		}
+	if !ZFSAvailable() {
+		return
+	}
+	if n := ReconcilePendingGoldenPromotions(); n > 0 {
+		log.Info().Int("completed", n).Msg("Completed pending golden promotions")
+	}
+	GCMigratedGoldenDirs()
+	if snapsCleaned := GCStaleSnapshots(); snapsCleaned > 0 {
+		log.Info().Int("removed", snapsCleaned).Msg("Stale snapshot GC completed")
 	}
 }
 
@@ -2397,12 +2514,15 @@ func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileR
 		liveSpecTasks[id] = true
 	}
 
-	// Union in currently-running container session IDs (belt-and-braces).
-	dm.mu.RLock()
-	for sessionID := range dm.containers {
+	// Union in sessions whose tracked container is still running
+	// (belt-and-braces against a stale database live-set).
+	running, gone := dm.runningTrackedSessions(ctx)
+	for _, sessionID := range running {
 		liveSessions[sessionID] = true
 	}
-	dm.mu.RUnlock()
+	if !req.DryRun {
+		dm.forgetContainers(gone)
+	}
 
 	grace := time.Duration(req.GracePeriodSeconds) * time.Second
 
@@ -2601,6 +2721,7 @@ func (dm *DevContainerManager) ListDevContainers(ctx context.Context) *ListDevCo
 			Status:        status,
 			IPAddress:     ip,
 			ContainerType: dc.ContainerType,
+			IsGoldenBuild: dc.IsGoldenBuild,
 		})
 	}
 
@@ -3008,17 +3129,17 @@ func goldenBuildTimeout(req *CreateDevContainerRequest) time.Duration {
 var errGoldenBuildTimeout = errors.New("golden build timed out")
 
 // waitForGoldenBuildResult polls paths (in order) every interval until one is
-// readable and returns its contents. It gives up with an error once timeout
-// elapses, or as soon as exited reports the build container has stopped
-// without writing a result — a dead build must not hold its data until the
-// (hours-long) deadline.
+// readable and non-blank, and returns its contents. It gives up with an error
+// once timeout elapses, or as soon as exited reports the build container has
+// stopped without writing a result - a dead build must not hold its data until
+// the (hours-long) deadline.
 func waitForGoldenBuildResult(timeout, interval time.Duration, exited func() (bool, string), paths ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	readResult := func() ([]byte, bool) {
 		for _, p := range paths {
-			if data, err := os.ReadFile(p); err == nil {
+			if data, err := os.ReadFile(p); err == nil && strings.TrimSpace(string(data)) != "" {
 				return data, true
 			}
 		}

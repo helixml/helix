@@ -25,6 +25,18 @@ data:
     engines:
       - name: wolframalpha
         disabled: false
+      # The engines Helix web search can use (SEARCH_SEARXNG_ENGINES). SearXNG
+      # disables some by default; enable all so the configured list is honoured.
+      - name: google
+        disabled: false
+      - name: bing
+        disabled: false
+      - name: duckduckgo
+        disabled: false
+      - name: brave
+        disabled: false
+      - name: yandex
+        disabled: false
 
   limiter.toml: |
     # This configuration file updates the default configuration file

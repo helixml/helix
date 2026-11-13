@@ -16,6 +16,7 @@ import {
 } from '../types'
 import { TypesFrontendLicenseInfo, TypesServerConfigForFrontend } from '../api/api'
 import { clearSelectedOrg } from '../utils/localStorage'
+import { isSignInExemptRoute, sessionExpiry } from '../utils/sessionExpiry'
 import { isEmbedRouteName } from '../utils/organizations'
 
 // Embed routes are fullscreen, single-purpose views of one task or session,
@@ -264,6 +265,7 @@ export const useAccountContext = (): IAccountContext => {
   const onLogout = useCallback(async () => {
     setLoggingOut(true)
     setUser(undefined)
+    sessionExpiry.setSignedIn(false)
 
     // `selected_org` is a per-browser value, not a per-user one. Leaving it
     // behind navigated the next person to sign in on this browser straight
@@ -272,28 +274,12 @@ export const useAccountContext = (): IAccountContext => {
     clearSelectedOrg()
 
     try {
-      // Use redirect: 'manual' to prevent fetch from following cross-origin redirects
-      // which would fail due to CORS when redirecting to Keycloak
-      const response = await fetch(`/api/v1/auth/logout`, {
-        method: 'POST',
-        redirect: 'manual',
-      });
-
-      // With redirect: 'manual', a 302 response becomes type: 'opaqueredirect'
-      // We can't read the Location header, so we make another request to get the redirect URL as JSON
-      if (response.type === 'opaqueredirect') {
-        const redirectUri = encodeURIComponent(window.location.origin);
-        const urlResponse = await fetch(`/api/v1/auth/logout?get_url=true&redirect_uri=${redirectUri}`, {
-          method: 'POST',
-        });
-        if (urlResponse.ok) {
-          const data = await urlResponse.json();
-          if (data.url) {
-            window.location.href = data.url;
-          }
-        }
-      } else if (response.redirected) {
-        window.location.href = response.url;
+      const response = await api.getApiClient().v1AuthLogoutCreate({
+        get_url: true,
+        redirect_uri: window.location.origin,
+      })
+      if (response.data.url) {
+        window.location.href = response.data.url
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
@@ -334,6 +320,7 @@ export const useAccountContext = (): IAccountContext => {
         }
 
         setUser(user)
+        sessionExpiry.setSignedIn(true)
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
@@ -423,6 +410,10 @@ export const useAccountContext = (): IAccountContext => {
     // Server config is loaded via React Query (useGetConfig) automatically
   }, [user])
 
+  useEffect(() => {
+    sessionExpiry.setRouteName(router.name)
+  }, [router.name])
+
   // Redirect to login page if not authenticated
   useEffect(() => {
     if (!initialized) return
@@ -430,9 +421,7 @@ export const useAccountContext = (): IAccountContext => {
     // Embed routes authenticate with a task/session-scoped API key rather than
     // an account cookie. The embed UI can load its bound resource even though
     // account initialization intentionally produces no normal signed-in user.
-    if (isEmbedRoute(router.name)) return
-    const publicRoutes = ['login', 'password-reset', 'password-reset-complete', 'artifact_viewer']
-    if (publicRoutes.includes(router.name)) return
+    if (isSignInExemptRoute(router.name)) return
 
     // Save current URL for post-login redirect
     const currentPath = window.location.pathname + window.location.search

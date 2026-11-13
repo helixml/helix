@@ -10,9 +10,15 @@ import {
 import CodeAgentExecutionControls from './CodeAgentExecutionControls'
 
 const availability = vi.hoisted(() => ({ hasAny: true, loading: false }))
+const pickerProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }))
 
 vi.mock('../../hooks/useSnackbar', () => ({
   default: () => ({ success: vi.fn(), error: vi.fn() }),
+}))
+// Reasoning efforts come from the provider list; never request it from jsdom.
+vi.mock('../../services/providersService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/providersService')>()),
+  useListProviders: () => ({ data: [] }),
 }))
 vi.mock('../../services/codeAgentHarnessesService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/codeAgentHarnessesService')>()),
@@ -21,9 +27,10 @@ vi.mock('../../services/codeAgentHarnessesService', async (importOriginal) => ({
 // The picker has its own suite; here it only needs to render something
 // identifiable so these assertions are about the surrounding controls.
 vi.mock('./CodeAgentConfigPicker', () => ({
-  default: ({ onChange }: { onChange: (value: unknown, source: string) => void }) => (
-    <button type="button" onClick={() => onChange(PICKED, 'user')}>agent-picker</button>
-  ),
+  default: (props: { onChange: (value: unknown, source: string) => void }) => {
+    pickerProps.current = props
+    return <button type="button" onClick={() => props.onChange(PICKED, 'user')}>agent-picker</button>
+  },
 }))
 const PICKED = vi.hoisted(() => ({
   runtime: 'claude_code',
@@ -47,6 +54,7 @@ describe('CodeAgentExecutionControls', () => {
   beforeEach(() => {
     availability.hasAny = true
     availability.loading = false
+    pickerProps.current = {}
   })
 
   it('saves a task-level harness and model choice', async () => {
@@ -84,6 +92,19 @@ describe('CodeAgentExecutionControls', () => {
 
   it('hides reasoning settings when nothing has been chosen yet', () => {
     renderControls(<CodeAgentExecutionControls onChange={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /reasoning/i })).not.toBeInTheDocument()
+  })
+
+  it('passes interactive embed capability to the picker and hides reasoning', () => {
+    renderControls(
+      <CodeAgentExecutionControls
+        value={CONFIGURED}
+        onChange={vi.fn()}
+        interactiveEmbedTaskId="task-1"
+      />,
+    )
+
+    expect(pickerProps.current.interactiveEmbedTaskId).toBe('task-1')
     expect(screen.queryByRole('button', { name: /reasoning/i })).not.toBeInTheDocument()
   })
 

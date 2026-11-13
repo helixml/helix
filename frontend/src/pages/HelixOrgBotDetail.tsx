@@ -18,6 +18,7 @@
 
 import { FC, Key, useEffect, useMemo, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
@@ -129,6 +130,9 @@ const HelixOrgBotDetail: FC = () => {
   const switchAgent = useSwitchAgent(chatSessionId ?? '')
 
   const bot = data?.bot
+  // The server decides who may change this bot (owners, admins, or whoever
+  // can edit its agent); members who cannot get a read-only page.
+  const canEdit = bot?.can_edit === true
   const projectID = data?.project_id
   const { data: projects = [] } = useListProjects(bot?.organization_id, { enabled: !!bot?.organization_id })
   const agentID = data?.legacy_app_id
@@ -261,7 +265,6 @@ const HelixOrgBotDetail: FC = () => {
     if (!botId || activateAgent.isPending) return
     try {
       await activateAgent.mutateAsync(botId)
-      snackbar.success('Starting org bot…')
       await pollForSession(chatSessionId, false)
       void refetchBot()
     } catch (err: any) {
@@ -386,7 +389,7 @@ const HelixOrgBotDetail: FC = () => {
           color="secondary"
           size="small"
           startIcon={<SaveIcon />}
-          disabled={!dirty || updateBot.isPending}
+          disabled={!canEdit || !dirty || updateBot.isPending}
           onClick={handleSave}
         >
           {updateBot.isPending ? 'Saving…' : 'Save'}
@@ -460,6 +463,7 @@ const HelixOrgBotDetail: FC = () => {
                         {botOnline ? (
                           <>
                             <MenuItem
+                              disabled={!canEdit}
                               onClick={() => {
                                 setAgentMenuEl(null)
                                 void handleStopSession()
@@ -469,6 +473,7 @@ const HelixOrgBotDetail: FC = () => {
                               Stop org bot
                             </MenuItem>
                             <MenuItem
+                              disabled={!canEdit}
                               onClick={() => {
                                 setAgentMenuEl(null)
                                 void handleRestartSession()
@@ -502,6 +507,12 @@ const HelixOrgBotDetail: FC = () => {
                   onRestart={() => { if (bot.id) void applyBotConfig.mutateAsync(bot.id) }}
                 />
 
+                {bot.activation_error && (
+                  <Alert severity="error" role="alert" sx={{ mb: 2 }}>
+                    {bot.activation_error}
+                  </Alert>
+                )}
+
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Name</Typography>
                   <TextField
@@ -510,6 +521,7 @@ const HelixOrgBotDetail: FC = () => {
                     placeholder={bot.id}
                     fullWidth
                     size="small"
+                    disabled={!canEdit}
                     helperText="Human-readable display label. The id stays fixed."
                   />
                 </Box>
@@ -535,6 +547,7 @@ const HelixOrgBotDetail: FC = () => {
                     autoHeight={true}
                     theme="helix-dark"
                     options={{
+                      readOnly: !canEdit,
                       overviewRulerLanes: 0,
                       overviewRulerBorder: false,
                       hideCursorInOverviewRuler: true,
@@ -547,6 +560,7 @@ const HelixOrgBotDetail: FC = () => {
                   <Autocomplete
                     multiple
                     disableCloseOnSelect
+                    disabled={!canEdit}
                     options={projects}
                     value={projects.filter((project) => !!project.id && projectIDs.includes(project.id))}
                     onChange={(_e, value) => {
@@ -612,6 +626,7 @@ const HelixOrgBotDetail: FC = () => {
                           variant="outlined"
                           size="small"
                           startIcon={<EditOutlinedIcon />}
+                          disabled={!canEdit}
                           onClick={() => setEditingTools(true)}
                         >
                           Edit tools
@@ -756,7 +771,7 @@ const HelixOrgBotDetail: FC = () => {
                         variant="outlined"
                         startIcon={<SettingsBackupRestoreIcon />}
                         onClick={() => setConfirmingResetInstructions(true)}
-                        disabled={updateBot.isPending}
+                        disabled={!canEdit || updateBot.isPending}
                         fullWidth
                       >
                         Reset instructions
@@ -774,7 +789,7 @@ const HelixOrgBotDetail: FC = () => {
                     color="error"
                     startIcon={<DeleteOutlineIcon />}
                     onClick={() => setConfirmingDelete(true)}
-                    disabled={del.isPending}
+                    disabled={!canEdit || del.isPending}
                     fullWidth
                   >
                     Delete org bot

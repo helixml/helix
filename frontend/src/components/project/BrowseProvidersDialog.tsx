@@ -1,34 +1,32 @@
 import React, { FC, useState, useEffect, useRef } from "react";
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  Button,
-  IconButton,
-  Tooltip,
-  Box,
-  Typography,
-  CircularProgress,
-  Alert,
-  Link,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  Avatar,
-  Chip,
-  TextField,
-  InputAdornment,
-  FormControlLabel,
-  Switch,
-  Select,
-  MenuItem,
-  FormControl,
-} from "@mui/material";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogActions from "@mui/material/DialogActions";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import CircularProgress from "@mui/material/CircularProgress";
+import Alert from "@mui/material/Alert";
+import Link from "@mui/material/Link";
+import List from "@mui/material/List";
+import ListItem from "@mui/material/ListItem";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
+import Divider from "@mui/material/Divider";
+import Avatar from "@mui/material/Avatar";
+import Chip from "@mui/material/Chip";
+import TextField from "@mui/material/TextField";
+import InputAdornment from "@mui/material/InputAdornment";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Switch from "@mui/material/Switch";
+import Select from "@mui/material/Select";
+import MenuItem from "@mui/material/MenuItem";
+import FormControl from "@mui/material/FormControl";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import {
   Search,
@@ -1249,7 +1247,7 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
               }}
               helperText={
                 selectedProvider === "github"
-                  ? "Create a classic token with 'repo' and 'read:org' scopes at GitHub → Settings → Developer settings → Personal access tokens"
+                  ? `Create a classic token with the ${GITHUB_REQUIRED_SCOPES.map((scope) => `'${scope}'`).join(", ")} scopes at GitHub → Settings → Developer settings → Personal access tokens (classic)`
                   : selectedProvider === "gitlab"
                     ? "Create a token at GitLab → Preferences → Access Tokens"
                     : selectedProvider === "bitbucket"

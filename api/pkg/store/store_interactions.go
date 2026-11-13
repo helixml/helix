@@ -112,7 +112,7 @@ func (s *PostgresStore) CreateInteractions(ctx context.Context, interactions ...
 			interactions[idx].ID = system.GenerateInteractionID()
 		}
 
-		if idx == 0 {
+		if interaction.Created.IsZero() {
 			interactions[idx].Created = time.Now()
 		}
 	}
@@ -130,11 +130,9 @@ func (s *PostgresStore) CreateInteractions(ctx context.Context, interactions ...
 	return nil
 }
 
-// ListStuckWaitingInteractions returns interactions that look like they
-// belong to a turn the agent silently dropped — `state=waiting` with no
-// streamed response_message and no response_entries, and old enough that
-// the agent ought to have produced something by now. The auto-wake
-// worker calls this every ~10 s.
+// ListStuckWaitingInteractions returns stale waiting external-agent turns.
+// Updated is the activity clock: streaming writes refresh it, including turns
+// that already produced partial output before their agent disappeared.
 func (s *PostgresStore) ListStuckWaitingInteractions(ctx context.Context, olderThan time.Time, limit int) ([]*types.Interaction, error) {
 	if limit <= 0 {
 		limit = 50
@@ -142,11 +140,17 @@ func (s *PostgresStore) ListStuckWaitingInteractions(ctx context.Context, olderT
 	var interactions []*types.Interaction
 	err := s.gdb.WithContext(ctx).
 		Model(&types.Interaction{}).
-		Where("state = ?", types.InteractionStateWaiting).
-		Where("response_message = ''").
-		Where("response_entries IS NULL").
-		Where("created < ?", olderThan).
-		Order("created ASC").
+		Joins("JOIN sessions ON sessions.id = interactions.session_id").
+		Where("interactions.state = ?", types.InteractionStateWaiting).
+		Where("sessions.config->>'agent_type' = ?", "zed_external").
+		Where("sessions.deleted_at IS NULL").
+		Where("(sessions.archived = false OR sessions.archived IS NULL)").
+		Where(`(
+			(interactions.response_message = '' AND interactions.response_entries IS NULL)
+			OR sessions.config->>'external_agent_status' IN ?
+		)`, []string{"stopped", "terminated_idle"}).
+		Where("interactions.updated < ?", olderThan).
+		Order("interactions.updated ASC").
 		Limit(limit).
 		Find(&interactions).Error
 	if err != nil {
@@ -215,6 +219,18 @@ func (s *PostgresStore) GetInteraction(ctx context.Context, interactionID string
 	}
 
 	return &interaction, nil
+}
+
+func (s *PostgresStore) GetLatestInteractionByPromptID(ctx context.Context, promptID string) (*types.Interaction, error) {
+	if promptID == "" {
+		return nil, errors.New("prompt_id is required")
+	}
+	var interaction types.Interaction
+	err := s.gdb.WithContext(ctx).Where("prompt_id = ?", promptID).Order("created DESC, id DESC").First(&interaction).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &interaction, err
 }
 
 func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
@@ -454,7 +470,7 @@ func (s *PostgresStore) GetInteractionByExternalAgentRequestID(ctx context.Conte
 	var interaction types.Interaction
 	err := s.gdb.WithContext(ctx).
 		Where("external_agent_request_id = ?", requestID).
-		Order("created DESC").
+		Order("created DESC, id DESC").
 		First(&interaction).Error
 	if err != nil {
 		return nil, err
@@ -500,6 +516,29 @@ func (s *PostgresStore) MarkInteractionErrorIfWaiting(ctx context.Context, inter
 			"error":     sanitize.ForPostgres(reason),
 			"completed": now,
 			"updated":   now,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// MarkStaleInteractionErrorIfWaiting settles a turn only if no streaming write
+// changed it after the caller observed it.
+func (s *PostgresStore) MarkStaleInteractionErrorIfWaiting(ctx context.Context, interactionID string, generationID int, observedUpdated time.Time, reason string) (bool, error) {
+	if interactionID == "" {
+		return false, errors.New("id is required")
+	}
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ? AND updated = ?", interactionID, generationID, types.InteractionStateWaiting, observedUpdated).
+		Select("state", "error", "completed", "updated").
+		Updates(&types.Interaction{
+			State:     types.InteractionStateError,
+			Error:     sanitize.ForPostgres(reason),
+			Completed: now,
+			Updated:   now,
 		})
 	if result.Error != nil {
 		return false, result.Error
@@ -690,11 +729,21 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 	}
 
 	if query.Order == "" {
-		query.Order = "id ASC"
+		query.Order = "created ASC, id ASC"
 	}
 
 	if query.Feedback != "" {
 		q = q.Where("feedback = ?", query.Feedback)
+	}
+
+	if query.HasPendingQuestion {
+		q = q.Where("state = ?", types.InteractionStateWaiting).
+			Where("pending_question IS NOT NULL")
+	} else if query.State != "" {
+		q = q.Where("state = ?", query.State)
+	}
+	if query.CompletedSuccessfully {
+		q = q.Where("state = ? AND completed > ? AND error = ''", types.InteractionStateComplete, time.Time{})
 	}
 
 	totalCount := int64(0)
@@ -705,7 +754,7 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 	}
 
 	var interactions []*types.Interaction
-	// Oldest to newest
+	// Use the requested chronological order.
 	err = q.Order(query.Order).Offset(offset).Limit(query.PerPage).Find(&interactions).Error
 	if err != nil {
 		return nil, 0, err

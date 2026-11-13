@@ -33,6 +33,32 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateSession() {
 	suite.Equal(session, *createdSession)
 }
 
+func (suite *PostgresStoreTestSuite) TestListSessionsFindsProviderRecoveryAcrossOrganizations() {
+	ctx := context.Background()
+	provider := "pe-" + system.GenerateUUID()
+	session := types.Session{
+		ID: system.GenerateSessionID(), Owner: "user_id", OwnerType: types.OwnerTypeUser,
+		OrganizationID: "org-test", Created: time.Now(), Updated: time.Now(), ModelName: "external_agent",
+		Metadata: types.SessionMetadata{Recovery: &types.ProviderRecovery{Provider: provider}},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	personal, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{
+		AnyOwner: true, IncludeExternalAgents: true, ProviderRecoveryProviders: []string{provider},
+	})
+	suite.Require().NoError(err)
+	suite.Empty(personal)
+
+	sessions, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{
+		AnyOwner: true, AnyOrganization: true, IncludeExternalAgents: true, ProviderRecoveryProviders: []string{provider},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(sessions, 1)
+	suite.Equal(session.ID, sessions[0].ID)
+}
+
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSession() {
 	session := types.Session{
 		ID:      system.GenerateSessionID(),
@@ -59,6 +85,49 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSession() {
 	// Assert that the retrieved session matches the original session
 	suite.Equal(session.ID, retrievedSession.ID)
 	suite.Equal(session.Name, retrievedSession.Name)
+}
+
+func (suite *PostgresStoreTestSuite) TestProjectDeletionMakesLegacyPlanningSessionReapable() {
+	ctx := context.Background()
+	project := suite.createTestProject()
+	task := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		Name:           "Legacy planning session",
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: "Test project cleanup",
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	suite.Require().NoError(suite.db.CreateSpecTask(ctx, task))
+
+	session := types.Session{
+		ID:        system.GenerateSessionID(),
+		Owner:     "test-user",
+		ModelName: "external_agent",
+		Created:   time.Now(),
+		Updated:   time.Now(),
+		Metadata: types.SessionMetadata{
+			SpecTaskID:          task.ID,
+			ExternalAgentStatus: "running",
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.Require().NoError(err)
+
+	live, err := suite.db.ListExternalAgentSessionIDs(ctx, time.Now().Add(time.Hour))
+	suite.Require().NoError(err)
+	suite.Contains(live, session.ID)
+
+	_, err = suite.db.DeleteSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.DeleteSpecTask(ctx, task.ID))
+	suite.Require().NoError(suite.db.DeleteProject(ctx, project.ID))
+
+	live, err = suite.db.ListExternalAgentSessionIDs(ctx, time.Now().Add(time.Hour))
+	suite.Require().NoError(err)
+	suite.NotContains(live, session.ID)
 }
 
 func (suite *PostgresStoreTestSuite) TestClaimSessionAutoRestartHonorsGracePeriod() {
@@ -95,6 +164,44 @@ func (suite *PostgresStoreTestSuite) TestClaimSessionAutoRestartHonorsGracePerio
 	suite.Require().NoError(err)
 	suite.Equal("running", stored.Metadata.ExternalAgentStatus)
 	suite.WithinDuration(firstRestart.Add(6*time.Minute), stored.Metadata.LastAutoRestartAt, time.Microsecond)
+}
+
+func (suite *PostgresStoreTestSuite) TestRecordSessionAgentConfigAppliedPreservesConcurrentRecovery() {
+	ctx := context.Background()
+	session := types.Session{
+		ID: system.GenerateSessionID(), Owner: "user_id", Created: time.Now(), Updated: time.Now(),
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+			Recovery:            &types.ProviderRecovery{PromptID: "prompt-old", InteractionID: "interaction-old"},
+		},
+	}
+	_, err := suite.db.CreateSession(ctx, session)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	cleared, err := suite.db.ClearSessionProviderRecovery(ctx, session.ID, "prompt-old", "interaction-old")
+	suite.Require().NoError(err)
+	suite.True(cleared)
+	newRecovery := &types.ProviderRecovery{PromptID: "prompt-new", InteractionID: "interaction-new"}
+	suite.Require().NoError(suite.db.SetSessionProviderRecovery(ctx, session.ID, newRecovery))
+
+	appliedAt := time.Now().UTC().Truncate(time.Microsecond)
+	suite.Require().NoError(suite.db.RecordSessionAgentConfigApplied(ctx, session.ID, appliedAt, true))
+	stored, err := suite.db.GetSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(stored.Metadata.Recovery)
+	suite.Equal(newRecovery.PromptID, stored.Metadata.Recovery.PromptID)
+	suite.Equal(newRecovery.InteractionID, stored.Metadata.Recovery.InteractionID)
+	suite.Equal("running", stored.Metadata.ExternalAgentStatus)
+	suite.WithinDuration(appliedAt, stored.Metadata.AgentConfigAppliedAt, time.Microsecond)
+	suite.WithinDuration(appliedAt, stored.Metadata.AgentHandoffDeliveredAt, time.Microsecond)
+
+	secondAppliedAt := appliedAt.Add(time.Second)
+	suite.Require().NoError(suite.db.RecordSessionAgentConfigApplied(ctx, session.ID, secondAppliedAt, false))
+	stored, err = suite.db.GetSession(ctx, session.ID)
+	suite.Require().NoError(err)
+	suite.WithinDuration(secondAppliedAt, stored.Metadata.AgentConfigAppliedAt, time.Microsecond)
+	suite.WithinDuration(appliedAt, stored.Metadata.AgentHandoffDeliveredAt, time.Microsecond)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
@@ -417,4 +524,28 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_SessionName_PreservesExac
 	})
 
 	suite.Equal(exactName, created.Name)
+}
+
+// Org deletion lists every member's desktop sessions in the org. Without
+// AnyOwner the query also filters on an empty owner and matches nothing.
+func (suite *PostgresStoreTestSuite) TestListSessionsByOrganizationNeedsAnyOwner() {
+	ctx := context.Background()
+	orgID := "org-" + system.GenerateUUID()
+	for _, owner := range []string{"user_a", "user_b"} {
+		session := types.Session{
+			ID: system.GenerateSessionID(), Owner: owner, OwnerType: types.OwnerTypeUser,
+			OrganizationID: orgID, Created: time.Now(), Updated: time.Now(), ModelName: "external_agent",
+		}
+		_, err := suite.db.CreateSession(ctx, session)
+		suite.Require().NoError(err)
+		suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	}
+
+	none, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{OrganizationID: orgID, IncludeExternalAgents: true})
+	suite.Require().NoError(err)
+	suite.Empty(none)
+
+	all, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{OrganizationID: orgID, AnyOwner: true, IncludeExternalAgents: true})
+	suite.Require().NoError(err)
+	suite.Len(all, 2)
 }

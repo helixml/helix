@@ -41,11 +41,14 @@ type dialWaiter struct {
 type ConnectionManager struct {
 	deviceDialers     map[string]*revdial.Dialer
 	deviceConnections map[string]net.Conn // Raw connections for simple TCP forwarding
+	origins           map[string]string   // Where each key's connection came from, for logs
 
 	// Grace period support for reconnection tolerance
 	disconnectedAt map[string]time.Time     // When each key was disconnected
 	pendingDials   map[string][]*dialWaiter // Pending Dial() calls per key
 	gracePeriod    time.Duration
+	// cleanupInterval is CleanupInterval except in tests.
+	cleanupInterval time.Duration
 
 	// Callback when grace period expires for a key (e.g., to clean up session state)
 	onGracePeriodExpired func(key string)
@@ -57,12 +60,18 @@ type ConnectionManager struct {
 
 // NewWithGracePeriod creates a ConnectionManager with a custom grace period
 func NewWithGracePeriod(gracePeriod time.Duration) *ConnectionManager {
+	return newWithIntervals(gracePeriod, CleanupInterval)
+}
+
+func newWithIntervals(gracePeriod, cleanupInterval time.Duration) *ConnectionManager {
 	m := &ConnectionManager{
 		deviceDialers:     make(map[string]*revdial.Dialer),
 		deviceConnections: make(map[string]net.Conn),
+		origins:           make(map[string]string),
 		disconnectedAt:    make(map[string]time.Time),
 		pendingDials:      make(map[string][]*dialWaiter),
 		gracePeriod:       gracePeriod,
+		cleanupInterval:   cleanupInterval,
 		stopCh:            make(chan struct{}),
 	}
 	go m.cleanupLoop()
@@ -83,7 +92,7 @@ func (m *ConnectionManager) Stop() {
 
 // cleanupLoop periodically removes expired grace period entries
 func (m *ConnectionManager) cleanupLoop() {
-	ticker := time.NewTicker(CleanupInterval)
+	ticker := time.NewTicker(m.cleanupInterval)
 	defer ticker.Stop()
 
 	for {
@@ -124,6 +133,7 @@ func (m *ConnectionManager) cleanupExpired() {
 		delete(m.disconnectedAt, key)
 		delete(m.deviceDialers, key)
 		delete(m.deviceConnections, key)
+		delete(m.origins, key)
 	}
 
 	// Get callback reference while holding lock
@@ -138,11 +148,32 @@ func (m *ConnectionManager) cleanupExpired() {
 	}
 }
 
-// Set registers a new connection for the given key.
+// Displaced describes the connection a Set call replaced.
+type Displaced struct {
+	// Origin is the origin recorded when the replaced connection was set.
+	Origin string
+}
+
+// Set registers a new connection for the given key; the last registration
+// wins. origin is a free-form description of where conn came from (e.g. the
+// client address), kept for logging.
+//
+// If the key already had a live connection, that connection is closed and
+// described in the returned *Displaced (nil when nothing was replaced).
+// Closing it makes a client that is still running notice it lost the key and
+// reconnect, instead of holding a socket the API no longer dials.
 // If there are pending Dial() calls waiting for reconnection, they will be woken up.
-func (m *ConnectionManager) Set(key string, conn net.Conn) {
+func (m *ConnectionManager) Set(key string, conn net.Conn, origin string) *Displaced {
+	var oldDialer *revdial.Dialer
 	m.lock.Lock()
-	defer m.lock.Unlock()
+	defer func() {
+		m.lock.Unlock()
+		// Closed outside the lock. The new dialer is already current, so
+		// the old dialer's watchDialer does not start a grace period.
+		if oldDialer != nil {
+			oldDialer.Close()
+		}
+	}()
 
 	// Check if this is a reconnection (key was in grace period)
 	if disconnectTime, wasDisconnected := m.disconnectedAt[key]; wasDisconnected {
@@ -151,17 +182,15 @@ func (m *ConnectionManager) Set(key string, conn net.Conn) {
 		delete(m.disconnectedAt, key)
 	}
 
-	// If there's an old connection for this key, just replace it
-	// Don't try to close the old connection - it might already be closed from
-	// API restart, and closing it again could cause issues
-	// The old dialer will become unreachable and get garbage collected
-	if _, exists := m.deviceDialers[key]; exists {
-		// Log that we're replacing an existing connection (for debugging)
-		// This is expected during API restarts when clients reconnect
+	var displaced *Displaced
+	if old, exists := m.deviceDialers[key]; exists {
+		displaced = &Displaced{Origin: m.origins[key]}
+		oldDialer = old
 	}
 
 	// Store both the raw connection (for cleanup) and the dialer (for use)
 	m.deviceConnections[key] = conn
+	m.origins[key] = origin
 	dialer := revdial.NewDialer(conn, "/revdial")
 	m.deviceDialers[key] = dialer
 
@@ -176,6 +205,41 @@ func (m *ConnectionManager) Set(key string, conn net.Conn) {
 		}
 		delete(m.pendingDials, key)
 	}
+	return displaced
+}
+
+// CloseIfCurrent closes and forgets key's connection, but only while conn is
+// still the connection registered under key (a later registration is left
+// alone). It returns whether it closed anything. Unlike a lost connection,
+// no grace period starts: Dial fails with ErrNoConnection until the client
+// registers again, and Dial calls already waiting are woken and fail.
+// Use it to cut a tunnel whose credential was revoked.
+func (m *ConnectionManager) CloseIfCurrent(key string, conn net.Conn) bool {
+	m.lock.Lock()
+	current, ok := m.deviceConnections[key]
+	if !ok || current != conn {
+		m.lock.Unlock()
+		return false
+	}
+	dialer := m.deviceDialers[key]
+	// Removed before the dialer is closed, so watchDialer sees it is no
+	// longer current and does not start a grace period.
+	delete(m.deviceDialers, key)
+	delete(m.deviceConnections, key)
+	delete(m.origins, key)
+	delete(m.disconnectedAt, key)
+	waiters := m.pendingDials[key]
+	delete(m.pendingDials, key)
+	m.lock.Unlock()
+
+	for _, w := range waiters {
+		close(w.ready)
+	}
+	if dialer != nil {
+		dialer.Close()
+	}
+	_ = conn.Close()
+	return true
 }
 
 // Dial creates a new connection to the device identified by key.
@@ -332,6 +396,7 @@ func (m *ConnectionManager) OnDisconnect(key string) {
 	// Remove the dialer but keep tracking via disconnectedAt
 	delete(m.deviceDialers, key)
 	delete(m.deviceConnections, key)
+	delete(m.origins, key)
 }
 
 // Remove immediately removes a connection from the manager.
@@ -351,6 +416,7 @@ func (m *ConnectionManager) Remove(key string) {
 	delete(m.disconnectedAt, key)
 	delete(m.deviceDialers, key)
 	delete(m.deviceConnections, key)
+	delete(m.origins, key)
 }
 
 // List returns all active connection keys

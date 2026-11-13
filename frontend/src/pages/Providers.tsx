@@ -1,5 +1,17 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, Collapse } from '@mui/material';
+import Box from '@mui/material/Box';
+import Grid from '@mui/material/Grid';
+import Card from '@mui/material/Card';
+import CardHeader from '@mui/material/CardHeader';
+import CardContent from '@mui/material/CardContent';
+import CardActions from '@mui/material/CardActions';
+import Avatar from '@mui/material/Avatar';
+import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
+import Tooltip from '@mui/material/Tooltip';
+import Divider from '@mui/material/Divider';
+import Alert from '@mui/material/Alert';
+import Collapse from '@mui/material/Collapse';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddProviderDialog from '../components/providers/AddProviderDialog';
@@ -39,7 +51,7 @@ const Providers: React.FC = () => {
   const [localModelsEndpointId, setLocalModelsEndpointId] = useState<string | null>(null);
   const [connectingDetected, setConnectingDetected] = useState<string>("");
   const isMacDesktop = account.serverConfig?.edition === "mac-desktop";
-  const { data: detectedProviders } = useDetectLocalProviders(true);
+  const { data: detectedProviders } = useDetectLocalProviders(account.admin);
   const createProvider = useCreateProviderEndpoint();
 
   const orgName = router.params.org_id
@@ -455,8 +467,8 @@ const Providers: React.FC = () => {
             // The custom provider tile always opens a fresh "Add" dialog — many custom
             // providers can coexist, and each existing one is shown as its own card below.
             // This section manages keys owned by the current user or organization.
-            // Synthetic global providers have id "-" and are configured by the server
-            // environment, so they cannot be disconnected from this dialog.
+            // Env-configured global providers (see isEnvConfiguredEndpoint) are not
+            // owned endpoints, so they never reach this dialog.
             const existingProvider = provider.is_custom ? undefined : ownedEndpoints.find(
               endpoint => getProviderPresetDefinition(endpoint)?.id === provider.id
             );

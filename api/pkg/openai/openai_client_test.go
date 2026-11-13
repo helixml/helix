@@ -38,6 +38,7 @@ func TestRetry(t *testing.T) {
 	defer ts.Close()
 
 	client := New("test", ts.URL, true)
+	client.retryDelay = time.Millisecond
 
 	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{})
 	require.NoError(t, err)

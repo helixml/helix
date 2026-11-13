@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
@@ -50,14 +53,34 @@ func (s *AutoWakeColdStartSuite) TearDownTest() {
 	s.ctrl.Finish()
 }
 
+// Subtests get fresh mocks, exactly like top-level tests.
+func (s *AutoWakeColdStartSuite) SetupSubTest()    { s.SetupTest() }
+func (s *AutoWakeColdStartSuite) TearDownSubTest() { s.TearDownTest() }
+
+// TestKeepsWaitingWhenSessionCannotBeLoaded: without the session no grace gate
+// can be evaluated. A store blip during a normal cold boot must not burn the
+// retry budget (two blips used to fail a healthy boot's turn) or start a
+// second desktop.
+func (s *AutoWakeColdStartSuite) TestKeepsWaitingWhenSessionCannotBeLoaded() {
+	stuck := stuckInteraction("int-blip", "ses_blip", 0)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_blip").Return(nil, errors.New("connection reset"))
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_blip").Return(false).AnyTimes()
+
+	// IncrementInteractionAutoWakeCount, StartDesktop and
+	// MarkInteractionErrorIfWaiting must NOT be called.
+	s.server.maybeAutoWake(context.Background(), stuck)
+}
+
 // stuckInteraction returns an interaction old enough to pass the threshold gate.
 func stuckInteraction(id, sessionID string, autoWakeCount int) *types.Interaction {
+	created := time.Now().Add(-5 * time.Minute)
 	return &types.Interaction{
 		ID:            id,
 		SessionID:     sessionID,
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
-		Created:       time.Now().Add(-5 * time.Minute),
+		Created:       created,
+		Updated:       created,
 		AutoWakeCount: autoWakeCount,
 	}
 }
@@ -140,6 +163,75 @@ func (s *AutoWakeColdStartSuite) TestKicksAutoStartWhenNoWS() {
 	}
 }
 
+// TestFailsFastWhenDesktopStartIsRefused: a desktop the organization cannot pay
+// for, or that would exceed its concurrent-desktop limit, will not start on any
+// retry. The turn must fail on the first kick with the real cause — previously
+// it burned every retry and then told the user the agent never came online.
+func (s *AutoWakeColdStartSuite) TestFailsFastWhenDesktopStartIsRefused() {
+	cases := []struct {
+		name     string
+		startErr error
+		reason   string
+	}{
+		{
+			name:     "out of credits",
+			startErr: fmt.Errorf("cannot start desktop: %w", fmt.Errorf("%w: balance 0.00, required 0.02", sandbox.ErrInsufficientCredits)),
+			reason:   outOfCreditsReason,
+		},
+		{
+			name:     "desktop limit",
+			startErr: fmt.Errorf("%w (1). Stop some of the existing sessions or upgrade your plan", external_agent.ErrDesktopLimitReached),
+			reason:   desktopLimitReason,
+		},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			stuck := stuckInteraction("int-refused", "ses_refused", 0)
+
+			s.store.EXPECT().IncrementInteractionAutoWakeCount(gomock.Any(), "int-refused").Return(1, nil)
+			s.store.EXPECT().GetSession(gomock.Any(), "ses_refused").Return(&types.Session{
+				ID:    "ses_refused",
+				Owner: "user-1",
+				Metadata: types.SessionMetadata{
+					AgentType: "zed_external",
+					ProjectID: "prj_x",
+				},
+			}, nil).AnyTimes()
+			s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+			s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
+			s.executor.EXPECT().HasRunningContainer(gomock.Any(), "ses_refused").Return(false)
+			s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(nil, tc.startErr)
+
+			failed := make(chan string, 1)
+			s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-refused", 0, gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ string, _ int, reason string) (bool, error) {
+					failed <- reason
+					return true, nil
+				})
+			cleared := make(chan struct{}, 1)
+			s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), "ses_refused").DoAndReturn(
+				func(context.Context, string) (bool, error) {
+					cleared <- struct{}{}
+					return true, nil
+				})
+
+			s.server.maybeAutoWake(context.Background(), stuck)
+
+			select {
+			case reason := <-failed:
+				s.Equal(tc.reason, reason)
+			case <-time.After(2 * time.Second):
+				s.FailNow("refused start left the turn waiting for another cold-start retry")
+			}
+			select {
+			case <-cleared:
+			case <-time.After(2 * time.Second):
+				s.FailNow("starting status was not cleared, so the UI keeps spinning")
+			}
+		})
+	}
+}
+
 // TestSkipsBudgetWhileStartDesktopInFlight: when ExternalAgentStatus is
 // "starting" and the interaction is still inside the cold-start grace
 // period, maybeKickColdStart must skip without bumping AutoWakeCount or
@@ -156,6 +248,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileStartDesktopInFlight() {
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
 		Created:       time.Now().Add(-4 * time.Minute),
+		Updated:       time.Now().Add(-4 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -193,6 +286,7 @@ func (s *AutoWakeColdStartSuite) TestSkipsBudgetWhileRunningButNoWS() {
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
 		Created:       time.Now().Add(-4 * time.Minute),
+		Updated:       time.Now().Add(-4 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -230,6 +324,7 @@ func (s *AutoWakeColdStartSuite) TestKicksAfterColdStartGraceExpires() {
 		PromptMessage: "do the thing",
 		// Older than both stuck threshold (180s) AND the 1-second grace.
 		Created:       time.Now().Add(-5 * time.Minute),
+		Updated:       time.Now().Add(-5 * time.Minute),
 		AutoWakeCount: 0,
 	}
 
@@ -375,6 +470,61 @@ func (s *AutoWakeColdStartSuite) TestScanClearsFinishedInteractionObservation() 
 	s.False(observed)
 }
 
+func (s *AutoWakeColdStartSuite) TestSettlesPartialTurnWhenStoppedAgentContainerIsGone() {
+	stuck := stuckInteraction("int-partial", "ses-partial", 0)
+	stuck.GenerationID = 7
+	stuck.ResponseMessage = "partial tool output remains visible"
+	s.store.EXPECT().GetSession(gomock.Any(), stuck.SessionID).Return(&types.Session{
+		ID: stuck.SessionID,
+		Metadata: types.SessionMetadata{
+			AgentType:           "zed_external",
+			ExternalAgentStatus: "stopped",
+		},
+	}, nil)
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), stuck.SessionID).Return(false)
+	s.store.EXPECT().MarkStaleInteractionErrorIfWaiting(
+		gomock.Any(), stuck.ID, 7, stuck.Updated, "External agent stopped before completing the turn",
+	).Return(true, nil)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	s.Equal("partial tool output remains visible", stuck.ResponseMessage)
+}
+
+func (s *AutoWakeColdStartSuite) TestLeavesPartialTurnWaitingWhileContainerRuns() {
+	stuck := stuckInteraction("int-partial-running", "ses-partial-running", 0)
+	stuck.ResponseMessage = "partial tool output"
+	s.store.EXPECT().GetSession(gomock.Any(), stuck.SessionID).Return(&types.Session{
+		ID: stuck.SessionID,
+		Metadata: types.SessionMetadata{
+			AgentType:           "zed_external",
+			ExternalAgentStatus: "stopped",
+		},
+	}, nil)
+	s.executor.EXPECT().HasRunningContainer(gomock.Any(), stuck.SessionID).Return(true)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	s.Equal(types.InteractionStateWaiting, stuck.State)
+}
+
+func (s *AutoWakeColdStartSuite) TestLeavesPartialTurnWaitingDuringClaimedRestart() {
+	stuck := stuckInteraction("int-partial-restarting", "ses-partial-restarting", 0)
+	stuck.ResponseMessage = "partial tool output"
+	s.store.EXPECT().GetSession(gomock.Any(), stuck.SessionID).Return(&types.Session{
+		ID: stuck.SessionID,
+		Metadata: types.SessionMetadata{
+			AgentType:           "zed_external",
+			ExternalAgentStatus: "stopped",
+			LastAutoRestartAt:   time.Now(),
+		},
+	}, nil)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	s.Equal(types.InteractionStateWaiting, stuck.State)
+}
+
 func (s *AutoWakeColdStartSuite) TestRestartGraceUsesPersistedRestartTime() {
 	stuck := stuckInteraction("int-restarting", "ses-restarting", 1)
 	session := &types.Session{
@@ -455,7 +605,7 @@ func (s *AutoWakeColdStartSuite) TestMarksAsErrorAfterMaxRetries() {
 
 	s.server.maybeAutoWake(context.Background(), stuck)
 
-	s.Contains(reason, "helixml/helix#2397")
+	s.Equal(agentNeverConnectedReason, reason)
 }
 
 // TestClearsStartingStatusOnExhaustion: when the worker exhausts cold-start
@@ -497,19 +647,12 @@ func (s *AutoWakeColdStartSuite) TestSkipsWhenInteractionIsYoung() {
 		State:         types.InteractionStateWaiting,
 		PromptMessage: "do the thing",
 		Created:       time.Now().Add(-1 * time.Second), // way younger than threshold
+		Updated:       time.Now().Add(-1 * time.Second),
 		AutoWakeCount: 0,
 	}
 
 	// No mocks set — gomock fails if any store method is called.
 	s.server.maybeAutoWake(context.Background(), stuck)
-}
-
-// TestAutoWakeStuckThresholdDefault verifies the new 180s default.
-func TestAutoWakeStuckThresholdDefault(t *testing.T) {
-	t.Setenv("HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS", "")
-	if got := autoWakeStuckThreshold(); got != 180*time.Second {
-		t.Fatalf("default threshold: want 180s, got %s", got)
-	}
 }
 
 // TestAutoWakeStuckThresholdOverride verifies operators can still
@@ -572,6 +715,7 @@ func (s *AutoWakeConnectedSuite) TestLeavesQuiescentInteractionWaitingWithoutRep
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_connected").Return(session, nil)
 
 	stuck := stuckInteraction("int-connected", "ses_connected", 0)
+	stuck.ResponseMessage = "partial tool output"
 	s.server.maybeAutoWake(context.Background(), stuck)
 
 	s.Equal(types.InteractionStateWaiting, stuck.State)

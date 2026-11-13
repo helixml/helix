@@ -1,8 +1,6 @@
 package pubsub
 
 import (
-	"time"
-
 	"github.com/helixml/helix/api/pkg/config"
 )
 
@@ -13,7 +11,6 @@ const (
 	ProviderNATS   Provider = "nats"
 )
 
-// TODO(Phil): Clean this up, NewInMemoryNats is basically the same as NewNats
 func New(cfg *config.ServerConfig) (PubSub, error) {
 	switch cfg.PubSub.Provider {
 	case string(ProviderMemory):
@@ -23,14 +20,4 @@ func New(cfg *config.ServerConfig) (PubSub, error) {
 	default:
 		return NewNats(cfg) // Default to NATS
 	}
-}
-
-type Config struct {
-	Namespace string
-
-	Provider Provider
-
-	HealthInterval time.Duration
-	SendTimeout    time.Duration
-	ChannelSize    int
 }

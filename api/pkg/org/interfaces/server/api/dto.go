@@ -59,6 +59,11 @@ type BotDTO struct {
 	ProjectIDs     []string `json:"project_ids,omitempty"`
 	ParentIDs      []string `json:"parent_ids,omitempty"`
 	OrganizationID string   `json:"organization_id,omitempty"`
+	PortraitIndex  *int     `json:"portrait_index,omitempty"`
+	// CanEdit is true when the caller may change this Bot: organization
+	// owners and platform admins, or a member who may update the Bot's
+	// agent app. The UI hides edit, delete and re-parent controls when false.
+	CanEdit bool `json:"can_edit"`
 	// PreserveContext, when true, stops the runtime from wiping this
 	// Bot's chat session before each re-activation, so it accumulates
 	// context across triggers (e.g. Slack). Defaults to false.
@@ -70,6 +75,9 @@ type BotDTO struct {
 	// AgentWorkState is "working" only while the running Bot's latest
 	// interaction is still waiting for its external agent.
 	AgentWorkState types.AgentWorkState `json:"agent_work_state,omitempty"`
+	// ActivationError is the latest completed activation failure. It clears
+	// when a newer activation starts or succeeds.
+	ActivationError string `json:"activation_error,omitempty"`
 	// RestartRequired is true when the sandbox is running but still holds
 	// the tool list and instructions from before the last save. Drives the
 	// restart banner on the bot page and the org chat panel.

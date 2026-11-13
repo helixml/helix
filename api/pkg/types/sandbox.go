@@ -1,10 +1,26 @@
 package types
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/datatypes"
 )
+
+// ParseSandboxMaxSandboxes parses the runner's MAX_SANDBOXES value.
+// -1 means unlimited; 0 or empty means the runner did not set a limit.
+func ParseSandboxMaxSandboxes(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, true
+	}
+	maxSandboxes, err := strconv.Atoi(value)
+	if err != nil || maxSandboxes < -1 {
+		return 0, false
+	}
+	return maxSandboxes, true
+}
 
 // SandboxRuntime identifies the type of sandbox to create.
 type SandboxRuntime string
@@ -139,6 +155,9 @@ func (s *Sandbox) HydraOpsID() string {
 // CreateSandboxRequest is the API payload for POST /organizations/{org}/sandboxes.
 type CreateSandboxRequest struct {
 	Name string `json:"name,omitempty"`
+	// HostDeviceID pins internal replacement workflows to the host that owns
+	// their persistent data. Public API payloads cannot set it.
+	HostDeviceID string `json:"-"`
 	// Runtime selects one of the operator-configured runtimes
 	// (e.g. "headless-ubuntu", "node22", "ubuntu-desktop"). Mutually
 	// exclusive with Image.

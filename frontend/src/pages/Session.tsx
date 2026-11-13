@@ -72,6 +72,7 @@ import { useActivateBot, useApplyBotConfig, useHelixOrgBot, useRestartBotAgent, 
 import { isBotInstanceSessionMetadata } from '../components/session/ProjectChatSidebar.logic'
 import { mergeStreamingInteraction } from '../components/session/subagentActivity'
 import { deriveSandboxState } from '../components/external-agent/sandboxState'
+import { CHIEF_OF_STAFF_BOT_ID } from '../utils/organizations'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -289,6 +290,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
   const [showLoginWindow, setShowLoginWindow] = useState(false)
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
   const [promptAppendText, setPromptAppendText] = useState<string>()
+  const [botProfileExpanded, setBotProfileExpanded] = useState(false)
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
   const [assistantID, setAssistantID] = useState<string | null>(null)
@@ -1681,6 +1683,16 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           enableInteractionDebugCopy
           showSessionPromptQueue
           appendText={promptAppendText}
+          orgBot={orgBot}
+          onWelcomeChange={setBotProfileExpanded}
+          welcomeWhenEmpty={!!orgBot}
+          welcomeHeading={orgBot ? 'Start a conversation' : 'How can I help?'}
+          starterPrompts={orgBot?.id === CHIEF_OF_STAFF_BOT_ID
+            ? ['Help me set up my team of bots', 'Help me prioritize', 'What can you help with?']
+            : orgBot
+              ? ['What can you help with?', 'Help me get started', 'What should we work on first?']
+              : []}
+          onSelectStarter={appendToChat}
           leadingActions={(
             <CodeAgentExecutionControls
               value={selectedCodeAgentConfig}
@@ -1691,7 +1703,9 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           )}
           placeholder={session.data.config?.paused
             ? 'This session is paused — open the forked child to keep chatting'
-            : `Chat with ${orgBot?.name || apps.app?.config.helix.name || 'agent'}…`}
+            : orgBot
+              ? `Message ${orgBot.name || orgBot.id || 'bot'}...`
+              : `Chat with ${apps.app?.config.helix.name || 'agent'}…`}
           disabled={!!session.data.config?.paused}
         />
       </Box>
@@ -1719,7 +1733,11 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
           organizationId={(router.params.org_id as string) || session.data.organization_id || ''}
           bot={orgBot}
           onStart={orgWorkerId
-            ? () => { void activateOrgBotAgent.mutateAsync(orgWorkerId) }
+            ? () => {
+              void activateOrgBotAgent.mutateAsync(orgWorkerId).catch((error: any) => {
+                snackbar.error(error?.response?.data?.error ?? error?.message ?? 'Could not start agent')
+              })
+            }
             : instanceSandbox ? () => { void setInstanceSandboxRunning(true) } : undefined}
           onStop={orgWorkerId
             ? () => { void stopOrgBotAgent.mutateAsync(orgWorkerId) }
@@ -1733,6 +1751,7 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
             currentResponses.get(session.data.id || sessionID),
           )}
           onAppendToChat={appendToChat}
+          expandedBotProfile={botProfileExpanded}
         >
           {externalAgentChat}
         </OrgAgentSessionWorkspace>

@@ -2,13 +2,17 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // defaultMaxPromptQueueRetries bounds how many times the queue will auto-retry a
@@ -165,6 +169,17 @@ func (s *PostgresStore) CreatePromptHistoryEntry(ctx context.Context, entry *typ
 	return s.gdb.WithContext(ctx).Create(entry).Error
 }
 
+func (s *PostgresStore) CreatePromptHistoryEntryIfAbsent(ctx context.Context, entry *types.PromptHistoryEntry) (bool, error) {
+	if entry.ID == "" {
+		return false, fmt.Errorf("prompt history entry ID is required")
+	}
+	if entry.SessionID == "" {
+		return false, fmt.Errorf("prompt history entry SessionID is required")
+	}
+	result := s.gdb.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(entry)
+	return result.RowsAffected == 1, result.Error
+}
+
 // GetPromptHistoryEntry returns a single prompt history entry by ID
 func (s *PostgresStore) GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error) {
 	var entry types.PromptHistoryEntry
@@ -306,6 +321,25 @@ func (s *PostgresStore) ListPromptHistoryBySession(ctx context.Context, sessionI
 	return entries, nil
 }
 
+// GetLatestActivationPromptHistoryEntry includes deleted entries because a
+// cancelled activation is terminal and must prevent replaying an older one.
+func (s *PostgresStore) GetLatestActivationPromptHistoryEntry(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	prefix := system.PromptHistoryPrefix + "activation_"
+	var entry types.PromptHistoryEntry
+	result := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND left(id, ?) = ?", sessionID, len(prefix), prefix).
+		Order("created_at DESC, id DESC").
+		Limit(1).
+		Find(&entry)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
+	}
+	return &entry, nil
+}
+
 // MarkPromptAsPending marks a prompt as pending (used before retry)
 func (s *PostgresStore) MarkPromptAsPending(ctx context.Context, promptID string) error {
 	return s.gdb.WithContext(ctx).
@@ -313,6 +347,84 @@ func (s *PostgresStore) MarkPromptAsPending(ctx context.Context, promptID string
 		Where("id = ?", promptID).
 		Update("status", "pending").
 		Error
+}
+
+func (s *PostgresStore) RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error) {
+	recovered := false
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var session types.Session
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", sessionID).First(&session).Error; err != nil {
+			return err
+		}
+		state := session.Metadata.Recovery
+		if state == nil || state.PromptID != promptID || state.Attempts >= maxAttempts || state.NextCheckAt.After(now) {
+			return nil
+		}
+		var interaction types.Interaction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND session_id = ?", state.InteractionID, sessionID).
+			First(&interaction).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if interaction.State != types.InteractionStateError {
+			return nil
+		}
+		result := tx.Model(&types.PromptHistoryEntry{}).
+			Where("id = ? AND session_id = ? AND status = 'sent'", promptID, sessionID).
+			Updates(map[string]any{"status": "pending", "next_retry_at": nil, "error_message": ""})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		state.Attempts++
+		state.NextCheckAt = nextCheckAt
+		payload, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&types.Session{}).Where("id = ?", sessionID).
+			Update("config", gorm.Expr("jsonb_set(config, '{provider_recovery}', ?::jsonb)", string(payload))).Error; err != nil {
+			return err
+		}
+		recovered = true
+		return nil
+	})
+	return recovered, err
+}
+
+func (s *PostgresStore) RecoverProviderPromptForConfigChange(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	recovered := false
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var session types.Session
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", sessionID).First(&session).Error; err != nil {
+			return err
+		}
+		var interaction types.Interaction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("session_id = ? AND prompt_id = ?", sessionID, promptID).
+			Order("created DESC, id DESC").
+			First(&interaction).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if interaction.ID != interactionID || interaction.State != types.InteractionStateError {
+			return nil
+		}
+		result := tx.Model(&types.PromptHistoryEntry{}).
+			Where("id = ? AND session_id = ? AND status = 'sent' AND deleted_at IS NULL", promptID, sessionID).
+			Updates(map[string]any{"status": "pending", "next_retry_at": nil, "error_message": ""})
+		if result.Error != nil || result.RowsAffected == 0 {
+			return result.Error
+		}
+		recovered = true
+		return nil
+	})
+	return recovered, err
 }
 
 // MarkPromptAsSent marks a prompt as sent

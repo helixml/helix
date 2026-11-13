@@ -24,6 +24,7 @@ import (
 const (
 	testAccessToken  = "test-access-token"
 	testRefreshToken = "test-refresh-token"
+	testIDToken      = "test-id-token"
 	testState        = "test-state"
 	testNonce        = "test-nonce"
 	testCode         = "test-code"
@@ -77,27 +78,43 @@ func (suite *AuthSuite) createTestRequest(method, path string, body []byte) *htt
 	return req.WithContext(suite.authCtx)
 }
 
+// assertMovedToSession checks that the response set a session cookie and
+// cleared the legacy token cookies instead of renewing them.
+func (suite *AuthSuite) assertMovedToSession(rec *httptest.ResponseRecorder) {
+	cookies := map[string]*http.Cookie{}
+	for _, c := range rec.Result().Cookies() {
+		cookies[c.Name] = c
+	}
+	suite.Require().Contains(cookies, auth.SessionCookieName)
+	suite.NotEmpty(cookies[auth.SessionCookieName].Value)
+	for _, name := range []string{"access_token", "refresh_token"} {
+		suite.Require().Contains(cookies, name, "legacy cookie cleared")
+		suite.Empty(cookies[name].Value)
+		suite.Less(cookies[name].MaxAge, 0)
+	}
+}
+
 func (suite *AuthSuite) addCookie(req *http.Request, name, value string) {
 	req.AddCookie(&http.Cookie{Name: name, Value: value})
 }
 
 func (suite *AuthSuite) createMockToken() *oauth2.Token {
-	return &oauth2.Token{
+	return (&oauth2.Token{
 		AccessToken:  testAccessToken,
 		RefreshToken: testRefreshToken,
-	}
+	}).WithExtra(map[string]any{"id_token": testIDToken})
 }
 
 func (suite *AuthSuite) createMockTokenNoRefresh() *oauth2.Token {
-	return &oauth2.Token{
+	return (&oauth2.Token{
 		AccessToken: testAccessToken,
-	}
+	}).WithExtra(map[string]any{"id_token": testIDToken})
 }
 
 func (suite *AuthSuite) createMockTokenNoAccess() *oauth2.Token {
-	return &oauth2.Token{
+	return (&oauth2.Token{
 		RefreshToken: testRefreshToken,
-	}
+	}).WithExtra(map[string]any{"id_token": testIDToken})
 }
 
 func (suite *AuthSuite) createMockUser() *types.User {
@@ -300,10 +317,13 @@ func (suite *AuthSuite) TestCallback() {
 					Email: testEmail,
 				}, nil)
 				// BFF: CreateUserSession is called to create the session
-				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).Return(&types.UserSession{
-					ID:     "session-123",
-					UserID: "user-123",
-				}, nil)
+				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, session *types.UserSession) (*types.UserSession, error) {
+						suite.Equal(testIDToken, session.OIDCIDToken)
+						session.ID = "session-123"
+						return session, nil
+					},
+				)
 			},
 			expectedStatus: http.StatusFound,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -521,6 +541,15 @@ func (suite *AuthSuite) TestUser() {
 			setupMocks: func() {
 				user := suite.createMockUser()
 				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(user, nil)
+				// A pre-session browser is moved onto a session holding its
+				// IdP tokens, as the callback would have created.
+				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, session *types.UserSession) (*types.UserSession, error) {
+						suite.Equal(user.ID, session.UserID)
+						suite.Equal(types.AuthProviderOIDC, session.AuthProvider)
+						suite.Equal(testAccessToken, session.OIDCAccessToken)
+						return session, nil
+					})
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -528,6 +557,8 @@ func (suite *AuthSuite) TestUser() {
 				err := json.NewDecoder(rec.Body).Decode(&response)
 				suite.NoError(err)
 				suite.Equal(testEmail, response.Email)
+				suite.Empty(response.Token)
+				suite.assertMovedToSession(rec)
 			},
 		},
 		{
@@ -706,6 +737,38 @@ func (suite *AuthSuite) TestLogout() {
 			expectedStatus: http.StatusOK,
 		},
 		{
+			name: "Logout URL response includes ID token hint",
+			setupRequest: func() *http.Request {
+				req := suite.createTestRequest(
+					"POST",
+					"/api/v1/auth/logout?get_url=true&redirect_uri=http%3A%2F%2Flocalhost%3A8080",
+					nil,
+				)
+				suite.addCookie(req, auth.SessionCookieName, "uss_test")
+				return req
+			},
+			setupMocks: func() {
+				suite.store.EXPECT().GetUserSession(gomock.Any(), "uss_test").Return(&types.UserSession{
+					ID:           "uss_test",
+					AuthProvider: types.AuthProviderOIDC,
+					ExpiresAt:    time.Now().Add(time.Hour),
+					LastUsedAt:   time.Now(),
+					OIDCIDToken:  testIDToken,
+				}, nil)
+				suite.store.EXPECT().DeleteUserSession(gomock.Any(), "uss_test").Return(nil)
+				suite.oidcClient.EXPECT().GetLogoutURL().Return("http://auth-provider/logout", nil)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				var response map[string]string
+				suite.Require().NoError(json.NewDecoder(rec.Body).Decode(&response))
+				suite.Equal(
+					"http://auth-provider/logout?post_logout_redirect_uri=http%3A%2F%2Flocalhost%3A8080&client_id=&id_token_hint=test-id-token",
+					response["url"],
+				)
+			},
+		},
+		{
 			name: "Logout without end_session_endpoint (Google-like providers)",
 			setupRequest: func() *http.Request {
 				return suite.createTestRequest("POST", "/api/v1/auth/logout", nil)
@@ -789,6 +852,12 @@ func (suite *AuthSuite) TestAuthenticated() {
 				suite.oidcClient.EXPECT().
 					ValidateUserToken(gomock.Any(), "valid-token").
 					Return(&types.User{ID: "user123"}, nil)
+				suite.store.EXPECT().CreateUserSession(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, session *types.UserSession) (*types.UserSession, error) {
+						suite.Equal("user123", session.UserID)
+						suite.Equal(types.AuthProviderOIDC, session.AuthProvider)
+						return session, nil
+					})
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -796,6 +865,7 @@ func (suite *AuthSuite) TestAuthenticated() {
 				err := json.NewDecoder(rec.Body).Decode(&response)
 				suite.NoError(err)
 				suite.True(response.Authenticated)
+				suite.assertMovedToSession(rec)
 			},
 		},
 		{

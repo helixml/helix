@@ -47,6 +47,7 @@ type Message struct {
 	Data         []byte
 	Header       nats.Header
 	NumDelivered uint64
+	Sequence     uint64
 
 	msg acker
 }
@@ -114,7 +115,6 @@ const (
 	ScriptRunnerStream   = "SCRIPT_RUNNERS"
 	AppQueue             = "app"
 	RunnerQueue          = "runner"
-	HelixNatsReplyHeader = "helix-nats-reply"
 )
 
 func getStreamSub(stream, sub string) string {
@@ -139,26 +139,4 @@ func ParseRunnerID(subject string) (string, error) {
 		return "", fmt.Errorf("invalid subject: %s", subject)
 	}
 	return parts[2], nil
-}
-
-// External agent specific queue functions
-func GetExternalAgentRegistrationQueue() string {
-	return "external_agents.register"
-}
-
-func GetExternalAgentHeartbeatQueue() string {
-	return "external_agents.heartbeat"
-}
-
-func GetExternalAgentResponseQueue() string {
-	return "external_agents.response"
-}
-
-func GetExternalAgentStreamForMessageType(messageType string) string {
-	switch messageType {
-	case "agent.register", "agent.heartbeat", "agent.response":
-		return ZedAgentRunnerStream
-	default:
-		return ZedAgentRunnerStream
-	}
 }

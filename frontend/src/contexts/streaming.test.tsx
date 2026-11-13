@@ -45,9 +45,14 @@ const VIEWER_ID = "user_viewer";
 const OWNER_ID = "user_owner";
 
 /** Mounts the provider, attaches it to a session, and reports the socket. */
-function mountProvider(userId: string, queryClient: QueryClient) {
+function mountProvider(
+  userId: string,
+  queryClient: QueryClient,
+  onResponses?: (responses: Map<string, any>) => void,
+) {
   const Attach: React.FC = () => {
-    const { setCurrentSessionId } = useStreaming();
+    const { currentResponses, setCurrentSessionId } = useStreaming();
+    onResponses?.(currentResponses);
     useEffect(() => {
       setCurrentSessionId(SESSION_ID);
     }, [setCurrentSessionId]);
@@ -212,6 +217,72 @@ describe("streaming context: interaction_patch", () => {
 
     act(() => socket.emit("message", lostBaseline));
     expect(interactionRefetches()).toBeGreaterThan(1);
+  });
+
+  it("clears tool metadata when transcript ordering replaces an entry", () => {
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = (callback) => {
+      callback(0);
+      return 1;
+    };
+    let entries: any[] | undefined;
+    const socket = mountProvider(OWNER_ID, queryClient, (responses) => {
+      entries = responses.get(SESSION_ID)?.response_entries;
+    });
+
+    try {
+      act(() => socket.emit("message", patchFrame({
+        entry_patches: [{
+          index: 0,
+          type: "tool_call",
+          patch: "new answer",
+          patch_offset: 0,
+          total_length: 10,
+          message_id: "4",
+          tool_name: "bash",
+          tool_status: "Completed",
+        }],
+      })));
+      act(() => socket.emit("message", patchFrame({
+        entry_count: 2,
+        entry_patches: [
+          {
+            index: 0,
+            type: "text",
+            patch: "old message",
+            patch_offset: 0,
+            total_length: 11,
+            message_id: "2",
+          },
+          {
+            index: 1,
+            type: "tool_call",
+            patch: "new answer",
+            patch_offset: 0,
+            total_length: 10,
+            message_id: "4",
+            tool_name: "bash",
+            tool_status: "Completed",
+          },
+        ],
+      })));
+
+      expect(entries).toHaveLength(2);
+      expect(entries?.[0]).toMatchObject({
+        message_id: "2",
+        type: "text",
+        content: "old message",
+      });
+      expect(entries?.[0].tool_name).toBeUndefined();
+      expect(entries?.[0].tool_status).toBeUndefined();
+      expect(entries?.[1]).toMatchObject({
+        message_id: "4",
+        tool_name: "bash",
+        tool_status: "Completed",
+      });
+    } finally {
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+    }
   });
 });
 

@@ -1,41 +1,37 @@
 import React, { FC, useState } from 'react'
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  InputLabel,
-  OutlinedInput,
-  InputAdornment,
-  IconButton,
-  MenuItem,
-  Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-  Alert,
-  CircularProgress,
-} from '@mui/material'
-import {
-  Visibility,
-  VisibilityOff,
-  Clear as ClearIcon,
-  Save as SaveIcon,
-  Refresh as RefreshIcon,
-  Edit as EditIcon,
-} from '@mui/icons-material'
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import CardHeader from '@mui/material/CardHeader';
+import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import OutlinedInput from '@mui/material/OutlinedInput';
+import InputAdornment from '@mui/material/InputAdornment';
+import IconButton from '@mui/material/IconButton';
+import MenuItem from '@mui/material/MenuItem';
+import Switch from '@mui/material/Switch';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
+import CircularProgress from '@mui/material/CircularProgress';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import ClearIcon from '@mui/icons-material/Clear';
+import SaveIcon from '@mui/icons-material/Save';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import EditIcon from '@mui/icons-material/Edit';
 import useSnackbar from '../../hooks/useSnackbar'
 import { useGetSystemSettings, useUpdateSystemSettings } from '../../services/systemSettingsService'
 import AdvancedModelPicker from '../create/AdvancedModelPicker'
@@ -1056,14 +1052,20 @@ const SystemSettingsTable: FC = () => {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={`${settings?.max_concurrent_desktop_sandboxes ?? 10} concurrent`}
+                      label={
+                        (settings?.max_concurrent_desktop_sandboxes ?? 0) > 0
+                          ? `${settings?.max_concurrent_desktop_sandboxes} concurrent`
+                          : 'Plan defaults'
+                      }
                       color="primary"
                       size="small"
                     />
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontFamily="monospace">
-                      {settings?.max_concurrent_desktop_sandboxes ?? 10}
+                      {(settings?.max_concurrent_desktop_sandboxes ?? 0) > 0
+                        ? settings?.max_concurrent_desktop_sandboxes
+                        : 'Plan defaults'}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -1074,6 +1076,7 @@ const SystemSettingsTable: FC = () => {
                             size="small"
                             value={sandboxDesktopLimitValue}
                             onChange={(e) => setSandboxDesktopLimitValue(e.target.value)}
+                            helperText="Positive limit overrides plan defaults"
                             sx={{ width: 130 }}
                           />
                           <Button
@@ -1097,7 +1100,11 @@ const SystemSettingsTable: FC = () => {
                         <Button
                           startIcon={<EditIcon />}
                           onClick={() => {
-                            setSandboxDesktopLimitValue(String(settings?.max_concurrent_desktop_sandboxes ?? 10))
+                            setSandboxDesktopLimitValue(
+                              (settings?.max_concurrent_desktop_sandboxes ?? 0) > 0
+                                ? String(settings.max_concurrent_desktop_sandboxes)
+                                : '',
+                            )
                             setEditingSandboxDesktopLimit(true)
                           }}
                           size="small"

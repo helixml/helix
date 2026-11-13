@@ -136,30 +136,40 @@ func (s *PostgresStore) ListWallets(ctx context.Context, q *ListWalletsQuery) ([
 	return wallets, nil
 }
 
-// UpdateWallet updates subscription and plan fields (does not update balance, for that use dedicated method)
-func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
-	if wallet.ID == "" {
+// UpdateWalletSubscription writes only the Stripe-mirrored subscription
+// columns. It never touches plan_override or balance, so a sync working from a
+// stale wallet read cannot revert an admin plan override.
+func (s *PostgresStore) UpdateWalletSubscription(ctx context.Context, walletID string, state types.WalletSubscriptionState) (*types.Wallet, error) {
+	return s.updateWalletColumns(ctx, walletID, map[string]interface{}{
+		"stripe_subscription_id":            state.StripeSubscriptionID,
+		"subscription_status":               state.Status,
+		"subscription_current_period_start": state.CurrentPeriodStart,
+		"subscription_current_period_end":   state.CurrentPeriodEnd,
+		"subscription_cancel_at_period_end": state.CancelAtPeriodEnd,
+		"subscription_created":              state.Created,
+	})
+}
+
+// SetWalletPlanOverride writes only the plan_override column.
+func (s *PostgresStore) SetWalletPlanOverride(ctx context.Context, walletID string, plan string) (*types.Wallet, error) {
+	return s.updateWalletColumns(ctx, walletID, map[string]interface{}{
+		"plan_override": plan,
+	})
+}
+
+func (s *PostgresStore) updateWalletColumns(ctx context.Context, walletID string, columns map[string]interface{}) (*types.Wallet, error) {
+	if walletID == "" {
 		return nil, fmt.Errorf("id not specified")
 	}
-
-	wallet.UpdatedAt = time.Now()
-
-	err := s.gdb.WithContext(ctx).Model(&types.Wallet{}).Where("id = ?", wallet.ID).Updates(
-		map[string]interface{}{
-			"updated_at":                        wallet.UpdatedAt,
-			"plan_override":                     wallet.PlanOverride,
-			"stripe_subscription_id":            wallet.StripeSubscriptionID,
-			"subscription_status":               wallet.SubscriptionStatus,
-			"subscription_current_period_start": wallet.SubscriptionCurrentPeriodStart,
-			"subscription_current_period_end":   wallet.SubscriptionCurrentPeriodEnd,
-			"subscription_cancel_at_period_end": wallet.SubscriptionCancelAtPeriodEnd,
-			"subscription_created":              wallet.SubscriptionCreated,
-		},
-	).Error
-	if err != nil {
-		return nil, err
+	columns["updated_at"] = time.Now()
+	result := s.gdb.WithContext(ctx).Model(&types.Wallet{}).Where("id = ?", walletID).Updates(columns)
+	if result.Error != nil {
+		return nil, result.Error
 	}
-	return s.GetWallet(ctx, wallet.ID)
+	if result.RowsAffected == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetWallet(ctx, walletID)
 }
 
 func (s *PostgresStore) DeleteWallet(ctx context.Context, id string) error {
@@ -176,7 +186,8 @@ func (s *PostgresStore) DeleteWallet(ctx context.Context, id string) error {
 }
 
 // UpdateWalletBalance safely updates the wallet balance using a database transaction.
-// It returns nil, nil when a Stripe top-up was already processed.
+// It returns nil, nil when a Stripe top-up or subscription invoice was already
+// processed.
 func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
 	if walletID == "" {
 		return nil, fmt.Errorf("wallet_id not specified")
@@ -185,14 +196,11 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 	var wallet types.Wallet
 	balanceUpdated := false
 	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ?", walletID).
-			First(&wallet).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrNotFound
-			}
+		locked, err := lockWallet(tx, "id = ?", walletID)
+		if err != nil {
 			return err
 		}
+		wallet = *locked
 
 		if meta.TransactionType == types.TransactionTypeTopUp {
 			alreadyProcessed, err := topUpAlreadyProcessed(tx, meta)
@@ -204,47 +212,26 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 			}
 		}
 
+		if meta.StripeInvoiceID != "" {
+			claimed, err := claimSubscriptionInvoice(tx, walletID, amount, meta.StripeInvoiceID)
+			if err != nil {
+				return err
+			}
+			if !claimed {
+				return nil
+			}
+		}
+
 		currentBalance := wallet.Balance
 		if currentBalance+amount < 0 {
 			return fmt.Errorf("%s: current balance %.2f, attempted to deduct %.2f", types.ErrorInsufficientBalance,
 				currentBalance, -amount)
 		}
 
-		// Update balance atomically using SQL arithmetic
-		result := tx.Model(&types.Wallet{}).Where("id = ?", walletID).Updates(map[string]interface{}{
-			"balance":    gorm.Expr("balance + ?", amount),
-			"updated_at": time.Now(),
-		})
-
-		if result.Error != nil {
-			return result.Error
-		}
-
-		if result.RowsAffected == 0 {
-			return ErrNotFound
-		}
-		balanceUpdated = true
-
-		transaction := &types.Transaction{
-			ID:                 system.GenerateTransactionID(),
-			CreatedAt:          time.Now(),
-			UpdatedAt:          time.Now(),
-			WalletID:           walletID,
-			Amount:             amount,
-			BalanceBefore:      currentBalance,
-			BalanceAfter:       currentBalance + amount,
-			Type:               meta.TransactionType,
-			InteractionID:      meta.InteractionID,
-			LLMCallID:          meta.LLMCallID,
-			SandboxID:          meta.SandboxID,
-			SandboxRuntime:     meta.SandboxRuntime,
-			SandboxPricingType: meta.SandboxPricingType,
-			TopUpID:            meta.TopUpID,
-		}
-
-		if err := tx.Create(transaction).Error; err != nil {
+		if err := applyWalletDelta(tx, walletID, currentBalance, amount, meta); err != nil {
 			return err
 		}
+		balanceUpdated = true
 
 		// If this is a top-up, create a top-up record (for tracking purposes)
 		if meta.TransactionType == types.TransactionTypeTopUp {
@@ -279,6 +266,68 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 	}
 
 	return &wallet, nil
+}
+
+// lockWallet reads the wallet matching where and holds its row lock until tx ends.
+func lockWallet(tx *gorm.DB, where string, arg any) (*types.Wallet, error) {
+	var wallet types.Wallet
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where(where, arg).
+		First(&wallet).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &wallet, nil
+}
+
+// applyWalletDelta adds amount to a wallet locked by lockWallet and records the
+// ledger transaction. balanceBefore is the balance read under that lock.
+func applyWalletDelta(tx *gorm.DB, walletID string, balanceBefore, amount float64, meta types.TransactionMetadata) error {
+	result := tx.Model(&types.Wallet{}).Where("id = ?", walletID).Updates(map[string]interface{}{
+		"balance":    gorm.Expr("balance + ?", amount),
+		"updated_at": time.Now(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return tx.Create(&types.Transaction{
+		ID:                 system.GenerateTransactionID(),
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
+		WalletID:           walletID,
+		Amount:             amount,
+		BalanceBefore:      balanceBefore,
+		BalanceAfter:       balanceBefore + amount,
+		Type:               meta.TransactionType,
+		InteractionID:      meta.InteractionID,
+		LLMCallID:          meta.LLMCallID,
+		SandboxID:          meta.SandboxID,
+		SandboxRuntime:     meta.SandboxRuntime,
+		SandboxPricingType: meta.SandboxPricingType,
+		WebSearchRequestID: meta.WebSearchRequestID,
+		TopUpID:            meta.TopUpID,
+	}).Error
+}
+
+// claimSubscriptionInvoice records invoiceID as credited. It reports false when
+// the invoice was already recorded; the primary key on the invoice id makes
+// that check hold under concurrent deliveries.
+func claimSubscriptionInvoice(tx *gorm.DB, walletID string, amount float64, invoiceID string) (bool, error) {
+	result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&types.SubscriptionInvoiceCredit{
+		StripeInvoiceID: invoiceID,
+		CreatedAt:       time.Now(),
+		WalletID:        walletID,
+		Amount:          amount,
+	})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected == 1, nil
 }
 
 func topUpAlreadyProcessed(tx *gorm.DB, meta types.TransactionMetadata) (bool, error) {

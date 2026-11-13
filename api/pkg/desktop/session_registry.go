@@ -570,6 +570,22 @@ func (r *SessionRegistry) BroadcastTouchEvent(sessionID string, fromClientID uin
 	})
 }
 
+// BroadcastClipboardChanged tells every viewer that the desktop's clipboard
+// changed, so a viewer whose user just copied in the desktop (with a button or
+// menu, not only Ctrl+C) can fetch it into the local clipboard.
+// Format: type(1)
+func (r *SessionRegistry) BroadcastClipboardChanged() {
+	msg := []byte{StreamMsgClipboardChanged}
+	r.sessions.Range(func(sessionID, sessionI any) bool {
+		session := sessionI.(*SessionClients)
+		session.clients.Range(func(key, value any) bool {
+			value.(*ConnectedClient).sendMessage(websocket.BinaryMessage, msg)
+			return true
+		})
+		return true
+	})
+}
+
 // BroadcastAgentCursor sends agent cursor position to all clients in all sessions
 // This is called from the MCP server when the agent performs mouse/keyboard actions
 func (r *SessionRegistry) BroadcastAgentCursor(x, y int32, action AgentAction, visible bool) {

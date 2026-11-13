@@ -33,7 +33,7 @@ func TestReportAgentStartupErrorFailsLatestWaitingInteraction(t *testing.T) {
 			assert.Equal(t, session.ID, query.SessionID)
 			assert.Equal(t, session.GenerationID, query.GenerationID)
 			assert.Equal(t, 1, query.PerPage)
-			assert.Equal(t, "created DESC", query.Order)
+			assert.Equal(t, "created DESC, id DESC", query.Order)
 			return []*types.Interaction{interaction}, 1, nil
 		},
 	)
@@ -78,6 +78,38 @@ func TestReportAgentStartupErrorIsIdempotentAfterInteractionCompletes(t *testing
 	require.Nil(t, httpErr)
 	require.NotNil(t, response)
 	assert.False(t, response.Transitioned)
+}
+
+func TestReportAgentStartupErrorFailsReplacementWaitingInteraction(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+	session := &types.Session{ID: "ses_1", Owner: "user_1", GenerationID: 2}
+	first := &types.Interaction{ID: "int_1", GenerationID: 2, State: types.InteractionStateWaiting}
+	replacement := &types.Interaction{ID: "int_2", GenerationID: 2, State: types.InteractionStateWaiting}
+	errorMessage := "Agent startup failed: MCP server unauthorized"
+
+	gomock.InOrder(
+		mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil),
+		mockStore.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{first}, int64(1), nil),
+		mockStore.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), first.ID, first.GenerationID, errorMessage).Return(true, nil),
+		mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil),
+		mockStore.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{replacement}, int64(1), nil),
+		mockStore.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), replacement.ID, replacement.GenerationID, errorMessage).Return(true, nil),
+	)
+
+	for _, interaction := range []*types.Interaction{first, replacement} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/ses_1/agent-startup-error", bytes.NewBufferString(
+			`{"error":"MCP server unauthorized"}`,
+		))
+		req = mux.SetURLVars(req, map[string]string{"id": session.ID})
+		req = req.WithContext(setRequestUser(req.Context(), types.User{ID: session.Owner}))
+
+		response, httpErr := server.reportAgentStartupError(httptest.NewRecorder(), req)
+		require.Nil(t, httpErr)
+		require.True(t, response.Transitioned)
+		require.Equal(t, interaction.ID, response.InteractionID)
+	}
 }
 
 func TestGetSessionOutputSurfacesStartupError(t *testing.T) {

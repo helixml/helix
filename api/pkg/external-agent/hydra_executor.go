@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 )
 
 type QuotaManager interface {
@@ -274,7 +276,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		return nil, fmt.Errorf("failed to check limits: %w", err)
 	}
 	if limitReached != nil && limitReached.LimitReached {
-		return nil, fmt.Errorf("desktop limit reached (%d). Stop some of the existing sessions or upgrade your plan", limitReached.Limit)
+		return nil, fmt.Errorf("%w (%d). Stop some of the existing sessions or upgrade your plan", ErrDesktopLimitReached, limitReached.Limit)
 	}
 
 	// Open the sandbox row that bills and quota-checks this desktop. This
@@ -305,6 +307,17 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 
 	// Determine sandbox ID - use agent's preference or find an available one
 	sandboxID := agent.SandboxID
+	maxSandboxes := 0
+	if sandboxID != "" && sandboxID != "local" && !agent.GoldenBuild {
+		sandbox, err := h.store.GetSandboxInstance(ctx, sandboxID)
+		if err == nil {
+			maxSandboxes = sandbox.MaxSandboxes
+		} else if errors.Is(err, store.ErrNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
+			sandboxID = ""
+		} else {
+			return nil, fmt.Errorf("failed to load sandbox runner %s: %w", sandboxID, err)
+		}
+	}
 	if sandboxID == "" {
 		// Headless agents use the helix-ubuntu toolchain image, so placement must
 		// select a host advertising that image even though the created container
@@ -323,6 +336,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 		if sandbox != nil {
 			sandboxID = sandbox.ID
+			maxSandboxes = sandbox.MaxSandboxes
 			log.Info().
 				Str("sandbox_id", sandboxID).
 				Str("container_type", containerType).
@@ -464,6 +478,7 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// NOTE: GPUVendor is empty - Hydra reads it from its own GPU_VENDOR env var
 	req := &hydra.CreateDevContainerRequest{
 		SessionID:               agent.SessionID,
+		MaxSandboxes:            maxSandboxes,
 		Image:                   image,
 		ContainerName:           containerName,
 		Hostname:                containerName,
@@ -510,16 +525,18 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	ctx = startCtx //nolint:govet // intentional shadow — request ctx no longer needed
 
 	// Mark session as "starting" so the frontend shows the starting UI
-	// (with progress messages) instead of the paused/absent state.
-	h.setExternalAgentStatus(ctx, agent.SessionID, "starting")
+	// (with progress messages) instead of the paused/absent state. Clearing the
+	// message drops the reason a previous attempt failed.
+	h.setExternalAgentLifecycle(ctx, agent.SessionID, "starting", "")
 
-	// Guarantee status cleanup on any error: if StartDesktop returns an error the
-	// status must not remain "starting" permanently (issue #1 from ZFS deployment).
+	// A failed start must leave a terminal, user-recoverable state: "stopped"
+	// with the reason, which the UI renders as a stopped desktop with a Start
+	// button. Never "starting" (spinner forever) and never "" — a session with
+	// no lifecycle state reads as one that has not been launched yet.
 	startErr := error(nil)
 	defer func() {
 		if startErr != nil {
-			h.setExternalAgentStatus(context.Background(), agent.SessionID, "")
-			h.updateSessionStatusMessage(context.Background(), agent.SessionID, "")
+			h.setExternalAgentLifecycle(context.Background(), agent.SessionID, "stopped", desktopStartFailedMessage(startErr))
 		}
 	}()
 
@@ -527,35 +544,37 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// If a golden cache exists, the Hydra side copies it before creating the container.
 	// We poll a separate Hydra endpoint and update session.StatusMessage so the
 	// frontend/CLI can show "Unpacking build cache (2.1/7.0 GB)" instead of just "Starting Desktop...".
-	stopProgress := make(chan struct{})
+	progressCtx, stopProgress := context.WithCancel(ctx)
+	progressDone := make(chan struct{})
 	go func() {
+		defer close(progressDone)
 		// Use a separate RevDial client for concurrent progress polling
 		progressClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-stopProgress:
-				return
-			case <-ctx.Done():
+			case <-progressCtx.Done():
 				return
 			case <-ticker.C:
-				progress, err := progressClient.GetGoldenCopyProgress(ctx, agent.ProjectID)
+				progress, err := progressClient.GetGoldenCopyProgress(progressCtx, agent.ProjectID)
 				if err != nil || progress == nil {
 					continue // no copy in progress (yet or anymore)
 				}
 				copiedGB := float64(progress.CopiedBytes) / 1e9
 				totalGB := float64(progress.TotalBytes) / 1e9
 				msg := fmt.Sprintf("Unpacking build cache (%.1f/%.1f GB)", copiedGB, totalGB)
-				h.updateSessionStatusMessage(ctx, agent.SessionID, msg)
+				h.updateSessionStatusMessage(progressCtx, agent.SessionID, msg)
 			}
 		}
 	}()
 
 	resp, err := hydraClient.CreateDevContainer(ctx, req)
 
-	// Signal progress goroutine to stop and clear the status message
-	close(stopProgress)
+	// Stop the progress goroutine and wait for it: its full-row session write
+	// must not land after the outcome below and revert it to "starting".
+	stopProgress()
+	<-progressDone
 	h.updateSessionStatusMessage(ctx, agent.SessionID, "")
 
 	if err != nil {
@@ -625,13 +644,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	// for the same session (counter would otherwise double-count).
 	// Skipping golden builds: they aren't user-facing workload and the
 	// hydra-side monitorGoldenBuild path doesn't go through StopDesktop,
-	// so counting them would create a one-way drift up. Skipping the
-	// "local" sentinel: no Runner row exists when SandboxID is unset.
+	// so counting them would create a one-way drift up.
 	//
 	// The matching decrement lives in StopDesktop, gated on the session
 	// actually being present in h.sessions at stop time (so double-stop
 	// can't over-decrement).
-	if !alreadyTracked && !agent.GoldenBuild && sandboxID != "" && sandboxID != "local" {
+	if !alreadyTracked && !agent.GoldenBuild && sandboxID != "" {
 		if incErr := h.store.IncrementSandboxContainerCount(ctx, sandboxID); incErr != nil {
 			log.Warn().
 				Err(incErr).
@@ -1077,8 +1095,7 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 	//      (so the matching increment fired earlier; double-stop and
 	//      stop-of-untracked-session both have exists=false here).
 	//   2. The delete succeeded (failures return above with tracking intact).
-	// Skip the "local" sentinel (no Runner row to decrement).
-	if exists && sandboxID != "" && sandboxID != "local" {
+	if exists && sandboxID != "" {
 		if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
 			log.Warn().
 				Err(decErr).
@@ -1108,24 +1125,22 @@ func (h *HydraExecutor) teardownDesktop(ctx context.Context, sessionID string, d
 	// will reuse or create a new one. The map grows only by number of unique
 	// sessions which is bounded.
 
-	// Clear external_agent_status and persist the paused screenshot path together.
+	// Mark the session stopped and persist the paused screenshot path together.
 	//
 	// Preserve an existing "restarting" marker because its caller owns the boot
-	// that follows this stop. Other statuses are cleared normally.
-	if dbSession, err := h.store.GetSession(ctx, sessionID); err == nil {
-		restarting := dbSession.Metadata.ExternalAgentStatus == "restarting"
-		if !restarting {
-			dbSession.Metadata.ExternalAgentStatus = ""
-			dbSession.Metadata.StatusMessage = ""
-		}
-		dbSession.Metadata.PausedScreenshotPath = screenshotPath
-		if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
-			log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update session after stop")
-		}
-	} else {
-		// Fallback: just clear the status the old way
-		h.setExternalAgentStatus(ctx, sessionID, "")
-		h.updateSessionStatusMessage(ctx, sessionID, "")
+	// that follows this stop.
+	dbSession, err := h.store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to load session to record stop")
+		return nil
+	}
+	if dbSession.Metadata.ExternalAgentStatus != "restarting" {
+		dbSession.Metadata.ExternalAgentStatus = "stopped"
+		dbSession.Metadata.StatusMessage = ""
+	}
+	dbSession.Metadata.PausedScreenshotPath = screenshotPath
+	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to update session after stop")
 	}
 
 	return nil
@@ -1315,7 +1330,7 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 			// (autoscaler would never see them released). Same guards
 			// as the StopDesktop decrement: was-tracked, not a golden
 			// build, real Runner row.
-			if stillTracked && !session.GoldenBuild && sandboxID != "" && sandboxID != "local" {
+			if stillTracked && !session.GoldenBuild && sandboxID != "" {
 				if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
 					log.Warn().Err(decErr).
 						Str("sandbox_id", sandboxID).
@@ -1387,8 +1402,6 @@ func (h *HydraExecutor) updateSessionStatusMessage(ctx context.Context, sessionI
 	}
 }
 
-// setExternalAgentStatus updates the session's external agent status in the database.
-// This controls which UI state the frontend shows (starting, running, stopped, etc.).
 // capturePausedScreenshot fetches a screenshot from the running desktop container
 // via RevDial and saves it to disk so it can be served after the container stops.
 // Returns the file path on success, empty string on any failure (best-effort).
@@ -1451,18 +1464,27 @@ func (h *HydraExecutor) pausedScreenshotPath(sessionID string) string {
 	return filepath.Join(filestoreRoot, "workspaces", "paused-screenshots", sessionID+".jpg")
 }
 
-func (h *HydraExecutor) setExternalAgentStatus(ctx context.Context, sessionID, status string) {
+// setExternalAgentLifecycle writes external_agent_status and status_message in
+// one update. The status controls which UI state the frontend shows (starting,
+// running, stopped, etc.); the message is shown alongside it.
+func (h *HydraExecutor) setExternalAgentLifecycle(ctx context.Context, sessionID, status, message string) {
 	dbSession, err := h.store.GetSession(ctx, sessionID)
 	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Str("status", status).Msg("Failed to load session to update external agent status")
 		return
 	}
-	if dbSession.Metadata.ExternalAgentStatus == status {
+	if dbSession.Metadata.ExternalAgentStatus == status && dbSession.Metadata.StatusMessage == message {
 		return
 	}
 	dbSession.Metadata.ExternalAgentStatus = status
+	dbSession.Metadata.StatusMessage = message
 	if _, err := h.store.UpdateSession(ctx, *dbSession); err != nil {
-		log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to update external agent status")
+		log.Warn().Err(err).Str("session_id", sessionID).Str("status", status).Msg("Failed to update external agent status")
 	}
+}
+
+func desktopStartFailedMessage(err error) string {
+	return "Desktop failed to start: " + err.Error()
 }
 
 // parseContainerType converts desktop type string to container type
@@ -1998,6 +2020,14 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 		return nil
 	}
 
+	runningContainers := filterRunningContainers(containerList.Containers)
+	activeContainers := 0
+	for _, container := range runningContainers {
+		if !container.IsGoldenBuild {
+			activeContainers++
+		}
+	}
+
 	// Resync active_sandboxes from ground truth FIRST, before any
 	// early-return on the empty-list case. hydra is the source of truth:
 	// if it reports 0 containers, the DB MUST become 0 too (otherwise a
@@ -2006,17 +2036,16 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	// prevent). SET (not Increment) writes the exact count, recovering
 	// from any drift accumulated by missed Increment/Decrement calls
 	// (API restart, hydra-side internal deletes, failed StopDesktop).
-	if sandboxID != "" && sandboxID != "local" {
-		if setErr := h.store.SetSandboxContainerCount(ctx, sandboxID, len(containerList.Containers)); setErr != nil {
+	if sandboxID != "" {
+		if setErr := h.store.SetSandboxContainerCount(ctx, sandboxID, activeContainers); setErr != nil {
 			log.Warn().
 				Err(setErr).
 				Str("sandbox_id", sandboxID).
-				Int("container_count", len(containerList.Containers)).
+				Int("container_count", activeContainers).
 				Msg("Failed to set active_sandboxes from discovery; counter may be stale")
 		}
 	}
 
-	runningContainers := filterRunningContainers(containerList.Containers)
 	if exited := len(containerList.Containers) - len(runningContainers); exited > 0 {
 		log.Info().
 			Str("sandbox_id", sandboxID).
@@ -2422,6 +2451,10 @@ func (h *HydraExecutor) ReconcileSandboxResources(ctx context.Context, sandboxID
 	return hydraClient.ReconcileGC(ctx, req)
 }
 
+// ErrDesktopLimitReached means the organization is at its concurrent-desktop
+// quota. The frontend matches on this text as an error prefix.
+var ErrDesktopLimitReached = errors.New("desktop limit reached")
+
 // checkLimits checks desktop limits for the user/org
 func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAgent) (*types.QuotaLimitReachedResponse, error) {
 	if h.parseContainerType(agent.DesktopType) == "headless" {
@@ -2485,8 +2518,7 @@ func (h *HydraExecutor) OnSandboxDisconnected(sandboxID string) {
 		session.Metadata.ContainerID = ""
 		session.Metadata.ContainerIP = ""
 		session.Metadata.ExternalAgentStatus = "stopped"
-		// Keep DesiredState unchanged so reconciler can restart when sandbox returns
-		session.SandboxID = "" // Clear sandbox association
+		// Keep DesiredState and SandboxID so the session restarts with its workspace.
 
 		if _, err := h.store.UpdateSession(ctx, *session); err != nil {
 			log.Warn().Err(err).

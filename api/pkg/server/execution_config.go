@@ -80,7 +80,7 @@ func (s *HelixAPIServer) resolveExecutionConfig(
 			SessionID: snapshotSessionID,
 			Page:      0,
 			PerPage:   20,
-			Order:     "created DESC",
+			Order:     "created DESC, id DESC",
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to load interactions: %w", err)
@@ -173,7 +173,7 @@ func (s *HelixAPIServer) validateCodeAgentOverrides(
 	if assistant.CodeAgentCredentialType.IsSubscription() && overrides.ProviderRef != "" {
 		return fmt.Errorf("subscription agents cannot override provider_ref")
 	}
-	snapshot, err := s.getProviderSnapshot(ctx, actorID, app)
+	snapshot, err := s.getProviderSnapshotForValidation(ctx, actorID, effectiveApp)
 	if err != nil {
 		return fmt.Errorf("failed to load providers: %w", err)
 	}
@@ -233,7 +233,7 @@ func (s *HelixAPIServer) validateCodeAgentExecutionConfig(
 	}
 
 	app := external_agent.AppFromCodeAgentConfig(config, ownerID, organizationID)
-	snapshot, err := s.getProviderSnapshot(ctx, actorID, app)
+	snapshot, err := s.getProviderSnapshotForValidation(ctx, actorID, app)
 	if err != nil {
 		return fmt.Errorf("failed to load providers: %w", err)
 	}
@@ -421,9 +421,23 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 	); err != nil {
 		return false, false, system.NewHTTPError400(err.Error())
 	}
+	recoverPrompts := func() *system.HTTPError {
+		resetCount, err := s.Store.ResetCrashedPromptsForSession(ctx, session.ID)
+		if err != nil {
+			return system.NewHTTPError500(fmt.Sprintf("failed to reset crashed prompts after saving code-agent config: %v", err))
+		}
+		recoveredProviderPrompt, err := s.recoverProviderFailedActivationAfterConfigChange(ctx, session)
+		if err != nil {
+			return system.NewHTTPError500(fmt.Sprintf("failed to recover provider-failed prompt after saving code-agent config: %v", err))
+		}
+		if resetCount > 0 || recoveredProviderPrompt {
+			go s.processAnyPendingPrompt(context.Background(), session.ID)
+		}
+		return nil
+	}
 	if reflect.DeepEqual(session.Metadata.CodeAgentConfig, config) &&
 		session.Metadata.CodeAgentOverrides == nil {
-		return false, false, nil
+		return false, false, recoverPrompts()
 	}
 
 	live := s.hasRunningAgentContainer(ctx, session.ID)
@@ -464,6 +478,9 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 	); switchErr != nil {
 		rollback()
 		return false, false, switchErr
+	}
+	if resetErr := recoverPrompts(); resetErr != nil {
+		return true, live, resetErr
 	}
 	return true, live, nil
 }

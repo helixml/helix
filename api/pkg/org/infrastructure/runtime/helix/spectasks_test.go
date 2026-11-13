@@ -490,7 +490,7 @@ func TestSpecTasks_ListAgentMessagesReturnsLatestChronologically(t *testing.T) {
 	if views[1].UserMessage != "second" || views[1].AgentMessage != "reply two" {
 		t.Errorf("second view = %+v", views[1])
 	}
-	if fs.lastInteractionQuery.SessionID != "ses_task" || fs.lastInteractionQuery.GenerationID != -1 || fs.lastInteractionQuery.Order != "id DESC" {
+	if fs.lastInteractionQuery.SessionID != "ses_task" || fs.lastInteractionQuery.GenerationID != -1 || fs.lastInteractionQuery.Order != "created DESC, id DESC" {
 		t.Errorf("query = %+v", fs.lastInteractionQuery)
 	}
 }
@@ -667,5 +667,162 @@ func TestSpecTasks_CreatePullRequestsDelegatesAndMapsPRs(t *testing.T) {
 	}
 	if len(view.PullRequests) != 1 {
 		t.Errorf("view PRs = %d, want 1", len(view.PullRequests))
+	}
+}
+
+type fakeProjectAuthorizer struct {
+	allowed map[string]bool // "user/project" → any action; "user/project/action" → that action only
+	calls   []string
+}
+
+func (f *fakeProjectAuthorizer) AuthorizeProject(_ context.Context, _ string, userID, projectID string, action types.Action) error {
+	f.calls = append(f.calls, userID+"/"+projectID)
+	if f.allowed[userID+"/"+projectID] || f.allowed[userID+"/"+projectID+"/"+string(action)] {
+		return nil
+	}
+	return errors.New("no access")
+}
+
+// Read access to an allowlisted project lets a Bot read its tasks but not
+// create or change them: each verb is authorized with its own action.
+func TestSpecTasks_CrossProjectActionsAreVerbSpecific(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-pm")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	if err := (&Hire{Store: &wrap.Store}).OnHire(context.Background(), "org-test", wid, "u-reader"); err != nil {
+		t.Fatalf("OnHire: %v", err)
+	}
+	bot, err := orgchart.NewNode(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	if err := wrap.Store.Nodes.Create(context.Background(), bot.WithProjectIDs([]string{"prj_other"})); err != nil {
+		t.Fatalf("create bot: %v", err)
+	}
+	fs := newFakeSpecTaskStore()
+	fs.projects["prj_other"] = &types.Project{ID: "prj_other", OrganizationID: "org-test"}
+	fs.tasks["task_o"] = &types.SpecTask{ID: "task_o", ProjectID: "prj_other", Status: types.TaskStatusBacklog}
+	auth := &fakeProjectAuthorizer{allowed: map[string]bool{"u-reader/prj_other/" + string(types.ActionGet): true}}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	st = st.WithProjectAuthorizer(auth)
+
+	if _, err := st.Get(context.Background(), "org-test", wid, "prj_other", "task_o"); err != nil {
+		t.Fatalf("read-only access must allow Get: %v", err)
+	}
+	if _, err := st.List(context.Background(), "org-test", wid, "prj_other", runtime.ListSpecTasksFilter{}); err != nil {
+		t.Fatalf("read-only access must allow List: %v", err)
+	}
+	if _, err := st.Create(context.Background(), "org-test", wid, "prj_other", runtime.CreateSpecTaskInput{Name: "x", Description: "y"}); err == nil {
+		t.Fatal("read-only access must not allow Create")
+	}
+	if len(fs.created) != 0 {
+		t.Fatalf("created %d tasks with read-only access", len(fs.created))
+	}
+	name := "renamed"
+	if _, err := st.Update(context.Background(), "org-test", wid, "prj_other", "task_o", runtime.UpdateSpecTaskInput{Name: &name}); err == nil {
+		t.Fatal("read-only access must not allow Update")
+	}
+	if _, err := st.StartPlanning(context.Background(), "org-test", wid, "prj_other", "task_o"); err == nil {
+		t.Fatal("read-only access must not allow StartPlanning")
+	}
+	if _, err := st.ApproveSpec(context.Background(), "org-test", wid, "prj_other", "task_o"); err == nil {
+		t.Fatal("read-only access must not allow ApproveSpec")
+	}
+	if len(fs.updated) != 0 {
+		t.Fatalf("updated %d tasks with read-only access", len(fs.updated))
+	}
+}
+
+// A Bot with no persisted hiring user is passed through with an empty user
+// id: the host picks whom it acts as instead of this package refusing.
+func TestSpecTasks_CrossProjectWithoutHiringUserAsksHost(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-legacy")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	bot, err := orgchart.NewNode(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	if err := wrap.Store.Nodes.Create(context.Background(), bot.WithProjectIDs([]string{"prj_other"})); err != nil {
+		t.Fatalf("create bot: %v", err)
+	}
+	fs := newFakeSpecTaskStore()
+	fs.projects["prj_other"] = &types.Project{ID: "prj_other", OrganizationID: "org-test"}
+	auth := &fakeProjectAuthorizer{allowed: map[string]bool{"/prj_other": true}}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	st = st.WithProjectAuthorizer(auth)
+	if _, err := st.List(context.Background(), "org-test", wid, "prj_other", runtime.ListSpecTasksFilter{}); err != nil {
+		t.Fatalf("host-approved access: %v", err)
+	}
+	if len(auth.calls) != 1 || auth.calls[0] != "/prj_other" {
+		t.Fatalf("authorizer calls = %v, want empty user against prj_other", auth.calls)
+	}
+}
+
+// An allowlisted project is reachable only when the Bot's hiring user may
+// access it; the Bot's own project never consults the authorizer.
+func TestSpecTasks_CrossProjectRequiresHiringUserAccess(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-pm")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	if err := (&Hire{Store: &wrap.Store}).OnHire(context.Background(), "org-test", wid, "u-hirer"); err != nil {
+		t.Fatalf("OnHire: %v", err)
+	}
+	bot, err := orgchart.NewNode(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	if err := wrap.Store.Nodes.Create(context.Background(), bot.WithProjectIDs([]string{"prj_other"})); err != nil {
+		t.Fatalf("create bot: %v", err)
+	}
+
+	fs := newFakeSpecTaskStore()
+	fs.projects["prj_mine"] = &types.Project{ID: "prj_mine", OrganizationID: "org-test"}
+	fs.projects["prj_other"] = &types.Project{ID: "prj_other", OrganizationID: "org-test"}
+	fs.tasks["task_o"] = &types.SpecTask{ID: "task_o", ProjectID: "prj_other", Status: types.TaskStatusBacklog}
+	auth := &fakeProjectAuthorizer{allowed: map[string]bool{}}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	st = st.WithProjectAuthorizer(auth)
+
+	if _, err := st.Get(context.Background(), "org-test", wid, "prj_other", "task_o"); err == nil {
+		t.Fatal("allowlisted project the hiring user cannot access must be rejected")
+	}
+	if _, err := st.Create(context.Background(), "org-test", wid, "prj_other", runtime.CreateSpecTaskInput{Name: "x", Description: "y"}); err == nil {
+		t.Fatal("create in a project the hiring user cannot access must be rejected")
+	}
+	if len(fs.created) != 0 {
+		t.Fatalf("created %d tasks after access rejection", len(fs.created))
+	}
+	if len(auth.calls) == 0 || auth.calls[0] != "u-hirer/prj_other" {
+		t.Fatalf("authorizer calls = %v, want hiring user against prj_other", auth.calls)
+	}
+
+	auth.allowed["u-hirer/prj_other"] = true
+	if _, err := st.Get(context.Background(), "org-test", wid, "prj_other", "task_o"); err != nil {
+		t.Fatalf("hiring user with access: %v", err)
+	}
+
+	// Own project: no authorizer round-trip.
+	before := len(auth.calls)
+	if _, err := st.List(context.Background(), "org-test", wid, "", runtime.ListSpecTasksFilter{}); err != nil {
+		t.Fatalf("own project list: %v", err)
+	}
+	if _, err := st.List(context.Background(), "org-test", wid, "prj_mine", runtime.ListSpecTasksFilter{}); err != nil {
+		t.Fatalf("own project list by id: %v", err)
+	}
+	if len(auth.calls) != before {
+		t.Fatalf("own project consulted the authorizer: %v", auth.calls[before:])
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,16 +97,24 @@ func Test_GetGLM53FlashPricing(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	require.NoError(t, err)
 
-	for _, modelID := range []string{"glm-5.3-flash", "z-ai/glm-5.3-flash"} {
-		t.Run(modelID, func(t *testing.T) {
+	tests := []struct {
+		modelID, providerModelID, slug string
+	}{
+		{"glm-5.3-flash", "glm-5.3-flash", "z-ai/glm-5.3-flash"},
+		{"z-ai/glm-5.3-flash", "glm-5.3-flash", "z-ai/glm-5.3-flash"},
+		{"glm-5.3-flash-uncensored", "glm-5.3-flash-uncensored", "z-ai/glm-5.3-flash-uncensored"},
+		{"z-ai/glm-5.3-flash-uncensored", "glm-5.3-flash-uncensored", "z-ai/glm-5.3-flash-uncensored"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.modelID, func(t *testing.T) {
 			modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
 				Provider: "bunker",
-				Model:    modelID,
+				Model:    tt.modelID,
 			})
 			require.NoError(t, err)
 
-			assert.Equal(t, "glm-5.3-flash", modelInfo.ProviderModelID)
-			assert.Equal(t, "z-ai/glm-5.3-flash", modelInfo.Slug)
+			assert.Equal(t, tt.providerModelID, modelInfo.ProviderModelID)
+			assert.Equal(t, tt.slug, modelInfo.Slug)
 			assert.Equal(t, 1_310_720, modelInfo.ContextLength)
 			assert.Equal(t, []types.Modality{
 				types.ModalityText,
@@ -119,6 +128,14 @@ func Test_GetGLM53FlashPricing(t *testing.T) {
 			assert.Equal(t, "0.00000015", modelInfo.Pricing.Prompt)
 			assert.Equal(t, "0.0000005", modelInfo.Pricing.Completion)
 			assert.Equal(t, "0.00000005", modelInfo.Pricing.InputCacheRead)
+
+			cost, err := pricing.CalculateTokenPrice(modelInfo, pricing.TokenUsage{
+				PromptTokens:     10,
+				CompletionTokens: 10,
+			})
+			require.NoError(t, err)
+			assert.Positive(t, cost.PromptCost)
+			assert.Positive(t, cost.CompletionCost)
 		})
 	}
 }

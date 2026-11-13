@@ -161,6 +161,15 @@ describe('hasLostBaseline', () => {
     ).toBe(true)
   })
 
+  it('accepts a full replacement when transcript ordering shifts an entry', () => {
+    expect(
+      hasLostBaseline(
+        [{ content: 'new answer', message_id: '4' }],
+        [{ index: 0, patch_offset: 0, message_id: '2' }],
+      ),
+    ).toBe(false)
+  })
+
   it('does not cry drift when a message_id is not yet known on either side', () => {
     // Freshly grown entries carry an empty message_id until their first patch.
     expect(

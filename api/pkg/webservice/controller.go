@@ -63,17 +63,40 @@ type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string,
 
 var errDeploySuperseded = errors.New("deploy superseded")
 
+// RecoveryDeferredError means recovery made no destructive change because the
+// pinned runner could not safely confirm readiness or teardown.
+type RecoveryDeferredError struct {
+	Reason string
+	Err    error
+}
+
+func (e *RecoveryDeferredError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("web service recovery deferred: %s: %v", e.Reason, e.Err)
+	}
+	return fmt.Sprintf("web service recovery deferred: %s", e.Reason)
+}
+
+func (e *RecoveryDeferredError) Unwrap() error { return e.Err }
+
+func IsRecoveryDeferred(err error) bool {
+	var deferred *RecoveryDeferredError
+	return errors.As(err, &deferred)
+}
+
 // Controller orchestrates project web service deploys.
 type Controller struct {
-	store            store.Store
-	sandboxes        *sandbox.Controller
-	provisionWait    time.Duration // upper bound for waiting for sandbox status=running
-	provisionPoll    time.Duration // poll interval while waiting
-	bootstrapWait    time.Duration // upper bound for the in-place deploy exec (clone/fetch/launch)
-	readinessWait    time.Duration // upper bound for waiting for the app to bind to its port
-	readinessPoll    time.Duration // poll interval while waiting
-	deployRunLocks   sync.Map      // map[project_id]*sync.Mutex
-	deployStateLocks sync.Map      // map[project_id]*sync.Mutex
+	store                    store.Store
+	sandboxes                *sandbox.Controller
+	provisionWait            time.Duration // upper bound for waiting for sandbox status=running
+	provisionPoll            time.Duration // poll interval while waiting
+	bootstrapWait            time.Duration // upper bound for the in-place deploy exec (clone/fetch/launch)
+	readinessWait            time.Duration // upper bound for waiting for the app to bind to its port
+	readinessPoll            time.Duration // poll interval while waiting
+	deployRunLocks           sync.Map      // map[project_id]*sync.Mutex
+	deployStateLocks         sync.Map      // map[project_id]*sync.Mutex
+	hostReadyForReplacement  func(context.Context, *types.Sandbox) (bool, string)
+	deleteSandboxForRecovery func(context.Context, string) error
 
 	// getProjectSecrets, when set, supplies prod-scoped project secrets to
 	// inject into the web service container env. Optional — nil means no
@@ -86,7 +109,7 @@ type Controller struct {
 // cold-start plus a generous window for the app to bind its port.
 // (Web-service deploys source .helix/startup.sh from the helix-specs branch.)
 func New(s store.Store, sc *sandbox.Controller) *Controller {
-	return &Controller{
+	c := &Controller{
 		store:         s,
 		sandboxes:     sc,
 		provisionWait: 3 * time.Minute,
@@ -100,6 +123,9 @@ func New(s store.Store, sc *sandbox.Controller) *Controller {
 		readinessWait: 10 * time.Minute,
 		readinessPoll: 3 * time.Second,
 	}
+	c.hostReadyForReplacement = sc.HostReadyForReplacement
+	c.deleteSandboxForRecovery = sc.DeleteForRecovery
+	return c
 }
 
 // SetProjectSecretsGetter wires the prod-scoped secret injection callback.
@@ -265,9 +291,17 @@ func (c *Controller) runDeploy(
 	}
 
 	// Deploy the requested code in place (stops the old app first).
-	if err := c.deployInPlace(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort, gitToken); err != nil {
+	deployedSHA, err := c.deployInPlace(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort, gitToken)
+	if err != nil {
 		c.markFailedIfCurrent(ctx, req.ProjectID, deployID, sb.ID, fmt.Sprintf("deploy: %s", err))
 		return
+	}
+	// Record what was actually checked out — it is the rollback baseline for
+	// the next deploy, and a branch-tip deploy has no SHA until now.
+	if deployedSHA != "" {
+		if err := c.store.UpdateWebServiceDeploy(ctx, deployID, map[string]interface{}{"commit_sha": deployedSHA}); err != nil {
+			log.Warn().Err(err).Str("deploy_id", deployID).Msg("failed to record deployed commit")
+		}
 	}
 
 	// Poll the container port until the app responds. We treat any HTTP
@@ -487,6 +521,9 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) (*
 	}
 
 	sb, sbErr := c.sandboxes.Get(ctx, state.ActiveSandboxID)
+	if sbErr != nil && !errors.Is(sbErr, store.ErrNotFound) {
+		return nil, fmt.Errorf("get active sandbox %s: %w", state.ActiveSandboxID, sbErr)
+	}
 
 	// In-place-first: don't overreact to a transient blip. The monitor fires
 	// recovery after 3 failed probes, but a control-plane restart (e.g. a CD
@@ -502,6 +539,33 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) (*
 				Msg("health-monitor: web service healthy on re-probe — skipping recovery (transient blip, e.g. RevDial reconnect)")
 			return nil, nil
 		}
+	}
+
+	replacementTarget := sb
+	if replacementTarget == nil {
+		replacementTarget = &types.Sandbox{
+			ID:           state.ActiveSandboxID,
+			Runtime:      types.SandboxRuntimeUbuntuDesktop,
+			Persistent:   true,
+			HostDeviceID: state.HostDeviceID,
+		}
+	}
+	if replacementTarget.HostDeviceID == "" && state.HostDeviceID != "" {
+		copy := *replacementTarget
+		copy.HostDeviceID = state.HostDeviceID
+		replacementTarget = &copy
+	}
+	if replacementTarget.HostDeviceID == "" {
+		return nil, &RecoveryDeferredError{Reason: "active sandbox pinned runner is unknown"}
+	}
+	if ready, why := c.hostReadyForReplacement(ctx, replacementTarget); !ready {
+		return nil, &RecoveryDeferredError{Reason: why}
+	}
+	if state.HostDeviceID != replacementTarget.HostDeviceID {
+		if err := c.store.SetWebServiceHostDeviceID(ctx, projectID, replacementTarget.HostDeviceID); err != nil {
+			return nil, fmt.Errorf("record web service runner pin: %w", err)
+		}
+		state.HostDeviceID = replacementTarget.HostDeviceID
 	}
 
 	recreate := false
@@ -529,24 +593,14 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) (*
 		// carry restart=unless-stopped, so leaving them alone means the
 		// service comes back on its own the moment the runner recovers, with
 		// no deploy at all.
-		if ready, why := c.sandboxes.HostReadyForReplacement(ctx, sb); !ready {
-			log.Error().
-				Str("project_id", projectID).
-				Str("sandbox_id", state.ActiveSandboxID).
-				Str("probe_reason", reason).
-				Str("host_reason", why).
-				Msg("health-monitor: NOT recreating web-service sandbox — its runner cannot take a replacement, so the existing container is left in place")
-			// Reported as a failed recovery on purpose: it grows the monitor's
-			// backoff and drives helix_webservice_consecutive_recovery_failures,
-			// so HelixWebServiceRecoveryLooping pages a human for what is an
-			// infrastructure problem we cannot fix by redeploying.
-			return nil, fmt.Errorf("refusing destructive recovery: %s (probe reported: %s)", why, reason)
-		}
 		log.Warn().Str("project_id", projectID).Str("sandbox_id", state.ActiveSandboxID).
 			Str("reason", reason).Msg("health-monitor: recreating web-service sandbox")
-		if delErr := c.sandboxes.Delete(context.Background(), state.ActiveSandboxID); delErr != nil {
-			log.Warn().Err(delErr).Str("sandbox_id", state.ActiveSandboxID).
-				Msg("health-monitor: failed to delete broken sandbox (continuing to redeploy)")
+		if delErr := c.deleteSandboxForRecovery(ctx, state.ActiveSandboxID); delErr != nil {
+			var unconfirmed *sandbox.RecoveryTeardownUnconfirmedError
+			if errors.As(delErr, &unconfirmed) {
+				return nil, &RecoveryDeferredError{Reason: "old sandbox teardown was not confirmed", Err: delErr}
+			}
+			return nil, fmt.Errorf("delete broken sandbox: %w", delErr)
 		}
 	} else {
 		log.Info().Str("project_id", projectID).Str("reason", reason).
@@ -571,19 +625,36 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 	if state.ActiveSandboxID != "" {
 		sb, err := c.sandboxes.Get(ctx, state.ActiveSandboxID)
 		if err == nil && sb != nil {
+			if sb.HostDeviceID == "" {
+				return nil, fmt.Errorf("web service sandbox %s has no pinned runner; refusing to deploy against persistent data", sb.ID)
+			}
+			if state.HostDeviceID != sb.HostDeviceID {
+				if err := c.store.SetWebServiceHostDeviceID(ctx, project.ID, sb.HostDeviceID); err != nil {
+					return nil, fmt.Errorf("record web service runner pin: %w", err)
+				}
+				state.HostDeviceID = sb.HostDeviceID
+			}
 			if sb.Status != types.SandboxStatusRunning {
 				return nil, fmt.Errorf("web service sandbox %s is not running (status=%s); its pinned runner may be offline — refusing to relocate (data is on the original runner)", sb.ID, sb.Status)
 			}
 			return sb, nil
 		}
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("get web service sandbox %s: %w", state.ActiveSandboxID, err)
+		}
+		if state.HostDeviceID == "" {
+			return nil, fmt.Errorf("web service sandbox %s is gone and its pinned runner is unknown; refusing to relocate persistent data", state.ActiveSandboxID)
+		}
 		// Row gone (deleted): fall through and provision a fresh one. The
-		// durable /data dir is keyed by project, so it is reattached.
+		// durable /data dir is keyed by project on the pinned runner, so it is
+		// reattached there.
 		log.Warn().Err(err).Str("project_id", project.ID).Str("sandbox_id", state.ActiveSandboxID).
 			Msg("recorded web-service sandbox is gone; provisioning a fresh one (durable /data is project-keyed and reattaches)")
 	}
 
 	createReq := &types.CreateSandboxRequest{
-		Name: fmt.Sprintf("web-service-%s", project.ID),
+		Name:         fmt.Sprintf("web-service-%s", project.ID),
+		HostDeviceID: state.HostDeviceID,
 		// The web service hosts whole docker-compose stacks, so it needs a
 		// Docker daemon. The desktop runtime is the Docker-capable image
 		// (privileged, ships dockerd + docker compose, gets the
@@ -610,13 +681,13 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 		switch latest.Status {
 		case types.SandboxStatusRunning:
 			// Record this sandbox as active and pin the project to its runner.
-			if err := c.store.SetActiveWebServiceSandbox(ctx, project.ID, latest.ID); err != nil {
-				log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to record active web-service sandbox")
-			}
 			if latest.HostDeviceID != "" {
 				if err := c.store.SetWebServiceHostDeviceID(ctx, project.ID, latest.HostDeviceID); err != nil {
-					log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to record web-service runner pin")
+					return nil, fmt.Errorf("record web service runner pin: %w", err)
 				}
+			}
+			if err := c.store.SetActiveWebServiceSandbox(ctx, project.ID, latest.ID); err != nil {
+				return nil, fmt.Errorf("record active web service sandbox: %w", err)
 			}
 			return latest, nil
 		case types.SandboxStatusFailed, types.SandboxStatusStopped:
@@ -642,13 +713,13 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 // Prod-scoped project secrets are injected via the exec environment (see
 // projectSecretEnv) so they reach startup.sh without being written into the
 // command line or logs.
-func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int, gitToken string) error {
+func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int, gitToken string) (string, error) {
 	hydraClient, err := c.sandboxes.HydraClient(sb)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	script := deployScript(deployCloneURL(repo), sha, repoDirName(repo), containerPort)
+	script := deployScript(deployCloneURL(repo), sha, repo.DefaultBranch, repoDirName(repo), containerPort)
 
 	// Inject prod-scoped project secrets via the exec environment (NOT inlined
 	// into the shell script) so the values don't leak into command logs. The
@@ -671,15 +742,28 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 		TimeoutSeconds: int(c.bootstrapWait.Seconds()),
 	})
 	if execErr != nil {
-		return execErr
+		return "", execErr
 	}
 	// The bootstrap backgrounds the app and exits 0 on success. A non-zero exit
 	// means clone/fetch/launch failed — fail the deploy now rather than waiting
 	// out the full readiness window against an app that will never bind.
 	if resp != nil && resp.ExitCode != nil && *resp.ExitCode != 0 {
-		return fmt.Errorf("bootstrap exited %d: %s", *resp.ExitCode, strings.TrimSpace(resp.Stderr+resp.Stdout))
+		return "", fmt.Errorf("bootstrap exited %d: %s", *resp.ExitCode, strings.TrimSpace(resp.Stderr+resp.Stdout))
 	}
-	return nil
+	if resp == nil {
+		return "", nil
+	}
+	return deployedSHAFromOutput(resp.Stdout), nil
+}
+
+// deployedSHAFromOutput reads the commit the deploy script reported checking out.
+func deployedSHAFromOutput(stdout string) string {
+	for _, line := range strings.Split(stdout, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), deployedSHAMarker); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 func deployCloneURL(repo *types.GitRepository) string {
@@ -744,7 +828,7 @@ func (c *Controller) rollback(ctx context.Context, sb *types.Sandbox, repo *type
 		log.Warn().Str("sandbox_id", sb.ID).Msg("deploy failed and no previous commit to roll back to; app left stopped")
 		return
 	}
-	if err := c.deployInPlace(ctx, sb, repo, projectID, previousSHA, containerPort, gitToken); err != nil {
+	if _, err := c.deployInPlace(ctx, sb, repo, projectID, previousSHA, containerPort, gitToken); err != nil {
 		log.Error().Err(err).Str("sandbox_id", sb.ID).Str("rollback_sha", previousSHA).Msg("rollback to previous commit failed")
 		return
 	}
@@ -800,18 +884,31 @@ func repoDirName(repo *types.GitRepository) string {
 //   - startup.sh is invoked with CWD = the code dir and
 //     $0 = $SPECS/.helix/startup.sh.
 //
-// It stops any previously-launched app (tracked via a pidfile under /data)
-// BEFORE starting the new one, guaranteeing a single writer of the durable
-// /data dir. The app is launched in its own session (setsid) so we can stop its
-// whole process group on the next deploy. It receives HELIX_WEB_SERVICE_PORT
-// and HELIX_WEB_SERVICE_DATA_DIR=/data — apps put their database/uploads under
-// the latter so state survives redeploys and reboots.
-func deployScript(cloneURL, sha, codeDir string, containerPort int) string {
+// It prepares the new checkout before stopping any previously-launched app
+// (tracked via a pidfile under /data), then starts the replacement. This keeps
+// the old app serving when repository preparation fails while guaranteeing a
+// single writer of the durable /data dir during startup. The app is launched
+// in its own session (setsid) so we can stop its whole process group on the
+// next deploy. It receives HELIX_WEB_SERVICE_PORT and
+// HELIX_WEB_SERVICE_DATA_DIR=/data — apps put their database/uploads under the
+// latter so state survives redeploys and reboots.
+// deployedSHAMarker prefixes the line on which the deploy script reports the
+// commit it checked out.
+const deployedSHAMarker = "HELIX_DEPLOYED_SHA="
+
+func deployScript(cloneURL, sha, defaultBranch, codeDir string, containerPort int) string {
 	code := "/workspace/" + codeDir
-	checkout := ""
-	if sha != "" {
-		checkout = "git -C " + shellEscape(code) + " checkout " + shellEscape(sha)
+	// No SHA means the tip of the default branch. The fetch alone only moves
+	// origin/*, so it must be checked out explicitly or a redeploy rebuilds
+	// whatever the first clone left in the worktree.
+	ref := "origin/HEAD"
+	if defaultBranch != "" {
+		ref = "origin/" + defaultBranch
 	}
+	if sha != "" {
+		ref = sha
+	}
+	checkout := "git -c safe.directory=" + shellEscape(code) + " -C " + shellEscape(code) + " checkout --detach " + shellEscape(ref)
 	return strings.Join([]string{
 		"set -e",
 		"mkdir -p /data /workspace",
@@ -819,17 +916,6 @@ func deployScript(cloneURL, sha, codeDir string, containerPort int) string {
 		"LOGFILE=/data/.helix-webservice.log",
 		"CODE=" + shellEscape(code),
 		"SPECS=/workspace/helix-specs",
-		// Stop the previous app instance (single-writer guarantee). setsid made
-		// it a group leader, so PID == PGID and `kill -- -PID` stops the group.
-		`if [ -f "$PIDFILE" ]; then`,
-		`  OLDPID=$(cat "$PIDFILE" 2>/dev/null || true)`,
-		`  if [ -n "$OLDPID" ]; then`,
-		`    kill -TERM -"$OLDPID" 2>/dev/null || kill -TERM "$OLDPID" 2>/dev/null || true`,
-		`    for _ in $(seq 1 30); do kill -0 "$OLDPID" 2>/dev/null || break; sleep 1; done`,
-		`    kill -KILL -"$OLDPID" 2>/dev/null || true`,
-		`  fi`,
-		`  rm -f "$PIDFILE"`,
-		"fi",
 		// Embed the deploy token (passed via env, not the script string) into
 		// the clone URL so git can authenticate to Helix's private git server.
 		"CLONE_URL=" + shellEscape(cloneURL),
@@ -839,10 +925,11 @@ func deployScript(cloneURL, sha, codeDir string, containerPort int) string {
 		`if [ ! -d "$CODE/.git" ]; then`,
 		`  git clone --depth 50 "$CLONE_URL" "$CODE"`,
 		`else`,
-		`  git -C "$CODE" remote set-url origin "$CLONE_URL"`,
+		`  git -c safe.directory="$CODE" -C "$CODE" remote set-url origin "$CLONE_URL"`,
 		`fi`,
-		`git -C "$CODE" fetch --all`,
+		`git -c safe.directory="$CODE" -C "$CODE" fetch --all`,
 		checkout,
+		`echo "` + deployedSHAMarker + `$(git -c safe.directory="$CODE" -C "$CODE" rev-parse HEAD)"`,
 		// The startup script is sourced exclusively from the project's
 		// helix-specs branch (its canonical Helix-metadata branch) — never from
 		// the deployed app branch — so there is a single definition of how the
@@ -850,19 +937,36 @@ func deployScript(cloneURL, sha, codeDir string, containerPort int) string {
 		// detached at the fetched tip so redeploys never hit a branch-checkout
 		// conflict; remove any stale worktree first. Shallow clone implies
 		// --single-branch, so helix-specs must be fetched explicitly.
-		`git -C "$CODE" worktree remove --force "$SPECS" 2>/dev/null || true`,
+		`git -c safe.directory="$CODE" -C "$CODE" worktree remove --force "$SPECS" 2>/dev/null || true`,
 		`rm -rf "$SPECS"`,
-		`git -C "$CODE" fetch --depth 1 origin helix-specs`,
-		`git -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
+		`git -c safe.directory="$CODE" -C "$CODE" fetch --depth 1 origin helix-specs`,
+		`git -c safe.directory="$CODE" -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
 		`if [ ! -f "$SPECS/.helix/startup.sh" ]; then`,
 		`  echo 'No .helix/startup.sh found on the helix-specs branch' >&2; exit 2`,
 		`fi`,
 		`chmod +x "$SPECS/.helix/startup.sh" 2>/dev/null || true`,
+		`STARTUP_USER=()`,
+		`if [ "${HELIX_ROOTLESS_CONTAINER_ENGINE:-}" = "1" ]; then`,
+		`  chown -hR retro:retro "$CODE" "$SPECS"`,
+		`  STARTUP_USER=(gosu retro env HOME=/home/retro USER=retro LOGNAME=retro XDG_RUNTIME_DIR=/run/user/1000)`,
+		`fi`,
+		// Stop the previous app only after the replacement checkout is ready.
+		// setsid made it a group leader, so PID == PGID and `kill -- -PID`
+		// stops the group.
+		`if [ -f "$PIDFILE" ]; then`,
+		`  OLDPID=$(cat "$PIDFILE" 2>/dev/null || true)`,
+		`  if [ -n "$OLDPID" ]; then`,
+		`    kill -TERM -"$OLDPID" 2>/dev/null || kill -TERM "$OLDPID" 2>/dev/null || true`,
+		`    for _ in $(seq 1 30); do kill -0 "$OLDPID" 2>/dev/null || break; sleep 1; done`,
+		`    kill -KILL -"$OLDPID" 2>/dev/null || true`,
+		`  fi`,
+		`  rm -f "$PIDFILE"`,
+		"fi",
 		// Invoke exactly like the spec-task runner (helix-run-startup-script.sh):
 		// CWD = code root, $0 = the sibling helix-specs worktree. setsid → own
 		// process group for a clean stop on the next deploy.
 		`cd "$CODE"`,
-		fmt.Sprintf(`setsid env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash "$SPECS/.helix/startup.sh" >"$LOGFILE" 2>&1 &`, containerPort),
+		fmt.Sprintf(`setsid "${STARTUP_USER[@]}" env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash "$SPECS/.helix/startup.sh" >"$LOGFILE" 2>&1 &`, containerPort),
 		`echo $! > "$PIDFILE"`,
 	}, "\n")
 }
@@ -1061,4 +1165,32 @@ func (c *Controller) markSupersededPrevious(ctx context.Context, currentDeployID
 // shellEscape returns a single-quoted string safe for /bin/sh.
 func shellEscape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// Teardown removes a project's web service for good: its public routes, its
+// sandbox (container and row), and its enabled state, so the health monitor
+// stops watching it. Deleting a project calls it; without it the container
+// and its public hostname outlived the project.
+func (c *Controller) Teardown(ctx context.Context, projectID string) error {
+	state, err := c.store.GetProjectWebServiceState(ctx, projectID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("get web service state: %w", err)
+	}
+	if err := c.store.DeleteVHostRoutesByTarget(ctx, types.VHostTargetProjectWebService, projectID); err != nil {
+		return fmt.Errorf("delete web service routes: %w", err)
+	}
+	if state.ActiveSandboxID != "" {
+		if err := c.sandboxes.Delete(ctx, state.ActiveSandboxID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("delete web service sandbox %s: %w", state.ActiveSandboxID, err)
+		}
+	}
+	state.Enabled = false
+	state.ActiveSandboxID = ""
+	if err := c.store.UpsertProjectWebServiceState(ctx, state); err != nil {
+		return fmt.Errorf("disable web service state: %w", err)
+	}
+	return nil
 }

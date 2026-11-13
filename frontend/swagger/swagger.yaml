@@ -136,6 +136,11 @@ definitions:
     type: object
   api.BotDTO:
     properties:
+      activation_error:
+        description: |-
+          ActivationError is the latest completed activation failure. It clears
+          when a newer activation starts or succeeds.
+        type: string
       agent_model:
         type: string
       agent_runtime:
@@ -146,6 +151,12 @@ definitions:
         description: |-
           AgentWorkState is "working" only while the running Bot's latest
           interaction is still waiting for its external agent.
+      can_edit:
+        description: |-
+          CanEdit is true when the caller may change this Bot: organization
+          owners and platform admins, or a member who may update the Bot's
+          agent app. The UI hides edit, delete and re-parent controls when false.
+        type: boolean
       code_agent_credential_type:
         $ref: '#/definitions/types.CodeAgentCredentialType'
       code_agent_runtime:
@@ -190,6 +201,8 @@ definitions:
         items:
           type: string
         type: array
+      portrait_index:
+        type: integer
       preserve_context:
         description: |-
           PreserveContext, when true, stops the runtime from wiping this
@@ -1802,6 +1815,17 @@ definitions:
       hostname:
         type: string
     type: object
+  server.AdminCreateServiceAccountRequest:
+    properties:
+      display_name:
+        type: string
+      organization_name:
+        description: |-
+          OrganizationName is the URL-safe name of the organization the account
+          owns. It is the idempotency key: asking again for the same name returns
+          the same account and organization.
+        type: string
+    type: object
   server.AdminOrganizationsResponse:
     properties:
       organizations:
@@ -1816,6 +1840,13 @@ definitions:
         type: integer
       totalPages:
         type: integer
+    type: object
+  server.AdminServiceAccount:
+    properties:
+      organization:
+        $ref: '#/definitions/types.Organization'
+      user:
+        $ref: '#/definitions/types.User'
     type: object
   server.AgentConfigAppliedResponse:
     properties:
@@ -2103,6 +2134,8 @@ definitions:
       ip_address:
         description: Network info for RevDial/screenshot-server connections
         type: string
+      is_golden_build:
+        type: boolean
       memory_mb:
         type: integer
       organization_id:
@@ -3766,24 +3799,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - local
-    - helix_events
     - github
-    - cron
-    - gitlab
+    - helix_events
     - webhook
+    - cron
     - slack
+    - gitlab
     - email
+    - local
     type: string
     x-enum-varnames:
-    - KindLocal
-    - KindHelixEvents
     - KindGitHub
-    - KindCron
-    - KindGitLab
+    - KindHelixEvents
     - KindWebhook
+    - KindCron
     - KindSlack
+    - KindGitLab
     - KindEmail
+    - KindLocal
   transport.ResolvedActivation:
     properties:
       address:
@@ -3832,6 +3865,12 @@ definitions:
     - APIkeytypeApp
     - APIkeytypeEmbed
     - APIkeytypeBotInstance
+  types.AcceptInvitationRequest:
+    properties:
+      token:
+        description: Token is the invitation's secret token from the invite link.
+        type: string
+    type: object
   types.AccessGrant:
     properties:
       created_at:
@@ -4139,6 +4178,12 @@ definitions:
         $ref: '#/definitions/sql.NullString'
       created:
         type: string
+      embed_interactive:
+        description: |-
+          EmbedInteractive lets an embed key also DRIVE its one session's desktop
+          (keyboard, mouse, clipboard). Off for public embeds; set for an operator
+          that embeds a tenant's own agent for that tenant. Ignored on other types.
+        type: boolean
       key:
         type: string
       name:
@@ -4360,17 +4405,7 @@ definitions:
     type: object
   types.AssistantBrowser:
     properties:
-      cache:
-        description: If true, the browser will cache the results of the tool call
-        type: boolean
       enabled:
-        type: boolean
-      markdown_post_processing:
-        description: If true, the browser will return the HTML as markdown
-        type: boolean
-      no_browser:
-        description: If true, the browser will not be used to open URLs, it will be
-          a simple GET request
         type: boolean
       process_output:
         description: If true, the browser will process the output of the tool call
@@ -4922,12 +4957,14 @@ definitions:
     enum:
     - regular
     - oidc
+    - service
     type: string
     x-enum-comments:
       AuthProviderRegular: Embedded in Helix, no external dependencies
     x-enum-varnames:
     - AuthProviderRegular
     - AuthProviderOIDC
+    - AuthProviderService
   types.AuthenticatedResponse:
     properties:
       authenticated:
@@ -4955,6 +4992,12 @@ definitions:
     properties:
       enabled:
         type: boolean
+      webhook_secret:
+        description: |-
+          WebhookSecret authenticates deliveries to /api/v1/webhooks/{id}.
+          Generated by the server when the trigger is saved; deliveries without
+          it are rejected.
+        type: string
     type: object
   types.Bitbucket:
     properties:
@@ -5703,6 +5746,15 @@ definitions:
         description: '"approve" or "reject"'
         type: string
     type: object
+  types.ConnectRequiredError:
+    properties:
+      code:
+        type: string
+      connect_url:
+        type: string
+      provider:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+    type: object
   types.ContainerDiskUsage:
     properties:
       container_id:
@@ -5888,6 +5940,72 @@ definitions:
       id:
         type: string
       message:
+        type: string
+    type: object
+  types.CreateRepoFromTemplateRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      owner:
+        type: string
+      private:
+        description: Private defaults to true when omitted.
+        type: boolean
+      provider:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+      template:
+        description: Template is the github.com template repository as "owner/repo".
+        type: string
+    type: object
+  types.CreateRepoFromTemplateResponse:
+    properties:
+      clone_url:
+        type: string
+      default_branch:
+        type: string
+      full_name:
+        type: string
+      html_url:
+        type: string
+      provider:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+    type: object
+  types.CreateRunnerTokenRequest:
+    properties:
+      name:
+        type: string
+      runner_id:
+        type: string
+    type: object
+  types.CreateRunnerTokenResponse:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      revoked_at:
+        type: string
+      revoked_by:
+        description: |-
+          RevokedBy is the user who revoked the token. With CreatedBy and the
+          timestamps, the row is the token's durable audit record; the request
+          audit log has the full requests.
+        type: string
+      runner_id:
+        description: |-
+          RunnerID is the host this token may act as. A host registers RevDial
+          tunnels as "hydra-{id}" and "sandbox-{id}" and calls the sandbox and
+          runner routes with the bare id; all of those match (RunnerIDsMatch).
+        type: string
+      token:
+        type: string
+      token_prefix:
         type: string
     type: object
   types.CreateSampleRepositoryRequest:
@@ -6718,6 +6836,31 @@ definitions:
       personal_access_token:
         type: string
     type: object
+  types.GitOwner:
+    properties:
+      avatar_url:
+        type: string
+      id:
+        description: ID is the GitHub account id, or the GitLab namespace id.
+        type: integer
+      kind:
+        $ref: '#/definitions/types.GitOwnerKind'
+      login:
+        description: |-
+          Login is the owner to pass to CreateRepoFromTemplateRequest.Owner: the
+          GitHub login/org name, or the GitLab user path / group full path.
+        type: string
+    type: object
+  types.GitOwnerKind:
+    enum:
+    - user
+    - org
+    - group
+    type: string
+    x-enum-varnames:
+    - GitOwnerKindUser
+    - GitOwnerKindOrg
+    - GitOwnerKindGroup
   types.GitProviderConnection:
     properties:
       avatar_url:
@@ -6770,6 +6913,95 @@ definitions:
       provider_type:
         $ref: '#/definitions/types.ExternalRepositoryType'
       token:
+        type: string
+    type: object
+  types.GitPullRequest:
+    properties:
+      author_id:
+        type: string
+      author_login:
+        type: string
+      base_branch:
+        type: string
+      base_sha:
+        type: string
+      body:
+        type: string
+      closed_at:
+        type: string
+      created_at:
+        type: string
+      head_branch:
+        type: string
+      head_sha:
+        type: string
+      id:
+        type: string
+      merge_commit_sha:
+        type: string
+      merged:
+        type: boolean
+      merged_at:
+        type: string
+      merged_by:
+        type: string
+      number:
+        type: integer
+      repository_id:
+        type: string
+      state:
+        $ref: '#/definitions/types.GitPullRequestState'
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.GitPullRequestDetail:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/types.InternalPRFile'
+        type: array
+      html_url:
+        type: string
+      mergeable:
+        type: boolean
+      pull_request:
+        $ref: '#/definitions/types.GitPullRequest'
+      spec_task_id:
+        description: The spec task whose work this pull request carries, if any.
+        type: string
+      spec_task_name:
+        type: string
+      spec_task_project_id:
+        type: string
+    type: object
+  types.GitPullRequestMergeRequest:
+    properties:
+      commit_message:
+        type: string
+      commit_title:
+        type: string
+      merge_method:
+        description: merge (the only supported method)
+        type: string
+    type: object
+  types.GitPullRequestState:
+    enum:
+    - open
+    - closed
+    type: string
+    x-enum-varnames:
+    - GitPullRequestStateOpen
+    - GitPullRequestStateClosed
+  types.GitPullRequestUpdate:
+    properties:
+      body:
+        type: string
+      state:
+        description: open | closed
+        type: string
+      title:
         type: string
     type: object
   types.GitRepository:
@@ -6826,6 +7058,13 @@ definitions:
         type: boolean
       last_activity:
         type: string
+      last_sync_at:
+        description: Last successful upstream fetch or push
+        type: string
+      last_sync_error:
+        description: Error from the most recent failed upstream operation; cleared
+          on success
+        type: string
       local_path:
         description: Local filesystem path for Helix-hosted repos (empty for external)
         type: string
@@ -6852,6 +7091,9 @@ definitions:
         $ref: '#/definitions/types.GitRepositoryType'
       status:
         $ref: '#/definitions/types.GitRepositoryStatus'
+      sync_in_progress_since:
+        description: Set while an upstream operation is running
+        type: string
       updated_at:
         type: string
       username:
@@ -6885,6 +7127,13 @@ definitions:
         $ref: '#/definitions/types.GitHub'
       gitlab:
         $ref: '#/definitions/types.GitLab'
+      initial_executable_files:
+        description: |-
+          InitialExecutableFiles lists paths in InitialFiles committed as executable
+          (mode 100755), e.g. scripts a template expects to run as ./script.
+        items:
+          type: string
+        type: array
       initial_files:
         additionalProperties:
           type: string
@@ -7253,6 +7502,64 @@ definitions:
     - InteractionStateComplete
     - InteractionStateError
     - InteractionStateInterrupted
+  types.InteractiveEmbedModel:
+    properties:
+      context_length:
+        type: integer
+      description:
+        type: string
+      id:
+        type: string
+      input_modalities:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      reasoning_efforts:
+        $ref: '#/definitions/types.ReasoningEffortProfile'
+    type: object
+  types.InteractiveEmbedModelResponse:
+    properties:
+      agent_thread_restarted:
+        type: boolean
+      model:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/types.InteractiveEmbedModel'
+        type: array
+      runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+    type: object
+  types.InteractiveEmbedModelUpdateRequest:
+    properties:
+      model:
+        type: string
+    type: object
+  types.InternalPRFile:
+    properties:
+      additions:
+        type: integer
+      changes:
+        type: integer
+      deletions:
+        type: integer
+      filename:
+        type: string
+      patch:
+        type: string
+      previous_filename:
+        type: string
+      status:
+        description: added | modified | removed | renamed
+        type: string
+    type: object
+  types.InvitationLinkResponse:
+    properties:
+      url:
+        type: string
+    type: object
   types.Item:
     properties:
       b64_json:
@@ -7888,6 +8195,15 @@ definitions:
         description: nil if no conflict
         type: string
     type: object
+  types.NativeDisplay:
+    properties:
+      height:
+        type: integer
+      width:
+        type: integer
+      zoom_level:
+        type: integer
+    type: object
   types.OAuthConnection:
     properties:
       access_token:
@@ -8381,6 +8697,11 @@ definitions:
     properties:
       email:
         type: string
+      email_verified:
+        description: |-
+          EmailVerified — the existing account has been shown to own the address.
+          Adding by email only adds such an account; otherwise it is invited.
+        type: boolean
       exists:
         description: a Helix user account exists with this email
         type: boolean
@@ -8807,8 +9128,17 @@ definitions:
       guidelines_version:
         description: Incremented on each update
         type: integer
+      helix_repo_pull_requests:
+        description: |-
+          HelixRepoPullRequests: agents deliver work on the project's Helix-hosted
+          repositories as pull requests (propose_pull_request, reviewed and merged
+          on the Helix PR page) instead of Accept landing their branch. External
+          repositories always use pull requests.
+        type: boolean
       id:
         type: string
+      implementation_limit:
+        type: integer
       kodit_enabled:
         type: boolean
       last_activity_at:
@@ -9205,6 +9535,9 @@ definitions:
       guidelines:
         description: Project-specific AI agent guidelines
         type: string
+      helix_repo_pull_requests:
+        description: Agents deliver work on Helix-hosted repos as pull requests
+        type: boolean
       kodit_enabled:
         description: Whether Kodit code intelligence is enabled
         type: boolean
@@ -9513,6 +9846,23 @@ definitions:
     - ProviderEndpointTypeUser
     - ProviderEndpointTypeOrg
     - ProviderEndpointTypeTeam
+  types.ProviderRecovery:
+    properties:
+      attempts:
+        type: integer
+      failed_at:
+        type: string
+      interaction_id:
+        type: string
+      model:
+        type: string
+      next_check_at:
+        type: string
+      prompt_id:
+        type: string
+      provider:
+        type: string
+    type: object
   types.PublicInvitationInfo:
     properties:
       email:
@@ -9778,6 +10128,15 @@ definitions:
         type: string
       full_name:
         type: string
+      invitation_id:
+        description: |-
+          InvitationID and InvitationToken come from the invite link
+          (/login?invitation=<id>&token=<token>). Password sign-up does not
+          verify the email address, so only the invitation presented here is
+          accepted, and only with its secret token and when it was sent to Email.
+        type: string
+      invitation_token:
+        type: string
       password:
         type: string
       password_confirm:
@@ -9871,6 +10230,95 @@ definitions:
         type: string
       private:
         type: boolean
+    type: object
+  types.RequestAuditEvent:
+    properties:
+      api_key_type:
+        type: string
+      body:
+        type: string
+      body_size:
+        type: integer
+      body_truncated:
+        type: boolean
+      cf_connecting_ip:
+        type: string
+      client_ip:
+        type: string
+      content_type:
+        type: string
+      created:
+        type: string
+      credential_fingerprint:
+        type: string
+      credential_source:
+        description: |-
+          CredentialSource names where the credential came from (session, bearer,
+          api-key, cookie, query, socket). CredentialFingerprint is the first 12
+          hex characters of an HMAC-SHA256 of the credential, keyed from the
+          deployment's encryption key - enough to correlate a stolen key with
+          requests without storing the key or allowing an offline brute force.
+        type: string
+      duration_ms:
+        type: integer
+      id:
+        description: ID is the primary key and half of the keyset pagination cursor.
+        type: string
+      method:
+        type: string
+      organization_id:
+        type: string
+      path:
+        type: string
+      query:
+        type: string
+      remote_addr:
+        description: |-
+          RemoteAddr is the raw TCP peer as reported by net/http. RemoteIP and
+          RemotePort split it so the address is a usable filter (the raw value
+          includes the ephemeral port). ClientIP is filled only when the peer is
+          inside HELIX_AUDIT_LOG_TRUSTED_PROXIES; the proxy headers below are
+          otherwise recorded as the client sent them and are NOT trusted.
+        type: string
+      remote_ip:
+        type: string
+      remote_port:
+        type: integer
+      request_id:
+        type: string
+      response_bytes:
+        type: integer
+      route_template:
+        type: string
+      status:
+        type: integer
+      token_type:
+        type: string
+      user_admin:
+        type: boolean
+      user_agent:
+        type: string
+      user_email:
+        type: string
+      user_id:
+        type: string
+      x_forwarded_for:
+        type: string
+      x_real_ip:
+        type: string
+    type: object
+  types.RequestAuditEventResponse:
+    properties:
+      events:
+        items:
+          $ref: '#/definitions/types.RequestAuditEvent'
+        type: array
+      limit:
+        type: integer
+      next_cursor:
+        type: string
+      total:
+        type: integer
     type: object
   types.ResolvedQuestion:
     properties:
@@ -10091,6 +10539,33 @@ definitions:
       updated_at:
         type: string
     type: object
+  types.RunnerToken:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      revoked_at:
+        type: string
+      revoked_by:
+        description: |-
+          RevokedBy is the user who revoked the token. With CreatedBy and the
+          timestamps, the row is the token's durable audit record; the request
+          audit log has the full requests.
+        type: string
+      runner_id:
+        description: |-
+          RunnerID is the host this token may act as. A host registers RevDial
+          tunnels as "hydra-{id}" and "sandbox-{id}" and calls the sandbox and
+          runner routes with the bare id; all of those match (RunnerIDsMatch).
+        type: string
+      token_prefix:
+        type: string
+    type: object
   types.Sandbox:
     properties:
       billing_last_charged_at:
@@ -10246,10 +10721,10 @@ definitions:
   types.SandboxDisplay:
     properties:
       resolution:
-        description: '"1080p" (default), "4k", or "5k"'
+        description: '"1080p", "4k", "5k" or "native"; empty => DefaultSandboxResolution()'
         type: string
       zoom_level:
-        description: GNOME zoom percentage; 0 => 100 for 1080p, 200 for 4k/5k
+        description: GNOME zoom percentage; 0 => the preset's default
         type: integer
     type: object
   types.SandboxFileUploadResponse:
@@ -10289,6 +10764,9 @@ definitions:
         items:
           $ref: '#/definitions/types.DiskUsageMetric'
         type: array
+      golden_cache_unavailable:
+        description: 'GoldenCacheUnavailable: see SandboxInstance.GoldenCacheUnavailable.'
+        type: boolean
       gpu_vendor:
         description: GPU configuration
         type: string
@@ -10309,6 +10787,12 @@ definitions:
           detected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any
           non-AWS environment — the admin UI then just shows the GPU model instead.
         type: string
+      max_sandboxes:
+        description: |-
+          MaxSandboxes is the runner's own cap on concurrent dev containers,
+          from its MAX_SANDBOXES env var. -1 means unlimited. 0 (omitted) means
+          the runner did not report one and the API's fallback applies.
+        type: integer
       privileged_mode_enabled:
         description: Privileged mode (host Docker access for development)
         type: boolean
@@ -10350,11 +10834,13 @@ definitions:
         type: string
       active_sandboxes:
         description: |-
-          Sandbox capacity. MaxSandboxes is set explicitly at auto-register
-          and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
-          (default 20); the gorm default below only applies to rows inserted
-          via paths that don't set the field. Kept aligned with the env-var
-          default to avoid surprises.
+          Sandbox capacity. MaxSandboxes is the hard per-Runner cap enforced
+          by FindAvailableSandboxInstance. When the Runner reports MAX_SANDBOXES
+          in its heartbeat, that value wins and MaxSandboxesFromRunner is set
+          (so the boot-time backfill leaves it alone). Otherwise it is set at
+          auto-register and Manager-provisioned paths from
+          HELIX_SANDBOX_MAX_DEV_CONTAINERS (default -1, unlimited); the gorm default below
+          only applies to rows inserted via paths that don't set the field.
         type: integer
       compute_state:
         description: |-
@@ -10373,6 +10859,12 @@ definitions:
           Desktop image versions available on this sandbox
           Key: desktop name (e.g., "sway", "ubuntu"), Value: image hash
         type: object
+      golden_cache_unavailable:
+        description: |-
+          GoldenCacheUnavailable is set when the sandbox has no container data root
+          (/container-docker), so Hydra can't build or seed golden Docker caches. Negative so sandboxes
+          whose heartbeat predates it keep building.
+        type: boolean
       gpu_vendor:
         description: GPU configuration
         type: string
@@ -10407,8 +10899,10 @@ definitions:
         description: Last heartbeat time
         type: string
       max_sandboxes:
-        description: Maximum allowed containers
+        description: Maximum allowed containers; -1 means unlimited
         type: integer
+      max_sandboxes_from_runner:
+        type: boolean
       privileged_mode:
         type: boolean
       profile_error:
@@ -10648,6 +11142,13 @@ definitions:
       minimum_inference_balance:
         description: Minimum wallet balance required for inference
         type: number
+      native_display:
+        allOf:
+        - $ref: '#/definitions/types.NativeDisplay'
+        description: |-
+          NativeDisplay is the host's own display (Helix for Mac), offered as the
+          "native" sandbox resolution and used when a desktop has none set. Nil
+          where the host reported no display; the UI then defaults to 1080p.
       onboarding_helix_model:
         type: string
       onboarding_helix_model_effort:
@@ -11325,6 +11826,8 @@ definitions:
       project_id:
         description: ID of associated Project (for exploratory sessions)
         type: string
+      provider_recovery:
+        $ref: '#/definitions/types.ProviderRecovery'
       rag_enabled:
         description: |-
           these settings control which features of a session we want to use
@@ -12075,6 +12578,12 @@ definitions:
   types.SpecTaskArchiveRequest:
     properties:
       archived:
+        type: boolean
+      stop_agent:
+        description: |-
+          StopAgent controls whether archiving stops the task's external agent and
+          frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
+          that is mid-turn unless the caller says so explicitly.
         type: boolean
     type: object
   types.SpecTaskAttachment:
@@ -13039,6 +13548,12 @@ definitions:
           KeyboardLayout is the XKB keyboard layout code (e.g., "us", "fr", "de")
           Used to configure the desktop container's keyboard layout from browser detection
         type: string
+      languages:
+        description: |-
+          Languages is the user's browser language preference list (navigator.languages),
+          comma-separated BCP 47 tags (e.g., "en-GB,en"). The desktop's browser sends these
+          as Accept-Language so websites don't pick the language of the runner's location.
+        type: string
       timezone:
         description: Timezone is the IANA timezone (e.g., "America/New_York", "Europe/Paris")
         type: string
@@ -13444,17 +13959,7 @@ definitions:
     type: object
   types.ToolBrowserConfig:
     properties:
-      cache:
-        description: If true, the browser will cache the results of the tool call
-        type: boolean
       enabled:
-        type: boolean
-      markdown_post_processing:
-        description: If true, the browser will return the HTML as markdown
-        type: boolean
-      no_browser:
-        description: If true, the browser will not be used to open URLs, it will be
-          a simple GET request
         type: boolean
       process_output:
         description: If true, the browser will process the output of the tool call
@@ -14056,8 +14561,28 @@ definitions:
         type: boolean
       deleted_at:
         $ref: '#/definitions/gorm.DeletedAt'
+      desktop_identity:
+        description: |-
+          DesktopIdentity marks the single account that Helix Desktop's
+          auto-login (DESKTOP_AUTO_LOGIN_SECRET) signs in as. The desktop flow
+          never signs in as, or promotes, any other account.
+        type: boolean
       email:
         type: string
+      email_verified:
+        description: |-
+          EmailVerified records that the account's owner has been shown to control
+          Email: the identity provider asserted email_verified, an admin created the
+          account, or the owner used a link sent to the address (invitation,
+          password reset). A password sign-up proves nothing, so it is false until
+          then. Resolving an account by email for a grant (adding an org or team
+          member) requires it; anything else would hand the grant to whoever
+          registered the address first.
+        type: boolean
+      embed_interactive:
+        description: 'EmbedInteractive: an embed key that may drive its bound session''s
+          desktop.'
+        type: boolean
       full_name:
         type: string
       git_commit_email:
@@ -14077,6 +14602,13 @@ definitions:
       must_change_password:
         description: if the user must change their password
         type: boolean
+      oidc_subject:
+        description: |-
+          OIDCSubject is the identity provider's subject this account is signed in
+          with. For accounts created by SSO it equals ID; for an account created
+          another way and later linked to an SSO identity by its verified email,
+          it records that link so later sign-ins resolve by subject.
+        type: string
       onboarding_completed:
         type: boolean
       onboarding_completed_at:
@@ -14107,6 +14639,11 @@ definitions:
       project_id:
         description: When running in Helix Code sandbox
         type: string
+      runner_id:
+        description: |-
+          RunnerID is the runner a per-runner token is bound to. Empty for the
+          shared runner token and for every non-runner credential.
+        type: string
       sb:
         type: boolean
       session_id:
@@ -14114,9 +14651,6 @@ definitions:
         type: string
       spec_task_id:
         description: When running in Helix Code sandbox
-        type: string
-      token:
-        description: the actual token used and its type
         type: string
       token_type:
         allOf:
@@ -14280,6 +14814,8 @@ definitions:
         type: string
       email:
         type: string
+      email_verified:
+        type: boolean
       git_commit_email:
         type: string
       git_commit_name:
@@ -14630,10 +15166,12 @@ definitions:
     enum:
     - active
     - disabled
+    - deleted
     type: string
     x-enum-varnames:
     - WebhookEndpointStatusActive
     - WebhookEndpointStatusDisabled
+    - WebhookEndpointStatusDeleted
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -14882,6 +15420,529 @@ definitions:
       zed_instance_id:
         type: string
     type: object
+  websearch.AnswerRequest:
+    properties:
+      model:
+        type: string
+      outputSchema:
+        items:
+          type: integer
+        type: array
+      query:
+        type: string
+      stream:
+        type: boolean
+      systemPrompt:
+        type: string
+      text:
+        type: boolean
+      userIdentifier:
+        type: string
+      userLocation:
+        $ref: '#/definitions/websearch.UserLocation'
+    type: object
+  websearch.AnswerResponse:
+    properties:
+      answer:
+        description: string, or object when outputSchema is set
+      citations:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      costDollars:
+        $ref: '#/definitions/websearch.CostDollars'
+      requestId:
+        type: string
+    type: object
+  websearch.Citation:
+    properties:
+      title:
+        type: string
+      url:
+        type: string
+    type: object
+  websearch.ContentError:
+    properties:
+      httpStatusCode:
+        type: integer
+      tag:
+        type: string
+    type: object
+  websearch.ContentStatus:
+    properties:
+      error:
+        $ref: '#/definitions/websearch.ContentError'
+      id:
+        type: string
+      source:
+        description: cached | crawled
+        type: string
+      status:
+        description: success | error
+        type: string
+    type: object
+  websearch.ContentsCost:
+    properties:
+      highlights:
+        type: number
+      summary:
+        type: number
+      text:
+        type: number
+    type: object
+  websearch.ContentsOptions:
+    properties:
+      context:
+        $ref: '#/definitions/websearch.ContextOption'
+      crawledBeforeDate:
+        type: string
+      extras:
+        $ref: '#/definitions/websearch.ExtrasOptions'
+      highlights:
+        $ref: '#/definitions/websearch.HighlightsOption'
+      livecrawl:
+        type: string
+      livecrawlTimeout:
+        type: integer
+      maxAgeHours:
+        type: integer
+      snapshotAsOf:
+        type: string
+      subpageTarget:
+        items:
+          type: string
+        type: array
+      subpages:
+        type: integer
+      summary:
+        $ref: '#/definitions/websearch.SummaryOption'
+      text:
+        $ref: '#/definitions/websearch.TextOption'
+    type: object
+  websearch.ContentsRequest:
+    properties:
+      compliance:
+        type: string
+      context:
+        $ref: '#/definitions/websearch.ContextOption'
+      crawledBeforeDate:
+        type: string
+      extras:
+        $ref: '#/definitions/websearch.ExtrasOptions'
+      highlights:
+        $ref: '#/definitions/websearch.HighlightsOption'
+      ids:
+        items:
+          type: string
+        type: array
+      livecrawl:
+        type: string
+      livecrawlTimeout:
+        type: integer
+      maxAgeHours:
+        type: integer
+      snapshotAsOf:
+        type: string
+      subpageTarget:
+        items:
+          type: string
+        type: array
+      subpages:
+        type: integer
+      summary:
+        $ref: '#/definitions/websearch.SummaryOption'
+      text:
+        $ref: '#/definitions/websearch.TextOption'
+      urls:
+        items:
+          type: string
+        type: array
+      userIdentifier:
+        type: string
+    type: object
+  websearch.ContentsResponse:
+    properties:
+      context:
+        type: string
+      costDollars:
+        $ref: '#/definitions/websearch.CostDollars'
+      requestId:
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      searchTime:
+        type: number
+      statuses:
+        items:
+          $ref: '#/definitions/websearch.ContentStatus'
+        type: array
+      warnings:
+        items:
+          $ref: '#/definitions/websearch.Warning'
+        type: array
+    type: object
+  websearch.ContextOption:
+    properties:
+      enabled:
+        type: boolean
+      maxCharacters:
+        type: integer
+    type: object
+  websearch.CostDollars:
+    properties:
+      contents:
+        $ref: '#/definitions/websearch.ContentsCost'
+      total:
+        type: number
+    type: object
+  websearch.ErrorResponse:
+    properties:
+      error:
+        type: string
+      requestId:
+        type: string
+      tag:
+        type: string
+    type: object
+  websearch.Extras:
+    properties:
+      imageLinks:
+        items:
+          type: string
+        type: array
+      links:
+        items:
+          type: string
+        type: array
+      richImageLinks:
+        items:
+          $ref: '#/definitions/websearch.ImageLink'
+        type: array
+    type: object
+  websearch.ExtrasOptions:
+    properties:
+      codeBlocks:
+        description: deprecated
+        type: integer
+      imageLinks:
+        type: integer
+      links:
+        type: integer
+      richImageLinks:
+        type: integer
+      richLinks:
+        description: deprecated
+        type: integer
+    type: object
+  websearch.FindSimilarRequest:
+    properties:
+      category:
+        type: string
+      contents:
+        $ref: '#/definitions/websearch.ContentsOptions'
+      endCrawlDate:
+        type: string
+      endPublishedDate:
+        type: string
+      excludeDomains:
+        items:
+          type: string
+        type: array
+      excludeSourceDomain:
+        type: boolean
+      excludeText:
+        items:
+          type: string
+        type: array
+      includeDomains:
+        items:
+          type: string
+        type: array
+      includeText:
+        items:
+          type: string
+        type: array
+      numResults:
+        type: integer
+      startCrawlDate:
+        type: string
+      startPublishedDate:
+        type: string
+      url:
+        type: string
+      userIdentifier:
+        type: string
+    type: object
+  websearch.FindSimilarResponse:
+    properties:
+      context:
+        type: string
+      costDollars:
+        $ref: '#/definitions/websearch.CostDollars'
+      requestId:
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      searchTime:
+        type: number
+      warnings:
+        items:
+          $ref: '#/definitions/websearch.Warning'
+        type: array
+    type: object
+  websearch.Grounding:
+    properties:
+      citations:
+        items:
+          $ref: '#/definitions/websearch.Citation'
+        type: array
+      confidence:
+        description: low | medium | high
+        type: string
+      field:
+        type: string
+    type: object
+  websearch.HighlightsOption:
+    properties:
+      dynamic:
+        description: beta
+        type: boolean
+      enabled:
+        type: boolean
+      highlightsPerUrl:
+        description: 'deprecated: ignored'
+        type: integer
+      maxCharacters:
+        type: integer
+      numSentences:
+        description: 'deprecated: ~1333 chars per sentence'
+        type: integer
+      query:
+        type: string
+      verbosity:
+        description: beta
+        type: string
+    type: object
+  websearch.ImageLink:
+    properties:
+      alt:
+        type: string
+      url:
+        type: string
+    type: object
+  websearch.Notice:
+    properties:
+      code:
+        type: string
+      details:
+        items:
+          type: integer
+        type: array
+      message:
+        type: string
+      path:
+        type: string
+    type: object
+  websearch.Result:
+    properties:
+      author:
+        type: string
+      entities:
+        description: |-
+          Entities are Exa's structured company/person records; only the exa
+          provider returns them.
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+      extras:
+        $ref: '#/definitions/websearch.Extras'
+      favicon:
+        type: string
+      highlightScores:
+        description: findSimilar only
+        items:
+          type: number
+        type: array
+      highlights:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      image:
+        type: string
+      publishedDate:
+        type: string
+      score:
+        description: findSimilar only
+        type: number
+      subpages:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      summary:
+        type: string
+      text:
+        type: string
+      title:
+        type: string
+      url:
+        type: string
+    type: object
+  websearch.SearchOutput:
+    properties:
+      content: {}
+      grounding:
+        items:
+          $ref: '#/definitions/websearch.Grounding'
+        type: array
+    type: object
+  websearch.SearchRequest:
+    properties:
+      additionalQueries:
+        items:
+          type: string
+        type: array
+      category:
+        type: string
+      compliance:
+        type: string
+      contents:
+        $ref: '#/definitions/websearch.ContentsOptions'
+      context:
+        $ref: '#/definitions/websearch.ContextOption'
+      endCrawlDate:
+        type: string
+      endPublishedDate:
+        type: string
+      excludeDomains:
+        items:
+          type: string
+        type: array
+      excludeText:
+        items:
+          type: string
+        type: array
+      includeDomains:
+        items:
+          type: string
+        type: array
+      includeText:
+        items:
+          type: string
+        type: array
+      moderation:
+        type: boolean
+      numResults:
+        type: integer
+      objective:
+        type: string
+      outputSchema:
+        items:
+          type: integer
+        type: array
+      query:
+        type: string
+      startCrawlDate:
+        type: string
+      startPublishedDate:
+        type: string
+      stream:
+        type: boolean
+      systemPrompt:
+        type: string
+      type:
+        type: string
+      userIdentifier:
+        type: string
+      userLocation:
+        $ref: '#/definitions/websearch.UserLocation'
+    type: object
+  websearch.SearchResponse:
+    properties:
+      context:
+        type: string
+      costDollars:
+        $ref: '#/definitions/websearch.CostDollars'
+      notices:
+        items:
+          $ref: '#/definitions/websearch.Notice'
+        type: array
+      output:
+        $ref: '#/definitions/websearch.SearchOutput'
+      requestId:
+        type: string
+      resolvedSearchType:
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/websearch.Result'
+        type: array
+      searchTime:
+        type: number
+      warnings:
+        items:
+          $ref: '#/definitions/websearch.Warning'
+        type: array
+    type: object
+  websearch.SummaryOption:
+    properties:
+      enabled:
+        type: boolean
+      query:
+        type: string
+      schema:
+        items:
+          type: integer
+        type: array
+    type: object
+  websearch.TextOption:
+    properties:
+      enabled:
+        type: boolean
+      excludeSections:
+        items:
+          type: string
+        type: array
+      includeHtmlTags:
+        type: boolean
+      includeSections:
+        items:
+          type: string
+        type: array
+      linkStyle:
+        description: LinkStyle*
+        type: string
+      maxCharacters:
+        type: integer
+      verbosity:
+        description: Verbosity*
+        type: string
+    type: object
+  websearch.UserLocation:
+    properties:
+      country:
+        type: string
+      latitude:
+        type: number
+      longitude:
+        type: number
+    type: object
+  websearch.Warning:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+      path:
+        type: string
+    type: object
   workersecret.AvailableSource:
     properties:
       account_id:
@@ -14982,6 +16043,67 @@ paths:
       summary: Get sandbox real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/audit-events:
+    get:
+      description: Admin-only forensic read of the request audit trail, newest first.
+        Paginate by passing next_cursor back as cursor.
+      parameters:
+      - description: Filter by user ID
+        in: query
+        name: user_id
+        type: string
+      - description: Filter by TCP peer IP (no port)
+        in: query
+        name: remote_ip
+        type: string
+      - description: Filter by derived client IP (only populated for trusted proxies)
+        in: query
+        name: client_ip
+        type: string
+      - description: Filter by path prefix
+        in: query
+        name: path
+        type: string
+      - description: Filter by HTTP method
+        in: query
+        name: method
+        type: string
+      - description: Filter by response status
+        in: query
+        name: status
+        type: integer
+      - description: Only events created at or after this RFC3339 time
+        in: query
+        name: since
+        type: string
+      - description: Only events created at or before this RFC3339 time
+        in: query
+        name: until
+        type: string
+      - description: Page size (default 50, max 500)
+        in: query
+        name: limit
+        type: integer
+      - description: Opaque keyset cursor from the previous response's next_cursor
+        in: query
+        name: cursor
+        type: string
+      - description: Also count all matching events (expensive on a large table)
+        in: query
+        name: include_total
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RequestAuditEventResponse'
+      security:
+      - BearerAuth: []
+      summary: List request audit events
+      tags:
+      - admin
   /api/v1/admin/kodit/queue:
     get:
       description: List all pending tasks across all repositories with pagination.
@@ -15426,6 +16548,103 @@ paths:
       summary: Set an organization's plan override (admin only)
       tags:
       - organizations
+  /api/v1/admin/runner-tokens:
+    get:
+      description: List per-runner tokens (never their secrets), newest first, revoked
+        ones included.
+      parameters:
+      - description: Only this runner's tokens
+        in: query
+        name: runner_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.RunnerToken'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List per-runner tokens
+      tags:
+      - runner_tokens
+    post:
+      description: Mint a token bound to one runner id. The token is returned once
+        and only its hash is stored.
+      parameters:
+      - description: Runner id and an optional name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateRunnerTokenRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.CreateRunnerTokenResponse'
+        "400":
+          description: invalid request
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Mint a per-runner token
+      tags:
+      - runner_tokens
+  /api/v1/admin/runner-tokens/{id}:
+    delete:
+      description: Revoke a per-runner token. Requests with it are refused (401) from
+        then on; tunnels it already opened stay up until the host reconnects.
+      parameters:
+      - description: Runner token id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.RunnerToken'
+        "404":
+          description: not found
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Revoke a per-runner token
+      tags:
+      - runner_tokens
+  /api/v1/admin/service-accounts:
+    post:
+      consumes:
+      - application/json
+      description: Create a non-human user that owns a new organization, so an orchestrator
+        serving many customers can give each one its own org, projects and credentials
+        instead of running them all as one account. Works on OIDC deployments (the
+        account has no IdP identity; it acts only through API keys minted with POST
+        /admin/users/{id}/api-keys). Idempotent per organization_name.
+      parameters:
+      - description: Service account
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.AdminCreateServiceAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AdminServiceAccount'
+      security:
+      - BearerAuth: []
+      summary: Create a service account and its organization (Admin only)
+      tags:
+      - users
   /api/v1/admin/users/{id}:
     delete:
       description: Permanently delete a user and all associated data. Only admins
@@ -16939,9 +18158,22 @@ paths:
   /api/v1/auth/logout:
     post:
       description: Logout the user
+      parameters:
+      - description: Return the logout URL instead of redirecting
+        in: query
+        name: get_url
+        type: boolean
+      - description: Post-logout redirect URI
+        in: query
+        name: redirect_uri
+        type: string
       responses:
         "200":
           description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       summary: Logout
       tags:
       - auth
@@ -18521,6 +19753,57 @@ paths:
       summary: Browse remote repositories
       tags:
       - git-repositories
+  /api/v1/git/owners:
+    get:
+      description: |-
+        Lists the acting user's own account plus the GitHub organizations
+        or GitLab groups (Developer access or above) they belong to.
+        Credentials: the user's OAuth connection for the provider (GitHub
+        needs the repo scope, GitLab api), otherwise their personal access
+        token connection. Returns 409 connect_required when neither exists.
+      parameters:
+      - description: Git provider
+        enum:
+        - github
+        - gitlab
+        in: query
+        name: provider
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GitOwner'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.ConnectRequiredError'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List accounts a repository can be created under
+      tags:
+      - git-repositories
   /api/v1/git/repositories:
     get:
       description: List all git repositories, optionally filtered by owner, type,
@@ -19489,6 +20772,196 @@ paths:
       summary: Create pull request
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/pulls:
+    get:
+      description: List the pull requests of a Helix-hosted repository
+      operationId: listGitRepositoryPulls
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: open (default), closed or all
+        in: query
+        name: state
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.GitPullRequest'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List Helix pull requests
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/pulls/{number}:
+    get:
+      description: Get a pull request of a Helix-hosted repository with its changed
+        files and mergeability
+      operationId: getGitRepositoryPull
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pull request number
+        in: path
+        name: number
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GitPullRequestDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get a Helix pull request
+      tags:
+      - git-repositories
+    patch:
+      consumes:
+      - application/json
+      description: Edit the title or body of a Helix pull request, or close or reopen
+        it
+      operationId: updateGitRepositoryPull
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pull request number
+        in: path
+        name: number
+        required: true
+        type: integer
+      - description: Update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.GitPullRequestUpdate'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GitPullRequest'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update a Helix pull request
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/pulls/{number}/merge:
+    post:
+      consumes:
+      - application/json
+      description: 'Merge a Helix pull request: fast-forward when possible, otherwise
+        a merge commit. 405 when it conflicts.'
+      operationId: mergeGitRepositoryPull
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pull request number
+        in: path
+        name: number
+        required: true
+        type: integer
+      - description: Merge options
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/types.GitPullRequestMergeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GitPullRequest'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Merge a Helix pull request
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/pulls/{number}/request-rebase:
+    post:
+      description: Sends the spec task that owns the pull request an instruction to
+        rebase its head branch onto the base branch
+      operationId: requestGitRepositoryPullRebase
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pull request number
+        in: path
+        name: number
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GitPullRequestDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Ask the agent to rebase a Helix pull request
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/push:
     post:
       description: Pushes the local branch to the remote repository
@@ -19848,6 +21321,63 @@ paths:
       summary: Get wiki page
       tags:
       - git-repositories
+  /api/v1/git/repositories/from-template:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Creates a repository under owner using the acting user's own credentials.
+        GitHub generates it from the template repository (the template must have
+        the template flag); GitLab imports https://github.com/<template>.git and
+        the call waits for the import to finish. private defaults to true.
+        Credentials: the user's OAuth connection for the provider (GitHub needs
+        the repo scope, GitLab api), otherwise their personal access token
+        connection. Returns 409 connect_required when neither exists, and 422
+        with the provider's message when the provider rejects the request
+        (for example, the name is already taken).
+      parameters:
+      - description: Repository to create
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateRepoFromTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.CreateRepoFromTemplateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.ConnectRequiredError'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "504":
+          description: Gateway Timeout
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create a repository from a template in the user's GitHub/GitLab account
+      tags:
+      - git-repositories
   /api/v1/helix-models:
     get:
       description: List all available Helix models, optionally filtering by type,
@@ -20039,11 +21569,43 @@ paths:
       summary: Respond to an agent question
       tags:
       - interactions
+  /api/v1/invitations/{id}/accept:
+    post:
+      description: Accept the invitation from an invite link as the signed-in user.
+        Requires the invitation's secret token from the link, and the account's email
+        must be the invited address. Works for waitlisted accounts (an invitation
+        lifts the waitlist).
+      parameters:
+      - description: Invitation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Token from the invite link
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AcceptInvitationRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserResponse'
+      summary: Accept an organization invitation
+      tags:
+      - organizations
   /api/v1/invitations/{id}/info:
     get:
       description: Unauthenticated. Returns the invited email and organization display
-        name so the registration page can pre-fill the form. The invitation ID itself
-        acts as the secret token (same threat model as password-reset tokens).
+        name so the registration page can pre-fill the form. Requires the secret token
+        from the invite link.
+      parameters:
+      - description: Secret token from the invite link
+        in: query
+        name: token
+        required: true
+        type: string
       responses:
         "200":
           description: OK
@@ -20808,6 +22370,21 @@ paths:
       summary: Revoke a pending organization invitation
       tags:
       - organizations
+  /api/v1/organizations/{id}/invitations/{invitation_id}/link:
+    post:
+      description: Owners only. Generates a new secret token for the invitation and
+        returns its invite link, for sending outside email. Links issued earlier (including
+        the emailed one) stop working.
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.InvitationLinkResponse'
+      security:
+      - BearerAuth: []
+      summary: Issue a new invite link for a pending invitation
+      tags:
+      - organizations
   /api/v1/organizations/{id}/members:
     get:
       description: List members of an organization, including pending invitations
@@ -21095,7 +22672,7 @@ paths:
           description: No Content
       security:
       - BearerAuth: []
-      summary: Disable an organization webhook endpoint
+      summary: Delete an organization webhook endpoint
       tags:
       - organizations
     put:
@@ -26611,7 +28188,7 @@ paths:
     get:
       description: |-
         Get decrypted Claude credentials for use inside a desktop container.
-        Only accepts runner/session-scoped tokens.
+        Accepts the session's own API key or a runner token; otherwise only the subscription's owner.
       parameters:
       - description: Session ID
         in: path
@@ -27006,6 +28583,10 @@ paths:
         in: query
         name: order
         type: string
+      - description: Only waiting interactions with a pending question
+        in: query
+        name: pending_question
+        type: boolean
       produces:
       - application/json
       responses:
@@ -28624,7 +30205,9 @@ paths:
       consumes:
       - application/json
       description: Archive a spec task to hide it from the main view, or unarchive
-        to restore it
+        to restore it. Archiving stops the task's agent and frees its sandbox by default
+        (stop_agent, default true); pass stop_agent=false for bookkeeping only. A
+        live agent mid-turn is never stopped unless stop_agent is sent explicitly.
       parameters:
       - description: Task ID
         in: path
@@ -28917,6 +30500,78 @@ paths:
       summary: Update task execution configuration
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/interactive-embed-model:
+    get:
+      description: Returns the current model and enabled models from the task's current
+        provider. Available only to an interactive embed key bound to the task's active
+        session.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.InteractiveEmbedModelResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get models available to an interactive task embed
+      tags:
+      - spec-driven-tasks
+    patch:
+      consumes:
+      - application/json
+      description: Changes only the model on the task's current code-agent configuration.
+        Available only to an interactive embed key bound to the task's active session.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Model selection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.InteractiveEmbedModelUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.InteractiveEmbedModelResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update the model for an interactive task embed
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/labels:
     post:
       consumes:
@@ -29119,6 +30774,11 @@ paths:
         in: query
         name: timezone
         type: string
+      - description: Comma-separated browser languages (e.g., 'en-GB,en') - sets the
+          desktop browser's Accept-Language
+        in: query
+        name: languages
+        type: string
       produces:
       - application/json
       responses:
@@ -29284,7 +30944,13 @@ paths:
       - zed-integration
   /api/v1/spec-tasks/board-settings:
     get:
-      description: Get the Kanban board settings (WIP limits) for the default project
+      description: Get the Kanban board settings (WIP limits) of a project
+      parameters:
+      - description: Project ID
+        in: query
+        name: project_id
+        required: true
+        type: string
       produces:
       - application/json
       responses:
@@ -29292,8 +30958,12 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/types.BoardSettings'
-        "500":
-          description: Internal Server Error
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -29304,8 +30974,13 @@ paths:
     put:
       consumes:
       - application/json
-      description: Update the Kanban board settings (WIP limits) for the default project
+      description: Update the Kanban board settings (WIP limits) of a project
       parameters:
+      - description: Project ID
+        in: query
+        name: project_id
+        required: true
+        type: string
       - description: Board settings
         in: body
         name: request
@@ -29323,8 +30998,12 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/types.APIError'
       security:
@@ -30302,6 +31981,154 @@ paths:
       summary: Get a wallet
       tags:
       - wallets
+  /api/v1/websearch/answer:
+    post:
+      consumes:
+      - application/json
+      description: 'Exa-compatible answer. With stream=true the response is a text/event-stream
+        of websearch.AnswerEvent ending with "data: [DONE]".'
+      parameters:
+      - description: Answer request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/websearch.AnswerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/websearch.AnswerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "402":
+          description: 'NO_MORE_CREDITS: the wallet is below the minimum balance'
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Answer a question from web search results
+      tags:
+      - websearch
+  /api/v1/websearch/contents:
+    post:
+      consumes:
+      - application/json
+      description: 'Exa-compatible contents: text, highlights, summaries and extras
+        for URLs or result ids.'
+      parameters:
+      - description: Contents request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/websearch.ContentsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/websearch.ContentsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "402":
+          description: 'NO_MORE_CREDITS: the wallet is below the minimum balance'
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get page contents
+      tags:
+      - websearch
+  /api/v1/websearch/findSimilar:
+    post:
+      consumes:
+      - application/json
+      description: Exa-compatible findSimilar.
+      parameters:
+      - description: Find similar request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/websearch.FindSimilarRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/websearch.FindSimilarResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "402":
+          description: 'NO_MORE_CREDITS: the wallet is below the minimum balance'
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Find pages similar to a URL
+      tags:
+      - websearch
+  /api/v1/websearch/search:
+    post:
+      consumes:
+      - application/json
+      description: 'Exa-compatible search. With stream=true and an outputSchema the
+        response is a text/event-stream of websearch.SearchEvent ending with "data:
+        [DONE]".'
+      parameters:
+      - description: Search request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/websearch.SearchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/websearch.SearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "402":
+          description: 'NO_MORE_CREDITS: the wallet is below the minimum balance'
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/websearch.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Search the web
+      tags:
+      - websearch
   /api/v1/work-sessions/{sessionId}/zed-thread:
     post:
       consumes:
@@ -30366,6 +32193,14 @@ paths:
             type: object
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/types.APIError'
         "500":
@@ -30454,6 +32289,14 @@ paths:
             type: object
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/types.APIError'
         "500":
