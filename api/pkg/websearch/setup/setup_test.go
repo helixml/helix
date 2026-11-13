@@ -6,36 +6,36 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/websearch/billing"
 	"github.com/helixml/helix/api/pkg/websearch/exa"
+	"github.com/helixml/helix/api/pkg/websearch/metering"
 	"github.com/helixml/helix/api/pkg/websearch/native"
 )
 
-func TestNewProviderIsBilled(t *testing.T) {
+func TestNewProviderIsMetered(t *testing.T) {
 	res, err := NewProvider(config.WebSearch{Provider: ProviderExa, ExaAPIKey: "k", ExaBaseURL: "https://api.exa.ai"}, config.Stripe{}, Deps{})
 	require.NoError(t, err)
-	require.IsType(t, &billing.Provider{}, res.Provider)
+	require.IsType(t, &metering.Provider{}, res.Provider)
 }
 
 func TestNewProviderExa(t *testing.T) {
-	res, err := newUnbilled(config.WebSearch{Provider: ProviderExa, ExaAPIKey: "k", ExaBaseURL: "https://api.exa.ai"}, Deps{})
+	res, err := newUnmetered(config.WebSearch{Provider: ProviderExa, ExaAPIKey: "k", ExaBaseURL: "https://api.exa.ai"}, Deps{})
 	require.NoError(t, err)
 	require.IsType(t, &exa.Provider{}, res.Provider)
 	require.Nil(t, res.EgressProxy)
 }
 
 func TestNewProviderExaRequiresKey(t *testing.T) {
-	_, err := newUnbilled(config.WebSearch{Provider: ProviderExa, ExaBaseURL: "https://api.exa.ai"}, Deps{})
+	_, err := newUnmetered(config.WebSearch{Provider: ProviderExa, ExaBaseURL: "https://api.exa.ai"}, Deps{})
 	require.ErrorContains(t, err, "API key")
 }
 
 func TestNewProviderUnknown(t *testing.T) {
-	_, err := newUnbilled(config.WebSearch{Provider: "bing"}, Deps{})
+	_, err := newUnmetered(config.WebSearch{Provider: "bing"}, Deps{})
 	require.ErrorContains(t, err, `unknown provider "bing"`)
 }
 
 func TestNewProviderNativeWithoutLLMOrEmbeddings(t *testing.T) {
-	res, err := newUnbilled(config.WebSearch{
+	res, err := newUnmetered(config.WebSearch{
 		Provider:         ProviderNative,
 		SearXNGBaseURL:   "http://searxng:8080",
 		SearXNGEngines:   []string{"yandex"},
@@ -56,7 +56,7 @@ func TestLLMModelsDefaultToMainModel(t *testing.T) {
 
 func TestNewProviderNativeRejectsUnsupportedEngines(t *testing.T) {
 	for _, engines := range [][]string{nil, {"yandex", "startpage"}} {
-		_, err := newUnbilled(config.WebSearch{
+		_, err := newUnmetered(config.WebSearch{
 			Provider:         ProviderNative,
 			SearXNGBaseURL:   "http://searxng:8080",
 			SearXNGEngines:   engines,

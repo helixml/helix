@@ -154,7 +154,10 @@ func (e *PageExtractor) extractDocument(ctx context.Context, page *RawPage, page
 	// it itself, bypassing the guarded fetcher.
 	text, err := e.documents.Extract(ctx, &extract.Request{Content: page.Body})
 	if err != nil {
-		return nil, fmt.Errorf("extract document: %w", err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("%w: %w", ErrExtractionFailed, err)
 	}
 	text = strings.TrimSpace(text)
 	return &Page{Title: firstLine(text), Text: text, Favicon: defaultFavicon(pageURL)}, nil

@@ -1202,6 +1202,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Exa-compatible web search API
 	apiServer.registerWebSearchRoutes(authRouter)
+	apiServer.registerWebSearchUsageRoutes(authRouter)
 
 	authRouter.HandleFunc("/providers", apiServer.listProviders).Methods(http.MethodGet)
 

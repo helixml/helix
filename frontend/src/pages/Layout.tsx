@@ -599,6 +599,7 @@ const Layout: FC<{
       case "org_provider_detail":
       case "org_sandboxes":
       case "org_sandbox_detail":
+      case "org_websearch":
       case "helix_org_chart":
       case "team_people":
         // Organization management pages use the org context sidebar

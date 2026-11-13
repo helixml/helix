@@ -50,13 +50,14 @@ func turnContext() context.Context {
 }
 
 // requireTurnCaller checks a web search is billed like the turn's LLM calls,
-// under its own request id.
+// under its own request id, and logged as the agent's.
 func requireTurnCaller(t *testing.T, ctx context.Context) {
 	caller := websearch.CallerFrom(ctx)
 	require.Equal(t, "user_1", caller.UserID)
 	require.Equal(t, "org_1", caller.OrgID)
 	require.NotEmpty(t, caller.RequestID)
 	require.False(t, caller.System)
+	require.Equal(t, types.WebSearchSourceAgent, caller.Source)
 }
 
 func TestSearchToolGeneralCategoryIsUnfiltered(t *testing.T) {

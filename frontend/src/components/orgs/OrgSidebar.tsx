@@ -12,6 +12,7 @@ import {
   FileText,
   Network,
   Container,
+  Search,
 } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
@@ -110,6 +111,13 @@ const OrgSidebar: FC = () => {
           icon: <Container size={20} />,
           isActive: currentRouteName === 'org_sandboxes' || currentRouteName === 'org_sandbox_detail',
           onClick: () => handleNavigationClick('org_sandboxes'),
+        },
+        {
+          id: 'websearch',
+          label: 'Search',
+          icon: <Search size={20} />,
+          isActive: currentRouteName === 'org_websearch',
+          onClick: () => handleNavigationClick('org_websearch'),
         },
       ],
     },

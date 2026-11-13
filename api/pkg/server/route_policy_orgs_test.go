@@ -69,6 +69,8 @@ func init() {
 		"GET /api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions":                             object("loadAuthorizedSandbox"),
 		"GET /api/v1/organizations/{org_id}/sandboxes/{id}/screenshot":                                    object("loadAuthorizedSandbox"),
 		"GET /api/v1/organizations/{org_id}/sandboxes/{id}/billing":                                       object("loadAuthorizedSandbox"),
+		"GET /api/v1/organizations/{org_id}/websearch/usage":                                              object("authorizeOrgMember"),
+		"GET /api/v1/organizations/{org_id}/websearch/requests":                                           object("authorizeOrgMember"),
 		"GET /api/v1/organizations/{id}/teams":                                                            object("authorizeOrgMember"),
 		"POST /api/v1/organizations/{id}/teams":                                                           object("authorizeOrgOwner"),
 		"PUT /api/v1/organizations/{id}/teams/{team_id}":                                                  object("authorizeOrgOwner"),

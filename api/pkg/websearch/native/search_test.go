@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,8 +22,8 @@ func TestSearchWithoutContents(t *testing.T) {
 	e := newEnv(t)
 	published := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
 	got := e.discover(
-		Candidate{URL: "HTTPS://Example.com:443/a#frag", Title: "A", PublishedDate: &published, Image: "https://example.com/a.png"},
-		Candidate{URL: "https://b.com", Title: "B"},
+		Candidate{URL: "https://example.com/a", Title: "A", PublishedDate: &published, Image: "https://example.com/a.png"},
+		Candidate{URL: "https://b.com/", Title: "B"},
 	)
 	resp, err := e.provider(t).Search(context.Background(), &websearch.SearchRequest{
 		Query: "q", Type: "fast", Category: "news", IncludeDomains: []string{"example.com"},
@@ -194,7 +196,7 @@ func TestSearchTextFilters(t *testing.T) {
 }
 
 func TestSearchWarnings(t *testing.T) {
-	e := newEnv(t)
+	e := newEnv(t).withRanker()
 	e.discover()
 	day := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	resp, err := e.provider(t).Search(context.Background(), &websearch.SearchRequest{
@@ -244,7 +246,7 @@ func TestSearchContext(t *testing.T) {
 }
 
 func TestSearchHighlights(t *testing.T) {
-	e := newEnv(t)
+	e := newEnv(t).withRanker()
 	e.pipeline(nil)
 	e.discover(cands("https://a.com/")...)
 	e.rank.EXPECT().Rank(gomock.Any(), "q", []string{bodyOf("https://a.com/")}).Return([]float64{0.7}, nil)
@@ -269,7 +271,7 @@ func TestHighlightsMaxCharacters(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			e := newEnv(t)
+			e := newEnv(t).withRanker()
 			e.pipeline(nil)
 			e.bodies["https://a.com/"] = long
 			e.discover(cands("https://a.com/")...)
@@ -377,4 +379,68 @@ func TestStreamSearchEmitErrorStops(t *testing.T) {
 		Query: "q", OutputSchema: json.RawMessage(`{"type":"text"}`),
 	}, func(websearch.SearchEvent) error { return errors.New("client gone") })
 	require.ErrorContains(t, err, "client gone")
+}
+
+// With a Ranker, discovery returns a deeper pool and reciprocal rank fusion
+// of the engines' order with semantic similarity lifts a page the engines
+// ranked low but that matches the query best; the response keeps numResults.
+func TestSearchRerankPromotesRelevantCandidates(t *testing.T) {
+	e := newEnv(t).withRanker()
+	pool := make([]string, 30)
+	for i := range pool {
+		pool[i] = fmt.Sprintf("https://site%d.com/", i)
+	}
+	got := e.discover(cands(pool...)...)
+	e.rank.EXPECT().Rank(gomock.Any(), "q", gomock.Len(30)).DoAndReturn(
+		func(_ context.Context, _ string, passages []string) ([]float64, error) {
+			scores := make([]float64, len(passages))
+			for i := range scores {
+				scores[i] = 0.5 - float64(i)/100 // similarity agrees with the engines…
+			}
+			scores[14] = 0.99 // …except for their 15th result, the best match
+			scores[0] = 0.01  // and their 1st, the worst
+			return scores, nil
+		})
+
+	resp, err := e.provider(t).Search(context.Background(), &websearch.SearchRequest{Query: "q"})
+	require.NoError(t, err)
+	assert.Equal(t, 30, got.NumResults)
+	urls := resultURLs(resp.Results)
+	require.Len(t, urls, 10)
+	assert.Less(t, slices.Index(urls, "https://site14.com/"), 8, "promoted from 15th: %v", urls)
+	assert.NotEqual(t, "https://site0.com/", urls[0], "demoted from 1st: %v", urls)
+}
+
+func TestSearchRerankFailureFailsTheSearch(t *testing.T) {
+	e := newEnv(t).withRanker()
+	e.discover(cands("https://a.com/", "https://b.com/")...)
+	e.rank.EXPECT().Rank(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("embeddings down"))
+	_, err := e.provider(t).Search(context.Background(), &websearch.SearchRequest{Query: "q"})
+	require.ErrorContains(t, err, "embeddings down")
+}
+
+// A result whose document the extraction service cannot handle loses its
+// text; the search still answers (eval: two searches with a PDF result were
+// a 500).
+func TestSearchContentsSurvivesExtractionFailure(t *testing.T) {
+	e := newEnv(t)
+	e.web(nil)
+	e.memCache()
+	e.discover(cands("https://a.com/paper.pdf", "https://b.com/")...)
+	e.ext.EXPECT().Extract(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, raw *RawPage, _ websearch.TextOptions) (*Page, error) {
+			if raw.URL == "https://a.com/paper.pdf" {
+				return nil, fmt.Errorf("%w: service unavailable", ErrExtractionFailed)
+			}
+			return &Page{Text: string(raw.Body)}, nil
+		}).Times(2)
+	resp, err := e.provider(t).Search(context.Background(), &websearch.SearchRequest{
+		Query: "q", Contents: &websearch.ContentsOptions{Text: &websearch.TextOption{Enabled: true}},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 2)
+	assert.Nil(t, resp.Results[0].Text)
+	assert.NotNil(t, resp.Results[1].Text)
+	require.Len(t, resp.Warnings, 1)
+	assert.Equal(t, websearch.WarningPartialResults, resp.Warnings[0].Code)
 }

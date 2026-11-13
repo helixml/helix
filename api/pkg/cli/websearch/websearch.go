@@ -19,7 +19,7 @@ func New() *cobra.Command {
 		Use:   "websearch",
 		Short: "Search the web, read pages and get cited answers",
 	}
-	cmd.AddCommand(newSearchCommand(), newContentsCommand(), newAnswerCommand())
+	cmd.AddCommand(newSearchCommand(), newContentsCommand(), newAnswerCommand(), newEvalCommand())
 	return cmd
 }
 

@@ -15053,6 +15053,136 @@ definitions:
       user_id:
         type: string
     type: object
+  types.WebSearchEndpoint:
+    enum:
+    - search
+    - contents
+    - findSimilar
+    - answer
+    type: string
+    x-enum-varnames:
+    - WebSearchEndpointSearch
+    - WebSearchEndpointContents
+    - WebSearchEndpointFindSimilar
+    - WebSearchEndpointAnswer
+  types.WebSearchEndpointUsage:
+    properties:
+      costDollars:
+        type: number
+      endpoint:
+        $ref: '#/definitions/types.WebSearchEndpoint'
+      failed:
+        type: integer
+      outOfCredits:
+        type: integer
+      requests:
+        type: integer
+      succeeded:
+        type: integer
+    type: object
+  types.WebSearchRequest:
+    properties:
+      apiKeyName:
+        type: string
+      costDollars:
+        type: number
+      created:
+        type: string
+      durationMs:
+        type: integer
+      endpoint:
+        $ref: '#/definitions/types.WebSearchEndpoint'
+      errorTag:
+        type: string
+      id:
+        type: string
+      organizationId:
+        description: |-
+          OrganizationID is empty for a call billed to a user's own wallet (a
+          personal API key, an agent session outside an organization).
+        type: string
+      query:
+        description: |-
+          Query is the search or answer query, the findSimilar URL, or the first
+          contents URL with how many more were asked for.
+        type: string
+      results:
+        type: integer
+      searchType:
+        type: string
+      source:
+        $ref: '#/definitions/types.WebSearchSource'
+      status:
+        description: |-
+          Status is the HTTP status the call ended with; an error event after a
+          stream started counts with the error's status.
+        type: integer
+      stream:
+        type: boolean
+      userId:
+        type: string
+    type: object
+  types.WebSearchRequestList:
+    properties:
+      requests:
+        items:
+          $ref: '#/definitions/types.WebSearchRequest'
+        type: array
+      total:
+        type: integer
+    type: object
+  types.WebSearchSource:
+    enum:
+    - api
+    - agent
+    type: string
+    x-enum-varnames:
+    - WebSearchSourceAPI
+    - WebSearchSourceAgent
+  types.WebSearchUsage:
+    properties:
+      byEndpoint:
+        items:
+          $ref: '#/definitions/types.WebSearchEndpointUsage'
+        type: array
+      days:
+        items:
+          $ref: '#/definitions/types.WebSearchUsageDay'
+        type: array
+      totals:
+        $ref: '#/definitions/types.WebSearchUsageCounts'
+    type: object
+  types.WebSearchUsageCounts:
+    properties:
+      costDollars:
+        type: number
+      failed:
+        type: integer
+      outOfCredits:
+        type: integer
+      requests:
+        type: integer
+      succeeded:
+        type: integer
+    type: object
+  types.WebSearchUsageDay:
+    properties:
+      costDollars:
+        type: number
+      date:
+        description: YYYY-MM-DD
+        type: string
+      endpoint:
+        $ref: '#/definitions/types.WebSearchEndpoint'
+      failed:
+        type: integer
+      outOfCredits:
+        type: integer
+      requests:
+        type: integer
+      succeeded:
+        type: integer
+    type: object
   types.WebServiceDeploy:
     properties:
       commit_sha:
@@ -23353,6 +23483,108 @@ paths:
       summary: List sandbox tmux sessions
       tags:
       - Sandboxes
+  /api/v1/organizations/{org_id}/websearch/requests:
+    get:
+      description: The organization's web search calls, newest first, successful and
+        failed. Any member of the organization may read them.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: Only calls to this endpoint
+        enum:
+        - search
+        - contents
+        - findSimilar
+        - answer
+        in: query
+        name: endpoint
+        type: string
+      - description: First day, YYYY-MM-DD (UTC). Defaults to 29 days before to.
+        in: query
+        name: from
+        type: string
+      - description: Last day, YYYY-MM-DD (UTC), inclusive. Defaults to today.
+        in: query
+        name: to
+        type: string
+      - description: Page size, at most 200. Defaults to 50.
+        in: query
+        name: limit
+        type: integer
+      - description: Rows to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WebSearchRequestList'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List organization web search requests
+      tags:
+      - websearch
+  /api/v1/organizations/{org_id}/websearch/usage:
+    get:
+      description: Web search calls made with the organization's API keys and by its
+        agents, per UTC day and endpoint, per endpoint, and in total. Any member of
+        the organization may read it.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org_id
+        required: true
+        type: string
+      - description: First day, YYYY-MM-DD (UTC). Defaults to 29 days before to.
+        in: query
+        name: from
+        type: string
+      - description: Last day, YYYY-MM-DD (UTC), inclusive. Defaults to today.
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WebSearchUsage'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get organization web search usage
+      tags:
+      - websearch
   /api/v1/orgs/{org}/assets:
     get:
       produces:

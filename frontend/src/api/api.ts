@@ -9563,6 +9563,87 @@ export interface TypesWallet {
   user_id?: string;
 }
 
+export enum TypesWebSearchEndpoint {
+  WebSearchEndpointSearch = "search",
+  WebSearchEndpointContents = "contents",
+  WebSearchEndpointFindSimilar = "findSimilar",
+  WebSearchEndpointAnswer = "answer",
+}
+
+export interface TypesWebSearchEndpointUsage {
+  costDollars?: number;
+  endpoint?: TypesWebSearchEndpoint;
+  failed?: number;
+  outOfCredits?: number;
+  requests?: number;
+  succeeded?: number;
+}
+
+export interface TypesWebSearchRequest {
+  apiKeyName?: string;
+  costDollars?: number;
+  created?: string;
+  durationMs?: number;
+  endpoint?: TypesWebSearchEndpoint;
+  errorTag?: string;
+  id?: string;
+  /**
+   * OrganizationID is empty for a call billed to a user's own wallet (a
+   * personal API key, an agent session outside an organization).
+   */
+  organizationId?: string;
+  /**
+   * Query is the search or answer query, the findSimilar URL, or the first
+   * contents URL with how many more were asked for.
+   */
+  query?: string;
+  results?: number;
+  searchType?: string;
+  source?: TypesWebSearchSource;
+  /**
+   * Status is the HTTP status the call ended with; an error event after a
+   * stream started counts with the error's status.
+   */
+  status?: number;
+  stream?: boolean;
+  userId?: string;
+}
+
+export interface TypesWebSearchRequestList {
+  requests?: TypesWebSearchRequest[];
+  total?: number;
+}
+
+export enum TypesWebSearchSource {
+  WebSearchSourceAPI = "api",
+  WebSearchSourceAgent = "agent",
+}
+
+export interface TypesWebSearchUsage {
+  byEndpoint?: TypesWebSearchEndpointUsage[];
+  days?: TypesWebSearchUsageDay[];
+  totals?: TypesWebSearchUsageCounts;
+}
+
+export interface TypesWebSearchUsageCounts {
+  costDollars?: number;
+  failed?: number;
+  outOfCredits?: number;
+  requests?: number;
+  succeeded?: number;
+}
+
+export interface TypesWebSearchUsageDay {
+  costDollars?: number;
+  /** YYYY-MM-DD */
+  date?: string;
+  endpoint?: TypesWebSearchEndpoint;
+  failed?: number;
+  outOfCredits?: number;
+  requests?: number;
+  succeeded?: number;
+}
+
 export interface TypesWebServiceDeploy {
   commit_sha?: string;
   error?: string;
@@ -15749,6 +15830,68 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerSandboxTerminalSessionsResponse, any>({
         path: `/api/v1/organizations/${orgId}/sandboxes/${id}/terminal/sessions`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description The organization's web search calls, newest first, successful and failed. Any member of the organization may read them.
+     *
+     * @tags websearch
+     * @name V1OrganizationsWebsearchRequestsDetail
+     * @summary List organization web search requests
+     * @request GET:/api/v1/organizations/{org_id}/websearch/requests
+     * @secure
+     */
+    v1OrganizationsWebsearchRequestsDetail: (
+      orgId: string,
+      query?: {
+        /** Only calls to this endpoint */
+        endpoint?: "search" | "contents" | "findSimilar" | "answer";
+        /** First day, YYYY-MM-DD (UTC). Defaults to 29 days before to. */
+        from?: string;
+        /** Last day, YYYY-MM-DD (UTC), inclusive. Defaults to today. */
+        to?: string;
+        /** Page size, at most 200. Defaults to 50. */
+        limit?: number;
+        /** Rows to skip */
+        offset?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWebSearchRequestList, SystemHTTPError>({
+        path: `/api/v1/organizations/${orgId}/websearch/requests`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Web search calls made with the organization's API keys and by its agents, per UTC day and endpoint, per endpoint, and in total. Any member of the organization may read it.
+     *
+     * @tags websearch
+     * @name V1OrganizationsWebsearchUsageDetail
+     * @summary Get organization web search usage
+     * @request GET:/api/v1/organizations/{org_id}/websearch/usage
+     * @secure
+     */
+    v1OrganizationsWebsearchUsageDetail: (
+      orgId: string,
+      query?: {
+        /** First day, YYYY-MM-DD (UTC). Defaults to 29 days before to. */
+        from?: string;
+        /** Last day, YYYY-MM-DD (UTC), inclusive. Defaults to today. */
+        to?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWebSearchUsage, SystemHTTPError>({
+        path: `/api/v1/organizations/${orgId}/websearch/usage`,
+        method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,
