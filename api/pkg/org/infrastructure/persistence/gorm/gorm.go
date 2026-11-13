@@ -66,8 +66,8 @@ var orgTableNames = []string{
 	"org_domain_events",
 }
 
-// Options controls OpenWithDB behaviour for callers that need to
-// opt out of one of the migration steps.
+// Options controls Migrate behaviour for callers that need to opt
+// out of one of the migration steps.
 type Options struct {
 	// InstallOrganizationFK adds `org_id REFERENCES organizations(id)
 	// ON DELETE CASCADE` to every org_* table. Skipped when the
@@ -77,12 +77,13 @@ type Options struct {
 	InstallOrganizationFK bool
 }
 
-// OpenWithDB binds the org-store interfaces against an already-open
-// GORM database. Runs AutoMigrate for every row type and returns a
-// Store. Callers own the connection lifecycle.
-func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
+// Migrate brings the org_* schema up to date: AutoMigrate for every
+// row type plus the idempotent renames, backfills and constraints.
+// In production helix's PostgresStore runs it as part of its own
+// automigration, so it shares that step's skip setting and lock.
+func Migrate(db *gorm.DB, opts Options) error {
 	if db == nil {
-		return nil, fmt.Errorf("org-store gorm: db is nil")
+		return fmt.Errorf("org-store gorm: db is nil")
 	}
 
 	// Rename legacy tables before AutoMigrate. The Stream→Topic rename
@@ -93,20 +94,20 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	// Renaming first preserves the data; idempotent (only fires when the
 	// old table exists and the new one does not).
 	if err := renameLegacyTables(db); err != nil {
-		return nil, fmt.Errorf("rename legacy tables: %w", err)
+		return fmt.Errorf("rename legacy tables: %w", err)
 	}
 	if err := renameLegacyAssetLinkAgentColumn(db); err != nil {
-		return nil, fmt.Errorf("rename legacy asset-link agent column: %w", err)
+		return fmt.Errorf("rename legacy asset-link agent column: %w", err)
 	}
 
 	if err := db.AutoMigrate(orgRowTypes...); err != nil {
-		return nil, fmt.Errorf("auto-migrate: %w", err)
+		return fmt.Errorf("auto-migrate: %w", err)
 	}
 	if err := backfillBotPortraitIndexes(db); err != nil {
-		return nil, fmt.Errorf("backfill bot portrait indexes: %w", err)
+		return fmt.Errorf("backfill bot portrait indexes: %w", err)
 	}
 	if err := migrateProcessorOutputIDs(db); err != nil {
-		return nil, fmt.Errorf("migrate processor output ids: %w", err)
+		return fmt.Errorf("migrate processor output ids: %w", err)
 	}
 
 	// Drop tables for aggregates removed from the model. AutoMigrate never
@@ -117,12 +118,12 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	// idempotently lets fresh and upgraded DBs converge. No org_* table
 	// FKs reference it, so the drop is safe.
 	if err := dropRemovedTables(db); err != nil {
-		return nil, fmt.Errorf("drop removed tables: %w", err)
+		return fmt.Errorf("drop removed tables: %w", err)
 	}
 
 	if opts.InstallOrganizationFK {
 		if err := installOrganizationFKs(db); err != nil {
-			return nil, fmt.Errorf("install organization FKs: %w", err)
+			return fmt.Errorf("install organization FKs: %w", err)
 		}
 	}
 
@@ -131,16 +132,16 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	// InstallOrganizationFK — they're what make bot deletion drop
 	// reporting lines structurally instead of via app code.
 	if err := installReportingLineFKs(db); err != nil {
-		return nil, fmt.Errorf("install reporting-line FKs: %w", err)
+		return fmt.Errorf("install reporting-line FKs: %w", err)
 	}
 	if err := installAssetLinkFKs(db); err != nil {
-		return nil, fmt.Errorf("install asset-link FKs: %w", err)
+		return fmt.Errorf("install asset-link FKs: %w", err)
 	}
 	if err := installAttachmentConstraints(db); err != nil {
-		return nil, fmt.Errorf("install attachment constraints: %w", err)
+		return fmt.Errorf("install attachment constraints: %w", err)
 	}
 	if err := installWorkerSecretConstraints(db); err != nil {
-		return nil, fmt.Errorf("install worker secret constraints: %w", err)
+		return fmt.Errorf("install worker secret constraints: %w", err)
 	}
 
 	// Drop the legacy human placeholder rows only once the ON DELETE
@@ -150,12 +151,18 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	// child rows and the ADD CONSTRAINT statements would then fail
 	// validation, aborting startup.
 	if err := removeLegacyHumanBots(db); err != nil {
-		return nil, fmt.Errorf("remove legacy human bots: %w", err)
+		return fmt.Errorf("remove legacy human bots: %w", err)
 	}
 	if err := installAgentAppLinks(db); err != nil {
-		return nil, fmt.Errorf("install agent app links: %w", err)
+		return fmt.Errorf("install agent app links: %w", err)
 	}
+	return nil
+}
 
+// Open binds the org-store interfaces against an already-open GORM
+// database whose schema Migrate has brought up to date. Callers own
+// the connection lifecycle.
+func Open(db *gorm.DB) *store.Store {
 	bots := newNodesRepo(db)
 	return &store.Store{
 		Nodes:                bots,
@@ -176,7 +183,7 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		RetiredTopics:          newRetiredReader(db),
 		RetiredSubscriptions:   newRetiredSubscriptionReader(db),
 		RetiredProcessorInputs: newRetiredProcessorInputReader(db),
-	}, nil
+	}
 }
 
 func backfillBotPortraitIndexes(db *gorm.DB) error {
