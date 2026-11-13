@@ -8,7 +8,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+# Background FIFO feeders would otherwise outlive a failed check, blocked on open.
+trap 'jobs -p | xargs -r kill 2>/dev/null || true; rm -rf "$TMP"' EXIT
 export HELIX_GOLDEN_IDLE_TIMEOUT=4 HELIX_GOLDEN_IDLE_POLL=2
 # A fake agent CPU tier: tests simulate build activity by bumping its counters.
 export HELIX_GOLDEN_AGENT_CGROUP="$TMP/cgroup"
@@ -55,7 +56,7 @@ run_fed() {
     feed "$cpu_step" "$write_step" &
     local feeder=$!
     read -r code _ <<<"$(launch 'until [ -e '"$TMP"'/fed ]; do sleep 0.1; done; echo "startup finished"; exit 0')"
-    kill "$feeder"
+    kill "$feeder" 2>/dev/null || true
     wait "$feeder" 2>/dev/null || true
     reset_counters
     if grep -q "startup finished" "$TMP/out"; then echo "$code finished"; else echo "$code stopped"; fi
