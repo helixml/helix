@@ -149,7 +149,7 @@ func (apiServer *HelixAPIServer) compatRequest(r *http.Request, action types.Act
 		if err := user.AccountAccessError(); err != nil {
 			return nil, nil, statusErr(http.StatusForbidden, "%s", err.Error())
 		}
-		if reason := compatCredentialRejection(user); reason != "" {
+		if reason := compatCredentialRejection(user, apiServer.authMiddleware.confinedDesktopKey(r.Context(), user)); reason != "" {
 			return nil, nil, statusErr(http.StatusForbidden, "%s", reason)
 		}
 	}
@@ -172,11 +172,12 @@ func (apiServer *HelixAPIServer) compatRequest(r *http.Request, action types.Act
 // /api/v1 to a credential presented to this API, which authenticates on its
 // own. App keys are confined to the chat endpoints, embed keys live on an
 // untrusted page and bot instance keys in a sandbox reading untrusted input:
-// none of them may act on repositories as the key's owner. Nor may the key of
-// a sandbox outside any project, which owns no repositories. The runner token
+// none of them may act on repositories as the key's owner. Nor may a desktop
+// key outside any project (desktop, confinedDesktopKey): a sandbox's or a
+// project-less session's, which own no repositories. The runner token
 // authenticates sandbox hosts, not a person, and is refused like it is on
 // /api/v1 user routes.
-func compatCredentialRejection(user *types.User) string {
+func compatCredentialRejection(user *types.User, desktop *desktopKey) string {
 	switch {
 	case isRunner(user):
 		return errRunnerTokenNotAccepted
@@ -184,8 +185,10 @@ func compatCredentialRejection(user *types.User) string {
 		return "App API keys cannot use the GitHub API"
 	case user.APIKeyType == types.APIkeytypeEmbed, user.APIKeyType == types.APIkeytypeBotInstance:
 		return "This API key type cannot use the GitHub API"
-	case sandboxSessionKeyID(user) != "":
+	case desktop != nil && desktop.kind == desktopKeySandbox:
 		return "This sandbox key cannot use the GitHub API"
+	case desktop != nil:
+		return "This session key cannot use the GitHub API"
 	}
 	return ""
 }

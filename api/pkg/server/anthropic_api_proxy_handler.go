@@ -223,6 +223,30 @@ func parseAnthropicRequestModel(body []byte) (string, bool) {
 // 		Msg("🔢 [TOKEN_COUNT] Request completed")
 // }
 
+// keyDefaultsToProjectAgent reports whether a project key whose own session
+// selects no provider falls back to its project's default agent's provider.
+// Keys minted for a spec task, an exploratory desktop or a bot instance do, and
+// so do project keys with no session. Other project sessions (a recurring-task
+// job, a golden build, a project chat with no role) carry their project for
+// confinement only and keep the built-in default, as before they did.
+func (s *HelixAPIServer) keyDefaultsToProjectAgent(ctx context.Context, user *types.User) bool {
+	if user.ProjectID == "" {
+		return false
+	}
+	if user.SessionID == "" || system.IsSandboxID(user.SessionID) {
+		return true
+	}
+	session, err := s.Store.GetSession(ctx, user.SessionID)
+	if err != nil {
+		return true
+	}
+	switch session.Metadata.SessionRole {
+	case "exploratory", types.SessionRoleOrgBotInstance:
+		return true
+	}
+	return session.Metadata.SpecTaskID != ""
+}
+
 func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.User) (*types.ProviderEndpoint, error) {
 	// Default to "anthropic" provider if not specified
 	// This allows Zed and other Anthropic SDK clients to work without setting X-Provider header
@@ -247,7 +271,7 @@ func (s *HelixAPIServer) getProviderEndpoint(ctx context.Context, user *types.Us
 	}
 
 	// Helix agent
-	if user.ProjectID != "" {
+	if s.keyDefaultsToProjectAgent(ctx, user) {
 		project, err := s.Store.GetProject(ctx, user.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("error getting project: %w", err)

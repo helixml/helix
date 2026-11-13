@@ -2074,8 +2074,13 @@ type SessionAPIKeyRequest struct {
 // GetOrCreateSessionAPIKey gets or creates an ephemeral API key for a session.
 // Keys are scoped to the session for lifecycle management (minted on start, revoked on stop).
 // The key capabilities vary based on session type:
-// - SpecTask sessions: git push rights to specific branch, LLM calls
-// - Non-SpecTask sessions: LLM calls only
+//   - sessions in a project (spec tasks, exploratory desktops): confined to
+//     that project; a spec task's key pushes only to its branch;
+//   - bot instances: the restricted bot instance key type;
+//   - sessions outside any project (a plain chat's desktop): confined by the
+//     API auth middleware to its own session's desktop routes and the LLM
+//     proxy (server.desktopKeyRefusal), and refused by git;
+//   - helix-org workers: their hiring user's access, by design.
 func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, req *SessionAPIKeyRequest) (string, error) {
 	if req.SessionID == "" {
 		return "", fmt.Errorf("session ID is required for session-scoped API key")
@@ -2441,10 +2446,13 @@ func ProjectUsesPullRequests(project *types.Project, repos []*types.GitRepositor
 // confined to, before the spec task's own project is looked up.
 //   - A spec task session: its spec task (and that task's project).
 //   - A bot instance: its project.
-//   - A project's exploratory desktop (not a helix-org worker, which runs
-//     with its own org-level reach): its project.
-//   - Anything else (a plain chat, an org worker): no project; the key is
-//     confined to its session instead.
+//   - A helix-org worker: no project; it runs with its hiring user's
+//     org-level reach by design.
+//   - Any other session in a project (an exploratory desktop, a golden
+//     build, a recurring-task job, a project chat with an external agent):
+//     its project, so it keeps the project's repositories and nothing more.
+//   - Anything else (a plain chat): no project; the key is confined to its
+//     session's desktop routes instead.
 func sessionKeyScope(session *types.Session) (projectID, specTaskID string) {
 	projectID = session.ProjectID
 	if projectID == "" {
@@ -2455,9 +2463,9 @@ func sessionKeyScope(session *types.Session) (projectID, specTaskID string) {
 		return projectID, session.Metadata.SpecTaskID
 	case session.Metadata.SessionRole == types.SessionRoleOrgBotInstance:
 		return session.ProjectID, ""
-	case session.Metadata.SessionRole == "exploratory" && session.Metadata.OrgWorkerID == "":
-		return projectID, ""
-	default:
+	case session.Metadata.OrgWorkerID != "":
 		return "", ""
+	default:
+		return projectID, ""
 	}
 }

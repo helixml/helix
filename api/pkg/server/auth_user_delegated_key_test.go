@@ -19,7 +19,9 @@ func authUserWithKey(t *testing.T, keyType types.APIKeyType) types.UserResponse 
 	return authUserWithAPIKey(t, &types.ApiKey{Type: keyType})
 }
 
-func authUserWithAPIKey(t *testing.T, key *types.ApiKey) types.UserResponse {
+// authUserWithAPIKey calls /auth/user with key. session, if given, is what the
+// store returns for the key's session; otherwise the session is not found.
+func authUserWithAPIKey(t *testing.T, key *types.ApiKey, session ...*types.Session) types.UserResponse {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
@@ -29,6 +31,11 @@ func authUserWithAPIKey(t *testing.T, key *types.ApiKey) types.UserResponse {
 	mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ any, _ *store.GetUserQuery) (*types.User, error) { u := *owner; return &u, nil }).AnyTimes()
 	mockStore.EXPECT().EnsureUserMeta(gomock.Any(), gomock.Any()).Return(&types.UserMeta{ID: owner.ID}, nil).AnyTimes()
+	if len(session) > 0 {
+		mockStore.EXPECT().GetSession(gomock.Any(), key.SessionID).Return(session[0], nil).AnyTimes()
+	} else {
+		mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+	}
 
 	server := &HelixAPIServer{
 		Cfg:            &config.ServerConfig{},
@@ -64,20 +71,27 @@ func TestAuthUser_PersonalKeyGetsFullProfile(t *testing.T) {
 	require.Equal(t, "owner@example.com", resp.Email)
 }
 
-// A sandbox key outside a project is held by code in the container, so it
-// gets the owner's ID only, like a delegated key. Project sandbox keys and
-// chat-session keys keep the full profile.
-func TestAuthUser_SandboxKeyGetsOnlyTheOwnerID(t *testing.T) {
-	resp := authUserWithAPIKey(t, &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A", OrganizationID: "org_1"})
-	require.Equal(t, "usr_owner", resp.ID)
-	require.Empty(t, resp.Email)
-	require.Empty(t, resp.Name)
-	require.False(t, resp.Admin)
-
-	for _, key := range []*types.ApiKey{
-		{Type: types.APIkeytypeAPI, SessionID: "sbx_A", ProjectID: "prj_1"},
-		{Type: types.APIkeytypeAPI, SessionID: "ses_A"},
+// A desktop key outside a project (a sandbox's, or a session's with no
+// project) is held by code in the container, so it gets the owner's ID only,
+// like a delegated key. Project keys and a helix-org worker's session key
+// keep the full profile.
+func TestAuthUser_DesktopKeyGetsOnlyTheOwnerID(t *testing.T) {
+	for _, c := range []struct {
+		key     *types.ApiKey
+		session *types.Session
+	}{
+		{&types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A", OrganizationID: "org_1"}, nil},
+		{&types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_A"}, &types.Session{ID: "ses_A"}},
 	} {
-		require.Equal(t, "owner@example.com", authUserWithAPIKey(t, key).Email)
+		resp := authUserWithAPIKey(t, c.key, c.session)
+		require.Equal(t, "usr_owner", resp.ID)
+		require.Empty(t, resp.Email)
+		require.Empty(t, resp.Name)
+		require.False(t, resp.Admin)
 	}
+
+	worker := &types.Session{ID: "ses_W", Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"}}
+	require.Equal(t, "owner@example.com", authUserWithAPIKey(t, &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_W", OrganizationID: "org_1"}, worker).Email)
+	require.Equal(t, "owner@example.com", authUserWithAPIKey(t, &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A", ProjectID: "prj_1"}).Email)
+	require.Equal(t, "owner@example.com", authUserWithAPIKey(t, &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_A", ProjectID: "prj_1"}).Email)
 }

@@ -471,3 +471,53 @@ func Test_parseAnthropicRequestModel(t *testing.T) {
 		})
 	}
 }
+
+// Sessions that carry their project only for confinement (a recurring-task
+// job, a golden build, a project chat with no role) keep the built-in
+// anthropic default when their own agent selects no provider, even when the
+// project has no default agent. Spec-task and exploratory keys still use the
+// project's agent.
+func Test_getProviderEndpoint_ProjectSessionKinds(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		session       *types.Session
+		wantProjectAI bool
+	}{
+		"recurring task job":            {session: &types.Session{ID: "ses_1", ProjectID: "project-1", Metadata: types.SessionMetadata{SessionRole: "job"}}},
+		"project chat with no role":     {session: &types.Session{ID: "ses_1", ProjectID: "project-1"}},
+		"golden build":                  {session: &types.Session{ID: "ses_1", ProjectID: "project-1", Metadata: types.SessionMetadata{ProjectID: "project-1"}}},
+		"exploratory desktop":           {session: &types.Session{ID: "ses_1", ProjectID: "project-1", Metadata: types.SessionMetadata{SessionRole: "exploratory"}}, wantProjectAI: true},
+		"bot instance uses its project": {session: &types.Session{ID: "ses_1", ProjectID: "project-1", Metadata: types.SessionMetadata{SessionRole: types.SessionRoleOrgBotInstance}}, wantProjectAI: true},
+	} {
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			mockStore.EXPECT().GetSession(gomock.Any(), "ses_1").Return(tc.session, nil).AnyTimes()
+			want := "anthropic"
+			if tc.wantProjectAI {
+				want = "openai"
+				mockStore.EXPECT().GetProject(gomock.Any(), "project-1").Return(&types.Project{ID: "project-1", DefaultHelixAppID: "app-1"}, nil)
+				mockStore.EXPECT().GetApp(gomock.Any(), "app-1").Return(&types.App{ID: "app-1", Config: types.AppConfig{Helix: types.AppHelixConfig{
+					Assistants: []types.AssistantConfig{{Provider: "openai"}},
+				}}}, nil)
+			}
+			// No GetProject expectation otherwise: the project (which has no
+			// default agent here) must not be consulted.
+			mockStore.EXPECT().ListProviderEndpoints(gomock.Any(), &store.ListProviderEndpointsQuery{
+				Owner: "user-1", OwnerType: types.OwnerTypeUser, WithGlobal: true,
+			}).Return([]*types.ProviderEndpoint{
+				{Name: "anthropic", Owner: "user-1", EndpointType: types.ProviderEndpointTypeUser},
+				{Name: "openai", Owner: "user-1", EndpointType: types.ProviderEndpointTypeUser},
+			}, nil)
+
+			server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: mockStore}
+			endpoint, err := server.getProviderEndpoint(context.Background(), &types.User{
+				ID: "user-1", TokenType: types.TokenTypeAPIKey, ProjectID: "project-1", SessionID: "ses_1",
+			})
+			require.NoError(t, err)
+			require.Equal(t, want, endpoint.Name)
+		})
+	}
+}

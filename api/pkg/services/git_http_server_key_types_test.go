@@ -24,6 +24,9 @@ func TestGitKeyTypes(t *testing.T) {
 	st := store.NewMockStore(ctrl)
 	st.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{ProjectID: "prj_bot"}).
 		Return([]*types.GitRepository{{ID: "repo_bot"}, {ID: "repo_skills"}}, nil).AnyTimes()
+	st.EXPECT().GetSession(gomock.Any(), "ses_A").Return(&types.Session{ID: "ses_A"}, nil).AnyTimes()
+	st.EXPECT().GetSession(gomock.Any(), "ses_W").Return(&types.Session{ID: "ses_W", Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"}}, nil).AnyTimes()
+	st.EXPECT().GetSession(gomock.Any(), "ses_gone").Return(nil, store.ErrNotFound).AnyTimes()
 	s := &GitHTTPServer{store: st}
 
 	instance := &types.ApiKey{Type: types.APIkeytypeBotInstance, ProjectID: "prj_bot", SessionID: "ses_A"}
@@ -43,7 +46,10 @@ func TestGitKeyTypes(t *testing.T) {
 		{"embed key never reaches git", &types.ApiKey{Type: types.APIkeytypeEmbed}, gitReq("POST", "/git/repo_bot/git-upload-pack", "repo_bot"), false},
 		{"sandbox key outside a project reaches no repository", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A"}, gitReq("POST", "/git/repo_other/git-upload-pack", "repo_other"), false},
 		{"project sandbox key is left to project scope", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A", ProjectID: "prj_1"}, gitReq("POST", "/git/repo_bot/git-upload-pack", "repo_bot"), true},
-		{"session key is unchanged", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_A"}, gitReq("POST", "/git/repo_other/git-upload-pack", "repo_other"), true},
+		{"session key outside a project reaches no repository", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_A"}, gitReq("POST", "/git/repo_other/git-upload-pack", "repo_other"), false},
+		{"session key whose session is gone reaches no repository", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_gone"}, gitReq("POST", "/git/repo_other/git-upload-pack", "repo_other"), false},
+		{"helix-org worker key is unchanged", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_W", OrganizationID: "org_1"}, gitReq("POST", "/git/repo_other/git-upload-pack", "repo_other"), true},
+		{"project session key is left to project scope", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_A", ProjectID: "prj_1"}, gitReq("POST", "/git/repo_bot/git-receive-pack", "repo_bot"), true},
 		{"ordinary key is unchanged", &types.ApiKey{Type: types.APIkeytypeAPI}, gitReq("POST", "/git/repo_other/git-receive-pack", "repo_other"), true},
 	}
 	for _, c := range cases {
