@@ -98,7 +98,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
   searxng:
     logging: *default-logging
-    image: searxng/searxng:2025.7.24-84c3a83
+    image: searxng/searxng:2025.12.7-9d3ec9a2a
     # ports:
     #   - 8112:8080
     volumes:

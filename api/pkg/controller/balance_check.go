@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/wallet"
 )
 
 func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, orgID string, clientBillingEnabled bool) (bool, error) {
@@ -18,48 +19,5 @@ func (c *Controller) HasEnoughBalance(ctx context.Context, user *types.User, org
 		return false, fmt.Errorf("user is waitlisted")
 	}
 
-	if !c.Options.Config.Stripe.BillingEnabled {
-		// Billing not enabled
-		return true, nil
-	}
-
-	// If require active subscription is enabled, check if the user has an active subscription
-	if c.Options.Config.Stripe.RequireActiveSubscription {
-		subscription, err := c.Options.Store.GetWalletByOrg(ctx, orgID)
-		if err != nil {
-			return false, fmt.Errorf("failed to get subscription: %w", err)
-		}
-		if !subscription.HasPaidPlan() {
-			return false, fmt.Errorf("organization '%s' does not have an active subscription", orgID)
-		}
-	}
-
-	if !clientBillingEnabled {
-		// Billing not enabled for this client
-		return true, nil
-	}
-
-	var (
-		wallet *types.Wallet
-		err    error
-	)
-
-	if orgID != "" {
-		wallet, err = c.Options.Store.GetWalletByOrg(ctx, orgID)
-		if err != nil {
-			return false, fmt.Errorf("failed to get wallet: %w", err)
-		}
-	} else {
-		wallet, err = c.Options.Store.GetWalletByUser(ctx, user.ID)
-		if err != nil {
-			return false, fmt.Errorf("failed to get wallet: %w", err)
-		}
-	}
-
-	// Check if we have pricing for this model
-	if wallet.Balance < c.Options.Config.Stripe.MinimumInferenceBalance {
-		return false, nil
-	}
-
-	return true, nil
+	return wallet.HasEnoughBalance(ctx, c.Options.Store, c.Options.Config.Stripe, orgID, user.ID, clientBillingEnabled)
 }

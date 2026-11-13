@@ -247,7 +247,7 @@ func TestNewServer_RejectsUnknownAuthProvider(t *testing.T) {
 		cfg.WebServer.RunnerToken = "runner-token"
 		cfg.Auth.Provider = provider
 
-		s, err := NewServer(cfg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		s, err := NewServer(cfg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 		require.Error(t, err, string(provider))
 		require.Nil(t, s)
 		require.Contains(t, err.Error(), "unsupported AUTH_PROVIDER")

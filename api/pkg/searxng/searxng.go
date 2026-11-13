@@ -1,187 +1,232 @@
+// Package searxng is a client for the SearXNG JSON search API.
 package searxng
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
-	"sync"
-
-	"github.com/rs/zerolog/log"
-	"github.com/sourcegraph/conc/pool"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
 )
 
-type SearchProvider interface {
-	Search(ctx context.Context, req *SearchRequest) ([]SearchResultItem, error)
-}
-
-const DefaultMaxResults = 10
-
-type Category = string
-
+// SafeSearch levels.
 const (
-	EmptyCategory       Category = ""
-	GeneralCategory     Category = "general"
-	NewsCategory        Category = "news"
-	SocialMediaCategory Category = "social_media"
+	SafeSearchOff      = 0
+	SafeSearchModerate = 1
+	SafeSearchStrict   = 2
 )
 
-type SearchResultItem struct {
-	// URL The URL of the search result
-	URL string `json:"url"`
-	// Title The title of the search result
-	Title string `json:"title"`
-	// Content The content snippet of the search result
-	Content string `json:"content,omitempty"`
-	// Query The query used to obtain this search result
-	Query string `json:"query"`
-	// Category: Category of the search queries.
-	Category Category `json:"category,omitempty"`
-	// Metadata search result metadata
-	Metadata string `json:"metadata,omitempty"`
-	// PublishedDate The published date of the search result
-	PublishedDate string `json:"publishedDate,omitempty"`
-	// Score search result score
-	Score float64 `json:"score,omitempty"`
-}
+// LanguageAuto has SearXNG detect the query's language and search in it.
+const LanguageAuto = "auto"
 
-// Output represents the output of the SearxNG search tool.
-// the schema implements SystemPromptContextProvider
-type Output struct {
-	// Query The query used to obtain this search result
-	Query string `json:"query,omitempty"`
-	// Results List of search result items
-	Results []SearchResultItem `json:"results,omitempty"`
-	// Category The category of the search results
-	Category Category `json:"category,omitempty"`
-}
+// Time ranges.
+const (
+	TimeRangeDay   = "day"
+	TimeRangeWeek  = "week"
+	TimeRangeMonth = "month"
+	TimeRangeYear  = "year"
+)
 
-type SearXNG struct {
+// Client queries one SearXNG instance.
+type Client struct {
 	httpClient *http.Client
 	baseURL    string
+	engines    []string
 }
 
-type Config struct {
-	BaseURL string // Server URL
-}
-
-// SearchRequest is the request to the SearxNG API
-type SearchRequest struct {
-	MaxResults int
-	Queries    []SearchQuery // List of queries to search for
-}
-
-type SearchQuery struct {
-	Query    string   // The query to search for
-	Category Category // The category of the query
-	Language string   // The language of the query
-}
-
-func NewSearXNG(cfg *Config) *SearXNG {
-	return &SearXNG{
+// NewClient returns a client for the SearXNG at baseURL. engines are the
+// engines general web queries run on; empty means SearXNG's defaults.
+func NewClient(baseURL string, engines []string) *Client {
+	return &Client{
 		httpClient: http.DefaultClient,
-		baseURL:    cfg.BaseURL,
+		baseURL:    strings.TrimSuffix(baseURL, "/"),
+		engines:    engines,
 	}
 }
 
-func (s *SearXNG) Search(ctx context.Context, req *SearchRequest) ([]SearchResultItem, error) {
-	if req.MaxResults == 0 {
-		req.MaxResults = DefaultMaxResults
-	}
-
-	pool := pool.New().WithErrors()
-
-	resultsMu := sync.Mutex{}
-	var results []SearchResultItem
-
-	for _, q := range req.Queries {
-		pool.Go(func() error {
-			queryResults, err := s.fetchSearchResults(ctx, &q)
-			if err != nil {
-				return err
-			}
-			resultsMu.Lock()
-			results = append(results, queryResults...)
-			resultsMu.Unlock()
-			return nil
-		})
-	}
-
-	err := pool.Wait()
-	if err != nil {
-		log.Error().Err(err).Msg("error searching with searxng")
-	}
-
-	// Sort results by score
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
-
-	// Remove duplicates
-	seen := make(map[string]bool)
-	uniqueResults := make([]SearchResultItem, 0, len(results))
-	for _, r := range results {
-		if !seen[r.URL] {
-			seen[r.URL] = true
-			uniqueResults = append(uniqueResults, r)
-		}
-	}
-
-	// Limit results
-	if len(uniqueResults) > req.MaxResults {
-		uniqueResults = uniqueResults[:req.MaxResults]
-	}
-
-	return uniqueResults, nil
+type Query struct {
+	Q string
+	// Categories replace the client's engines with SearXNG's engines for
+	// those categories: SearXNG unions `engines` with `categories`, so
+	// sending both would mix general web results into e.g. news.
+	Categories []string
+	Language   string // e.g. "en-US" or LanguageAuto; empty for SearXNG's default
+	SafeSearch int    // SafeSearch*
+	TimeRange  string // TimeRange*, or empty for no limit
+	PageNo     int    // 1-based; 0 means 1
 }
 
-func (s *SearXNG) fetchSearchResults(ctx context.Context, q *SearchQuery) ([]SearchResultItem, error) {
-	// Encode the query parameter
+type Response struct {
+	Results             []Result
+	UnresponsiveEngines []UnresponsiveEngine
+}
+
+type Result struct {
+	URL           string
+	Title         string
+	Content       string
+	PublishedDate *time.Time
+	Thumbnail     string
+	ImgSrc        string
+	Score         float64
+	Engines       []string
+}
+
+type UnresponsiveEngine struct {
+	Name   string
+	Reason string
+}
+
+// Search runs one query for one page. Zero results with every queried
+// engine unresponsive is an upstream failure and returns an error.
+func (c *Client) Search(ctx context.Context, q Query) (*Response, error) {
+	if strings.TrimSpace(q.Q) == "" {
+		return nil, errors.New("searxng: empty query")
+	}
+
 	values := url.Values{}
-	values.Set("q", q.Query)
-	values.Set("safesearch", "0")
+	values.Set("q", q.Q)
 	values.Set("format", "json")
-	values.Set("engines", "bing,duckduckgo,google,startpage,yandex")
+	values.Set("safesearch", strconv.Itoa(q.SafeSearch))
+	engines := c.engines
+	if len(q.Categories) > 0 {
+		engines = nil
+		values.Set("categories", strings.Join(q.Categories, ","))
+	}
+	if len(engines) > 0 {
+		values.Set("engines", strings.Join(engines, ","))
+	}
 	if q.Language != "" {
 		values.Set("language", q.Language)
 	}
-	if q.Category != EmptyCategory {
-		values.Set("categories", q.Category)
+	if q.TimeRange != "" {
+		values.Set("time_range", q.TimeRange)
 	}
-	searchURL := fmt.Sprintf("%s/search?%s", s.baseURL, values.Encode())
+	if q.PageNo > 1 {
+		values.Set("pageno", strconv.Itoa(q.PageNo))
+	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/search?"+values.Encode(), nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("searxng: build request: %w", err)
 	}
+	// SearXNG's bot detection rejects requests without a User-Agent.
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; HelixBot/1.0)")
 
-	// Add User-Agent header to avoid 403 errors
-	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; HelixBot/1.0)")
-
-	httpResp, err := s.httpClient.Do(httpReq)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error querying local search engine: %v", err)
+		return nil, fmt.Errorf("searxng: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer resp.Body.Close()
 
-	if httpResp.StatusCode != http.StatusOK {
-		bts, err := io.ReadAll(httpResp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("error reading response body: %v", err)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("searxng: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var raw wireResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("searxng: decode response: %w", err)
+	}
+
+	out := &Response{
+		Results:             make([]Result, 0, len(raw.Results)),
+		UnresponsiveEngines: make([]UnresponsiveEngine, 0, len(raw.UnresponsiveEngines)),
+	}
+	for _, e := range raw.UnresponsiveEngines {
+		if len(e) == 0 {
+			return nil, errors.New("searxng: empty unresponsive_engines entry")
 		}
-		return nil, fmt.Errorf("non-200 response from search engine: %d: %s", httpResp.StatusCode, string(bts))
+		u := UnresponsiveEngine{Name: e[0]}
+		if len(e) > 1 {
+			u.Reason = e[1]
+		}
+		out.UnresponsiveEngines = append(out.UnresponsiveEngines, u)
+	}
+	for _, r := range raw.Results {
+		published, err := parsePublishedDate(r.PublishedDate)
+		if err != nil {
+			return nil, fmt.Errorf("searxng: result %s: %w", r.URL, err)
+		}
+		out.Results = append(out.Results, Result{
+			URL:           r.URL,
+			Title:         r.Title,
+			Content:       r.Content,
+			PublishedDate: published,
+			Thumbnail:     r.Thumbnail,
+			ImgSrc:        r.ImgSrc,
+			Score:         r.Score,
+			Engines:       r.Engines,
+		})
 	}
 
-	var searchResult Output
-	if err := json.NewDecoder(httpResp.Body).Decode(&searchResult); err != nil {
-		return nil, err
+	if len(out.Results) == 0 && allUnresponsive(engines, out.UnresponsiveEngines) {
+		return nil, fmt.Errorf("searxng: no engine responded: %s", describe(out.UnresponsiveEngines))
 	}
-	for idx := range searchResult.Results {
-		searchResult.Results[idx].Query = q.Query
-	}
+	return out, nil
+}
 
-	return searchResult.Results, nil
+// allUnresponsive reports whether every queried engine failed. For category
+// queries the queried engines are SearXNG's to choose and not known here, so
+// an empty result there is reported as empty, with UnresponsiveEngines set.
+func allUnresponsive(queried []string, unresponsive []UnresponsiveEngine) bool {
+	if len(queried) == 0 || len(unresponsive) == 0 {
+		return false
+	}
+	for _, name := range queried {
+		if !slices.ContainsFunc(unresponsive, func(u UnresponsiveEngine) bool { return u.Name == name }) {
+			return false
+		}
+	}
+	return true
+}
+
+func describe(engines []UnresponsiveEngine) string {
+	parts := make([]string, len(engines))
+	for i, e := range engines {
+		parts[i] = e.Name + " (" + e.Reason + ")"
+	}
+	return strings.Join(parts, ", ")
+}
+
+type wireResponse struct {
+	Results             []wireResult `json:"results"`
+	UnresponsiveEngines [][]string   `json:"unresponsive_engines"`
+}
+
+type wireResult struct {
+	URL           string   `json:"url"`
+	Title         string   `json:"title"`
+	Content       string   `json:"content"`
+	PublishedDate *string  `json:"publishedDate"`
+	Thumbnail     string   `json:"thumbnail"`
+	ImgSrc        string   `json:"img_src"`
+	Score         float64  `json:"score"`
+	Engines       []string `json:"engines"`
+}
+
+// SearXNG serialises dates with Python's isoformat: a date, or a datetime
+// with optional fraction and offset. A datetime without offset is UTC.
+var publishedDateLayouts = []string{
+	time.RFC3339Nano,
+	"2006-01-02T15:04:05.999999999",
+	"2006-01-02",
+}
+
+func parsePublishedDate(s *string) (*time.Time, error) {
+	if s == nil || *s == "" {
+		return nil, nil
+	}
+	for _, layout := range publishedDateLayouts {
+		if t, err := time.Parse(layout, *s); err == nil {
+			return &t, nil
+		}
+	}
+	return nil, fmt.Errorf("unrecognised publishedDate %q", *s)
 }

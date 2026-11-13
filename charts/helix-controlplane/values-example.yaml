@@ -40,7 +40,7 @@ searxng:
   # Use custom image if needed
   # image:
   #   repository: searxng/searxng
-  #   tag: "2024.1.1"
+  #   tag: "2025.12.7-9d3ec9a2a"
 
 chrome:
   # Enable Chrome for web crawling

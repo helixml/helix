@@ -1,0 +1,17 @@
+# In-cluster only: Chrome reaches the API's web search egress proxy here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-browser-proxy
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8090
+      targetPort: browser-proxy
+      protocol: TCP
+      name: browser-proxy
+  selector:
+    app.kubernetes.io/component: controlplane
+    {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}

@@ -61,6 +61,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
 	"github.com/helixml/helix/api/pkg/webhooks"
+	"github.com/helixml/helix/api/pkg/websearch"
 	"github.com/helixml/helix/api/pkg/webservice"
 )
 
@@ -208,6 +209,7 @@ type HelixAPIServer struct {
 	prProposals                *services.PRProposalService
 	projectInternalRepoService *services.ProjectInternalRepoService
 	anthropicProxy             *anthropic.Proxy
+	webSearch                  websearch.Provider
 	auditLogService            *services.AuditLogService
 	// requestAudit is the durable request audit trail (one record per API
 	// request). Nil when HELIX_AUDIT_LOG_ENABLED=false.
@@ -274,6 +276,7 @@ func NewServer(
 	anthropicProxy *anthropic.Proxy,
 	gitRepositoryService *services.GitRepositoryService,
 	preInitKodit *KoditResult,
+	webSearch websearch.Provider,
 ) (*HelixAPIServer, error) {
 	if cfg.ConnectPortal.SecretIntakeEnabled && os.Getenv("HELIX_ENCRYPTION_KEY") == "" {
 		return nil, fmt.Errorf("HELIX_ENCRYPTION_KEY is required when secret intake is enabled")
@@ -486,6 +489,7 @@ func NewServer(
 		avatarsBucket:     avatarsBucket,
 		trigger:           trigger,
 		anthropicProxy:    anthropicProxy,
+		webSearch:         webSearch,
 		specDrivenTaskService: services.NewSpecDrivenTaskService(
 			store,
 			appController.Options.Notifier,
@@ -968,9 +972,6 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		}()
 	}
 
-	// Set up the HTTP handler, optionally wrapping with subdomain proxy
-	var handler http.Handler = apiServer.router
-
 	// Configure name-based virtual hosting (project web services + sandbox
 	// preview tokens). Reuses existing DEV_SUBDOMAIN as the base and
 	// SERVER_URL as the canonical hostname. The middleware is a no-op
@@ -982,7 +983,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 			Int("canonical_hostnames", len(vhostCfg.CanonicalHostnames)).
 			Msg("vhost middleware enabled (project web services + preview tokens)")
 	}
-	handler = NewVHostMiddleware(vhostCfg, apiServer, apiServer.router)
+	var handler http.Handler = NewVHostMiddleware(vhostCfg, apiServer, cleanWebSearchBasePath(apiServer.router))
 
 	// Request audit trail: one durable record per request, wrapped around the
 	// vhost proxy so customer traffic that never reaches the mux is audited
@@ -1196,6 +1197,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// router.HandleFunc("/v1/messages/count_tokens", apiServer.authMiddleware.auth(apiServer.anthropicTokenCountHandler)).Methods(http.MethodPost, http.MethodOptions)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
+
+	// Exa-compatible web search API
+	apiServer.registerWebSearchRoutes(authRouter)
 
 	authRouter.HandleFunc("/providers", apiServer.listProviders).Methods(http.MethodGet)
 

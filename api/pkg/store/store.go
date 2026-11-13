@@ -1077,6 +1077,10 @@ type Store interface {
 	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
 	ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error)
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
+
+	// Web search page cache, shared across organizations (public content).
+	GetWebPage(ctx context.Context, url string) (*types.WebPage, error)
+	UpsertWebPage(ctx context.Context, page *types.WebPage) error
 }
 
 // SecretIntakeStore owns the atomic persistence operations used by secret intake.

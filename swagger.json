@@ -107,6 +107,99 @@
                 }
             }
         },
+        "/api/v1/admin/audit-events": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin-only forensic read of the request audit trail, newest first. Paginate by passing next_cursor back as cursor.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List request audit events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by user ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by TCP peer IP (no port)",
+                        "name": "remote_ip",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by derived client IP (only populated for trusted proxies)",
+                        "name": "client_ip",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by path prefix",
+                        "name": "path",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by HTTP method",
+                        "name": "method",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by response status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only events created at or after this RFC3339 time",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only events created at or before this RFC3339 time",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Opaque keyset cursor from the previous response's next_cursor",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Also count all matching events (expensive on a large table)",
+                        "name": "include_total",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RequestAuditEventResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/kodit/queue": {
             "get": {
                 "security": [
@@ -791,6 +884,113 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Wallet"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/runner-tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List per-runner tokens (never their secrets), newest first, revoked ones included.",
+                "tags": [
+                    "runner_tokens"
+                ],
+                "summary": "List per-runner tokens",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Only this runner's tokens",
+                        "name": "runner_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.RunnerToken"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mint a token bound to one runner id. The token is returned once and only its hash is stored.",
+                "tags": [
+                    "runner_tokens"
+                ],
+                "summary": "Mint a per-runner token",
+                "parameters": [
+                    {
+                        "description": "Runner id and an optional name",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRunnerTokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRunnerTokenResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/runner-tokens/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke a per-runner token. Requests with it are refused (401) from then on; tunnels it already opened stay up until the host reconnects.",
+                "tags": [
+                    "runner_tokens"
+                ],
+                "summary": "Revoke a per-runner token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Runner token id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunnerToken"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -8421,13 +8621,57 @@
                 }
             }
         },
+        "/api/v1/invitations/{id}/accept": {
+            "post": {
+                "description": "Accept the invitation from an invite link as the signed-in user. Requires the invitation's secret token from the link, and the account's email must be the invited address. Works for waitlisted accounts (an invitation lifts the waitlist).",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Accept an organization invitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Token from the invite link",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AcceptInvitationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/invitations/{id}/info": {
             "get": {
-                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).",
+                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. Requires the secret token from the invite link.",
                 "tags": [
                     "organizations"
                 ],
                 "summary": "Look up basic info for an invitation by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Secret token from the invite link",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9643,6 +9887,28 @@
                 }
             }
         },
+        "/api/v1/organizations/{id}/invitations/{invitation_id}/link": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Owners only. Generates a new secret token for the invitation and returns its invite link, for sending outside email. Links issued earlier (including the emailed one) stop working.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Issue a new invite link for a pending invitation",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.InvitationLinkResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{id}/members": {
             "get": {
                 "security": [
@@ -10116,7 +10382,7 @@
                 "tags": [
                     "organizations"
                 ],
-                "summary": "Disable an organization webhook endpoint",
+                "summary": "Delete an organization webhook endpoint",
                 "parameters": [
                     {
                         "type": "string",
@@ -18712,7 +18978,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get decrypted Claude credentials for use inside a desktop container.\nOnly accepts runner/session-scoped tokens.",
+                "description": "Get decrypted Claude credentials for use inside a desktop container.\nAccepts the session's own API key or a runner token; otherwise only the subscription's owner.",
                 "produces": [
                     "application/json"
                 ],
@@ -20802,7 +21068,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get the Kanban board settings (WIP limits) for the default project",
+                "description": "Get the Kanban board settings (WIP limits) of a project",
                 "produces": [
                     "application/json"
                 ],
@@ -20810,6 +21076,15 @@
                     "spec-driven-tasks"
                 ],
                 "summary": "Get board settings for spec tasks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -20817,8 +21092,14 @@
                             "$ref": "#/definitions/types.BoardSettings"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -20831,7 +21112,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update the Kanban board settings (WIP limits) for the default project",
+                "description": "Update the Kanban board settings (WIP limits) of a project",
                 "consumes": [
                     "application/json"
                 ],
@@ -20843,6 +21124,13 @@
                 ],
                 "summary": "Update board settings for spec tasks",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query",
+                        "required": true
+                    },
                     {
                         "description": "Board settings",
                         "name": "request",
@@ -20866,8 +21154,14 @@
                             "$ref": "#/definitions/types.APIError"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -24428,6 +24722,234 @@
                 }
             }
         },
+        "/api/v1/websearch/answer": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible answer. With stream=true the response is a text/event-stream of websearch.AnswerEvent ending with \"data: [DONE]\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Answer a question from web search results",
+                "parameters": [
+                    {
+                        "description": "Answer request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.AnswerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.AnswerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/contents": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible contents: text, highlights, summaries and extras for URLs or result ids.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Get page contents",
+                "parameters": [
+                    {
+                        "description": "Contents request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ContentsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ContentsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/findSimilar": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible findSimilar.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Find pages similar to a URL",
+                "parameters": [
+                    {
+                        "description": "Find similar request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.FindSimilarRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.FindSimilarResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/websearch/search": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Exa-compatible search. With stream=true and an outputSchema the response is a text/event-stream of websearch.SearchEvent ending with \"data: [DONE]\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "websearch"
+                ],
+                "summary": "Search the web",
+                "parameters": [
+                    {
+                        "description": "Search request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/websearch.SearchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.SearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "402": {
+                        "description": "NO_MORE_CREDITS: the wallet is below the minimum balance",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/websearch.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/work-sessions/{sessionId}/zed-thread": {
             "post": {
                 "security": [
@@ -24531,6 +25053,18 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -24664,6 +25198,18 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -25093,10 +25639,6 @@
                     "description": "ActivationError is the latest completed activation failure. It clears\nwhen a newer activation starts or succeeds.",
                     "type": "string"
                 },
-                "can_edit": {
-                    "description": "CanEdit is true when the caller may change this Bot: organization\nowners and platform admins, or a member who may update the Bot's\nagent app. The UI hides edit, delete and re-parent controls when false.",
-                    "type": "boolean"
-                },
                 "agent_model": {
                     "type": "string"
                 },
@@ -25110,6 +25652,10 @@
                             "$ref": "#/definitions/types.AgentWorkState"
                         }
                     ]
+                },
+                "can_edit": {
+                    "description": "CanEdit is true when the caller may change this Bot: organization\nowners and platform admins, or a member who may update the Bot's\nagent app. The UI hides edit, delete and re-parent controls when false.",
+                    "type": "boolean"
                 },
                 "code_agent_credential_type": {
                     "$ref": "#/definitions/types.CodeAgentCredentialType"
@@ -25157,14 +25703,14 @@
                 "organization_id": {
                     "type": "string"
                 },
-                "portrait_index": {
-                    "type": "integer"
-                },
                 "parent_ids": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
+                },
+                "portrait_index": {
+                    "type": "integer"
                 },
                 "preserve_context": {
                     "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
@@ -30280,6 +30826,15 @@
                 "APIkeytypeBotInstance"
             ]
         },
+        "types.AcceptInvitationRequest": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "description": "Token is the invitation's secret token from the invite link.",
+                    "type": "string"
+                }
+            }
+        },
         "types.AccessGrant": {
             "type": "object",
             "properties": {
@@ -31049,19 +31604,7 @@
         "types.AssistantBrowser": {
             "type": "object",
             "properties": {
-                "cache": {
-                    "description": "If true, the browser will cache the results of the tool call",
-                    "type": "boolean"
-                },
                 "enabled": {
-                    "type": "boolean"
-                },
-                "markdown_post_processing": {
-                    "description": "If true, the browser will return the HTML as markdown",
-                    "type": "boolean"
-                },
-                "no_browser": {
-                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {
@@ -31799,6 +32342,10 @@
             "properties": {
                 "enabled": {
                     "type": "boolean"
+                },
+                "webhook_secret": {
+                    "description": "WebhookSecret authenticates deliveries to /api/v1/webhooks/{id}.\nGenerated by the server when the trigger is saved; deliveries without\nit are rejected.",
+                    "type": "string"
                 }
             }
         },
@@ -33106,6 +33653,51 @@
                 },
                 "provider": {
                     "$ref": "#/definitions/types.ExternalRepositoryType"
+                }
+            }
+        },
+        "types.CreateRunnerTokenRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "runner_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateRunnerTokenResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "revoked_by": {
+                    "description": "RevokedBy is the user who revoked the token. With CreatedBy and the\ntimestamps, the row is the token's durable audit record; the request\naudit log has the full requests.",
+                    "type": "string"
+                },
+                "runner_id": {
+                    "description": "RunnerID is the host this token may act as. A host registers RevDial\ntunnels as \"hydra-{id}\" and \"sandbox-{id}\" and calls the sandbox and\nrunner routes with the bare id; all of those match (RunnerIDsMatch).",
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "token_prefix": {
+                    "type": "string"
                 }
             }
         },
@@ -35202,6 +35794,14 @@
                 }
             }
         },
+        "types.InvitationLinkResponse": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Item": {
             "type": "object",
             "properties": {
@@ -36788,6 +37388,10 @@
             "properties": {
                 "email": {
                     "type": "string"
+                },
+                "email_verified": {
+                    "description": "EmailVerified — the existing account has been shown to own the address.\nAdding by email only adds such an account; otherwise it is invited.",
+                    "type": "boolean"
                 },
                 "exists": {
                     "description": "a Helix user account exists with this email",
@@ -38748,7 +39352,7 @@
                     "type": "string"
                 },
                 "invitation_id": {
-                    "description": "InvitationID and InvitationToken come from the invite link\n(/login?invitation=<id>&token=<token>). Password sign-up does not\nverify the email address, so only the invitation presented here is\naccepted, and only with its secret token and when it was sent to Email.",
+                    "description": "InvitationID and InvitationToken come from the invite link\n(/login?invitation=\u003cid\u003e\u0026token=\u003ctoken\u003e). Password sign-up does not\nverify the email address, so only the invitation presented here is\naccepted, and only with its secret token and when it was sent to Email.",
                     "type": "string"
                 },
                 "invitation_token": {
@@ -38872,6 +39476,124 @@
                 },
                 "private": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.RequestAuditEvent": {
+            "type": "object",
+            "properties": {
+                "api_key_type": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "body_size": {
+                    "type": "integer"
+                },
+                "body_truncated": {
+                    "type": "boolean"
+                },
+                "cf_connecting_ip": {
+                    "type": "string"
+                },
+                "client_ip": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "credential_fingerprint": {
+                    "type": "string"
+                },
+                "credential_source": {
+                    "description": "CredentialSource names where the credential came from (session, bearer,\napi-key, cookie, query, socket). CredentialFingerprint is the first 12\nhex characters of an HMAC-SHA256 of the credential, keyed from the\ndeployment's encryption key - enough to correlate a stolen key with\nrequests without storing the key or allowing an offline brute force.",
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "id": {
+                    "description": "ID is the primary key and half of the keyset pagination cursor.",
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "remote_addr": {
+                    "description": "RemoteAddr is the raw TCP peer as reported by net/http. RemoteIP and\nRemotePort split it so the address is a usable filter (the raw value\nincludes the ephemeral port). ClientIP is filled only when the peer is\ninside HELIX_AUDIT_LOG_TRUSTED_PROXIES; the proxy headers below are\notherwise recorded as the client sent them and are NOT trusted.",
+                    "type": "string"
+                },
+                "remote_ip": {
+                    "type": "string"
+                },
+                "remote_port": {
+                    "type": "integer"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "response_bytes": {
+                    "type": "integer"
+                },
+                "route_template": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "token_type": {
+                    "type": "string"
+                },
+                "user_admin": {
+                    "type": "boolean"
+                },
+                "user_agent": {
+                    "type": "string"
+                },
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "x_forwarded_for": {
+                    "type": "string"
+                },
+                "x_real_ip": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RequestAuditEventResponse": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RequestAuditEvent"
+                    }
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "next_cursor": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -39186,6 +39908,37 @@
                     "type": "string"
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RunnerToken": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "revoked_by": {
+                    "description": "RevokedBy is the user who revoked the token. With CreatedBy and the\ntimestamps, the row is the token's durable audit record; the request\naudit log has the full requests.",
+                    "type": "string"
+                },
+                "runner_id": {
+                    "description": "RunnerID is the host this token may act as. A host registers RevDial\ntunnels as \"hydra-{id}\" and \"sandbox-{id}\" and calls the sandbox and\nrunner routes with the bare id; all of those match (RunnerIDsMatch).",
+                    "type": "string"
+                },
+                "token_prefix": {
                     "type": "string"
                 }
             }
@@ -43520,19 +44273,7 @@
         "types.ToolBrowserConfig": {
             "type": "object",
             "properties": {
-                "cache": {
-                    "description": "If true, the browser will cache the results of the tool call",
-                    "type": "boolean"
-                },
                 "enabled": {
-                    "type": "boolean"
-                },
-                "markdown_post_processing": {
-                    "description": "If true, the browser will return the HTML as markdown",
-                    "type": "boolean"
-                },
-                "no_browser": {
-                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {
@@ -44412,8 +45153,16 @@
                 "deleted_at": {
                     "$ref": "#/definitions/gorm.DeletedAt"
                 },
+                "desktop_identity": {
+                    "description": "DesktopIdentity marks the single account that Helix Desktop's\nauto-login (DESKTOP_AUTO_LOGIN_SECRET) signs in as. The desktop flow\nnever signs in as, or promotes, any other account.",
+                    "type": "boolean"
+                },
                 "email": {
                     "type": "string"
+                },
+                "email_verified": {
+                    "description": "EmailVerified records that the account's owner has been shown to control\nEmail: the identity provider asserted email_verified, an admin created the\naccount, or the owner used a link sent to the address (invitation,\npassword reset). A password sign-up proves nothing, so it is false until\nthen. Resolving an account by email for a grant (adding an org or team\nmember) requires it; anything else would hand the grant to whoever\nregistered the address first.",
+                    "type": "boolean"
                 },
                 "embed_interactive": {
                     "description": "EmbedInteractive: an embed key that may drive its bound session's desktop.",
@@ -44439,6 +45188,10 @@
                 "must_change_password": {
                     "description": "if the user must change their password",
                     "type": "boolean"
+                },
+                "oidc_subject": {
+                    "description": "OIDCSubject is the identity provider's subject this account is signed in\nwith. For accounts created by SSO it equals ID; for an account created\nanother way and later linked to an SSO identity by its verified email,\nit records that link so later sign-ins resolve by subject.",
+                    "type": "string"
                 },
                 "onboarding_completed": {
                     "type": "boolean"
@@ -44466,6 +45219,10 @@
                     "description": "When running in Helix Code sandbox",
                     "type": "string"
                 },
+                "runner_id": {
+                    "description": "RunnerID is the runner a per-runner token is bound to. Empty for the\nshared runner token and for every non-runner credential.",
+                    "type": "string"
+                },
                 "sb": {
                     "type": "boolean"
                 },
@@ -44475,10 +45232,6 @@
                 },
                 "spec_task_id": {
                     "description": "When running in Helix Code sandbox",
-                    "type": "string"
-                },
-                "token": {
-                    "description": "the actual token used and its type",
                     "type": "string"
                 },
                 "token_type": {
@@ -44705,6 +45458,9 @@
                 },
                 "email": {
                     "type": "string"
+                },
+                "email_verified": {
+                    "type": "boolean"
                 },
                 "git_commit_email": {
                     "type": "string"
@@ -45195,11 +45951,13 @@
             "type": "string",
             "enum": [
                 "active",
-                "disabled"
+                "disabled",
+                "deleted"
             ],
             "x-enum-varnames": [
                 "WebhookEndpointStatusActive",
-                "WebhookEndpointStatusDisabled"
+                "WebhookEndpointStatusDisabled",
+                "WebhookEndpointStatusDeleted"
             ]
         },
         "types.WebsiteCrawler": {
@@ -45571,6 +46329,794 @@
                     "type": "integer"
                 },
                 "zed_instance_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.AnswerRequest": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string"
+                },
+                "outputSchema": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "systemPrompt": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "boolean"
+                },
+                "userIdentifier": {
+                    "type": "string"
+                },
+                "userLocation": {
+                    "$ref": "#/definitions/websearch.UserLocation"
+                }
+            }
+        },
+        "websearch.AnswerResponse": {
+            "type": "object",
+            "properties": {
+                "answer": {
+                    "description": "string, or object when outputSchema is set"
+                },
+                "citations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "requestId": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Citation": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentError": {
+            "type": "object",
+            "properties": {
+                "httpStatusCode": {
+                    "type": "integer"
+                },
+                "tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentStatus": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/websearch.ContentError"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "cached | crawled",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "success | error",
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentsCost": {
+            "type": "object",
+            "properties": {
+                "highlights": {
+                    "type": "number"
+                },
+                "summary": {
+                    "type": "number"
+                },
+                "text": {
+                    "type": "number"
+                }
+            }
+        },
+        "websearch.ContentsOptions": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "$ref": "#/definitions/websearch.ContextOption"
+                },
+                "crawledBeforeDate": {
+                    "type": "string"
+                },
+                "extras": {
+                    "$ref": "#/definitions/websearch.ExtrasOptions"
+                },
+                "highlights": {
+                    "$ref": "#/definitions/websearch.HighlightsOption"
+                },
+                "livecrawl": {
+                    "type": "string"
+                },
+                "livecrawlTimeout": {
+                    "type": "integer"
+                },
+                "maxAgeHours": {
+                    "type": "integer"
+                },
+                "snapshotAsOf": {
+                    "type": "string"
+                },
+                "subpageTarget": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "subpages": {
+                    "type": "integer"
+                },
+                "summary": {
+                    "$ref": "#/definitions/websearch.SummaryOption"
+                },
+                "text": {
+                    "$ref": "#/definitions/websearch.TextOption"
+                }
+            }
+        },
+        "websearch.ContentsRequest": {
+            "type": "object",
+            "properties": {
+                "compliance": {
+                    "type": "string"
+                },
+                "context": {
+                    "$ref": "#/definitions/websearch.ContextOption"
+                },
+                "crawledBeforeDate": {
+                    "type": "string"
+                },
+                "extras": {
+                    "$ref": "#/definitions/websearch.ExtrasOptions"
+                },
+                "highlights": {
+                    "$ref": "#/definitions/websearch.HighlightsOption"
+                },
+                "ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "livecrawl": {
+                    "type": "string"
+                },
+                "livecrawlTimeout": {
+                    "type": "integer"
+                },
+                "maxAgeHours": {
+                    "type": "integer"
+                },
+                "snapshotAsOf": {
+                    "type": "string"
+                },
+                "subpageTarget": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "subpages": {
+                    "type": "integer"
+                },
+                "summary": {
+                    "$ref": "#/definitions/websearch.SummaryOption"
+                },
+                "text": {
+                    "$ref": "#/definitions/websearch.TextOption"
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "userIdentifier": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ContentsResponse": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "searchTime": {
+                    "type": "number"
+                },
+                "statuses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.ContentStatus"
+                    }
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Warning"
+                    }
+                }
+            }
+        },
+        "websearch.ContextOption": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "maxCharacters": {
+                    "type": "integer"
+                }
+            }
+        },
+        "websearch.CostDollars": {
+            "type": "object",
+            "properties": {
+                "contents": {
+                    "$ref": "#/definitions/websearch.ContentsCost"
+                },
+                "total": {
+                    "type": "number"
+                }
+            }
+        },
+        "websearch.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Extras": {
+            "type": "object",
+            "properties": {
+                "imageLinks": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "richImageLinks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.ImageLink"
+                    }
+                }
+            }
+        },
+        "websearch.ExtrasOptions": {
+            "type": "object",
+            "properties": {
+                "codeBlocks": {
+                    "description": "deprecated",
+                    "type": "integer"
+                },
+                "imageLinks": {
+                    "type": "integer"
+                },
+                "links": {
+                    "type": "integer"
+                },
+                "richImageLinks": {
+                    "type": "integer"
+                },
+                "richLinks": {
+                    "description": "deprecated",
+                    "type": "integer"
+                }
+            }
+        },
+        "websearch.FindSimilarRequest": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "contents": {
+                    "$ref": "#/definitions/websearch.ContentsOptions"
+                },
+                "endCrawlDate": {
+                    "type": "string"
+                },
+                "endPublishedDate": {
+                    "type": "string"
+                },
+                "excludeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "excludeSourceDomain": {
+                    "type": "boolean"
+                },
+                "excludeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "numResults": {
+                    "type": "integer"
+                },
+                "startCrawlDate": {
+                    "type": "string"
+                },
+                "startPublishedDate": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "userIdentifier": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.FindSimilarResponse": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "searchTime": {
+                    "type": "number"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Warning"
+                    }
+                }
+            }
+        },
+        "websearch.Grounding": {
+            "type": "object",
+            "properties": {
+                "citations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Citation"
+                    }
+                },
+                "confidence": {
+                    "description": "low | medium | high",
+                    "type": "string"
+                },
+                "field": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.HighlightsOption": {
+            "type": "object",
+            "properties": {
+                "dynamic": {
+                    "description": "beta",
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "highlightsPerUrl": {
+                    "description": "deprecated: ignored",
+                    "type": "integer"
+                },
+                "maxCharacters": {
+                    "type": "integer"
+                },
+                "numSentences": {
+                    "description": "deprecated: ~1333 chars per sentence",
+                    "type": "integer"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "verbosity": {
+                    "description": "beta",
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.ImageLink": {
+            "type": "object",
+            "properties": {
+                "alt": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Notice": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.Result": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "entities": {
+                    "description": "Entities are Exa's structured company/person records; only the exa\nprovider returns them.",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "extras": {
+                    "$ref": "#/definitions/websearch.Extras"
+                },
+                "favicon": {
+                    "type": "string"
+                },
+                "highlightScores": {
+                    "description": "findSimilar only",
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "highlights": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "publishedDate": {
+                    "type": "string"
+                },
+                "score": {
+                    "description": "findSimilar only",
+                    "type": "number"
+                },
+                "subpages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.SearchOutput": {
+            "type": "object",
+            "properties": {
+                "content": {},
+                "grounding": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Grounding"
+                    }
+                }
+            }
+        },
+        "websearch.SearchRequest": {
+            "type": "object",
+            "properties": {
+                "additionalQueries": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "category": {
+                    "type": "string"
+                },
+                "compliance": {
+                    "type": "string"
+                },
+                "contents": {
+                    "$ref": "#/definitions/websearch.ContentsOptions"
+                },
+                "context": {
+                    "$ref": "#/definitions/websearch.ContextOption"
+                },
+                "endCrawlDate": {
+                    "type": "string"
+                },
+                "endPublishedDate": {
+                    "type": "string"
+                },
+                "excludeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "excludeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeDomains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeText": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "moderation": {
+                    "type": "boolean"
+                },
+                "numResults": {
+                    "type": "integer"
+                },
+                "objective": {
+                    "type": "string"
+                },
+                "outputSchema": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                },
+                "startCrawlDate": {
+                    "type": "string"
+                },
+                "startPublishedDate": {
+                    "type": "string"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "systemPrompt": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "userIdentifier": {
+                    "type": "string"
+                },
+                "userLocation": {
+                    "$ref": "#/definitions/websearch.UserLocation"
+                }
+            }
+        },
+        "websearch.SearchResponse": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "costDollars": {
+                    "$ref": "#/definitions/websearch.CostDollars"
+                },
+                "notices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Notice"
+                    }
+                },
+                "output": {
+                    "$ref": "#/definitions/websearch.SearchOutput"
+                },
+                "requestId": {
+                    "type": "string"
+                },
+                "resolvedSearchType": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Result"
+                    }
+                },
+                "searchTime": {
+                    "type": "number"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/websearch.Warning"
+                    }
+                }
+            }
+        },
+        "websearch.SummaryOption": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "websearch.TextOption": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "excludeSections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "includeHtmlTags": {
+                    "type": "boolean"
+                },
+                "includeSections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "linkStyle": {
+                    "description": "LinkStyle*",
+                    "type": "string"
+                },
+                "maxCharacters": {
+                    "type": "integer"
+                },
+                "verbosity": {
+                    "description": "Verbosity*",
+                    "type": "string"
+                }
+            }
+        },
+        "websearch.UserLocation": {
+            "type": "object",
+            "properties": {
+                "country": {
+                    "type": "string"
+                },
+                "latitude": {
+                    "type": "number"
+                },
+                "longitude": {
+                    "type": "number"
+                }
+            }
+        },
+        "websearch.Warning": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "path": {
                     "type": "string"
                 }
             }

@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"testing"
 
 	"github.com/go-rod/rod/lib/proto"
@@ -25,7 +26,7 @@ func TestBrowser_Get(t *testing.T) {
 	// Ensure proper cleanup of browser resources
 	defer browserManager.Close()
 
-	browser, err := browserManager.GetBrowser()
+	browser, err := browserManager.GetBrowser(context.Background())
 	require.NoError(t, err)
 
 	assert.NotNil(t, browser)
@@ -60,7 +61,7 @@ func TestBrowser_BrowsePages(t *testing.T) {
 	// Ensure proper cleanup of browser resources
 	defer browserManager.Close()
 
-	browser, err := browserManager.GetBrowser()
+	browser, err := browserManager.GetBrowser(context.Background())
 	require.NoError(t, err)
 
 	page1, err := browserManager.GetPage(browser, proto.TargetCreateTarget{URL: "https://helix.ml/docs"})

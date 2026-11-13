@@ -185,8 +185,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeBrowser {
-			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser, llm, c.browserCache, c.Options.Config.Tools.TLSSkipVerify,
-				netguard.Policy{AllowPrivate: c.Options.Config.Tools.AllowPrivateNetworks}))
+			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.WebSearch, llm))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeCalculator {
@@ -198,7 +197,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeWebSearch {
-			skills = append(skills, skill.NewSearchSkill(assistantTool.Config.WebSearch, c.Options.SearchProvider, c.Options.Browser))
+			skills = append(skills, skill.NewSearchSkill(assistantTool.Config.WebSearch, c.Options.WebSearch))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeProjectManager {

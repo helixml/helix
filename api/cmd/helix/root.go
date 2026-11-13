@@ -28,6 +28,7 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/system"
 	"github.com/helixml/helix/api/pkg/cli/team"
 	"github.com/helixml/helix/api/pkg/cli/user"
+	"github.com/helixml/helix/api/pkg/cli/websearch"
 )
 
 var Fatal = FatalErrorHandler
@@ -68,6 +69,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(member.New())
 	RootCmd.AddCommand(user.New())
 	RootCmd.AddCommand(runner.New())
+	RootCmd.AddCommand(websearch.New())
 
 	// Commands available on all platforms
 	RootCmd.AddCommand(NewServeCmd())
