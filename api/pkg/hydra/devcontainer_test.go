@@ -357,6 +357,25 @@ func TestPrepareMountSourcesMakesAgentCacheWritableByDesktopUser(t *testing.T) {
 		})
 	}
 
+	t.Run("mountpoint with another owner is refused", func(t *testing.T) {
+		// /dev/shm is its own tmpfs on Linux hosts and containers, owned by
+		// root with mode 1777.
+		const mountpoint = "/dev/shm"
+		var leaf, parent unix.Stat_t
+		if unix.Stat(mountpoint, &leaf) != nil || unix.Stat(filepath.Dir(mountpoint), &parent) != nil || leaf.Dev == parent.Dev {
+			t.Skip("/dev/shm is not a mountpoint here")
+		}
+
+		err := prepareMountSources(&CreateDevContainerRequest{
+			Mounts: []MountConfig{{Source: mountpoint, Destination: instanceAgentCacheDir}},
+		})
+		require.ErrorContains(t, err, "is a mountpoint")
+		var after unix.Stat_t
+		require.NoError(t, unix.Stat(mountpoint, &after))
+		require.Equal(t, leaf.Uid, after.Uid)
+		require.Equal(t, leaf.Mode, after.Mode)
+	})
+
 	t.Run("symlinked source is refused", func(t *testing.T) {
 		target := rootlessMountTestPath(t, "target")
 		require.NoError(t, os.Mkdir(target, 0o700))
