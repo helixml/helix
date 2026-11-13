@@ -41,6 +41,10 @@ const (
 	// desktop: A's owner, scoped to session sessChat. The API middleware
 	// confines it to that session's desktop routes and the LLM proxy.
 	sessKey actor = "a-session-key"
+	// projChatKey is the desktop key of sessProjChat, a projA session with
+	// no spec task or desktop role, minted by GetOrCreateSessionAPIKey: it
+	// carries projA.
+	projChatKey actor = "a-project-chat-key"
 	// appKey is an app key for agent appA minted by A's owner.
 	appKey actor = "a-app-key"
 	// workerKey is a helix-org worker's session key: A's owner, org A,

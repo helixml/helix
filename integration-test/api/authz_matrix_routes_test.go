@@ -66,11 +66,11 @@ func projectRoutes() []route {
 			// A session key with no project reaches no project; a helix-org
 			// worker's key acts as its hiring user by design.
 			Method: http.MethodGet, Path: "/api/v1/projects/{projA}",
-			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow, appKey: deny, sessKey: deny, workerKey: allow}),
+			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, admin: allow, appKey: deny, sessKey: deny, workerKey: allow, projChatKey: allow}),
 		},
 		{
 			Method: http.MethodGet, Path: "/api/v1/projects/{projA2}",
-			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny, projChatKey: deny}),
 		},
 		{
 			Method: http.MethodPut, Path: "/api/v1/projects/{projA}", Body: tamper("description"),
@@ -484,11 +484,13 @@ func gitSmartHTTPRoutes() []route {
 	return []route{
 		{
 			Method: http.MethodGet, Path: "/git/{repoA}/info/refs?service=git-upload-pack", Header: basic,
-			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, sessKey: deny, workerKey: allow}),
+			// A project session's desktop clones its project's repositories
+			// (helix-workspace-setup.sh), and only those.
+			Expect: strangers(expect{aOwner: allow, aOwnerOrgKey: allow, aMember: allow, projKey: allow, sessKey: deny, workerKey: allow, projChatKey: allow}),
 		},
 		{
 			Method: http.MethodGet, Path: "/git/{repoA2}/info/refs?service=git-upload-pack", Header: basic,
-			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny}),
+			Expect: strangers(expect{aOwner: allow, aMember: deny, projKey: deny, projChatKey: deny}),
 		},
 		{
 			Method: http.MethodGet, Path: "/git/{repoA}/info/refs?service=git-receive-pack", Header: basic,
@@ -1124,6 +1126,13 @@ func mcpRoutes() []route {
 			Expect: strangers(expect{workerKey: allow, aOwner: deny, aOwnerOrgKey: deny, projKey: deny, sessKey: deny}),
 		},
 		{
+			// A session outside any project has no repositories to search.
+			// The owner reaches the backend (Kodit is off in CI).
+			Method: http.MethodPost, Path: "/api/v1/mcp/kodit?session_id={sessChat}", Body: initialize, Header: accept,
+			Expect:        expect{aOwner: reached, sessKey: deny},
+			ReachedMarker: "Kodit is not",
+		},
+		{
 			Method: http.MethodPost, Path: "/api/v1/mcp/helix-tasks", Body: initialize, Header: accept,
 			Expect:        strangers(expect{projKey: reached, aOwner: deny, sessKey: deny, workerKey: deny}),
 			ReachedMarker: "no Helix tools are enabled",
@@ -1182,6 +1191,13 @@ func llmProxyRoutes() []route {
 					t.Fatalf("%s reached org A's provider endpoint: %d %q", who, resp.status, truncate(resp.body, 300))
 				}
 			},
+		},
+		{
+			// A RAG source is authorized by owner only; a session key may
+			// not name one.
+			Method: http.MethodPost, Path: "/v1/chat/completions?rag_source_id=authz-matrix-missing", Body: chat,
+			Expect:        expect{aOwner: reached, sessKey: deny},
+			ReachedMarker: "failed to load RAG",
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/messages", Body: chat,

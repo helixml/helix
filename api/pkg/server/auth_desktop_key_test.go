@@ -148,6 +148,8 @@ func TestSandboxKeyDeniesOwnerAuthority(t *testing.T) {
 		{"POST", "/api/v1/mcp/kodit"},
 		{"POST", "/api/v1/mcp/helix-org"},
 		{"POST", "/api/v1/mcp/external/crm"},
+		{"POST", "/v1/chat/completions?rag_source_id=rag_1"},
+		{"POST", "/v1/chat/completions?assistant_id=0"},
 		{"GET", "/v1/chat/completions"},
 	} {
 		extract, wrapped := serveWithKey(auth, c.method, c.target)
@@ -206,7 +208,6 @@ func TestSessionKeyAllowsItsOwnDesktopNeeds(t *testing.T) {
 		{"OPTIONS", "/api/v1/mcp/desktop?session_id=ses_A"},
 		{"POST", "/api/v1/mcp/visualization?session_id=ses_A"},
 		{"POST", "/api/v1/mcp/session?session_id=ses_A"},
-		{"POST", "/api/v1/mcp/kodit?session_id=ses_A"},
 		{"POST", "/api/v1/mcp/external/crm"},
 		{"POST", "/api/v1/mcp/external/crm/sse?session_id=ses_A"},
 		{"POST", "/api/v1/mcp/helix?app_id=app_A&session_id=ses_A"},
@@ -267,6 +268,8 @@ func TestSessionKeyDeniesOwnerAuthority(t *testing.T) {
 		{"POST", "/api/v1/mcp/desktop"},
 		{"POST", "/api/v1/mcp/session"},
 		{"POST", "/api/v1/mcp/session?session_id=ses_other"},
+		// A session outside any project has no repositories to search.
+		{"POST", "/api/v1/mcp/kodit?session_id=ses_A"},
 		{"POST", "/api/v1/mcp/kodit?session_id=ses_other"},
 		{"POST", "/api/v1/mcp/external/crm?session_id=ses_other"},
 		{"POST", "/api/v1/mcp/helix?app_id=app_other"},
@@ -274,6 +277,10 @@ func TestSessionKeyDeniesOwnerAuthority(t *testing.T) {
 		{"POST", "/api/v1/mcp/helix-org"},
 		{"POST", "/api/v1/mcp/helix-tasks"},
 		{"POST", "/v1/chat/completions?app_id=app_other"},
+		// RAG sources and assistants are authorized by owner only.
+		{"POST", "/v1/chat/completions?rag_source_id=rag_1"},
+		{"POST", "/v1/chat/completions?app_id=app_A&assistant_id=0"},
+		{"POST", "/v1/messages?rag_source_id=rag_1"},
 		{"GET", "/v1/chat/completions"},
 	} {
 		extract, wrapped := serveWithKey(auth, c.method, c.target)

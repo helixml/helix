@@ -29,7 +29,7 @@ import (
 // Both may reach:
 //
 //   - the LLM proxy (a session key only with its session's own agent, when
-//     the request names one);
+//     the request names one; neither may name a RAG source or assistant);
 //   - its own session plumbing under /api/v1/sessions/{id} (zed-config and
 //     the agent startup reports), the user websocket for its id and the
 //     desktop bridge's RevDial tunnel for its id;
@@ -44,9 +44,11 @@ import (
 // A session key may also read its own session (GET on /api/v1/sessions/{id}
 // and below, which includes its agent credentials), store refreshed agent
 // credentials, open the agent sync websocket for its session, and use the
-// session, Kodit and external MCP backends for its session and the Helix
-// tools MCP backend for its session's agent. Those backends scope themselves
-// to the key's session.
+// session and external MCP backends for its session and the Helix tools MCP
+// backend for its session's agent. Those backends scope themselves to the
+// key's session. Kodit is refused: the session has no repositories. On the
+// LLM proxy it may not name a RAG source or assistant (rag_source_id,
+// assistant_id), which are authorized by owner only.
 //
 // A helix-org worker's session key (Metadata.OrgWorkerID) is not confined
 // here: the worker manages its organization through the REST API as its
@@ -162,8 +164,8 @@ var desktopKeyMCPBackends = map[desktopKeyKind]map[string]bool{
 		// Its tools read sessions through authorizeUserToSession, which
 		// confines the key to its own session.
 		"session": true,
-		// Scoped to the session's repositories (KoditMCPBackend.authorizeSession).
-		"kodit": true,
+		// Kodit is not listed: a session outside any project has no
+		// repositories to search.
 	},
 }
 
@@ -197,6 +199,11 @@ func (key *desktopKey) allows(r *http.Request) bool {
 
 	if method, ok := desktopKeyLLMPaths[path]; ok {
 		if r.Method != method && r.Method != http.MethodOptions {
+			return false
+		}
+		// A RAG source or assistant is authorized by owner only
+		// (controller.ChatCompletion): a desktop key may not name one.
+		if query.Has("rag_source_id") || query.Has("assistant_id") {
 			return false
 		}
 		// The handlers pin a session key's calls to its session's agent

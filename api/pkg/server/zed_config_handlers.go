@@ -144,7 +144,10 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// 1. Must be globally enabled via Kodit.Enabled config
 	// 2. Project must have KoditEnabled toggle on
 	// 3. For SpecTask sessions, also check if project repos have Kodit indexing enabled
-	koditEnabled := apiServer.Cfg.Kodit.Enabled
+	// 4. A session outside any project gets Kodit only as a helix-org
+	//    worker: a plain chat's desktop has no repositories to search
+	//    (resolveKoditRepoScope gives it an empty scope).
+	koditEnabled := apiServer.Cfg.Kodit.Enabled && sessionHasKoditRepositories(session)
 	if koditEnabled && session.Metadata.SpecTaskID != "" {
 		// This is a SpecTask session - check if project repos have Kodit indexing
 		koditEnabled = apiServer.checkSpecTaskKoditIndexing(ctx, session.Metadata.SpecTaskID)
@@ -1470,6 +1473,14 @@ func (apiServer *HelixAPIServer) checkSpecTaskKoditIndexing(ctx context.Context,
 // The key capabilities vary based on session type:
 // - SpecTask sessions: git push rights to specific branch, LLM calls
 // - Non-SpecTask sessions: LLM calls only
+// sessionHasKoditRepositories reports whether a session can have Kodit
+// repositories in scope at all: a session in a project, or a helix-org worker
+// (resolveKoditRepoScope). A plain chat outside any project has none, so its
+// desktop is not offered the Kodit MCP server.
+func sessionHasKoditRepositories(session *types.Session) bool {
+	return session.ProjectID != "" || session.Metadata.OrgWorkerID != ""
+}
+
 func (apiServer *HelixAPIServer) getAPIKeyForSession(ctx context.Context, session *types.Session) (string, error) {
 	if session == nil || session.ID == "" {
 		return "", fmt.Errorf("session is required for session-scoped API key")
