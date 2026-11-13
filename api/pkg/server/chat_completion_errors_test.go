@@ -404,6 +404,17 @@ func TestSanitizeProviderMessage(t *testing.T) {
 		require.NotContains(t, sanitizeProviderMessage(probe.in), probe.leak, probe.in)
 	}
 	require.Equal(t, "panic in std::io::Error at 12:30:45", sanitizeProviderMessage("panic in std::io::Error at 12:30:45"))
+
+	// Round 3: a caller-chosen model name must not split a host or token.
+	require.NotContains(t, sanitizeProviderMessage("dial tcp 10.0.0.5:8080: i/o timeout", "0"), "10.0.0.5")
+	require.NotContains(t, sanitizeProviderMessage("lookup proxy.db.prod failed", "db"), "proxy.db.prod")
+	tok := "abcdefghij" + "0123456789" + "klmn"
+	require.NotContains(t, sanitizeProviderMessage("token="+tok+" rejected", tok[5:15]), tok)
+	for _, probe := range []string{"client_secret=hunter2x", "secret_key=hunter2x", "auth_token=hunter2x", "refresh_token=hunter2x", "access_key=hunter2x"} {
+		require.NotContains(t, sanitizeProviderMessage(probe), "hunter2x", probe)
+	}
+	require.Equal(t, "monkey=banana keyboard=qwerty", sanitizeProviderMessage("monkey=banana keyboard=qwerty"))
+	require.NotContains(t, sanitizeProviderMessage("dial [fe80::1%25eth0]:8080 refused"), "eth0")
 }
 
 func TestProviderOutOfCreditIsNotRetryable(t *testing.T) {
@@ -411,6 +422,9 @@ func TestProviderOutOfCreditIsNotRetryable(t *testing.T) {
 	failure := classifyProviderFailure(fmt.Errorf("upstream: %w", quota), chatCompletionErrorScope{})
 	require.Equal(t, http.StatusPaymentRequired, failure.status)
 	require.Equal(t, "insufficient_quota", failure.body.Code)
+
+	azure := &openai.APIError{HTTPStatusCode: http.StatusTooManyRequests, Code: "429", Type: "insufficient_quota", Message: "out of credit"}
+	require.Equal(t, http.StatusPaymentRequired, classifyProviderFailure(azure, chatCompletionErrorScope{}).status)
 
 	limited := &openai.APIError{HTTPStatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded", Message: "slow down"}
 	require.Equal(t, http.StatusTooManyRequests, classifyProviderFailure(limited, chatCompletionErrorScope{}).status)

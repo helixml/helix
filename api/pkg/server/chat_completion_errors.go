@@ -186,6 +186,13 @@ func providerRefusal(err error, status int, defaultType string, scope chatComple
 func providerErrorCode(err error) string {
 	var apiErr *openai.APIError
 	if errors.As(err, &apiErr) {
+		if code, ok := apiErr.Code.(string); ok && code == errorTypeInsufficient {
+			return code
+		}
+		// Azure-style errors carry the signal in type with a numeric code.
+		if apiErr.Type == errorTypeInsufficient {
+			return apiErr.Type
+		}
 		if code, ok := apiErr.Code.(string); ok {
 			return code
 		}
@@ -276,7 +283,7 @@ var (
 	// IPv6 candidates (full or compressed, optionally bracketed with a port);
 	// each is confirmed with net.ParseIP so times ("12:30:45") and paths
 	// ("std::io") survive.
-	ipv6CandidatePattern = regexp.MustCompile(`(?i)\[?[0-9a-f.]*:[0-9a-f:.]*:[0-9a-f:.]*\]?(?::\d{1,5})?`)
+	ipv6CandidatePattern = regexp.MustCompile(`(?i)\[?[0-9a-f.]*:[0-9a-f:.]*:[0-9a-f:.]*(?:%[0-9A-Za-z_.-]+)?\]?(?::\d{1,5})?`)
 	hostPortPattern      = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9.-]*:\d{2,5}\b`)
 	// Helix's own cluster hosts are named node01, node06, …
 	internalNodePattern = regexp.MustCompile(`(?i)\bnode\d{1,3}\b`)
@@ -285,7 +292,7 @@ var (
 	hostnamePattern = regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|net|org|io|ai|dev|app|cloud|co|uk|us|eu|xyz|sh|me|internal|local|localhost|lan|corp|svc|cluster|intra|home|network|prod|production|staging|stage|test|priv|private)\b`)
 
 	// The separator also covers JSON ("api_key":"…") and percent-encoded (key%3D…) forms.
-	credentialAssignmentPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|token|secret|password|authorization|key)("?\s*(?:[:=]|%3d)\s*)"?[^\s"',;&]+`)
+	credentialAssignmentPattern = regexp.MustCompile(`(?i)\b((?:[a-z0-9]{0,20}(?:[_-]|%20))?(?:api[_-]?key|access[_-]?token|token|secret|password|authorization|key))("?\s*(?:[:=]|%3d)\s*)"?[^\s"',;&]+`)
 	bearerPattern               = regexp.MustCompile(`(?i)\bbearer\s+\S+`)
 	basicAuthPattern            = regexp.MustCompile(`(?i)\bbasic\s+[A-Za-z0-9+/=_-]{4,}`)
 	prefixedKeyPattern          = regexp.MustCompile(`\b(?:sk|pk|rk|hl)-[A-Za-z0-9_*-]{6,}|\b(?:ghp|gho|ghs|ghu|github_pat|xoxb|xoxp|hf|gsk|xai)_[A-Za-z0-9_]{6,}|\bAIza[0-9A-Za-z_-]{16,}`)
@@ -317,7 +324,7 @@ func redactCredentials(s string) string {
 // tokens) are kept verbatim.
 func sanitizeProviderMessage(s string, models ...string) string {
 	for _, m := range models {
-		if m == "" || !strings.Contains(s, m) {
+		if m == "" || !strings.Contains(s, m) || !modelOccurrencesBounded(s, m) {
 			continue
 		}
 		parts := strings.Split(s, m)
@@ -327,6 +334,27 @@ func sanitizeProviderMessage(s string, models ...string) string {
 		return capProviderMessage(strings.Join(parts, m))
 	}
 	return capProviderMessage(sanitizeProviderText(s))
+}
+
+// modelOccurrencesBounded reports whether every occurrence of the caller's
+// model name stands alone. A model name glued to surrounding characters could
+// split a host, URL or token in two and hide both halves from the patterns.
+func modelOccurrencesBounded(s, model string) bool {
+	for i := 0; ; {
+		j := strings.Index(s[i:], model)
+		if j < 0 {
+			return true
+		}
+		start, end := i+j, i+j+len(model)
+		if (start > 0 && extendsToken(s[start-1])) || (end < len(s) && extendsToken(s[end])) {
+			return false
+		}
+		i = end
+	}
+}
+
+func extendsToken(c byte) bool {
+	return isWordByte(c) || strings.IndexByte("./:-%@=", c) >= 0
 }
 
 func sanitizeProviderText(s string) string {
@@ -351,6 +379,10 @@ func redactIPv6(s string) string {
 		}
 		candidate := strings.TrimPrefix(s[start:end], "[")
 		if i := strings.Index(candidate, "]"); i >= 0 {
+			candidate = candidate[:i]
+		}
+		// Drop a zone index ("%eth0" or URL-encoded "%25eth0").
+		if i := strings.IndexByte(candidate, '%'); i >= 0 {
 			candidate = candidate[:i]
 		}
 		if net.ParseIP(candidate) == nil && net.ParseIP(stripIPv6Port(candidate)) == nil {
