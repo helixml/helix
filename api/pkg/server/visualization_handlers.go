@@ -1,12 +1,15 @@
 package server
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"regexp"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // visualizationIDPattern matches the ids minted by the html_render tool
@@ -55,8 +58,13 @@ func (apiServer *HelixAPIServer) getSessionVisualization(rw http.ResponseWriter,
 	}
 
 	reader, err := apiServer.Controller.FilestoreVisualizationRead(ctx, session.Owner, sessionID, vizID)
-	if err != nil {
+	if errors.Is(err, filestore.ErrNotFound) {
 		http.Error(rw, "visualization not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Str("visualization_id", vizID).Msg("failed to open visualization")
+		http.Error(rw, "failed to load visualization", http.StatusInternalServerError)
 		return
 	}
 	defer reader.Close()
