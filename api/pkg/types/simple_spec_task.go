@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/datatypes"
 )
@@ -57,6 +58,29 @@ func ValidateSpecTaskTypeAndPriority(taskType string, priority SpecTaskPriority)
 		return errors.New("invalid priority: must be low, medium, high, or critical")
 	}
 	return nil
+}
+
+// SpecTaskNameMaxRunes caps a task's title (name and user short title). Titles
+// are shown in boards, tabs and notifications and copied into clone groups;
+// the longest generated title is 60 characters.
+const SpecTaskNameMaxRunes = 255
+
+// ValidateSpecTaskName rejects a title longer than SpecTaskNameMaxRunes.
+func ValidateSpecTaskName(name string) error {
+	if utf8.RuneCountInString(name) > SpecTaskNameMaxRunes {
+		return fmt.Errorf("name must be at most %d characters", SpecTaskNameMaxRunes)
+	}
+	return nil
+}
+
+// TruncateSpecTaskName shortens a title derived from content the user does not
+// type as a title (a requirements heading, an agent's thread title) to
+// SpecTaskNameMaxRunes.
+func TruncateSpecTaskName(name string) string {
+	if utf8.RuneCountInString(name) <= SpecTaskNameMaxRunes {
+		return name
+	}
+	return string([]rune(name)[:SpecTaskNameMaxRunes])
 }
 
 // BranchMode determines how branches are configured for a task

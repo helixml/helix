@@ -199,6 +199,10 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateSpecTaskName(strings.TrimSpace(req.Name)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if req.AppID != "" || req.CodeAgentOverrides != nil {
 		http.Error(w, "app_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
 		return
@@ -1370,6 +1374,16 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if err := types.ValidateSpecTaskTypeAndPriority("", updateReq.Priority); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if err := types.ValidateSpecTaskName(strings.TrimSpace(updateReq.Name)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if updateReq.UserShortTitle != nil {
+		if err := types.ValidateSpecTaskName(*updateReq.UserShortTitle); err != nil {
+			http.Error(w, "user_short_title: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Get existing task
