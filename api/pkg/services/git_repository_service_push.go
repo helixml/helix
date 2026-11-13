@@ -58,50 +58,54 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 		}
 	}
 
-	// Get credentials for the external URL using the acting user's OAuth.
-	username, password := s.getCredentialsForRepo(ctx, gitRepo, actingUserID)
-	authType := "none"
-	if password != "" {
-		authType = fmt.Sprintf("basic:%s", username)
-		log.Trace().
-			Str("repo_id", repoID).
-			Str("auth_type", authType).
-			Int("token_length", len(password)).
-			Msg("[GitPush] Auth configured")
-	} else {
-		log.Warn().
-			Str("repo_id", repoID).
-			Msg("[GitPush] WARNING: No auth configured for push!")
-	}
-
-	remote := s.pinUpstream(ctx, newUpstreamRemote(gitRepo.ExternalURL, username, password))
-
-	log.Info().
-		Str("repo_id", gitRepo.ID).
-		Str("branch", branchName).
-		Str("external_url", RedactURLCredentials(remote.URL)).
-		Str("auth_type", authType).
-		Bool("force", force).
-		Dur("elapsed", time.Since(startTime)).
-		Msg("[GitPush] Starting native git push to external repository")
-
 	pushStartTime := time.Now()
 	err = s.trackUpstreamSync(ctx, gitRepo.ID, func() error {
-		return pushBranchNative(ctx, gitRepo.LocalPath, remote, branchName, force)
-	})
-	pushDuration := time.Since(pushStartTime)
+		remote, err := s.upstreamRemoteForRepo(ctx, gitRepo, actingUserID)
+		if err != nil {
+			return err
+		}
+		authType := "none"
+		if remote.Password != "" {
+			authType = fmt.Sprintf("basic:%s", remote.Username)
+			log.Trace().
+				Str("repo_id", repoID).
+				Str("auth_type", authType).
+				Int("token_length", len(remote.Password)).
+				Msg("[GitPush] Auth configured")
+		} else {
+			log.Warn().
+				Str("repo_id", repoID).
+				Msg("[GitPush] WARNING: No auth configured for push!")
+		}
 
-	if err != nil {
-		log.Error().
-			Err(err).
+		log.Info().
 			Str("repo_id", gitRepo.ID).
 			Str("branch", branchName).
 			Str("external_url", RedactURLCredentials(remote.URL)).
 			Str("auth_type", authType).
-			Dur("push_duration", pushDuration).
-			Dur("total_elapsed", time.Since(startTime)).
-			Msg("[GitPush] FAILED to push to external repository")
-		return fmt.Errorf("failed to push to external repository: %w", err)
+			Bool("force", force).
+			Dur("elapsed", time.Since(startTime)).
+			Msg("[GitPush] Starting native git push to external repository")
+
+		err = pushBranchNative(ctx, gitRepo.LocalPath, remote, branchName, force)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("repo_id", gitRepo.ID).
+				Str("branch", branchName).
+				Str("external_url", RedactURLCredentials(remote.URL)).
+				Str("auth_type", authType).
+				Dur("push_duration", time.Since(pushStartTime)).
+				Dur("total_elapsed", time.Since(startTime)).
+				Msg("[GitPush] FAILED to push to external repository")
+			return fmt.Errorf("failed to push to external repository: %w", err)
+		}
+		return nil
+	})
+	pushDuration := time.Since(pushStartTime)
+
+	if err != nil {
+		return err
 	}
 
 	log.Info().
