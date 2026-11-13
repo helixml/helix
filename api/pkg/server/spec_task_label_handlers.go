@@ -93,8 +93,8 @@ func (s *HelixAPIServer) addSpecTaskLabel(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -166,8 +166,8 @@ func (s *HelixAPIServer) removeSpecTaskLabel(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 

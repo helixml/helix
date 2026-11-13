@@ -64,6 +64,12 @@ func (b *SpecTaskMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		http.Error(w, "session-scoped API key required for spec-task MCP access", http.StatusForbidden)
 		return
 	}
+	// These tools create, read and steer the project's other tasks: beyond a
+	// task-confined key's one task.
+	if user.TaskConfined {
+		http.Error(w, "a task-confined key cannot use spec-task MCP tools", http.StatusForbidden)
+		return
+	}
 
 	ctx := r.Context()
 	session, err := b.apiServer.Store.GetSession(ctx, user.SessionID)

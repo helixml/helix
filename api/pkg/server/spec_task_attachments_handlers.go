@@ -337,7 +337,7 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
 		writeSpecTaskAuthzError(w, err)
 		return
 	}
@@ -459,7 +459,7 @@ func (s *HelixAPIServer) listSpecTaskAttachments(w http.ResponseWriter, r *http.
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
 		writeSpecTaskAuthzError(w, err)
 		return
 	}
@@ -516,7 +516,7 @@ func (s *HelixAPIServer) getSpecTaskAttachmentContent(w http.ResponseWriter, r *
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
+		if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
 			writeSpecTaskAuthzError(w, err)
 			return
 		}
@@ -573,7 +573,7 @@ func (s *HelixAPIServer) deleteSpecTaskAttachment(w http.ResponseWriter, r *http
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
 		writeSpecTaskAuthzError(w, err)
 		return
 	}

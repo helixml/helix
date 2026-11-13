@@ -115,14 +115,14 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 	// Task creator always has access
 	if user.ID != specTask.CreatedBy {
 		// Otherwise check project authorization
-		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
+		if err := s.authorizeUserToSpecTask(ctx, user, specTask, types.ActionGet); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
 				Str("project_id", specTask.ProjectID).
 				Str("spec_task_creator", specTask.CreatedBy).
 				Msg("User not authorized to read spec task design reviews")
-			http.Error(w, "Not authorized", http.StatusForbidden)
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}
@@ -194,14 +194,14 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 	// Task creator always has access
 	if user.ID != specTask.CreatedBy {
 		// Otherwise check project authorization
-		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
+		if err := s.authorizeUserToSpecTask(ctx, user, specTask, types.ActionGet); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
 				Str("project_id", specTask.ProjectID).
 				Str("spec_task_creator", specTask.CreatedBy).
 				Msg("User not authorized to read design review")
-			http.Error(w, "Not authorized", http.StatusForbidden)
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}
@@ -339,8 +339,8 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 		return
 	}
 	if user.ID != task.CreatedBy {
-		if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-			writeErrResponse(w, err, http.StatusForbidden)
+		if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}
@@ -523,14 +523,14 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 	// Task creator always has access
 	if user.ID != specTask.CreatedBy {
 		// Otherwise check project authorization
-		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
+		if err := s.authorizeUserToSpecTask(ctx, user, specTask, types.ActionUpdate); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
 				Str("project_id", specTask.ProjectID).
 				Str("spec_task_creator", specTask.CreatedBy).
 				Msg("User not authorized to submit design review")
-			http.Error(w, "Not authorized", http.StatusForbidden)
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}
@@ -727,14 +727,14 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 	// Task creator always has access
 	if user.ID != specTask.CreatedBy {
 		// Otherwise check project authorization
-		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
+		if err := s.authorizeUserToSpecTask(ctx, user, specTask, types.ActionUpdate); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
 				Str("project_id", specTask.ProjectID).
 				Str("spec_task_creator", specTask.CreatedBy).
 				Msg("User not authorized to create design review comment")
-			http.Error(w, "Not authorized", http.StatusForbidden)
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}
@@ -823,14 +823,14 @@ func (s *HelixAPIServer) listDesignReviewComments(w http.ResponseWriter, r *http
 	// Task creator always has access
 	if user.ID != specTask.CreatedBy {
 		// Otherwise check project authorization
-		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
+		if err := s.authorizeUserToSpecTask(ctx, user, specTask, types.ActionGet); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
 				Str("project_id", specTask.ProjectID).
 				Str("spec_task_creator", specTask.CreatedBy).
 				Msg("User not authorized to list design review comments")
-			http.Error(w, "Not authorized", http.StatusForbidden)
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}
@@ -883,14 +883,14 @@ func (s *HelixAPIServer) resolveDesignReviewComment(w http.ResponseWriter, r *ht
 	// Task creator always has access
 	if user.ID != specTask.CreatedBy {
 		// Otherwise check project authorization
-		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionUpdate); err != nil {
+		if err := s.authorizeUserToSpecTask(ctx, user, specTask, types.ActionUpdate); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
 				Str("project_id", specTask.ProjectID).
 				Str("spec_task_creator", specTask.CreatedBy).
 				Msg("User not authorized to resolve design review comment")
-			http.Error(w, "Not authorized", http.StatusForbidden)
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}
@@ -944,14 +944,14 @@ func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter
 	// Task creator always has access
 	if user.ID != specTask.CreatedBy {
 		// Otherwise check project authorization
-		if err := s.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
+		if err := s.authorizeUserToSpecTask(ctx, user, specTask, types.ActionGet); err != nil {
 			log.Warn().
 				Err(err).
 				Str("user_id", user.ID).
 				Str("project_id", specTask.ProjectID).
 				Str("spec_task_creator", specTask.CreatedBy).
 				Msg("User not authorized to get comment queue status")
-			http.Error(w, "Not authorized", http.StatusForbidden)
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}

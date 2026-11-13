@@ -248,6 +248,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		user.ProjectID = apiKey.ProjectID
 		user.SpecTaskID = apiKey.SpecTaskID
 		user.SessionID = apiKey.SessionID
+		user.TaskConfined = apiKey.TaskConfined
 		user.EmbedInteractive = apiKey.Type == types.APIkeytypeEmbed && apiKey.EmbedInteractive
 		user.OrganizationID = apiKey.OrganizationID
 
@@ -452,6 +453,12 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// A task-confined key reaches only its own spec task and sessions.
+		if status, err := auth.taskConfinedKeyRefusal(user, r); err != nil {
+			http.Error(w, err.Error(), status)
+			return
+		}
+
 		auth.touchUserLastSeen(user)
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 		next.ServeHTTP(w, r)
@@ -543,6 +550,12 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		// with no project) reaches only what its desktop needs. Fail closed.
 		if err := auth.desktopKeyRefusal(user, r); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+
+		// A task-confined key reaches only its own spec task and sessions.
+		if status, err := auth.taskConfinedKeyRefusal(user, r); err != nil {
+			http.Error(w, err.Error(), status)
 			return
 		}
 

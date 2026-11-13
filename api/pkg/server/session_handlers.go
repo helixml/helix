@@ -304,6 +304,10 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		query.RestrictToProjects = true
 		query.ProjectIDs = allowed
 	}
+	// A task-confined key lists only its own task's sessions.
+	if user.TaskConfined {
+		query.SpecTaskID = user.SpecTaskID
+	}
 
 	// Parse query parameters
 	page, err := strconv.Atoi(req.URL.Query().Get("page"))
