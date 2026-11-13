@@ -741,13 +741,17 @@ func NewServer(
 	// (spec task, exploratory session, resume) picks up project secrets without
 	// each caller having to remember. Desktop containers are the "dev"
 	// environment, so they only receive dev- and both-scoped secrets.
-	externalAgentExecutor.SetProjectSecretsGetter(func(ctx context.Context, projectID string) ([]string, error) {
+	externalAgentExecutor.SetProjectSecretsGetter(func(ctx context.Context, projectID string) (types.ProjectSecretEnv, error) {
 		return apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
 	})
+	externalAgentExecutor.SetUndecryptableSecretsReporter(apiServer.reportUndecryptableProjectSecrets)
 	// Web service deploys are the "prod" environment, so they receive prod- and
 	// both-scoped secrets, injected into the deployed container's environment.
+	// Undecryptable secrets are logged by GetProjectSecretsAsEnvVars and badged
+	// on the project's secrets list.
 	apiServer.webServiceController.SetProjectSecretsGetter(func(ctx context.Context, projectID string) ([]string, error) {
-		return apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeProd)
+		secrets, err := apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeProd)
+		return secrets.Env, err
 	})
 	// Set the attachment blob reader so the service can pull uploaded files from the filestore.
 	apiServer.specDrivenTaskService.ReadAttachmentBlob = apiServer.readSpecTaskAttachmentBlob

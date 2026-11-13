@@ -208,23 +208,45 @@ func TestApplySessionBootstrapCopiesInstanceSecretAllowlist(t *testing.T) {
 func TestInjectProjectSecrets(t *testing.T) {
 	all := []string{"CRM_URL=one", "REGION=eu=west", "CRM=prefix-of-another-name"}
 	for _, tc := range []struct {
-		name       string
-		agent      types.DesktopAgent
-		wantEnv    []string
-		wantCalled bool
-		wantErr    string
+		name          string
+		agent         types.DesktopAgent
+		undecryptable []string
+		wantEnv       []string
+		wantCalled    bool
+		wantReported  []string
+		wantErr       string
 	}{
-		{"ordinary session gets every secret", types.DesktopAgent{ProjectID: "prj_1"}, all, true, ""},
-		{"instance without grants skips the lookup", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true}, nil, false, ""},
-		{"instance gets only granted secrets", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"REGION", "CRM"}}, []string{"REGION=eu=west", "CRM=prefix-of-another-name"}, true, ""},
-		{"missing grant fails the start", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"MISSING", "CRM_URL"}}, nil, true, "unavailable: MISSING"},
+		{"ordinary session gets every secret", types.DesktopAgent{ProjectID: "prj_1"}, nil, all, true, nil, ""},
+		{"instance without grants skips the lookup", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true}, nil, nil, false, nil, ""},
+		{"instance gets only granted secrets", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"REGION", "CRM"}}, nil, []string{"REGION=eu=west", "CRM=prefix-of-another-name"}, true, nil, ""},
+		{"missing grant fails the start", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"MISSING", "CRM_URL"}}, nil, nil, true, nil, "unavailable: MISSING"},
+		{
+			"ordinary session starts without undecryptable secrets and names them",
+			types.DesktopAgent{ProjectID: "prj_1", SpecTaskID: "spt_1"},
+			[]string{"PENTEST_TOKEN", "OLD_KEY"},
+			append([]string{UndecryptableProjectSecretsEnv + "=PENTEST_TOKEN,OLD_KEY"}, all...),
+			true,
+			[]string{"PENTEST_TOKEN", "OLD_KEY"},
+			"",
+		},
+		{"undecryptable grant fails the start", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"PENTEST_TOKEN", "CRM_URL"}}, []string{"PENTEST_TOKEN"}, nil, true, nil, "cannot be decrypted with the current encryption key, re-enter them in project settings: PENTEST_TOKEN"},
+		{"ungranted undecryptable secret is ignored by an instance", types.DesktopAgent{ProjectID: "prj_1", RestrictProjectSecrets: true, ProjectSecretNames: []string{"CRM_URL"}}, []string{"PENTEST_TOKEN"}, []string{"CRM_URL=one"}, true, nil, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
-			h := &HydraExecutor{getProjectSecrets: func(_ context.Context, projectID string) ([]string, error) {
-				called = true
-				return all, nil
-			}}
+			var reported []string
+			h := &HydraExecutor{
+				getProjectSecrets: func(_ context.Context, projectID string) (types.ProjectSecretEnv, error) {
+					called = true
+					return types.ProjectSecretEnv{Env: all, Undecryptable: tc.undecryptable}, nil
+				},
+				reportUndecryptableSecrets: func(_ context.Context, agent *types.DesktopAgent, names []string) {
+					if agent.SpecTaskID != "spt_1" {
+						t.Errorf("reported for spec task %q", agent.SpecTaskID)
+					}
+					reported = names
+				},
+			}
 			agent := tc.agent
 			err := h.injectProjectSecrets(context.Background(), &agent)
 			if tc.wantErr != "" {
@@ -238,6 +260,9 @@ func TestInjectProjectSecrets(t *testing.T) {
 			}
 			if called != tc.wantCalled || !slices.Equal(agent.Env, tc.wantEnv) {
 				t.Fatalf("called=%t env=%v, want called=%t env=%v", called, agent.Env, tc.wantCalled, tc.wantEnv)
+			}
+			if !slices.Equal(reported, tc.wantReported) {
+				t.Fatalf("reported %v, want %v", reported, tc.wantReported)
 			}
 		})
 	}
