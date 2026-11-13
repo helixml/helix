@@ -20,7 +20,10 @@ type koditRepoScope struct {
 
 // resolveKoditRepoScope resolves which Kodit repositories a session may access.
 // If the session belongs to a project, returns repos linked to that project.
-// Otherwise falls back to the user's organization repos.
+// A helix-org worker's session, which has no project, falls back to the
+// caller's organization (or own) repos. Any other session outside a project
+// (a plain chat) gets an empty scope, which KoditMCPBackend refuses
+// (errNoKoditRepositories).
 func resolveKoditRepoScope(ctx context.Context, s store.Store, sessionID string, user *types.User) (*koditRepoScope, error) {
 	session, err := s.GetSession(ctx, sessionID)
 	if err != nil {
@@ -48,6 +51,8 @@ func resolveKoditRepoScope(ctx context.Context, s store.Store, sessionID string,
 				OwnerID: user.ID,
 			})
 		}
+	case session.Metadata.OrgWorkerID == "":
+		return &koditRepoScope{repoIDs: make(map[int64]bool)}, nil
 	case user.OrganizationID != "":
 		repos, err = s.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 			OrganizationID: user.OrganizationID,

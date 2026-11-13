@@ -48,8 +48,8 @@ import (
 // session and external MCP backends for its session and the Helix tools MCP
 // backend for its session's agent. Those backends scope themselves to the
 // key's session. Kodit is refused: the session is not in a project, so it
-// has no repositories of its own to search (resolveKoditRepoScope would
-// otherwise scope it to its owner's or organization's). On the
+// has no repositories of its own to search (resolveKoditRepoScope gives it
+// an empty scope, which the backend refuses). On the
 // LLM proxy it may not name a RAG source or assistant (rag_source_id,
 // assistant_id), which are authorized by owner only.
 //
@@ -168,8 +168,8 @@ var desktopKeyMCPBackends = map[desktopKeyKind]map[string]bool{
 		// confines the key to its own session.
 		"session": true,
 		// Kodit is not listed: a session outside any project has no
-		// repositories of its own, and resolveKoditRepoScope would scope it
-		// to everything its owner's organization has indexed.
+		// repositories of its own (resolveKoditRepoScope gives it an empty
+		// scope, which KoditMCPBackend refuses).
 	},
 }
 

@@ -141,12 +141,14 @@ func (s *KoditRepoResolverSuite) TestProjectKoditDisabledReturnsEmptyScope() {
 	s.Equal(0, len(scope.repoIDs))
 }
 
+// A helix-org worker has no project; it searches its organization's repos.
 func (s *KoditRepoResolverSuite) TestOrgFallbackWhenNoProject() {
 	sessionID := "ses-456"
 	orgID := "org-1"
 
 	s.mockStore.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{
-		ID: sessionID,
+		ID:       sessionID,
+		Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"},
 		// ProjectID is empty
 	}, nil)
 
@@ -168,12 +170,15 @@ func (s *KoditRepoResolverSuite) TestOrgFallbackWhenNoProject() {
 	s.True(scope.repoIDs[100])
 }
 
+// A helix-org worker without an organization on its key searches its own
+// repos.
 func (s *KoditRepoResolverSuite) TestOwnerFallbackWhenNoOrg() {
 	sessionID := "ses-789"
 	userID := "user-solo"
 
 	s.mockStore.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{
-		ID: sessionID,
+		ID:       sessionID,
+		Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"},
 	}, nil)
 
 	s.mockStore.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{
@@ -192,6 +197,18 @@ func (s *KoditRepoResolverSuite) TestOwnerFallbackWhenNoOrg() {
 
 	s.Equal(1, len(scope.idSlice))
 	s.True(scope.repoIDs[42])
+}
+
+// A plain chat outside any project has no repositories: an empty scope,
+// without listing any, which the backend then refuses.
+func (s *KoditRepoResolverSuite) TestPlainChatGetsEmptyScope() {
+	s.mockStore.EXPECT().GetSession(gomock.Any(), "ses-chat").Return(&types.Session{ID: "ses-chat"}, nil)
+
+	scope, err := resolveKoditRepoScope(s.ctx, s.mockStore, "ses-chat", &types.User{ID: "user-1", OrganizationID: "org-1"})
+	s.Require().NoError(err)
+	s.Empty(scope.idSlice)
+	_, err = scopedKoditMCPHandler(nil, scope.idSlice)
+	s.ErrorIs(err, errNoKoditRepositories)
 }
 
 func (s *KoditRepoResolverSuite) TestSkipsReposWithoutKoditRepoID() {
@@ -346,14 +363,20 @@ func TestKoditMCPBackend_EmptyScopeIsForbidden(t *testing.T) {
 			},
 		},
 		{
-			name:    "user with no indexed repositories",
-			session: &types.Session{ID: "ses_u", Owner: "usr_b"},
+			name:    "helix-org worker whose owner has no indexed repositories",
+			session: &types.Session{ID: "ses_u", Owner: "usr_b", Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"}},
 			user:    &types.User{ID: "usr_b"},
 			setup: func(st *store.MockStore) {
 				st.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{
 					{ID: "repo_unindexed", KoditIndexing: false},
 				}, nil)
 			},
+		},
+		{
+			name:    "plain chat outside any project",
+			session: &types.Session{ID: "ses_c", Owner: "usr_c"},
+			user:    &types.User{ID: "usr_c", OrganizationID: "org_c"},
+			setup:   func(*store.MockStore) {},
 		},
 	}
 	for _, tc := range cases {
