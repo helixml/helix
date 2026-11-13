@@ -15,8 +15,8 @@ set -euo pipefail
 #      backs up the host's file and installs this checkout's (the host's
 #      docker-compose.override.yaml is kept). Database services are recreated
 #      only with RECREATE_POSTGRES=true and never across a PostgreSQL major:
-#      London pins its major as HELIX_POSTGRES_IMAGE in .env
-#      (docs/postgres-upgrade.md).
+#      the major is read from each running database's PG_VERSION, not from
+#      .env (docs/postgres-upgrade.md).
 #   2. runners: pull the released sandbox image and re-run each host's launcher.
 #
 # The hosts are reached over plain SSH with one dedicated CD key (the key's

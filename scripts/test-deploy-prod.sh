@@ -47,7 +47,10 @@ if [ "${1:-}" = "compose" ]; then
   done
 fi
 if [ "${1:-} ${2:-} ${3:-}" = "inspect --format {{.Config.Image}}" ]; then
-  awk -v s="${4#ctr-}" '$1 == s { print $2 }' "$RUNNING"
+  # Like real docker, a missing container is an error, not empty output.
+  img=$(awk -v s="${4#ctr-}" '$1 == s { print $2 }' "$RUNNING")
+  [ -n "$img" ] || exit 1
+  echo "$img"
   exit 0
 fi
 if [ "${1:-} ${2:-}" = "volume inspect" ]; then
