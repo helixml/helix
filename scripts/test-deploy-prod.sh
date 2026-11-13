@@ -32,13 +32,36 @@ if [ "${EXEC_REMOTE:-false}" = "true" ]; then
 fi
 EOF
 
+# Running containers come from $RUNNING ("service image PG_VERSION|-"); each
+# runs as container ctr-<service>. These reads are not logged.
 cat > "$work/bin/docker" <<'EOF'
 #!/bin/bash
 set -euo pipefail
 if [ "${1:-}" = "compose" ]; then
   for arg in "$@"; do
     [ "$arg" = "config" ] && exec "$REAL_DOCKER" "$@"
+    if [ "$arg" = "ps" ]; then
+      awk -v s="${*: -1}" '$1 == s { print "ctr-" s }' "$RUNNING"
+      exit 0
+    fi
   done
+fi
+if [ "${1:-} ${2:-} ${3:-}" = "inspect --format {{.Config.Image}}" ]; then
+  # Like real docker, a missing container is an error, not empty output.
+  img=$(awk -v s="${4#ctr-}" '$1 == s { print $2 }' "$RUNNING")
+  [ -n "$img" ] || exit 1
+  echo "$img"
+  exit 0
+fi
+if [ "${1:-} ${2:-}" = "volume inspect" ]; then
+  case " ${EXISTING_VOLUMES:-} " in *" $3 "*) exit 0 ;; esac
+  exit 1
+fi
+if [ "${1:-}" = "exec" ] && [ "${3:-}" = "sh" ]; then
+  version=$(awk -v s="${2#ctr-}" '$1 == s { print $3 }' "$RUNNING")
+  [ -n "$version" ] && [ "$version" != "-" ] || exit 1
+  echo "$version"
+  exit 0
 fi
 printf '%s\n' "$*" >> "$DOCKER_CALLS"
 if [ "${1:-} ${2:-}" = "manifest inspect" ]; then
@@ -128,17 +151,41 @@ git -C "$src" tag 9.8.7
 run_deploy() {
   local version=$1
   shift
+  [ "${running_pinned:-false}" = "true" ] || render_running
   env -u HELIX_CD_SSH_KEY -u SLACK_WEBHOOK_URL -u LONDON_SSH \
     -u RUNNER_SSH -u RUNNER_UPGRADE_SCRIPT -u RUNNER_START_SCRIPT \
     -u RUNNER_CONTAINER -u DEPLOY_CONTROLPLANE -u DEPLOY_RUNNER \
     -u COMPOSE_SYNC -u RECREATE_POSTGRES \
     PATH="$work/bin:$PATH" HOME="$work/home" TMPDIR="$work" REAL_SED="$real_sed" \
     REAL_DOCKER="$real_docker" SSH_HOSTS="$work/ssh-hosts" SSH_SCRIPTS="$work/ssh-scripts" \
-    DOCKER_CALLS="$work/docker-calls" ZFS_CALLS="$work/zfs-calls" \
+    DOCKER_CALLS="$work/docker-calls" ZFS_CALLS="$work/zfs-calls" RUNNING="$work/running" \
     LONDON_STACK_DIR="$stack" "$@" "$src/scripts/deploy-prod.sh" "$version"
 }
 
+# Unless a test pins $work/running, the host runs exactly what its compose
+# file and .env render, on data of each PostgreSQL image's major.
+render_running() {
+  local override=() svc img tag
+  : > "$work/running"
+  [ -f "$stack/docker-compose.yaml" ] || return 0
+  [ -f "$stack/docker-compose.override.yaml" ] && override=(-f "$stack/docker-compose.override.yaml")
+  "$real_docker" compose --project-directory "$stack" -f "$stack/docker-compose.yaml" "${override[@]}" config |
+    awk '
+      /^[^ ]/ { in_services = ($0 == "services:"); next }
+      in_services && /^  [^ ]/ { svc = $1; sub(/:$/, "", svc); next }
+      in_services && /^    image: / { img = $0; sub(/^    image: /, "", img); print svc, img }
+    ' | while read -r svc img; do
+      tag=${img##*:}
+      tag=${tag#pg}
+      case "$img" in
+        *postgres* | *pgvector* | *vchord*) echo "$svc $img ${tag%%[!0-9]*}" ;;
+        *) echo "$svc $img -" ;;
+      esac
+    done > "$work/running"
+}
+
 reset_calls() {
+  running_pinned=false
   : > "$work/ssh-hosts"
   : > "$work/ssh-scripts"
   : > "$work/docker-calls"
@@ -217,7 +264,55 @@ cmp -s "$stack/docker-compose.yaml" "$repo/docker-compose.yaml" || fail "no-drif
 [ -f "$stack/docker-compose.override.yaml" ] || fail "override file removed"
 [ "$(grep -c '^CHROME_LAUNCHER_TOKEN=' "$stack/.env")" = 1 ] || fail "existing launcher token was replaced"
 if compgen -G "$stack/docker-compose.yaml.bak*" > /dev/null; then fail "no-drift deploy made a compose backup"; fi
+grep -q "^exec ctr-postgres psql -U postgres -c CHECKPOINT;$" "$work/docker-calls" ||
+  fail "CHECKPOINT did not go to the compose-resolved postgres container"
 if grep -q 'helix-sandbox' "$work/ssh-scripts"; then fail "control-plane step included a runner deployment"; fi
+
+# The plan reads what runs, not what .env now renders: postgres 12 runs on PG12
+# data while someone has pinned HELIX_POSTGRES_IMAGE=postgres:17-alpine.
+pin_pg17_over_pg12() {
+  setup_stack "$repo/docker-compose.yaml"
+  sed -i 's/^HELIX_POSTGRES_IMAGE=.*/HELIX_POSTGRES_IMAGE=postgres:17-alpine/' "$stack/.env"
+  reset_calls
+  render_running
+  sed -i 's/^postgres .*/postgres postgres:12.13-alpine 12/' "$work/running"
+  running_pinned=true
+}
+for recreate in true false; do
+  pin_pg17_over_pg12
+  if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true RECREATE_POSTGRES=$recreate 2>&1); then
+    fail "RECREATE_POSTGRES=$recreate: postgres 17 over PG12 data was not refused"
+  fi
+  grep -q 'postgres: postgres:12.13-alpine -> postgres:17-alpine \[host compose now renders postgres:17-alpine\]' <<<"$out" ||
+    fail "RECREATE_POSTGRES=$recreate: pin diff hid the running postgres image"
+  grep -q 'postgres data is PostgreSQL 12 but would run postgres:17-alpine' <<<"$out" ||
+    fail "RECREATE_POSTGRES=$recreate: data major mismatch not explained"
+  if [ -s "$work/zfs-calls" ] || [ -s "$work/docker-calls" ]; then
+    fail "RECREATE_POSTGRES=$recreate: data major mismatch touched the host"
+  fi
+done
+
+# A database the host defines but does not run has an unknown data major:
+# RECREATE_POSTGRES fails closed; without it the database is simply held.
+setup_stack "$repo/docker-compose.yaml"
+reset_calls
+render_running
+sed -i '/^postgres /d' "$work/running"
+running_pinned=true
+if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true RECREATE_POSTGRES=true 2>&1); then
+  fail "RECREATE_POSTGRES with postgres not running did not fail"
+fi
+grep -q 'postgres is defined on this host but not running' <<<"$out" || fail "stopped postgres refusal not explained"
+[ ! -s "$work/zfs-calls" ] || fail "stopped postgres refusal took a snapshot"
+setup_stack "$repo/docker-compose.yaml"
+printf 'CHROME_LAUNCHER_TOKEN=existing\n' >> "$stack/.env"
+reset_calls
+render_running
+sed -i '/^postgres /d' "$work/running"
+running_pinned=true
+out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true 2>&1) || fail "deploy with postgres held and stopped failed: $out"
+[ "$(compose_calls)" = "$converge_calls" ] || fail "stopped postgres was touched: $(compose_calls)"
+if grep -q 'CHECKPOINT' "$work/docker-calls"; then fail "CHECKPOINT sent with no postgres container"; fi
 
 # A green main build deploys by its short SHA.
 setup_stack "$repo/docker-compose.yaml"
@@ -363,6 +458,86 @@ out=$(run_deploy 9.8.8 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RE
 grep -q '^compose up -d --no-deps .*ragdb' "$work/docker-calls" || fail "RECREATE_POSTGRES did not create ragdb"
 git -C "$src" checkout -q 9.8.7
 
+# release_with <tag> <service yaml> [top-level volume yaml]: a release that adds
+# a database service to the 9.8.7 compose file.
+release_with() {
+  git -C "$src" checkout -q 9.8.7
+  printf '%s' "$2" > "$work/svc.yaml"
+  sed -i '/^services:$/r '"$work/svc.yaml" "$src/docker-compose.yaml"
+  if [ -n "${3:-}" ]; then
+    printf '%s' "$3" > "$work/vol.yaml"
+    sed -i '/^volumes:$/r '"$work/vol.yaml" "$src/docker-compose.yaml"
+  fi
+  git -C "$src" -c user.name=t -c user.email=t@example.com commit -qam "$1"
+  git -C "$src" tag "$1"
+}
+
+# A new database service may start only on storage that holds nothing yet: a
+# renamed service keeping postgres's volume is refused ...
+release_with 9.8.9 $'  pg-renamed:\n    image: postgres:17-alpine\n    volumes:\n      - helix-postgres-db:/var/lib/postgresql/data\n'
+setup_stack "$repo/docker-compose.yaml"
+reset_calls
+if out=$(run_deploy 9.8.9 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true \
+  EXISTING_VOLUMES=stack_helix-postgres-db 2>&1); then
+  fail "renamed database service reusing an existing volume was not refused"
+fi
+grep -q 'new database service pg-renamed would mount existing volume stack_helix-postgres-db' <<<"$out" ||
+  fail "existing-volume refusal does not name the volume: $out"
+[ ! -s "$work/zfs-calls" ] || fail "existing-volume refusal took a snapshot"
+
+# ... as is one whose bind-mounted data directory is not empty ...
+release_with 9.8.10 $'  pg-bind:\n    image: postgres:17-alpine\n    volumes:\n      - ./pgdata:/var/lib/postgresql/data\n'
+setup_stack "$repo/docker-compose.yaml"
+mkdir "$stack/pgdata"
+echo 12 > "$stack/pgdata/PG_VERSION"
+reset_calls
+if out=$(run_deploy 9.8.10 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true 2>&1); then
+  fail "new database service on a non-empty bind mount was not refused"
+fi
+grep -q "new database service pg-bind would mount non-empty $stack/pgdata" <<<"$out" ||
+  fail "bind refusal does not name the directory: $out"
+setup_stack "$repo/docker-compose.yaml"
+mkdir "$stack/pgdata"
+reset_calls
+out=$(run_deploy 9.8.10 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true 2>&1) ||
+  fail "new database service on an empty bind mount was refused: $out"
+
+# ... while a genuinely new one on a fresh volume starts with RECREATE_POSTGRES.
+release_with 9.8.11 $'  pg-fresh:\n    image: postgres:17-alpine\n    volumes:\n      - pg-fresh-data:/var/lib/postgresql/data\n' $'  pg-fresh-data:\n'
+setup_stack "$repo/docker-compose.yaml"
+reset_calls
+out=$(run_deploy 9.8.11 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true \
+  EXISTING_VOLUMES=stack_helix-postgres-db 2>&1) || fail "new database service on a fresh volume was refused: $out"
+grep -q '^compose up -d --no-deps .*pg-fresh' "$work/docker-calls" || fail "fresh database service was not created"
+git -C "$src" checkout -q 9.8.7
+
+# The data major is read from every image form; anything unreadable fails closed.
+# deploy_pg <postgres image> <PG_VERSION or - for an unreadable one>
+deploy_pg() {
+  setup_stack "$repo/docker-compose.yaml"
+  sed -i "s|^HELIX_POSTGRES_IMAGE=.*|HELIX_POSTGRES_IMAGE=$1|" "$stack/.env"
+  reset_calls
+  render_running
+  sed -i "s|^postgres .*|postgres $1 $2|" "$work/running"
+  running_pinned=true
+  out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true 2>&1)
+}
+digest=sha256:$(printf '%064d' 0)
+for case in "postgres:17@$digest 17" "registry:5000/postgres:16 16" "pgvector/pgvector:pg16 16" \
+  "tensorchord/vchord-suite:pg17-20250601 17"; do
+  deploy_pg "${case% *}" "${case##* }" || fail "postgres ${case% *} on PG${case##* } data was refused: $out"
+done
+if deploy_pg "postgres:17@$digest" 16; then fail "digest-pinned postgres 17 over PG16 data was not refused"; fi
+grep -q "postgres data is PostgreSQL 16 but would run postgres:17@$digest" <<<"$out" || fail "digest major mismatch not explained: $out"
+for image in "postgres@$digest" postgres:latest registry:5000/postgres; do
+  if deploy_pg "$image" 17; then fail "unparseable postgres image $image was accepted"; fi
+  grep -q "cannot read a PostgreSQL major from image $image" <<<"$out" || fail "$image refusal not explained: $out"
+  [ ! -s "$work/zfs-calls" ] || fail "$image refusal took a snapshot"
+done
+if deploy_pg postgres:12.13-alpine -; then fail "unreadable PG_VERSION (PGDATA unset or exec failure) was accepted"; fi
+grep -q 'cannot read PG_VERSION from postgres (ctr-postgres)' <<<"$out" || fail "unreadable PG_VERSION refusal not explained: $out"
+[ ! -s "$work/zfs-calls" ] || fail "unreadable PG_VERSION refusal took a snapshot"
+
 # A PostgreSQL major change is refused even with every opt-in.
 old_compose postgres:12.13-alpine > "$work/pg12-compose.yaml"
 setup_stack "$work/pg12-compose.yaml"
@@ -371,7 +546,7 @@ reset_calls
 if out=$(run_deploy 9.8.7 DEPLOY_RUNNER=false EXEC_REMOTE=true COMPOSE_SYNC=true RECREATE_POSTGRES=true 2>&1); then
   fail "PostgreSQL major change did not fail"
 fi
-grep -q 'postgres would change PostgreSQL major' <<<"$out" || fail "major change failure not explained"
+grep -q 'postgres data is PostgreSQL 12 but would run postgres:17-alpine' <<<"$out" || fail "major change failure not explained"
 if [ -s "$work/zfs-calls" ] || [ -s "$work/docker-calls" ]; then fail "major change failure touched the host"; fi
 
 # A same-major database image change needs RECREATE_POSTGRES and still snapshots first.
