@@ -37,12 +37,12 @@ func sessionCredentialRequest(sessionID string, user types.User) *http.Request {
 
 // A session owner who is not the subscription's owner must not receive an
 // org-owned or delegated subscription's tokens; only the session's own
-// sandbox key (or a runner token) may.
+// sandbox key (or a per-runner token for its sandbox host) may.
 func TestGetSessionClaudeCredentials_OrgSubscriptionOnlyForSessionRuntime(t *testing.T) {
 	t.Setenv("HELIX_ENCRYPTION_KEY", "test-key")
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
-	session := &types.Session{ID: "ses_1", Owner: "usr_member", OrganizationID: "org_1"}
+	session := &types.Session{ID: "ses_1", Owner: "usr_member", OrganizationID: "org_1", SandboxID: "host1"}
 	mockStore.EXPECT().GetSession(gomock.Any(), "ses_1").Return(session, nil).AnyTimes()
 	mockStore.EXPECT().GetSessionClaudeSubscription(gomock.Any(), gomock.Any()).Return(&types.ClaudeSubscription{
 		ID: "sub_org", OwnerID: "org_1", OwnerType: types.OwnerTypeOrg, CredentialType: "setup_token",
@@ -54,6 +54,7 @@ func TestGetSessionClaudeCredentials_OrgSubscriptionOnlyForSessionRuntime(t *tes
 		"owner browser session":   {ID: "usr_member", TokenType: types.TokenTypeSession},
 		"owner personal api key":  {ID: "usr_member", TokenType: types.TokenTypeAPIKey},
 		"other session's api key": {ID: "usr_member", TokenType: types.TokenTypeAPIKey, SessionID: "ses_other"},
+		"shared runner token":     {TokenType: types.TokenTypeRunner},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, httpErr := server.getSessionClaudeCredentials(nil, sessionCredentialRequest("ses_1", user))
@@ -63,8 +64,8 @@ func TestGetSessionClaudeCredentials_OrgSubscriptionOnlyForSessionRuntime(t *tes
 	}
 
 	for name, user := range map[string]types.User{
-		"session api key": {ID: "usr_member", TokenType: types.TokenTypeAPIKey, SessionID: "ses_1"},
-		"runner":          {TokenType: types.TokenTypeRunner},
+		"session api key":               {ID: "usr_member", TokenType: types.TokenTypeAPIKey, SessionID: "ses_1"},
+		"per-runner token for its host": {TokenType: types.TokenTypeRunner, RunnerID: "host1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			resp, httpErr := server.getSessionClaudeCredentials(nil, sessionCredentialRequest("ses_1", user))

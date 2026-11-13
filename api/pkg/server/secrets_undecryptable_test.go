@@ -210,3 +210,96 @@ func TestReportUndecryptableProjectSecretsSkipsDesktopWithoutTask(t *testing.T) 
 	server.reportUndecryptableProjectSecrets(context.Background(),
 		&types.DesktopAgent{ProjectID: undecryptableProject}, []string{"PENTEST_TOKEN"})
 }
+
+func listSecretsRequest(user types.User, orgID string) *http.Request {
+	target := "/api/v1/secrets"
+	if orgID != "" {
+		target += "?organization_id=" + orgID
+	}
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	return req.WithContext(setRequestUser(req.Context(), user))
+}
+
+// Personal and org secrets lists flag a secret the current key cannot decrypt,
+// and return neither its ciphertext nor any plaintext.
+func TestListSecretsFlagsUndecryptableWithoutValues(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		org   string
+		query *store.ListSecretsQuery
+	}{
+		{"personal", "", &store.ListSecretsQuery{UserLevelOnly: true, OwnerType: types.OwnerTypeUser, Owner: tenantAAdmin}},
+		{"org", tenantAOrg, &store.ListSecretsQuery{UserLevelOnly: true, OwnerType: types.OwnerTypeOrg, Owner: tenantAOrg}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			secrets := projectSecretsUnderRotatedKey(t)
+			for _, s := range secrets {
+				s.ProjectID = ""
+			}
+			ciphertexts := []string{string(secrets[0].Value), string(secrets[1].Value)}
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			if tc.org != "" {
+				mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: tc.org}).
+					Return(&types.Organization{ID: tc.org}, nil)
+				mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
+					Return(&types.OrganizationMembership{OrganizationID: tc.org, UserID: tenantAAdmin, Role: types.OrganizationRoleMember}, nil)
+			}
+			mockStore.EXPECT().ListSecrets(gomock.Any(), tc.query).Return(secrets, nil)
+			server := &HelixAPIServer{Store: mockStore}
+			logs := captureLogs(t)
+
+			got, httpErr := server.listSecrets(httptest.NewRecorder(), listSecretsRequest(types.User{ID: tenantAAdmin}, tc.org))
+			require.Nil(t, httpErr)
+			require.Len(t, got, 2)
+			require.True(t, got[0].Undecryptable)
+			require.False(t, got[1].Undecryptable)
+
+			body, err := json.Marshal(got)
+			require.NoError(t, err)
+			require.Contains(t, string(body), `"undecryptable":true`)
+			for _, leak := range append(ciphertexts, staleSecretPlaintext, currentSecretPlaintext) {
+				require.NotContains(t, string(body), leak)
+				require.NotContains(t, logs.String(), leak)
+			}
+		})
+	}
+}
+
+// The org secrets list decrypts every value to flag stale ones, so a caller
+// outside the org is refused before the secrets are loaded.
+func TestListSecretsRefusesOtherOrg(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		user types.User
+	}{
+		{"owner of another org", types.User{ID: tenantBAdmin}},
+		{"member of another org", types.User{ID: tenantBUser}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HELIX_ENCRYPTION_KEY", encryptionKeyB)
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			all := membershipsByUser()
+			mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: tenantAOrg}).
+				Return(&types.Organization{ID: tenantAOrg}, nil)
+			mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, q *store.GetOrganizationMembershipQuery) (*types.OrganizationMembership, error) {
+					for _, m := range all[q.UserID] {
+						if m.OrganizationID == q.OrganizationID {
+							return m, nil
+						}
+					}
+					return nil, store.ErrNotFound
+				}).AnyTimes()
+			// No ListSecrets expectation: gomock fails the test if the
+			// handler loads the secrets for a refused caller.
+			server := &HelixAPIServer{Store: mockStore}
+
+			got, httpErr := server.listSecrets(httptest.NewRecorder(), listSecretsRequest(tc.user, tenantAOrg))
+			require.NotNil(t, httpErr)
+			require.Equal(t, http.StatusForbidden, httpErr.StatusCode)
+			require.Nil(t, got)
+		})
+	}
+}
