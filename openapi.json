@@ -36520,6 +36520,10 @@
                         "description": "Used for isolation and metrics tracking",
                         "type": "string"
                     },
+                    "task_confined": {
+                        "description": "TaskConfined confines a session key of a spec task created with\nconfine_agent_key to that task (SpecTask.ConfineAgentKey).",
+                        "type": "boolean"
+                    },
                     "type": {
                         "$ref": "#/components/schemas/types.APIKeyType"
                     }
@@ -38129,6 +38133,10 @@
                         "description": "Auto-start cloned tasks",
                         "type": "boolean"
                     },
+                    "confine_agent_key": {
+                        "description": "ConfineAgentKey confines the clones' agent keys to their own task\n(SpecTask.ConfineAgentKey). A clone of a confined task is always confined.",
+                        "type": "boolean"
+                    },
                     "create_projects": {
                         "description": "Create new projects for repos",
                         "type": "array",
@@ -39060,6 +39068,10 @@
                     },
                     "code_agent_config": {
                         "$ref": "#/components/schemas/types.CodeAgentExecutionConfig"
+                    },
+                    "confine_agent_key": {
+                        "description": "ConfineAgentKey confines the API keys minted for this task's sessions\nto the task itself (see SpecTask.ConfineAgentKey). Fixed at creation.",
+                        "type": "boolean"
                     },
                     "credential_owner_id": {
                         "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate this task's agent, for orchestrators dispatching work on a\nhuman's behalf under one service API key. Credential resolution only — the\ntask is still created by, owned by, and attributed to the caller. Resolution\nfails closed unless that user has delegated to this organization.",
@@ -47322,6 +47334,10 @@
                         "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                         "type": "string"
                     },
+                    "confine_agent_key": {
+                        "description": "ConfineAgentKey confines every API key minted for this task's sessions\nto this task: its sessions and the task itself, not the project's other\ntasks and sessions, and it may not create tasks. Project files, git,\nrepositories, artifacts and the LLM proxy stay reachable as for any\nproject-scoped key. Set at creation and never changed, so a key cannot\noutlive the confinement it was minted under.",
+                        "type": "boolean"
+                    },
                     "created_at": {
                         "type": "string"
                     },
@@ -48394,6 +48410,10 @@
                     "completion_requested_at": {
                         "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                         "type": "string"
+                    },
+                    "confine_agent_key": {
+                        "description": "ConfineAgentKey confines every API key minted for this task's sessions\nto this task: its sessions and the task itself, not the project's other\ntasks and sessions, and it may not create tasks. Project files, git,\nrepositories, artifacts and the LLM proxy stay reachable as for any\nproject-scoped key. Set at creation and never changed, so a key cannot\noutlive the confinement it was minted under.",
+                        "type": "boolean"
                     },
                     "created_at": {
                         "type": "string"
@@ -50443,6 +50463,10 @@
                     "spec_task_id": {
                         "description": "When running in Helix Code sandbox",
                         "type": "string"
+                    },
+                    "task_confined": {
+                        "description": "TaskConfined: the key reaches only its spec task (SpecTaskID) and that\ntask's sessions (ApiKey.TaskConfined).",
+                        "type": "boolean"
                     },
                     "token_type": {
                         "description": "none, runner. keycloak, api_key",

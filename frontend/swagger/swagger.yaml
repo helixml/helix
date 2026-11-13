@@ -4204,6 +4204,11 @@ definitions:
       spec_task_id:
         description: Used for isolation and metrics tracking
         type: string
+      task_confined:
+        description: |-
+          TaskConfined confines a session key of a spec task created with
+          confine_agent_key to that task (SpecTask.ConfineAgentKey).
+        type: boolean
       type:
         $ref: '#/definitions/types.APIKeyType'
     type: object
@@ -5423,6 +5428,11 @@ definitions:
       auto_start:
         description: Auto-start cloned tasks
         type: boolean
+      confine_agent_key:
+        description: |-
+          ConfineAgentKey confines the clones' agent keys to their own task
+          (SpecTask.ConfineAgentKey). A clone of a confined task is always confined.
+        type: boolean
       create_projects:
         description: Create new projects for repos
         items:
@@ -6129,6 +6139,11 @@ definitions:
         type: string
       code_agent_config:
         $ref: '#/definitions/types.CodeAgentExecutionConfig'
+      confine_agent_key:
+        description: |-
+          ConfineAgentKey confines the API keys minted for this task's sessions
+          to the task itself (see SpecTask.ConfineAgentKey). Fixed at creation.
+        type: boolean
       credential_owner_id:
         description: |-
           CredentialOwnerID optionally names the user whose Claude subscription should
@@ -12324,6 +12339,15 @@ definitions:
           CompletionRequestedAt is set while the agent's request to mark the task
           done (mark_task_complete) awaits the user's decision.
         type: string
+      confine_agent_key:
+        description: |-
+          ConfineAgentKey confines every API key minted for this task's sessions
+          to this task: its sessions and the task itself, not the project's other
+          tasks and sessions, and it may not create tasks. Project files, git,
+          repositories, artifacts and the LLM proxy stay reachable as for any
+          project-scoped key. Set at creation and never changed, so a key cannot
+          outlive the confinement it was minted under.
+        type: boolean
       created_at:
         type: string
       created_by:
@@ -13150,6 +13174,15 @@ definitions:
           CompletionRequestedAt is set while the agent's request to mark the task
           done (mark_task_complete) awaits the user's decision.
         type: string
+      confine_agent_key:
+        description: |-
+          ConfineAgentKey confines every API key minted for this task's sessions
+          to this task: its sessions and the task itself, not the project's other
+          tasks and sessions, and it may not create tasks. Project files, git,
+          repositories, artifacts and the LLM proxy stay reachable as for any
+          project-scoped key. Set at creation and never changed, so a key cannot
+          outlive the confinement it was minted under.
+        type: boolean
       created_at:
         type: string
       created_by:
@@ -14660,6 +14693,11 @@ definitions:
       spec_task_id:
         description: When running in Helix Code sandbox
         type: string
+      task_confined:
+        description: |-
+          TaskConfined: the key reaches only its spec task (SpecTaskID) and that
+          task's sessions (ApiKey.TaskConfined).
+        type: boolean
       token_type:
         allOf:
         - $ref: '#/definitions/types.TokenType'
