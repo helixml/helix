@@ -24,15 +24,19 @@ The release tag's `deploy-prod` pipeline runs this runbook. It can also be run b
 checkout of the version being deployed, which may be a release tag or the 7-character SHA of
 a green `main` build. Principles:
 - **The compose file is part of the release.** The deploy diffs the host's
-  `docker-compose.yaml` and every service's resolved image against the release's, and prints
-  the image-pin diff. Drift fails the deploy. `COMPOSE_SYNC=true` installs the release's file
+  `docker-compose.yaml` against the release's and prints each service's image as running →
+  deploying; it reads the running containers, not a re-rendering of `.env`, which may have
+  been edited since. Drift fails the deploy. `COMPOSE_SYNC=true` installs the release's file
   after a timestamped backup; the host's `docker-compose.override.yaml` and `.env` stay.
 - **Nothing changes until everything checks out.** Every image the deploy will pull must be
   pullable on the host first, so a private ghcr package fails here and names the package.
 - **The stack converges, the databases don't.** Every non-database service is brought to the
   new config, so `api` and `chrome` both follow `HELIX_VERSION`. Postgres moves only with
-  `RECREATE_POSTGRES=true`, after the ZFS snapshot, and never to a new major (that is a
-  dump/restore: `docs/postgres-upgrade.md`).
+  `RECREATE_POSTGRES=true`, after the ZFS snapshot. A database's target image must match the
+  major of its data (`PG_VERSION` in the running container), with or without the flag; a
+  major change is a dump/restore (`docs/postgres-upgrade.md`). With the flag, a defined but
+  stopped database fails the deploy, since its data major can't be read, and a database
+  service new to the host starts only if its volumes and bind mounts hold nothing yet.
 - Secrets the new compose needs and only this host uses, such as `CHROME_LAUNCHER_TOKEN`, are
   generated on the host into `.env`. They never pass through CI.
 - Any failure after the snapshot (pull, recreate or health-check) restores the exact previous

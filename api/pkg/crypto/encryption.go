@@ -94,6 +94,19 @@ func EncryptAES256GCM(plaintext []byte, key []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
+// aesGCMEnvelopeMinLen is the shortest decoded EncryptAES256GCM output: a
+// 12-byte nonce and a 16-byte tag around an empty plaintext.
+const aesGCMEnvelopeMinLen = 12 + 16
+
+// IsAES256GCMEnvelope reports whether value has the shape of EncryptAES256GCM
+// output (standard base64 of at least nonce plus tag). It says nothing about
+// which key wrote it. A value without this shape cannot be ciphertext from
+// this package.
+func IsAES256GCMEnvelope(value string) bool {
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	return err == nil && len(decoded) >= aesGCMEnvelopeMinLen
+}
+
 // DecryptAES256GCM decrypts data using AES-256-GCM with the provided key
 func DecryptAES256GCM(ciphertextB64 string, key []byte) ([]byte, error) {
 	if len(key) != 32 {

@@ -419,6 +419,10 @@ func (s *PostgresStore) runMigrations() error {
 		}
 	}
 
+	if err := s.encryptLegacyPlaintextSecrets(context.Background(), encryptLegacySecretsBatchSize); err != nil {
+		return err
+	}
+
 	if err := s.migrateGoldenBuildsFromProjectMetadata(context.Background()); err != nil {
 		return fmt.Errorf("failed to migrate golden build state out of project metadata: %w", err)
 	}

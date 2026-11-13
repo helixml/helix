@@ -12,10 +12,10 @@ import (
 //
 // The legitimate caller is the settings-sync daemon inside the session's
 // sandbox: it authenticates with the ephemeral API key minted for that one
-// session (GetOrCreateSessionAPIKey), or on older deployments with the runner
-// token. The subscription a session resolves to is often not the session
-// owner's: an org-owned subscription, or one another member delegated to the
-// org. Being the session owner is therefore not enough, or any member could
+// session (GetOrCreateSessionAPIKey). A per-runner token for the session's own
+// sandbox host may too; the shared runner token may not. The subscription a
+// session resolves to is often not the session owner's: an org-owned
+// subscription, or one another member delegated to the org. Being the session owner is therefore not enough, or any member could
 // start a session and read (or overwrite) a colleague's or the org's tokens.
 //
 // Outside the sandbox only the subscription's own user may use it.
@@ -41,8 +41,8 @@ func ownsSessionInKeyScope(user *types.User, session *types.Session) bool {
 
 // authorizeSessionSandboxConfig gates the endpoints that hand a session's
 // sandbox its configuration, which embeds the session's API key and agent
-// credentials. The shared runner token may read any session's config; a
-// per-runner token only that of sessions on its own sandbox host. Otherwise the
+// credentials. A per-runner token may read only the config of sessions on its
+// own sandbox host; the shared runner token is refused. Otherwise the
 // caller must own the session, pass session RBAC (which confines
 // project-scoped keys to their project), and, when calling with a key minted
 // for one session, be calling about that session.
@@ -52,7 +52,7 @@ func (apiServer *HelixAPIServer) authorizeSessionSandboxConfig(ctx context.Conte
 	}
 	if user.TokenType == types.TokenTypeRunner {
 		if !canRunnerReadSession(user, session) {
-			return errors.New("access denied: runner token is bound to another sandbox host")
+			return errors.New("access denied: runner token is not bound to this session's sandbox host")
 		}
 		return nil
 	}
