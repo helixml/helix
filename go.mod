@@ -29,7 +29,6 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/function61/holepunch-server v0.0.0-20210312073819-8f5e8775e813
 	github.com/getkin/kin-openapi v0.133.0
-	github.com/getsentry/sentry-go v0.25.0
 	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/go-gst/go-gst v1.4.0
 	github.com/go-rod/rod v0.116.2

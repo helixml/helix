@@ -68,7 +68,7 @@ COPY --from=tokenizers-lib /app/lib/libonnxruntime.so /usr/lib/
 COPY api /app/api
 COPY helix-org /app/helix-org
 WORKDIR /app/api
-# - main.version is a variable required by Sentry and is set in .drone.yaml
+# - main.version is set in .drone.yaml
 ARG APP_VERSION="v0.0.0+unknown"
 # Cache Go modules and build artifacts for offline builds
 RUN --mount=type=cache,target=/go/pkg/mod \

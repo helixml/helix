@@ -88,10 +88,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
 		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
 		MinimumInferenceBalance:                apiServer.Cfg.Stripe.MinimumInferenceBalance,
-		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
-		RudderStackWriteKey:                    apiServer.Cfg.Janitor.RudderStackWriteKey,
-		RudderStackDataPlaneURL:                apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
 		ToolsEnabled:                           apiServer.Cfg.Tools.Enabled,
 		AppsEnabled:                            apiServer.Cfg.Apps.Enabled,
 		DisableLLMCallLogging:                  apiServer.Cfg.DisableLLMCallLogging,
@@ -151,9 +148,7 @@ func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request
 	}
 	// The exact build and the deployment's identity are for signed-in users
 	// (update banner, licence gate, support debug context); an anonymous
-	// caller only needs what renders the login and registration pages. The
-	// Sentry DSN and RudderStack write key stay: they are browser-side
-	// ingestion keys the SPA needs before sign-in.
+	// caller only needs what renders the login and registration pages.
 	if !hasUser(getRequestUser(req)) {
 		config.Version = ""
 		config.LatestVersion = ""

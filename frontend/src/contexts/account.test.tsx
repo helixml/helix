@@ -61,7 +61,6 @@ vi.mock('../services/userService', () => ({
     data: {
       filestore_prefix: '',
       stripe_enabled: false,
-      sentry_dsn_frontend: '',
       google_analytics_frontend: '',
       tools_enabled: true,
       apps_enabled: true,
@@ -138,7 +137,6 @@ function setupDefaultApiResponses() {
       return Promise.resolve({
         filestore_prefix: '',
         stripe_enabled: false,
-        sentry_dsn_frontend: '',
         google_analytics_frontend: '',
           tools_enabled: true,
         apps_enabled: true,

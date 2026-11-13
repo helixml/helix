@@ -1040,10 +1040,6 @@ func matchAllRoutes(*http.Request, *mux.RouteMatch) bool {
 
 func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
-	err := apiServer.Janitor.InjectMiddleware(router)
-	if err != nil {
-		return nil, err
-	}
 
 	// The audit trail itself wraps the whole server (see ListenAndServe), outside
 	// the vhost proxy and outside this mux. This only hands the matched route

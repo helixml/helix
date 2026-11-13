@@ -59,7 +59,7 @@ if (isMobileOrTablet()) {
       logErrorToSession(message, stack)
     }
 
-    // Forward to Sentry/analytics
+    // Forward to registered error hooks
     reportError(message)
 
     const previousErrors = getRecentErrors()

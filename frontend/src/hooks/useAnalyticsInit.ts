@@ -1,6 +1,4 @@
 import { useEffect, useRef } from 'react'
-import * as Sentry from '@sentry/react'
-import { RudderAnalytics } from '@rudderstack/analytics-js'
 import { useGetConfig } from '../services/userService'
 
 const win = (window as any)
@@ -12,36 +10,6 @@ export default function useAnalyticsInit() {
   useEffect(() => {
     if (!config || initialized.current) return
     initialized.current = true
-
-    // Sentry
-    if (config.sentry_dsn_frontend) {
-      win.setUserFunctions.push((user: any) => {
-        Sentry.setUser({
-          email: user.email,
-          name: user.name,
-        })
-      })
-      win.emitErrorFunctions.push((error: any) => {
-        Sentry.captureException(error)
-      })
-      Sentry.init({
-        dsn: config.sentry_dsn_frontend,
-        integrations: [
-          new Sentry.BrowserTracing(),
-          new Sentry.Replay(),
-        ],
-        tracesSampleRate: 0.1,
-        replaysSessionSampleRate: 1.0,
-        replaysOnErrorSampleRate: 1.0,
-        ignoreErrors: [/runtime\.sendMessage.*Tab not found/i],
-        beforeSend(event) {
-          if (event.exception?.values?.length) {
-            Sentry.showReportDialog({ eventId: event.event_id })
-          }
-          return event
-        },
-      })
-    }
 
     // Google Analytics
     if (config.google_analytics_frontend) {
@@ -55,27 +23,6 @@ export default function useAnalyticsInit() {
       function gtag(...args: any[]) { win.dataLayer.push(args) }
       gtag('js', new Date())
       gtag('config', gaId)
-    }
-
-    // RudderStack
-    if (config.rudderstack_write_key && config.rudderstack_data_plane_url) {
-      const rudderAnalytics = new RudderAnalytics()
-      // The app targets current browsers; never fetch the SDK's polyfill
-      // bundle from a third-party CDN.
-      rudderAnalytics.load(config.rudderstack_write_key, config.rudderstack_data_plane_url, {
-        polyfillIfRequired: false,
-      })
-      win.setUserFunctions.push((user: any) => {
-        const { token, ...safeUser } = user
-        rudderAnalytics.identify(user.email, safeUser)
-      })
-      win.viewPageFunctions.push((state: any) => {
-        const route = state.route
-        rudderAnalytics.page(route.name, route.path, route)
-      })
-      win.emitEventFunctions.push((ev: any) => {
-        rudderAnalytics.track(ev.name, ev)
-      })
     }
   }, [config])
 }

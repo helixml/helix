@@ -24,7 +24,6 @@ export default defineConfig({
           mermaid: ['mermaid'],
           pdf: ['@react-pdf/renderer', '@uiw/react-md-editor'],
           datagrid: ['@inovua/reactdatagrid-community'],
-          sentry: ['@sentry/browser', '@sentry/react'],
         },
       },
     },

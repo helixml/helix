@@ -532,16 +532,16 @@ type SessionMetadata struct {
 	// Anything embedding a session — Find AI presented a chat box to candidates
 	// on this basis — needs to know it can send, not merely that a machine
 	// exists. Computed per request, never stored.
-	ExternalAgentConnected  bool                 `json:"external_agent_connected"`
-	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
-	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
-	GoldenBuild             bool                 `json:"golden_build,omitempty"`              // Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped
-	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
-	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
-	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
-	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
-	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
-	StatusMessage           string               `json:"status_message,omitempty"`            // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
+	ExternalAgentConnected bool             `json:"external_agent_connected"`
+	Phase                  string           `json:"phase,omitempty"`                  // NEW: SpecTask phase (planning, implementation)
+	DevContainerID         string           `json:"dev_container_id,omitempty"`       // Dev container ID for streaming
+	GoldenBuild            bool             `json:"golden_build,omitempty"`           // Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped
+	SwayVersion            string           `json:"sway_version,omitempty"`           // helix-sway image version (commit hash) running in this session
+	GPUVendor              string           `json:"gpu_vendor,omitempty"`             // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
+	RenderNode             string           `json:"render_node,omitempty"`            // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
+	PausedScreenshotPath   string           `json:"paused_screenshot_path,omitempty"` // Path to saved screenshot when agent is paused
+	CodeAgentRuntime       CodeAgentRuntime `json:"code_agent_runtime,omitempty"`     // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
+	StatusMessage          string           `json:"status_message,omitempty"`         // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
 
 	// CodeAgentOverrides customizes the coding model for THIS session without
 	// mutating its Agent. Set from the chat composer's execution controls on
@@ -1117,15 +1117,15 @@ type WebsocketEvent struct {
 // applies the same patch logic as the flat content patch, but scoped to a
 // single ResponseEntry's content.
 type EntryPatch struct {
-	Index        int    `json:"index"`                    // Position in the entries array
-	MessageID    string `json:"message_id"`               // Zed message_id for this entry
-	Type         string `json:"type"`                     // "text", "tool_call", or "plan"
+	Index     int    `json:"index"`      // Position in the entries array
+	MessageID string `json:"message_id"` // Zed message_id for this entry
+	Type      string `json:"type"`       // "text", "tool_call", or "plan"
 	// Patch/PatchOffset/TotalLength are deliberately NOT omitempty: a rewrite
 	// from offset 0 must arrive as an explicit 0, or the frontend's applyPatch
 	// appends instead of replacing and the entry is silently corrupted.
-	Patch        string `json:"patch"`        // Content delta from PatchOffset onwards
-	PatchOffset  int    `json:"patch_offset"` // UTF-16 offset of first change in this entry
-	TotalLength  int    `json:"total_length"` // Final content length of this entry after patch
+	Patch        string `json:"patch"`                    // Content delta from PatchOffset onwards
+	PatchOffset  int    `json:"patch_offset"`             // UTF-16 offset of first change in this entry
+	TotalLength  int    `json:"total_length"`             // Final content length of this entry after patch
 	ToolName     string `json:"tool_name,omitempty"`      // For tool_call: the tool label
 	ToolStatus   string `json:"tool_status,omitempty"`    // For tool_call: "Completed", "In Progress", etc.
 	ToolCallID   string `json:"tool_call_id,omitempty"`   // Stable ACP tool-call id
@@ -1273,12 +1273,9 @@ type ServerConfigForFrontend struct {
 	BillingEnabled                         bool         `json:"billing_enabled"`             // Charging for usage
 	MinimumInferenceBalance                float64      `json:"minimum_inference_balance"`   // Minimum wallet balance required for inference
 	RequireActiveSubscription              bool         `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
-	SentryDSNFrontend                      string       `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string       `json:"google_analytics_frontend"`
 	ToolsEnabled                           bool         `json:"tools_enabled"`
 	AppsEnabled                            bool         `json:"apps_enabled"`
-	RudderStackWriteKey                    string       `json:"rudderstack_write_key"`
-	RudderStackDataPlaneURL                string       `json:"rudderstack_data_plane_url"`
 	DisableLLMCallLogging                  bool         `json:"disable_llm_call_logging"`
 	Version                                string       `json:"version"`
 	LatestVersion                          string       `json:"latest_version"`

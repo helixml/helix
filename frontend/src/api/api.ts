@@ -7142,9 +7142,6 @@ export interface TypesServerConfigForFrontend {
   registration_enabled?: boolean;
   /** Require an active subscription before allowing to use the product */
   require_active_subscription?: boolean;
-  rudderstack_data_plane_url?: string;
-  rudderstack_write_key?: string;
-  sentry_dsn_frontend?: string;
   /**
    * ServerURL is the operator-configured public origin for this helix
    * instance (env SERVER_URL → WebServer.URL). Empty when not
