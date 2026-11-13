@@ -34,6 +34,9 @@ type UserSession struct {
 	OIDCAccessToken  string    `json:"-" gorm:"column:oidc_access_token;type:text"`
 	OIDCIDToken      string    `json:"-" gorm:"column:oidc_id_token;type:text"`
 	OIDCTokenExpiry  time.Time `json:"-" gorm:"column:oidc_token_expiry"`
+	// OIDCRefreshDead is set once the identity provider has rejected the
+	// refresh token (its session ended). The session is never refreshed again.
+	OIDCRefreshDead bool `json:"-" gorm:"column:oidc_refresh_dead;not null;default:false"`
 
 	// Optional metadata for security/audit
 	UserAgent  string    `json:"user_agent,omitempty" gorm:"type:text"`
@@ -57,7 +60,7 @@ func (s *UserSession) NeedsOIDCRefresh() bool {
 	if s.AuthProvider != AuthProviderOIDC {
 		return false
 	}
-	if s.OIDCRefreshToken == "" {
+	if s.OIDCRefreshToken == "" || s.OIDCRefreshDead {
 		return false
 	}
 	// Refresh if token expires within 5 minutes

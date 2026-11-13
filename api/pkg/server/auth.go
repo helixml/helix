@@ -1278,6 +1278,9 @@ func (s *HelixAPIServer) authenticated(w http.ResponseWriter, r *http.Request) {
 		session, err := s.sessionManager.GetSessionFromRequest(ctx, r)
 		if err != nil {
 			log.Debug().Err(err).Msg("BFF session lookup failed in authenticated endpoint")
+			if authpkg.IsSessionDiscarded(err) {
+				s.sessionManager.ClearSessionCookie(w)
+			}
 		}
 		if session != nil {
 			log.Debug().
