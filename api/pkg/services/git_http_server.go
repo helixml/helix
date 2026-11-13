@@ -1110,30 +1110,47 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 		return &BranchRestriction{HumanPusher: !apiKeyRecord.IsAgentBound()}, nil
 	}
 
-	// Get the spec task to find allowed branches
-	task, err := s.store.GetSpecTask(ctx, apiKeyRecord.SpecTaskID)
+	allowedBranches, err := s.AgentPushBranches(ctx, apiKeyRecord.SpecTaskID, repoID)
 	if err != nil {
-		return &BranchRestriction{
-			IsAgentKey:   true,
-			ErrorMessage: "Agent's spec task not found",
-		}, nil
+		log.Error().Err(err).Str("task_id", apiKeyRecord.SpecTaskID).Str("repo_id", repoID).Msg("Failed to resolve agent push branches")
+		return &BranchRestriction{IsAgentKey: true, ErrorMessage: AgentPushBranchesMessage(err)}, nil
 	}
+	return &BranchRestriction{
+		IsAgentKey:      true,
+		AllowedBranches: allowedBranches,
+	}, nil
+}
 
-	// Agent can push to their feature branch AND helix-specs (for design docs),
-	// plus any branch a user granted it by approving a PR proposal.
-	allowedBranches := []string{SpecsBranchName} // Always allow helix-specs
+var (
+	ErrAgentSpecTaskNotFound    = errors.New("agent's spec task not found")
+	ErrAgentBranchesUnavailable = errors.New("could not load the branches this agent may push to; try again")
+)
+
+// AgentPushBranchesMessage is the refusal text for an AgentPushBranches error.
+func AgentPushBranchesMessage(err error) string {
+	if errors.Is(err, ErrAgentSpecTaskNotFound) {
+		return "Agent's spec task not found"
+	}
+	return ErrAgentBranchesUnavailable.Error()
+}
+
+// AgentPushBranches lists the branches of repoID that the agent of spec task
+// specTaskID may write: helix-specs (design docs), the task's feature branch,
+// and any branch a user granted it by approving a PR proposal. Git pushes (the
+// pre-receive hook) and the REST write routes both enforce this list.
+func (s *GitHTTPServer) AgentPushBranches(ctx context.Context, specTaskID, repoID string) ([]string, error) {
+	task, err := s.store.GetSpecTask(ctx, specTaskID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrAgentSpecTaskNotFound, err)
+	}
+	allowedBranches := []string{SpecsBranchName}
 	if task.BranchName != "" {
 		allowedBranches = append(allowedBranches, task.BranchName)
 	}
 	if s.prProposals != nil {
 		granted, err := s.prProposals.AllowedPushBranches(ctx, task.ID, repoID)
 		if err != nil {
-			// Fail closed: the caller treats an error as "no restriction".
-			log.Error().Err(err).Str("task_id", task.ID).Str("repo_id", repoID).Msg("Failed to load approved PR proposal branches")
-			return &BranchRestriction{
-				IsAgentKey:   true,
-				ErrorMessage: "could not load the branches this agent may push to; try again",
-			}, nil
+			return nil, fmt.Errorf("%w: %v", ErrAgentBranchesUnavailable, err)
 		}
 		for _, branch := range granted {
 			if !slices.Contains(allowedBranches, branch) {
@@ -1141,11 +1158,7 @@ func (s *GitHTTPServer) getBranchRestrictionForAPIKey(ctx context.Context, apiKe
 			}
 		}
 	}
-
-	return &BranchRestriction{
-		IsAgentKey:      true,
-		AllowedBranches: allowedBranches,
-	}, nil
+	return allowedBranches, nil
 }
 
 func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, repoID string) bool {

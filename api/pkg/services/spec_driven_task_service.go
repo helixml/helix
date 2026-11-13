@@ -24,6 +24,8 @@ const (
 	SpecsWorktreeRelPath = "design"                // Relative path from repo root
 	SpecsBranchName      = "helix-specs"           // Git branch name for spec-driven development
 	SpecsTaskDirFormat   = "design/tasks/%s_%s_%s" // Format: tasks/DATE_NAME_ID
+	// StartupScriptPath is the helix-specs file sandboxes run at start.
+	StartupScriptPath = ".helix/startup.sh"
 )
 
 var ErrImplementationHandoffAlreadyClaimed = errors.New("implementation handoff is already being started")
