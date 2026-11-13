@@ -161,11 +161,11 @@ func sessionKey(sessionID, taskID string) *types.User {
 		OrganizationID: attOrgA, ProjectID: attProjectA, SessionID: sessionID, SpecTaskID: taskID}
 }
 
-func personalKey(userID string) *types.User {
+func attestationPersonalKey(userID string) *types.User {
 	return &types.User{ID: userID, TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI}
 }
 
-func orgKey(userID, orgID string) *types.User {
+func attestationOrgKey(userID, orgID string) *types.User {
 	return &types.User{ID: userID, TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI, OrganizationID: orgID}
 }
 
@@ -233,7 +233,7 @@ func (s *IdentityAttestationSuite) TestFinderMintsFinderNeverVerifier() {
 	var resp types.IdentityAttestationResponse
 	s.Require().NoError(json.Unmarshal(rr.Body.Bytes(), &resp))
 
-	vr := s.verify(orgKey(attOwnerA, attOrgA), s.verifyRequest(resp.Token))
+	vr := s.verify(attestationOrgKey(attOwnerA, attOrgA), s.verifyRequest(resp.Token))
 	s.Require().Equal(http.StatusOK, vr.Code, vr.Body.String())
 	var claims types.IdentityAttestationClaims
 	s.Require().NoError(json.Unmarshal(vr.Body.Bytes(), &claims))
@@ -272,7 +272,7 @@ func (s *IdentityAttestationSuite) TestSandboxKeyMints() {
 	key := &types.User{ID: attOwnerA, TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI,
 		OrganizationID: attOrgA, ProjectID: attProjectA, SessionID: attSandbox}
 	token := s.mintToken(key)
-	vr := s.verify(orgKey(attOwnerA, attOrgA), s.verifyRequest(token))
+	vr := s.verify(attestationOrgKey(attOwnerA, attOrgA), s.verifyRequest(token))
 	s.Require().Equal(http.StatusOK, vr.Code, vr.Body.String())
 	var claims types.IdentityAttestationClaims
 	s.Require().NoError(json.Unmarshal(vr.Body.Bytes(), &claims))
@@ -293,8 +293,8 @@ func (s *IdentityAttestationSuite) TestMintRefusesOtherCredentials() {
 	projectless.ProjectID = ""
 
 	cases := map[string]*types.User{
-		"personal key":         personalKey(attOwnerA),
-		"org key":              orgKey(attOwnerA, attOrgA),
+		"personal key":         attestationPersonalKey(attOwnerA),
+		"org key":              attestationOrgKey(attOwnerA, attOrgA),
 		"project key":          {ID: attOwnerA, TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI, OrganizationID: attOrgA, ProjectID: attProjectA},
 		"app key":              appKey,
 		"browser session":      browserSession(attOwnerA),
@@ -365,11 +365,11 @@ func (s *IdentityAttestationSuite) TestVerifyRefusesForeignCallers() {
 	token := s.mintToken(sessionKey(attFinderSes, attFinderTsk))
 
 	cases := map[string]*types.User{
-		"org B key":                     orgKey(attOwnerB, attOrgB),
+		"org B key":                     attestationOrgKey(attOwnerB, attOrgB),
 		"org B owner signed in":         browserSession(attOwnerB),
-		"org A member, no project":      orgKey(attMemberA, attOrgA),
+		"org A member, no project":      attestationOrgKey(attMemberA, attOrgA),
 		"org A member signed in":        browserSession(attMemberA),
-		"project owner's key for org B": orgKey(attOwnerA, attOrgB),
+		"project owner's key for org B": attestationOrgKey(attOwnerA, attOrgB),
 	}
 	for name, caller := range cases {
 		s.Run(name, func() {
@@ -380,7 +380,7 @@ func (s *IdentityAttestationSuite) TestVerifyRefusesForeignCallers() {
 	s.Empty(s.auditEvents(types.AuditEventIdentityAttestationVerified))
 
 	// The token is still good for an authorized verifier.
-	s.Equal(http.StatusOK, s.verify(orgKey(attOwnerA, attOrgA), s.verifyRequest(token)).Code)
+	s.Equal(http.StatusOK, s.verify(attestationOrgKey(attOwnerA, attOrgA), s.verifyRequest(token)).Code)
 }
 
 func (s *IdentityAttestationSuite) TestVerifyRefusesAgentKeys() {
@@ -407,7 +407,7 @@ func (s *IdentityAttestationSuite) TestVerifyRefusesAgentKeys() {
 }
 
 func (s *IdentityAttestationSuite) TestVerifyRefusesBadTokens() {
-	verifier := orgKey(attOwnerA, attOrgA)
+	verifier := attestationOrgKey(attOwnerA, attOrgA)
 	token := s.mintToken(sessionKey(attFinderSes, attFinderTsk))
 
 	past := time.Now().Add(-attestation.TTL - attestation.ClockSkew - time.Minute)
