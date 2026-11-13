@@ -640,11 +640,16 @@ type SpecTask struct {
 	LastPushError *PushError `json:"last_push_error,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Simple tracking
-	EstimatedHours    int        `json:"estimated_hours,omitempty"`
-	PlanningStartedBy string     `json:"planning_started_by,omitempty"` // User who kicked off planning (may differ from CreatedBy)
-	PlanningStartedAt *time.Time `json:"planning_started_at,omitempty"`
-	StartedAt         *time.Time `json:"started_at,omitempty"`
-	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+	EstimatedHours    int    `json:"estimated_hours,omitempty"`
+	PlanningStartedBy string `json:"planning_started_by,omitempty"` // User who kicked off planning (may differ from CreatedBy)
+	// QueuedBy is the caller who last queued agent work on this task: its
+	// creator, then whoever starts planning or approves or rejects specs. The
+	// orchestrator sends that work later, so the turns it writes name this
+	// caller as triggered_by. Server-set only; never read from a request body.
+	QueuedBy          TurnProvenance `json:"-" gorm:"type:jsonb"`
+	PlanningStartedAt *time.Time     `json:"planning_started_at,omitempty"`
+	StartedAt         *time.Time     `json:"started_at,omitempty"`
+	CompletedAt       *time.Time     `json:"completed_at,omitempty"`
 
 	// CredentialOwnerID names the user whose Claude subscription authenticates
 	// this task's agent sessions, when that differs from CreatedBy. It changes

@@ -47,7 +47,7 @@ type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, messa
 //
 // This is the single sender abstraction for pkg/services callers; it replaces
 // SpecTaskMessageSender's immediate direct dispatch.
-type SpecTaskMessageEnqueuer func(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error
+type SpecTaskMessageEnqueuer func(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string, provenance types.TurnProvenance) error
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {

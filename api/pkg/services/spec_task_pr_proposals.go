@@ -208,7 +208,11 @@ func (s *PRProposalService) Decide(ctx context.Context, user *types.User, propos
 	if err != nil {
 		return nil, fmt.Errorf("get spec task: %w", err)
 	}
-	return s.decide(ctx, user, task, p, req, false)
+	decider, err := types.RequestTurnProvenance(user)
+	if err != nil {
+		return nil, err
+	}
+	return s.decide(ctx, user, task, p, req, false, decider)
 }
 
 // autoApprove approves a new proposal of a task that auto-approves PRs, as
@@ -219,7 +223,7 @@ func (s *PRProposalService) autoApprove(ctx context.Context, task *types.SpecTas
 	if user == nil {
 		return nil
 	}
-	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true)
+	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true, types.SystemTurn(types.SystemTurnPRAutoApprove))
 	if err != nil {
 		log.Warn().Err(err).Str("task_id", task.ID).Str("proposal_id", p.ID).Msg("pr proposal: auto-approval failed; waiting for a human")
 		return nil
@@ -260,7 +264,10 @@ func (s *PRProposalService) currentAutoApprover(ctx context.Context, task *types
 // user's behalf by the task's auto-approve setting: nobody was asked, so no
 // approval request is dismissed and the agent learns the outcome from the
 // propose_pull_request result rather than a separate message.
-func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *types.SpecTask, p *types.SpecTaskPRProposal, req *types.PRProposalDecisionRequest, auto bool) (*types.SpecTaskPRProposal, error) {
+// decider is the deciding caller; the turn telling the agent the outcome,
+// now or once commits land, is triggered_by it.
+func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *types.SpecTask, p *types.SpecTaskPRProposal, req *types.PRProposalDecisionRequest, auto bool, decider types.TurnProvenance) (*types.SpecTaskPRProposal, error) {
+	outcome := types.TriggeredBySystemTurn(types.SystemTurnPRProposalOutcome, decider)
 	now := time.Now()
 	from := p.Status
 
@@ -281,6 +288,7 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 			}
 			cur.Status = types.PRProposalStatusRejected
 			cur.DecidedBy, cur.DecidedAt, cur.DecisionComment = user.ID, &now, req.Comment
+			cur.Decider = decider
 			ok, err := s.store.UpdateSpecTaskPRProposal(ctx, cur, from)
 			if err != nil {
 				return err
@@ -295,7 +303,7 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 			return nil, err
 		}
 		s.dismissApprovalRequest(ctx, p)
-		s.notifyAgent(ctx, task, p, user, nil)
+		s.notifyAgent(ctx, task, p, user, nil, outcome)
 		return p, nil
 
 	case types.PRProposalDecisionApprove:
@@ -339,6 +347,7 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 		}
 		p.Status = types.PRProposalStatusApproved
 		p.DecidedBy, p.DecidedAt, p.Error = user.ID, &now, ""
+		p.Decider = decider
 		p.AutoApproved = auto
 		if req.Comment != "" || from == types.PRProposalStatusPending {
 			p.DecisionComment = req.Comment
@@ -363,7 +372,7 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 		if err != nil {
 			return nil, err
 		}
-		s.notifyAgent(ctx, task, opened, user, &original)
+		s.notifyAgent(ctx, task, opened, user, &original, outcome)
 		return opened, nil
 	}
 	return nil, invalidProposal("decision must be %q or %q", types.PRProposalDecisionApprove, types.PRProposalDecisionReject)
@@ -475,7 +484,7 @@ func (s *PRProposalService) openAndNotify(ctx context.Context, proposalID string
 	if err != nil {
 		return
 	}
-	s.notifyAgent(ctx, task, p, nil, nil)
+	s.notifyAgent(ctx, task, p, nil, nil, types.TriggeredBySystemTurn(types.SystemTurnPRProposalOutcome, p.Decider))
 }
 
 // tryOpen pushes an approved proposal's branch upstream and opens (or adopts)
@@ -772,7 +781,7 @@ func (s *PRProposalService) dismissApprovalRequest(ctx context.Context, p *types
 	}
 }
 
-func (s *PRProposalService) notifyAgent(ctx context.Context, task *types.SpecTask, p *types.SpecTaskPRProposal, decidedBy *types.User, original *types.SpecTaskPRProposal) {
+func (s *PRProposalService) notifyAgent(ctx context.Context, task *types.SpecTask, p *types.SpecTaskPRProposal, decidedBy *types.User, original *types.SpecTaskPRProposal, provenance types.TurnProvenance) {
 	if s.enqueue == nil {
 		return
 	}
@@ -783,7 +792,7 @@ func (s *PRProposalService) notifyAgent(ctx context.Context, task *types.SpecTas
 	if msg == "" {
 		return
 	}
-	if err := s.enqueue(ctx, task, msg, false, ""); err != nil {
+	if err := s.enqueue(ctx, task, msg, false, "", provenance); err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("proposal_id", p.ID).Msg("pr proposal: failed to notify agent")
 	}
 }

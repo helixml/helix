@@ -93,7 +93,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	// The spec generation goroutine will fail gracefully with nil controller
 
 	// Execute
-	task, err := service.CreateTaskFromPrompt(ctx, req)
+	task, err := service.CreateTaskFromPrompt(ctx, req, testUploader)
 
 	// Assert
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestSpecDrivenTaskService_PreparingAttachmentTaskDefersCreationAudit(t *tes
 		Prompt:    "Use the attached brief",
 		UserID:    "user-1",
 		UserEmail: "user@example.com",
-	})
+	}, testUploader)
 	require.NoError(t, err)
 	require.Equal(t, types.TaskStatusPreparing, task.Status)
 	auditWG.Wait()
@@ -172,7 +172,7 @@ func TestSpecDrivenTaskService_SnapshotsProjectPhaseAgents(t *testing.T) {
 
 	_, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
 		ProjectID: "project_1", UserID: "user_1", Prompt: "Do work",
-	})
+	}, testUploader)
 	require.NoError(t, err)
 }
 
@@ -203,7 +203,7 @@ func TestSpecDrivenTaskService_SnapshotsDelegatedClaudeOwner(t *testing.T) {
 
 	task, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
 		ProjectID: "project_1", UserID: "usr_member", Prompt: "Do work",
-	})
+	}, testUploader)
 	require.NoError(t, err)
 	require.Equal(t, "usr_delegate", task.CredentialOwnerID)
 }
@@ -227,7 +227,7 @@ func TestSpecDrivenTaskService_ExplicitClaudeOwnerWins(t *testing.T) {
 
 	task, err := service.CreateTaskFromPrompt(ctx, &types.CreateTaskRequest{
 		ProjectID: "project_1", UserID: "usr_member", Prompt: "Do work", CredentialOwnerID: "usr_explicit",
-	})
+	}, testUploader)
 	require.NoError(t, err)
 	require.Equal(t, "usr_explicit", task.CredentialOwnerID)
 }
@@ -238,7 +238,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidSandboxRuntime(
 	)
 	task, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
 		SandboxRuntime: types.SandboxRuntime("windows-desktop"),
-	})
+	}, testUploader)
 	require.EqualError(t, err, `invalid spec task sandbox runtime "windows-desktop"`)
 	require.Nil(t, task)
 }
@@ -249,7 +249,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidSandboxPreset(t
 	)
 	task, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
 		SandboxResourceOverrides: &types.SandboxResourceOverrides{VCPUs: 3, MemoryMB: 4096},
-	})
+	}, testUploader)
 	require.EqualError(t, err, "invalid sandbox resource preset")
 	require.Nil(t, task)
 }
@@ -296,7 +296,7 @@ func TestSpecDrivenTaskService_AutoStartAssignsStarter(t *testing.T) {
 		UserID:     "starter",
 		AssigneeID: "stale-prestart-assignee",
 		AutoStart:  true,
-	})
+	}, testUploader)
 	require.NoError(t, err)
 	require.Equal(t, types.TaskStatusQueuedSpecGeneration, task.Status)
 	require.Equal(t, "starter", task.AssigneeID)
@@ -325,7 +325,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsBlankExistingBranch(t 
 			Runtime: types.CodeAgentRuntimeZedAgent, CredentialType: types.CodeAgentCredentialTypeAPIKey,
 			ProviderRef: "openai", Model: "gpt-5.6-sol",
 		},
-	})
+	}, testUploader)
 
 	require.EqualError(t, err, "working branch is required for existing branch mode")
 	require.Nil(t, task)
@@ -347,7 +347,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsInvalidBranchRefs(t *t
 			Runtime: types.CodeAgentRuntimeZedAgent, CredentialType: types.CodeAgentCredentialTypeAPIKey,
 			ProviderRef: "openai", Model: "gpt-5.6-sol",
 		},
-	})
+	}, testUploader)
 
 	require.ErrorContains(t, err, "invalid base_branch")
 	require.Nil(t, task)
@@ -668,7 +668,7 @@ func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing
 		checkoutCommand = command
 		return nil
 	}
-	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, message string, _ bool, _ string) error {
+	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, message string, _ bool, _ string, _ types.TurnProvenance) error {
 		approvalPrompt = message
 		return nil
 	}
@@ -739,7 +739,7 @@ func TestSpecDrivenTaskService_ApproveSpecsDoesNotCheckoutExistingBranch(t *test
 		execCalls++
 		return nil
 	}
-	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string) error {
+	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string, _ types.TurnProvenance) error {
 		return nil
 	}
 
@@ -796,7 +796,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 	// enqueuer is wired up so we can prove it is NOT called when the
 	// transition loses the race.
 	sendCalls := 0
-	sender := func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string) error {
+	sender := func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string, _ types.TurnProvenance) error {
 		sendCalls++
 		return nil
 	}

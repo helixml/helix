@@ -220,6 +220,7 @@ func (t *CreateSpecTaskTool) Execute(ctx context.Context, meta agent.Meta, args 
 	}
 
 	task := &types.SpecTask{
+		QueuedBy:       types.HelixAgentToolActor(),
 		ID:             system.GenerateSpecTaskID(),
 		ProjectID:      projectID,
 		UserID:         meta.UserID,

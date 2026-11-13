@@ -2491,6 +2491,18 @@ export interface TypesAPIError {
   type?: string;
 }
 
+export enum TypesAPIKeyScope {
+  APIKeyScopePersonal = "personal",
+  APIKeyScopeOrg = "org",
+  APIKeyScopeProject = "project",
+  APIKeyScopeSpecTask = "spec_task",
+  APIKeyScopeSession = "session",
+  APIKeyScopeSandbox = "sandbox",
+  APIKeyScopeApp = "app",
+  APIKeyScopeEmbed = "embed",
+  APIKeyScopeBotInstance = "bot_instance",
+}
+
 export interface TypesAPIKeySummary {
   app_id?: string;
   created?: string;
@@ -4825,6 +4837,12 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
+  /**
+   * Provenance records who caused this turn's prompt. Server-set at
+   * creation and never updated; rows from before it existed read as
+   * origin "unknown".
+   */
+  provenance?: TypesTurnProvenance;
   question_history?: TypesResolvedQuestion[];
   rag_results?: TypesSessionRAGResult[];
   /**
@@ -6204,6 +6222,11 @@ export interface TypesPromptHistoryEntry {
   notify_user_id?: string;
   /** For reference, but primary grouping is by spec_task */
   project_id?: string;
+  /**
+   * Provenance records who caused this prompt. Server-set at creation and
+   * never updated; the interaction created from it copies it.
+   */
+  provenance?: TypesTurnProvenance;
   /**
    * QueuePosition tracks ordering for drag-and-drop reordering
    * Lower values = earlier in queue. Null for sent messages.
@@ -8865,6 +8888,41 @@ export interface TypesSystemSettingsResponse {
   updated?: string;
 }
 
+export enum TypesSystemTurnKind {
+  SystemTurnPlanningPrompt = "planning_prompt",
+  SystemTurnImplementationPrompt = "implementation_prompt",
+  SystemTurnRevisionRequested = "revision_requested",
+  SystemTurnDesignReviewComment = "design_review_comment",
+  SystemTurnAttachmentAdded = "attachment_added",
+  SystemTurnRebaseRequired = "rebase_required",
+  SystemTurnPushRequired = "push_required",
+  SystemTurnCompletionSentBack = "completion_sent_back",
+  SystemTurnPRSettled = "pr_settled",
+  SystemTurnPRProposalOutcome = "pr_proposal_outcome",
+  SystemTurnCIStatus = "ci_status",
+  SystemTurnReviewComment = "review_comment",
+  SystemTurnSecretIntakeSubmitted = "secret_intake_submitted",
+  SystemTurnSessionForked = "session_forked",
+  SystemTurnForkHandoff = "fork_handoff",
+  SystemTurnAgentSwitched = "agent_switched",
+  SystemTurnAgentSwitchHandoff = "agent_switch_handoff",
+  SystemTurnOrgActivation = "org_activation",
+  SystemTurnOrgBotSpecTaskMessage = "org_bot_spec_task_message",
+  SystemTurnOrgBotInstanceMessage = "org_bot_instance_message",
+  SystemTurnCronTrigger = "cron_trigger",
+  SystemTurnSlackMessage = "slack_message",
+  SystemTurnTeamsMessage = "teams_message",
+  SystemTurnCrispMessage = "crisp_message",
+  SystemTurnAzureDevOpsEvent = "azure_devops_event",
+  SystemTurnCodeReviewTrigger = "code_review_trigger",
+  SystemTurnEvaluationQuestion = "evaluation_question",
+  SystemTurnExternalAgentTestHarness = "external_agent_test_harness",
+  SystemTurnOrgBotAction = "org_bot_action",
+  SystemTurnHelixAgentTool = "helix_agent_tool",
+  SystemTurnTriggerConfiguration = "trigger_configuration",
+  SystemTurnPRAutoApprove = "pr_auto_approve",
+}
+
 export interface TypesTeam {
   created_at?: string;
   deleted_at?: GormDeletedAt;
@@ -9140,6 +9198,50 @@ export enum TypesTriggerType {
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+}
+
+export enum TypesTurnOrigin {
+  TurnOriginUser = "user",
+  TurnOriginAPI = "api",
+  TurnOriginSystem = "system",
+  TurnOriginExternalAgent = "external_agent",
+  TurnOriginUnknown = "unknown",
+}
+
+export interface TypesTurnProvenance {
+  api_key_id?: string;
+  api_key_org_id?: string;
+  /**
+   * API key fields, for origin=api. APIKeyID is the non-secret key_… id
+   * (see APIKeyID), never the secret.
+   */
+  api_key_owner?: string;
+  api_key_project_id?: string;
+  api_key_session_id?: string;
+  api_key_spec_task_id?: string;
+  /** APIKeyTaskConfined: the key reaches only APIKeySpecTaskID. */
+  api_key_task_confined?: boolean;
+  api_key_type?: TypesAPIKeyScope;
+  /** OrgBotID is the org bot that caused an org_bot_* system turn. */
+  org_bot_id?: string;
+  origin?: TypesTurnOrigin;
+  /** SystemKind names the code path, for origin=system. */
+  system_kind?: TypesSystemTurnKind;
+  trigger_app_id?: string;
+  /**
+   * Trigger fields, for a trigger_configuration actor: the trigger's id
+   * when it has one, the app it is configured on, and its configuring user.
+   */
+  trigger_id?: string;
+  trigger_owner?: string;
+  /**
+   * TriggeredBy is the authenticated caller whose request made Helix write
+   * this system turn (an operator clicking "request changes", say). Nil
+   * when the system turn came from a background event.
+   */
+  triggered_by?: TypesTurnProvenance;
+  /** UserID is the signed-in user for origin=user. */
+  user_id?: string;
 }
 
 export interface TypesUnifiedSearchResponse {

@@ -115,6 +115,9 @@ func paceChatMessage(sessionID string) {
 }
 
 // SendChatMessage sends a chat message via the low-level
+// testHarnessTurn marks turns the WebSocket-sync e2e server injects.
+var testHarnessTurn = types.SystemTurn(types.SystemTurnExternalAgentTestHarness)
+
 // sendChatMessageToExternalAgent primitive (creates an interaction with the
 // caller-supplied request_id and sends the WebSocket command). This is a
 // TEST-HARNESS entry point for the WebSocket-sync e2e server, which needs to
@@ -125,14 +128,14 @@ func paceChatMessage(sessionID string) {
 // e2e test server (zed-repo). Use SendChatMessageWithInterrupt for tests that
 // need to exercise the interrupt path.
 func (s *HelixAPIServer) SendChatMessage(sessionID, message, requestID string) error {
-	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, false)
+	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, false, testHarnessTurn)
 	return err
 }
 
 // SendChatMessageWithInterrupt sends a chat message with the interrupt flag set,
 // matching the semantic used by design-review comments and the prompt-history queue.
 func (s *HelixAPIServer) SendChatMessageWithInterrupt(sessionID, message, requestID string, interrupt bool) error {
-	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt)
+	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt, testHarnessTurn)
 	return err
 }
 
@@ -148,7 +151,7 @@ func (s *HelixAPIServer) SendChatMessageWithInterrupt(sessionID, message, reques
 // a live Zed binary. Returns the queue-entry (prompt) id. The drain is
 // synchronous so tests observe the outcome deterministically without polling.
 func (s *HelixAPIServer) EnqueueQueuedPrompt(sessionID, message string, interrupt bool) (string, error) {
-	promptID, err := s.persistQueuedPrompt(context.Background(), sessionID, message, interrupt, "", "")
+	promptID, err := s.persistQueuedPrompt(context.Background(), sessionID, message, interrupt, "", "", testHarnessTurn)
 	if err != nil {
 		return "", err
 	}

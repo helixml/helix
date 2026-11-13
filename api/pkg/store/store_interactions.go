@@ -252,8 +252,9 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 	// PendingQuestion and QuestionHistory are owned by the targeted methods
 	// below. A streaming/terminal caller commonly holds an older interaction
 	// snapshot, so allowing Save to write those columns would erase a question
-	// that arrived concurrently.
-	result := db.Omit("PendingQuestion", "QuestionHistory").Clauses(clause.OnConflict{
+	// that arrived concurrently. Provenance is set once at creation and is
+	// never rewritten by an update.
+	result := db.Omit("PendingQuestion", "QuestionHistory", "Provenance").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Save(&interaction)
 

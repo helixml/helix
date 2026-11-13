@@ -31169,6 +31169,31 @@ const docTemplate = `{
                 }
             }
         },
+        "types.APIKeyScope": {
+            "type": "string",
+            "enum": [
+                "personal",
+                "org",
+                "project",
+                "spec_task",
+                "session",
+                "sandbox",
+                "app",
+                "embed",
+                "bot_instance"
+            ],
+            "x-enum-varnames": [
+                "APIKeyScopePersonal",
+                "APIKeyScopeOrg",
+                "APIKeyScopeProject",
+                "APIKeyScopeSpecTask",
+                "APIKeyScopeSession",
+                "APIKeyScopeSandbox",
+                "APIKeyScopeApp",
+                "APIKeyScopeEmbed",
+                "APIKeyScopeBotInstance"
+            ]
+        },
         "types.APIKeySummary": {
             "type": "object",
             "properties": {
@@ -36069,6 +36094,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "provenance": {
+                    "description": "Provenance records who caused this turn's prompt. Server-set at\ncreation and never updated; rows from before it existed read as\norigin \"unknown\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
                 "question_history": {
                     "type": "array",
                     "items": {
@@ -39228,6 +39261,14 @@ const docTemplate = `{
                 "project_id": {
                     "description": "For reference, but primary grouping is by spec_task",
                     "type": "string"
+                },
+                "provenance": {
+                    "description": "Provenance records who caused this prompt. Server-set at creation and\nnever updated; the interaction created from it copies it.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
                 },
                 "queue_position": {
                     "description": "QueuePosition tracks ordering for drag-and-drop reordering\nLower values = earlier in queue. Null for sent messages.",
@@ -44525,6 +44566,77 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SystemTurnKind": {
+            "type": "string",
+            "enum": [
+                "planning_prompt",
+                "implementation_prompt",
+                "revision_requested",
+                "design_review_comment",
+                "attachment_added",
+                "rebase_required",
+                "push_required",
+                "completion_sent_back",
+                "pr_settled",
+                "pr_proposal_outcome",
+                "ci_status",
+                "review_comment",
+                "secret_intake_submitted",
+                "session_forked",
+                "fork_handoff",
+                "agent_switched",
+                "agent_switch_handoff",
+                "org_activation",
+                "org_bot_spec_task_message",
+                "org_bot_instance_message",
+                "cron_trigger",
+                "slack_message",
+                "teams_message",
+                "crisp_message",
+                "azure_devops_event",
+                "code_review_trigger",
+                "evaluation_question",
+                "external_agent_test_harness",
+                "org_bot_action",
+                "helix_agent_tool",
+                "trigger_configuration",
+                "pr_auto_approve"
+            ],
+            "x-enum-varnames": [
+                "SystemTurnPlanningPrompt",
+                "SystemTurnImplementationPrompt",
+                "SystemTurnRevisionRequested",
+                "SystemTurnDesignReviewComment",
+                "SystemTurnAttachmentAdded",
+                "SystemTurnRebaseRequired",
+                "SystemTurnPushRequired",
+                "SystemTurnCompletionSentBack",
+                "SystemTurnPRSettled",
+                "SystemTurnPRProposalOutcome",
+                "SystemTurnCIStatus",
+                "SystemTurnReviewComment",
+                "SystemTurnSecretIntakeSubmitted",
+                "SystemTurnSessionForked",
+                "SystemTurnForkHandoff",
+                "SystemTurnAgentSwitched",
+                "SystemTurnAgentSwitchHandoff",
+                "SystemTurnOrgActivation",
+                "SystemTurnOrgBotSpecTaskMessage",
+                "SystemTurnOrgBotInstanceMessage",
+                "SystemTurnCronTrigger",
+                "SystemTurnSlackMessage",
+                "SystemTurnTeamsMessage",
+                "SystemTurnCrispMessage",
+                "SystemTurnAzureDevOpsEvent",
+                "SystemTurnCodeReviewTrigger",
+                "SystemTurnEvaluationQuestion",
+                "SystemTurnExternalAgentTestHarness",
+                "SystemTurnOrgBotAction",
+                "SystemTurnHelixAgentTool",
+                "SystemTurnTriggerConfiguration",
+                "SystemTurnPRAutoApprove"
+            ]
+        },
         "types.Team": {
             "type": "object",
             "properties": {
@@ -45180,6 +45292,91 @@ const docTemplate = `{
                 "TriggerTypeAzureDevOps",
                 "TriggerTypeCron"
             ]
+        },
+        "types.TurnOrigin": {
+            "type": "string",
+            "enum": [
+                "user",
+                "api",
+                "system",
+                "external_agent",
+                "unknown"
+            ],
+            "x-enum-varnames": [
+                "TurnOriginUser",
+                "TurnOriginAPI",
+                "TurnOriginSystem",
+                "TurnOriginExternalAgent",
+                "TurnOriginUnknown"
+            ]
+        },
+        "types.TurnProvenance": {
+            "type": "object",
+            "properties": {
+                "api_key_id": {
+                    "type": "string"
+                },
+                "api_key_org_id": {
+                    "type": "string"
+                },
+                "api_key_owner": {
+                    "description": "API key fields, for origin=api. APIKeyID is the non-secret key_… id\n(see APIKeyID), never the secret.",
+                    "type": "string"
+                },
+                "api_key_project_id": {
+                    "type": "string"
+                },
+                "api_key_session_id": {
+                    "type": "string"
+                },
+                "api_key_spec_task_id": {
+                    "type": "string"
+                },
+                "api_key_task_confined": {
+                    "description": "APIKeyTaskConfined: the key reaches only APIKeySpecTaskID.",
+                    "type": "boolean"
+                },
+                "api_key_type": {
+                    "$ref": "#/definitions/types.APIKeyScope"
+                },
+                "org_bot_id": {
+                    "description": "OrgBotID is the org bot that caused an org_bot_* system turn.",
+                    "type": "string"
+                },
+                "origin": {
+                    "$ref": "#/definitions/types.TurnOrigin"
+                },
+                "system_kind": {
+                    "description": "SystemKind names the code path, for origin=system.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SystemTurnKind"
+                        }
+                    ]
+                },
+                "trigger_app_id": {
+                    "type": "string"
+                },
+                "trigger_id": {
+                    "description": "Trigger fields, for a trigger_configuration actor: the trigger's id\nwhen it has one, the app it is configured on, and its configuring user.",
+                    "type": "string"
+                },
+                "trigger_owner": {
+                    "type": "string"
+                },
+                "triggered_by": {
+                    "description": "TriggeredBy is the authenticated caller whose request made Helix write\nthis system turn (an operator clicking \"request changes\", say). Nil\nwhen the system turn came from a background event.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "UserID is the signed-in user for origin=user.",
+                    "type": "string"
+                }
+            }
         },
         "types.UnifiedSearchResponse": {
             "type": "object",

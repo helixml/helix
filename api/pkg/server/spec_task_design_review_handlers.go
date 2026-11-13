@@ -515,6 +515,11 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
+	reviewer, err := requestTurnProvenance(r.Context(), user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	// Detach from request context so DB mutations complete even if client disconnects
 	ctx, cancel := detachContext(r.Context(), 30*time.Second)
@@ -599,6 +604,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 
 			specTask.Status = types.TaskStatusSpecApproved
 			specTask.SpecApprovedBy = user.ID
+			specTask.QueuedBy = reviewer
 			specTask.SpecApprovedAt = &now
 			specTask.StatusUpdatedAt = &now
 			specTask.SpecApproval = &types.SpecApprovalResponse{
@@ -663,7 +669,8 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		// interrupt=true: reviewer-driven feedback should preempt any in-flight agent turn,
 		// matching the comment-queue semantic.
 		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
-		err = s.enqueueSpecTaskAgentMessage(ctx, specTask, message, true, user.ID)
+		err = s.enqueueSpecTaskAgentMessage(ctx, specTask, message, true, user.ID,
+			types.TriggeredBySystemTurn(types.SystemTurnRevisionRequested, reviewer))
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -744,10 +751,16 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 			return
 		}
 	}
+	commenter, err := requestTurnProvenance(r.Context(), user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	comment := &types.SpecTaskDesignReviewComment{
 		ReviewID:     reviewID,
 		CommentedBy:  user.ID,
+		Provenance:   commenter,
 		DocumentType: req.DocumentType,
 		SectionPath:  req.SectionPath,
 		LineNumber:   req.LineNumber,
@@ -1524,7 +1537,8 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	if specTask.PlanningSessionID == "" {
 		return fmt.Errorf("cannot send comment to agent: spec task %s has no planning session", specTask.ID)
 	}
-	promptID, err := s.persistQueuedPrompt(ctx, specTask.PlanningSessionID, promptText, true, comment.CommentedBy, specTask.ID)
+	promptID, err := s.persistQueuedPrompt(ctx, specTask.PlanningSessionID, promptText, true, comment.CommentedBy, specTask.ID,
+		types.TriggeredBySystemTurn(types.SystemTurnDesignReviewComment, comment.Provenance))
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -2014,10 +2028,10 @@ func (s *HelixAPIServer) backfillCommentLinkageForPrompt(ctx context.Context, pr
 // planning session. Delivery is async (the poller dispatches when idle, or
 // cancels-then-sends for interrupt=true) — this is the single sender path that
 // replaces the old immediate direct dispatch.
-func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error {
+func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string, provenance types.TurnProvenance) error {
 	if task.PlanningSessionID == "" {
 		return fmt.Errorf("cannot enqueue message: spec task %s has no planning session", task.ID)
 	}
-	_, err := s.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, notifyUserID, task.ID)
+	_, err := s.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, notifyUserID, task.ID, provenance)
 	return err
 }
