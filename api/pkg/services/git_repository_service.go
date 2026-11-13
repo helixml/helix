@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -970,8 +971,10 @@ func (s *GitRepositoryService) UpdateRepository(
 	if request.Description != "" {
 		existing.Description = request.Description
 	}
-	if request.DefaultBranch != "" {
-		existing.DefaultBranch = request.DefaultBranch
+	if request.DefaultBranch != "" && request.DefaultBranch != existing.DefaultBranch {
+		if err := s.setDefaultBranch(ctx, existing, request.DefaultBranch); err != nil {
+			return nil, err
+		}
 	}
 	if request.Metadata != nil {
 		// Merge metadata
@@ -1078,6 +1081,41 @@ func (s *GitRepositoryService) UpdateRepository(
 		Msg("updated git repository")
 
 	return existing, nil
+}
+
+// ErrDefaultBranchNotFound is returned when a requested default branch does not exist in the repository.
+var ErrDefaultBranchNotFound = errors.New("branch does not exist in repository")
+
+// setDefaultBranch validates that branch exists in the on-disk repository and
+// points the bare repo's HEAD at it, so clones served by Helix check it out.
+// Repositories not yet on disk (external, never cloned) can't be validated;
+// the branch is stored and HEAD is set when the mirror is created.
+func (s *GitRepositoryService) setDefaultBranch(ctx context.Context, repo *types.GitRepository, branch string) error {
+	repoPath := repo.LocalPath
+	if repoPath == "" {
+		repoPath = filepath.Join(s.gitRepoBase, repo.ID)
+	}
+	if _, err := os.Stat(repoPath); err == nil {
+		gitRepo, err := giteagit.OpenRepository(ctx, repoPath)
+		if err != nil {
+			return fmt.Errorf("failed to open git repository: %w", err)
+		}
+		branches, _, err := gitRepo.GetBranchNames(0, 0)
+		gitRepo.Close()
+		if err != nil {
+			return fmt.Errorf("failed to list branches: %w", err)
+		}
+		if !slices.Contains(branches, branch) {
+			return fmt.Errorf("%w: %q", ErrDefaultBranchNotFound, branch)
+		}
+		if err := SetHEAD(ctx, repoPath, branch); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to stat repository path: %w", err)
+	}
+	repo.DefaultBranch = branch
+	return nil
 }
 
 // DeleteRepository deletes a repository from the filesystem, database, and Kodit.
@@ -1552,10 +1590,20 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 	}
 	defer repo.Close()
 
-	// Detect default branch from HEAD if not already set
+	// List all branches using gitea/git
+	branches, _, err := repo.GetBranchNames(0, 0)
+	if err == nil {
+		gitRepo.Branches = branches
+	}
+
+	// Detect default branch from HEAD if not already set. For external repos,
+	// also re-detect when the stored branch doesn't exist (e.g. an assumed
+	// 'main' when upstream uses 'master'). A user-chosen branch that exists
+	// must never be overwritten.
 	// This preserves the upstream's default branch name (e.g., 'master', 'main', 'develop')
 	defaultBranchChanged := false
-	if gitRepo.DefaultBranch == "" || gitRepo.IsExternal {
+	if gitRepo.DefaultBranch == "" ||
+		(gitRepo.IsExternal && err == nil && !slices.Contains(branches, gitRepo.DefaultBranch)) {
 		detectedBranch, err := giteagit.GetDefaultBranch(ctx, repoPath)
 		if err == nil && detectedBranch != "" {
 			if gitRepo.DefaultBranch != detectedBranch {
@@ -1570,12 +1618,6 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 		} else if err != nil {
 			log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Could not detect default branch from HEAD")
 		}
-	}
-
-	// List all branches using gitea/git
-	branches, _, err := repo.GetBranchNames(0, 0)
-	if err == nil {
-		gitRepo.Branches = branches
 	}
 
 	gitRepo.LastActivity = time.Now()
