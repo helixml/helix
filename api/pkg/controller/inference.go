@@ -172,7 +172,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	}
 
 	if !hasEnoughBalance {
-		return nil, nil, errors.New(types.ErrorInsufficientBalance)
+		return nil, nil, ErrInsufficientBalance
 	}
 
 	// Evaluate and add OAuth tokens
@@ -372,7 +372,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	}
 
 	if !hasEnoughBalance {
-		return nil, nil, errors.New(types.ErrorInsufficientBalance)
+		return nil, nil, ErrInsufficientBalance
 	}
 
 	// Evaluate and add OAuth tokens
@@ -533,7 +533,7 @@ func (c *Controller) preflightHelixAgentModels(ctx context.Context, user *types.
 	}
 
 	if !hasEnoughBalance {
-		return errors.New(types.ErrorInsufficientBalance)
+		return ErrInsufficientBalance
 	}
 
 	return nil
@@ -592,6 +592,22 @@ func (c *Controller) getClient(ctx context.Context, organizationID, userID, prov
 	}
 
 	return client, nil
+}
+
+// ErrInsufficientBalance refuses an inference request because the paying
+// wallet cannot cover it.
+var ErrInsufficientBalance = errors.New(types.ErrorInsufficientBalance)
+
+// InferenceQuotaExceededError refuses an inference request because the
+// user's plan has used its monthly token allowance.
+type InferenceQuotaExceededError struct {
+	Tier  string
+	Used  int
+	Limit int
+}
+
+func (e *InferenceQuotaExceededError) Error() string {
+	return fmt.Sprintf("monthly token limit exceeded for %s tier (%d/%d tokens used). Please upgrade your plan or wait until next month to continue", e.Tier, e.Used, e.Limit)
 }
 
 // ErrModelNotConfigured marks a request that named no provider for a model the

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -123,31 +124,45 @@ func TestCreateChatCompletion_ValidatesBodyBeforeModelResolution(t *testing.T) {
 // the requested model, never the default provider or the default model.
 func TestWriteChatCompletionError(t *testing.T) {
 	notConfigured := fmt.Errorf("failed to get client: %w", &controller.ModelNotConfiguredError{Model: "llama3:instruct", Provider: "helix"})
+	answer := func(err error, scope chatCompletionErrorScope) (int, chatCompletionErrorBody) {
+		rr := httptest.NewRecorder()
+		writeChatCompletionError(rr, err, scope)
+		require.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+		var resp chatCompletionErrorResponse
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+		return rr.Code, resp.Error
+	}
 
-	rr := httptest.NewRecorder()
-	writeChatCompletionError(rr, notConfigured, "", "")
-	require.Equal(t, http.StatusBadRequest, rr.Code)
-	require.NotContains(t, rr.Body.String(), "llama3")
-	require.NotContains(t, rr.Body.String(), "helix")
+	status, body := answer(notConfigured, chatCompletionErrorScope{})
+	require.Equal(t, http.StatusBadRequest, status)
+	require.NotContains(t, body.Message, "llama3")
+	require.NotContains(t, body.Message, "helix")
 
-	rr = httptest.NewRecorder()
-	writeChatCompletionError(rr, notConfigured, "my-model", "")
-	require.Equal(t, http.StatusBadRequest, rr.Code)
-	require.Contains(t, rr.Body.String(), `model "my-model" is not available`)
-	require.NotContains(t, rr.Body.String(), "default provider")
+	status, body = answer(notConfigured, chatCompletionErrorScope{requestedModel: "my-model"})
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Contains(t, body.Message, `model "my-model" is not available`)
+	require.NotContains(t, body.Message, "default provider")
 
-	rr = httptest.NewRecorder()
-	writeChatCompletionError(rr, errors.New("upstream exploded"), "my-model", "")
-	require.Equal(t, http.StatusInternalServerError, rr.Code)
+	status, body = answer(errors.New("upstream exploded"), chatCompletionErrorScope{requestedModel: "my-model"})
+	require.Equal(t, http.StatusInternalServerError, status)
+	require.Equal(t, errorTypeServer, body.Type)
+	require.NotContains(t, body.Message, "exploded")
 
 	// A caller that named an agent is not told to supply an app_id: it is the
 	// agent's configured model that is unavailable.
-	rr = httptest.NewRecorder()
-	writeChatCompletionError(rr, notConfigured, "", "app_1")
-	require.Equal(t, http.StatusBadRequest, rr.Code)
-	require.Contains(t, rr.Body.String(), "agent's configured model is not available")
-	require.NotContains(t, rr.Body.String(), "supply an app_id")
-	require.NotContains(t, rr.Body.String(), "llama3")
+	status, body = answer(notConfigured, chatCompletionErrorScope{appID: "app_1"})
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Contains(t, body.Message, "agent's configured model is not available")
+	require.NotContains(t, body.Message, "supply an app_id")
+	require.NotContains(t, body.Message, "llama3")
+
+	status, body = answer(fmt.Errorf("failed to check balance: %w", controller.ErrInsufficientBalance), chatCompletionErrorScope{})
+	require.Equal(t, http.StatusPaymentRequired, status)
+	require.Contains(t, body.Message, "insufficient balance")
+
+	status, body = answer(&controller.InferenceQuotaExceededError{Tier: "free", Used: 11, Limit: 10}, chatCompletionErrorScope{})
+	require.Equal(t, http.StatusPaymentRequired, status)
+	require.Contains(t, body.Message, "monthly token limit exceeded for free tier")
 }
 
 func TestIsModelResolutionError(t *testing.T) {

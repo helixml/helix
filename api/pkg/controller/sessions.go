@@ -260,7 +260,7 @@ func (c *Controller) checkInferenceTokenQuota(ctx context.Context, userID string
 			if pro {
 				tierName = "pro"
 			}
-			return fmt.Errorf("monthly token limit exceeded for %s tier (%d/%d tokens used). Please upgrade your plan or wait until next month to continue", tierName, monthlyTokens, limit)
+			return &InferenceQuotaExceededError{Tier: tierName, Used: monthlyTokens, Limit: limit}
 		}
 		// Log warning for soft limits
 		log.Warn().

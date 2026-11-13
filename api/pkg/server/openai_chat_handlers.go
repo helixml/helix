@@ -338,12 +338,18 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	ctx = oai.SetContextAppID(ctx, options.AppID)
 	ctx = oai.SetContextOrganizationID(ctx, options.OrganizationID)
 
+	errScope := chatCompletionErrorScope{
+		requestedModel: requestedModel,
+		appID:          options.AppID,
+		provider:       options.Provider,
+		model:          chatCompletionRequest.Model,
+	}
+
 	// Non-streaming request returns the response immediately
 	if !chatCompletionRequest.Stream {
 		resp, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 		if err != nil {
-			log.Error().Err(err).Msg("error creating chat completion")
-			writeChatCompletionError(rw, err, requestedModel, options.AppID)
+			writeChatCompletionError(rw, err, errScope)
 			return
 		}
 
@@ -377,17 +383,14 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	// Streaming request, receive and write the stream in chunks
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
-		log.Error().Err(err).Msg("error creating chat completion stream")
-		writeChatCompletionError(rw, err, requestedModel, options.AppID)
+		writeChatCompletionError(rw, err, errScope)
 		return
 	}
 	defer stream.Close()
 
-	rw.Header().Set("Content-Type", "text/event-stream")
-	rw.Header().Set("Cache-Control", "no-cache")
-	rw.Header().Set("Connection", "keep-alive")
-
-	// Write the stream into the response
+	// The SSE headers go out with the first chunk, so a stream that fails
+	// before producing one is still answered with a status and a JSON error.
+	streaming := false
 	for {
 		response, err := stream.Recv()
 		response.ID = responseID
@@ -395,17 +398,26 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			break
 		}
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			if streaming {
+				writeChatCompletionStreamError(rw, err, errScope)
+			} else {
+				writeChatCompletionError(rw, &oai.ProviderError{Err: err}, errScope)
+			}
 			return
 		}
 
-		// Write the response to the client
 		bts, err := json.Marshal(response)
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			log.Error().Err(err).Msg("failed to encode completion chunk")
 			return
 		}
 
+		if !streaming {
+			rw.Header().Set("Content-Type", "text/event-stream")
+			rw.Header().Set("Cache-Control", "no-cache")
+			rw.Header().Set("Connection", "keep-alive")
+			streaming = true
+		}
 		if err := writeChunk(rw, bts); err != nil {
 			log.Error().Msgf("failed to write completion chunk: %v", err)
 		}
@@ -613,23 +625,4 @@ func validateChatCompletionMessages(messages []openai.ChatCompletionMessage) err
 		}
 	}
 	return nil
-}
-
-// writeChatCompletionError answers a failed chat completion. A model that
-// cannot be routed is the caller's to fix and gets a 400 that names only the
-// requested model (never the default provider or default model); other
-// failures keep the 500 they had.
-func writeChatCompletionError(rw http.ResponseWriter, err error, requestedModel, appID string) {
-	if !isModelResolutionError(err) {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	switch {
-	case requestedModel != "":
-		http.Error(rw, fmt.Sprintf("model %q is not available; prefix the model with its provider (e.g. \"openai/%s\") or supply an app_id", requestedModel, requestedModel), http.StatusBadRequest)
-	case appID != "":
-		http.Error(rw, "the agent's configured model is not available; check the model and provider configured for this agent, or set model", http.StatusBadRequest)
-	default:
-		http.Error(rw, "no model was specified and no default model is available; set model or supply an app_id", http.StatusBadRequest)
-	}
 }
