@@ -4,11 +4,13 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -303,8 +305,11 @@ func TestScopedKoditMCPHandler_RefusesEmptyScope(t *testing.T) {
 }
 
 // A session whose scope resolves to no repositories gets 403, not an
-// unscoped handler: a project with Kodit off, and a user with nothing indexed.
-func TestKoditMCPBackend_EmptyScopeIsForbidden(t *testing.T) {
+
+// A session whose scope resolves to no repositories is served an MCP server
+// with no tools, so clients that require every configured server to start keep
+// working; Kodit is never reached (the backend has no client here).
+func TestKoditMCPBackend_EmptyScopeServesNoTools(t *testing.T) {
 	cases := []struct {
 		name    string
 		session *types.Session
@@ -345,63 +350,97 @@ func TestKoditMCPBackend_EmptyScopeIsForbidden(t *testing.T) {
 			backend.SetSessionAuthorizer(func(context.Context, *types.User, *types.Session, types.Action) error { return nil })
 			backend.SetRepositoryAuthorizer(allowRepos("repo_unindexed"))
 
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/kodit?session_id="+tc.session.ID, nil)
-			rec := httptest.NewRecorder()
-			backend.ServeHTTP(rec, req, tc.user)
-			assert.Equal(t, http.StatusForbidden, rec.Code)
+			rec := mcpPost(backend, tc.session.ID, tc.user, koditMCPInitializeBody)
+			assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			assert.Empty(t, mcpToolNames(t, backend, tc.session.ID, tc.user))
 		})
 	}
 }
 
-// mcpInitialize posts an MCP initialize request for sessionID as user.
-func mcpInitialize(backend *KoditMCPBackend, sessionID string, user *types.User) *httptest.ResponseRecorder {
-	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`
+const (
+	koditMCPInitializeBody = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`
+	koditMCPToolsListBody  = `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`
+	koditMCPTestSessionID  = "mcp-session-00000000-0000-0000-0000-000000000001"
+)
+
+// mcpPost posts an MCP JSON-RPC body for sessionID as user.
+func mcpPost(backend *KoditMCPBackend, sessionID string, user *types.User, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/kodit?session_id="+sessionID, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Mcp-Session-Id", koditMCPTestSessionID)
 	rec := httptest.NewRecorder()
 	backend.ServeHTTP(rec, req, user)
 	return rec
 }
 
-// The scope is resolved for each request and each caller: a second caller of
-// the same session gets its own scope, and a change to the project (Kodit
-// turned off) or to the caller's access applies to the next request.
-func TestKoditMCPBackend_ScopeResolvedPerRequest(t *testing.T) {
+// mcpToolNames lists the tools the backend offers user in sessionID.
+func mcpToolNames(t *testing.T, backend *KoditMCPBackend, sessionID string, user *types.User) []string {
+	t.Helper()
+	rec := mcpPost(backend, sessionID, user, koditMCPToolsListBody)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var resp struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp), rec.Body.String())
+	names := make([]string, 0, len(resp.Result.Tools))
+	for _, tool := range resp.Result.Tools {
+		names = append(names, tool.Name)
+	}
+	return names
+}
+
+// The scope is resolved per caller and reused only briefly: repeated requests
+// by one caller resolve it once, a second caller of the same session gets its
+// own scope, and turning Kodit off on the project applies once the cached
+// resolution is koditScopeTTL old, however often the client polls.
+func TestKoditMCPBackend_ScopeCachedPerCallerWithAbsoluteTTL(t *testing.T) {
 	st := store.NewMockStore(gomock.NewController(t))
-	session := &types.Session{ID: "ses_p", Owner: "usr_owner", OrganizationID: "org_1", ProjectID: "prj_1"}
+	session := &types.Session{ID: "ses_p", Owner: "usr_owner", ProjectID: "prj_1"}
 	project := &types.Project{ID: "prj_1", KoditEnabled: true}
+	resolutions := 0
 	st.EXPECT().GetSession(gomock.Any(), "ses_p").Return(session, nil).AnyTimes()
 	st.EXPECT().GetProject(gomock.Any(), "prj_1").DoAndReturn(func(context.Context, string) (*types.Project, error) {
+		resolutions++
 		p := *project
 		return &p, nil
 	}).AnyTimes()
 	st.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{ProjectID: "prj_1"}).
 		Return([]*types.GitRepository{indexedRepo("repo_1", 10)}, nil).AnyTimes()
 
-	// The owner may read repo_1; the org owner reading the same session has
-	// no access to it.
+	clock := time.Unix(1_000_000, 0)
 	backend := NewKoditMCPBackend(&kodit.Client{}, true, st)
+	backend.now = func() time.Time { return clock }
 	backend.SetSessionAuthorizer(func(context.Context, *types.User, *types.Session, types.Action) error { return nil })
+	// The owner may read repo_1; the org owner reading the same session may not.
 	backend.SetRepositoryAuthorizer(func(_ context.Context, user *types.User, _ *types.GitRepository, _ types.Action) error {
 		if user.ID == "usr_owner" {
 			return nil
 		}
 		return errors.New("no access")
 	})
-
 	owner := &types.User{ID: "usr_owner"}
 	other := &types.User{ID: "usr_org_owner"}
 
-	rec := mcpInitialize(backend, "ses_p", owner)
-	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, http.StatusOK, mcpPost(backend, "ses_p", owner, koditMCPInitializeBody).Code)
+	assert.NotEmpty(t, mcpToolNames(t, backend, "ses_p", owner))
+	assert.NotEmpty(t, mcpToolNames(t, backend, "ses_p", owner))
+	assert.Equal(t, 1, resolutions, "a burst of requests by one caller resolves the scope once")
 
-	rec = mcpInitialize(backend, "ses_p", other)
-	assert.Equal(t, http.StatusForbidden, rec.Code, "a second caller must not reuse the first caller's scope")
+	assert.Empty(t, mcpToolNames(t, backend, "ses_p", other), "a second caller must not reuse the first caller's scope")
+	assert.Equal(t, 2, resolutions)
 
 	project.KoditEnabled = false
-	rec = mcpInitialize(backend, "ses_p", owner)
-	assert.Equal(t, http.StatusForbidden, rec.Code, "turning Kodit off must apply to the next request")
+	for i := 0; i < 4; i++ {
+		clock = clock.Add(koditScopeTTL / 4)
+		mcpToolNames(t, backend, "ses_p", owner)
+	}
+	assert.Empty(t, mcpToolNames(t, backend, "ses_p", owner), "polling must not keep a scope alive past its TTL")
+	assert.Equal(t, 3, resolutions)
 }
 
 // With the server's repository authorizer, a key minted for a project keeps
@@ -445,4 +484,27 @@ func TestResolveKoditRepoScope_ProjectKeyConfinedByRESTAuthorization(t *testing.
 			assert.ElementsMatch(t, tc.want, scope.idSlice)
 		})
 	}
+}
+
+// Task prompts list the Kodit repositories an agent can reach, resolved for
+// the agent's project-scoped key: the organization's other repositories are
+// neither listed nor named.
+func TestKoditAgentRepos_ResolvedForTheProjectKey(t *testing.T) {
+	st := store.NewMockStore(gomock.NewController(t))
+	attached := indexedRepo("repo_attached", 10)
+	attached.OrganizationID, attached.OwnerID = "org_1", "usr_a"
+	project := &types.Project{ID: "prj_1", OrganizationID: "org_1", KoditEnabled: true}
+	st.EXPECT().GetProject(gomock.Any(), "prj_1").Return(project, nil)
+	st.EXPECT().ListGitRepositories(gomock.Any(), &types.ListGitRepositoriesRequest{ProjectID: "prj_1"}).
+		Return([]*types.GitRepository{attached}, nil)
+	st.EXPECT().ListProjectRepositories(gomock.Any(), gomock.Any()).
+		Return([]*types.ProjectRepository{{ProjectID: "prj_1", RepositoryID: "repo_attached"}}, nil)
+	st.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(&types.OrganizationMembership{OrganizationID: "org_1", UserID: "usr_a", Role: types.OrganizationRoleMember}, nil)
+
+	srv := &HelixAPIServer{Store: st}
+	repos, err := srv.koditAgentRepos(context.Background(), project, "usr_a")
+	require.NoError(t, err)
+	require.Len(t, repos, 1)
+	assert.Equal(t, "repo_attached", repos[0].ID)
 }
