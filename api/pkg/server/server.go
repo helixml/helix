@@ -185,7 +185,10 @@ type HelixAPIServer struct {
 	oauthManager              *oauth.Manager
 	sessionManager            *auth.SessionManager
 	// passwordResetSends tracks reset emails being sent after their response.
-	passwordResetSends       sync.WaitGroup
+	passwordResetSends sync.WaitGroup
+	// loginThrottle refuses password sign-ins after repeated failures. Nil
+	// disables it.
+	loginThrottle            *loginThrottle
 	fileServerHandler        http.Handler
 	cache                    *ristretto.Cache[string, string]
 	avatarsBucket            *blob.Bucket
@@ -507,6 +510,7 @@ func NewServer(
 		// Durable request audit trail (incident forensics). Nil when disabled.
 		requestAudit:           requestAuditRecorder,
 		requestAuditMiddleware: newRequestAuditMiddleware(requestAuditRecorder, requestAuditOpts),
+		loginThrottle:          newLoginThrottle(),
 
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,

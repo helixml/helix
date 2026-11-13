@@ -766,6 +766,20 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		// the login form cannot be used to find out which addresses have an
 		// account.
 		const invalidCredentials = "Invalid email or password"
+		// Repeated failures for an account or from one client are refused
+		// before any lookup, the same way for known and unknown addresses.
+		clientIP := s.loginClientIP(r)
+		if s.loginThrottle != nil {
+			if wait := s.loginThrottle.retryAfter(loginRequest.Email, clientIP); wait > 0 {
+				writeLoginThrottled(w, wait)
+				return
+			}
+		}
+		recordFailure := func() {
+			if s.loginThrottle != nil {
+				s.loginThrottle.recordFailure(loginRequest.Email, clientIP)
+			}
+		}
 		user, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{
 			Email: loginRequest.Email,
 		})
@@ -779,6 +793,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			// time does not say whether the address has an account.
 			_ = s.authenticator.ValidatePassword(r.Context(), authpkg.PasswordTimingDecoy(), loginRequest.Password)
 			log.Debug().Msg("login attempt for an unknown email")
+			recordFailure()
 			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
 		}
@@ -786,8 +801,12 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		err = s.authenticator.ValidatePassword(r.Context(), user, loginRequest.Password)
 		if err != nil {
 			log.Debug().Err(err).Str("user_id", user.ID).Msg("Failed to validate password")
+			recordFailure()
 			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
+		}
+		if s.loginThrottle != nil {
+			s.loginThrottle.recordSuccess(loginRequest.Email)
 		}
 
 		// Create a BFF session for this user
