@@ -29,7 +29,14 @@ func canUseSessionAgentCredential(user *types.User, session *types.Session, owne
 	if user.TokenType == types.TokenTypeAPIKey && user.SessionID != "" {
 		return user.SessionID == session.ID
 	}
-	return session.Owner == user.ID && ownerType == types.OwnerTypeUser && ownerID == user.ID
+	return ownsSessionInKeyScope(user, session) && ownerType == types.OwnerTypeUser && ownerID == user.ID
+}
+
+// ownsSessionInKeyScope reports whether the caller owns session and holds a
+// credential whose project and organization scope reach it: a key scoped to
+// another project or organization does not carry its owner's ownership.
+func ownsSessionInKeyScope(user *types.User, session *types.Session) bool {
+	return callerOwns(user, session.Owner, session.OrganizationID) && enforceKeySessionScope(user, session) == nil
 }
 
 // authorizeSessionSandboxConfig gates the endpoints that hand a session's

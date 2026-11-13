@@ -593,7 +593,7 @@ func (s *HelixAPIServer) getAppForEvaluation(ctx context.Context, user *types.Us
 	}
 
 	// Check user can access the app
-	if app.Owner != user.ID && !user.Admin {
+	if !callerOwns(user, app.Owner, app.OrganizationID) && !user.Admin {
 		if app.OrganizationID != "" {
 			_, err := s.authorizeOrgMember(ctx, user, app.OrganizationID)
 			if err != nil {

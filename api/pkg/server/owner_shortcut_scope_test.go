@@ -253,7 +253,8 @@ func TestAuthorizeUserToSession_SessionKeyConfinedToItsSession(t *testing.T) {
 func TestApproveImplementation_AgentKeyCannotApprove(t *testing.T) {
 	srv, st := newScopedKeyTestServer(t)
 	st.EXPECT().GetSpecTask(gomock.Any(), "spt_a").Return(&types.SpecTask{ID: "spt_a", ProjectID: "prj_a", Status: types.TaskStatusImplementationReview}, nil)
-	st.EXPECT().GetProject(gomock.Any(), "prj_a").Return(&types.Project{ID: "prj_a", UserID: "usr_owner"}, nil)
+	st.EXPECT().GetProject(gomock.Any(), "prj_a").Return(&types.Project{ID: "prj_a", OrganizationID: "org_a", UserID: "usr_owner"}, nil)
+	st.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{OrganizationID: "org_a", UserID: "usr_owner", Role: types.OrganizationRoleOwner}, nil).AnyTimes()
 
 	rec := httptest.NewRecorder()
 	srv.approveImplementation(rec, requestAs(http.MethodPost, "/api/v1/spec-tasks/spt_a/approve-implementation", "", ownerProjectKey(), map[string]string{"spec_task_id": "spt_a"}))
