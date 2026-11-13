@@ -43,13 +43,12 @@ func (suite *QuerySuite) SetupTest() {
 
 	var apiClient openai.Client
 
-	if cfg.Providers.TogetherAI.APIKey != "" {
+	if cfg.Providers.OpenAI.APIKey != "" {
 		apiClient = openai.New(
-			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL,
+			cfg.Providers.OpenAI.APIKey,
+			cfg.Providers.OpenAI.BaseURL,
 			cfg.Stripe.BillingEnabled,
 		)
-		cfg.Tools.Model = "openai/gpt-oss-20b"
 	} else {
 		apiClient = openai.NewMockClient(suite.ctrl)
 	}
@@ -60,7 +59,7 @@ func (suite *QuerySuite) SetupTest() {
 		getRAGClient: func(_ context.Context, _ *types.Knowledge) (rag.RAG, error) {
 			return suite.rag, nil
 		},
-		model: model,
+		model: cfg.Tools.Model,
 	})
 }
 

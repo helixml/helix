@@ -225,8 +225,8 @@ paths:
 				{
 					ID:       "test-assistant",
 					Name:     "Test Assistant",
-					Provider: "togetherai",
-					Model:    "openai/gpt-oss-120b",
+					Provider: cfg.Inference.Provider,
+					Model:    cfg.Tools.Model,
 					APIs:     []types.AssistantAPI{githubTool},
 				},
 			},
@@ -339,7 +339,7 @@ paths:
 
 		// Create a simple chat completion request without any OpenAI tool specifications
 		chatCompletionRequest := oai.ChatCompletionRequest{
-			Model:  "openai/gpt-oss-120b",
+			Model:  cfg.Tools.Model,
 			Stream: true,
 			Messages: []oai.ChatCompletionMessage{
 				{
@@ -360,7 +360,7 @@ paths:
 		// Setup chat completion options with app ID
 		opts := &controller.ChatCompletionOptions{
 			AppID:       createdApp.ID, // This is critical - setting the app ID explicitly
-			Provider:    "togetherai",
+			Provider:    cfg.Inference.Provider,
 			OAuthTokens: map[string]string{}, // Will be populated internally by evalAndAddOAuthTokens
 		}
 
