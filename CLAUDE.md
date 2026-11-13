@@ -796,11 +796,13 @@ cd api && go test -v -run TestWebSocketSyncSuite ./pkg/server/ -count=1
 ```
 
 ### CI (Drone)
-The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build pipeline:
-1. Clones Zed at commit pinned in `sandbox-versions.txt` (`ZED_COMMIT=...`)
-2. Builds Zed binary (cached by commit hash)
+The `zed-e2e-amd64` pipeline in `.drone.yml` runs on every push and tag:
+1. Clones Zed at the commit pinned in `sandbox-versions.txt` (`ZED_COMMIT=...`)
+2. Builds the Zed binary, cached per commit on the runner (`scripts/build-zed-binary.sh`)
 3. Multi-stage Docker build: Go test server (with current helix source) + runtime
-4. Runs 9-phase E2E test for both `zed-agent` and `claude` with `ANTHROPIC_API_KEY` from Drone secrets
+4. Runs the deterministic lanes (headless smoke, plan lifecycle, 17-phase protocol lifecycle). The live `claude-agent-acp@latest` lane, which makes real Anthropic calls, runs on tags only.
+
+On main and tags, `build-sandbox-amd64` waits for it, so desktop and sandbox images are only published after the e2e passes.
 
 **Updating pinned Zed version**: After pushing Zed changes, update `sandbox-versions.txt` with the new commit hash. The Go test server's `go.mod` has a `replace` directive for local dev; CI overrides it to point to `/drone/src`.
 
