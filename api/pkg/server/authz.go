@@ -367,6 +367,10 @@ func writeRepositoryAuthzError(w http.ResponseWriter, err error) {
 	}
 }
 
+// RepositoryAuthorizer decides whether user may perform action on repository;
+// authorizeUserToRepository is the implementation handed to MCP backends.
+type RepositoryAuthorizer func(ctx context.Context, user *types.User, repository *types.GitRepository, action types.Action) error
+
 func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, user *types.User, repository *types.GitRepository, action types.Action) error {
 	// Scope check first: the owner and org-owner shortcuts below would
 	// otherwise let a project-scoped key reach any repository its owner can.

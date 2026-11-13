@@ -647,8 +647,9 @@ func NewServer(
 	apiServer.mcpGateway = NewMCPGateway()
 
 	// Register Kodit MCP backend (code intelligence)
-	kr.mcpBackend.SetSessionAuthorizer(apiServer.authorizeUserToSession) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
-	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend)         //nolint:staticcheck // mcpBackend is package-private but accessible within this package
+	kr.mcpBackend.SetSessionAuthorizer(apiServer.authorizeUserToSession)       //nolint:staticcheck // mcpBackend is package-private but accessible within this package
+	kr.mcpBackend.SetRepositoryAuthorizer(apiServer.authorizeUserToRepository) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
+	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend)               //nolint:staticcheck // mcpBackend is package-private but accessible within this package
 
 	// Register Helix native MCP backend (APIs, Knowledge, Zapier).
 	// authorizeUserToApp enforces the same RBAC as the REST handlers so a scoped
