@@ -349,6 +349,30 @@ func (s *AuditLogService) LogProjectGuidelinesUpdated(ctx context.Context, proje
 	})
 }
 
+// LogAPIKeyCreated logs the minting of a project API key
+func (s *AuditLogService) LogAPIKeyCreated(ctx context.Context, project *types.Project, key *types.APIKeySummary, userID, userEmail string) {
+	s.logAPIKeyEvent(ctx, types.AuditEventAPIKeyCreated, project, key, userID, userEmail)
+}
+
+// LogAPIKeyRevoked logs the revocation of a project API key
+func (s *AuditLogService) LogAPIKeyRevoked(ctx context.Context, project *types.Project, key *types.APIKeySummary, userID, userEmail string) {
+	s.logAPIKeyEvent(ctx, types.AuditEventAPIKeyRevoked, project, key, userID, userEmail)
+}
+
+func (s *AuditLogService) logAPIKeyEvent(ctx context.Context, event types.AuditEventType, project *types.Project, key *types.APIKeySummary, userID, userEmail string) {
+	s.LogEvent(ctx, &types.ProjectAuditLog{
+		ProjectID: project.ID,
+		UserID:    userID,
+		UserEmail: userEmail,
+		EventType: event,
+		Metadata: types.AuditMetadata{
+			ProjectName: project.Name,
+			APIKeyID:    key.ID,
+			APIKeyName:  key.Name,
+		},
+	})
+}
+
 // joinStrings joins strings with comma separator
 func joinStrings(strs []string) string {
 	if len(strs) == 0 {

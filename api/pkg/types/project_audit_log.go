@@ -41,6 +41,10 @@ const (
 	// AuditEventIdentityAttestationMinted and AuditEventIdentityAttestationVerified record identity attestations.
 	AuditEventIdentityAttestationMinted   AuditEventType = "identity_attestation_minted"   // A session key obtained an identity attestation
 	AuditEventIdentityAttestationVerified AuditEventType = "identity_attestation_verified" // A verifier redeemed an identity attestation
+
+	// Credential events
+	AuditEventAPIKeyCreated AuditEventType = "api_key_created" // A project API key was minted
+	AuditEventAPIKeyRevoked AuditEventType = "api_key_revoked" // A project API key was revoked
 )
 
 // AuditMetadata contains additional context for audit log entries
@@ -83,6 +87,10 @@ type AuditMetadata struct {
 	AttestationJTI      string `json:"attestation_jti,omitempty"`
 	AttestationAudience string `json:"attestation_audience,omitempty"`
 	SandboxID           string `json:"sandbox_id,omitempty"`
+
+	// API key events: the key's non-secret id and name, never the secret
+	APIKeyID   string `json:"api_key_id,omitempty"`
+	APIKeyName string `json:"api_key_name,omitempty"`
 }
 
 // ProjectAuditLog represents an audit trail entry for a project

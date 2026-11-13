@@ -29,6 +29,11 @@ func canUseSessionAgentCredential(user *types.User, session *types.Session, owne
 	if user.TokenType == types.TokenTypeAPIKey && user.SessionID != "" {
 		return user.SessionID == session.ID
 	}
+	// A project key is not the session's sandbox: it never handles the
+	// session's subscription tokens.
+	if user.TokenType == types.TokenTypeAPIKey && user.ProjectID != "" {
+		return false
+	}
 	return ownsSessionInKeyScope(user, session) && ownerType == types.OwnerTypeUser && ownerID == user.ID
 }
 

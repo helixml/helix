@@ -2936,14 +2936,14 @@
                 }
             },
             "post": {
-                "description": "Create a new API key",
+                "description": "Create a new API key. With project_id (and type \"api\"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization. Unknown body fields are refused. The legacy name query parameter mints a personal key and cannot be combined with a body.",
                 "tags": [
                     "api-keys"
                 ],
                 "summary": "Create a new API key",
                 "parameters": [
                     {
-                        "description": "Request body with name and type",
+                        "description": "Request body with name, type, and app_id (app keys) or project_id (project keys)",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -14386,6 +14386,102 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.CreateAccessGrantResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/api_keys": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the caller's own API keys scoped to the project. Key secrets are never returned; each key has a non-secret id and key_prefix. Requires a browser session, a personal API key, or an API key of the project's organization.",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "List project API keys",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.APIKeySummary"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/api_keys/{key_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke one of the caller's own API keys scoped to the project. The key stops authenticating immediately. To rotate a key, create a new one and revoke the old one.",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Revoke a project API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ID of the API key (the id field from the list)",
+                        "name": "key_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIKeySummary"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -31063,6 +31159,42 @@
                 }
             }
         },
+        "types.APIKeySummary": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is a stable, non-secret handle for the key, derived from a hash of\nthe secret. Use it to delete a key you did not create.",
+                    "type": "string"
+                },
+                "key_prefix": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.APIKeyType"
+                }
+            }
+        },
         "types.APIKeyType": {
             "type": "string",
             "enum": [
@@ -32430,9 +32562,13 @@
                 "project_settings_updated",
                 "project_guidelines_updated",
                 "identity_attestation_minted",
-                "identity_attestation_verified"
+                "identity_attestation_verified",
+                "api_key_created",
+                "api_key_revoked"
             ],
             "x-enum-comments": {
+                "AuditEventAPIKeyCreated": "A project API key was minted",
+                "AuditEventAPIKeyRevoked": "A project API key was revoked",
                 "AuditEventAgentPrompt": "Prompt sent from Helix UI to agent",
                 "AuditEventAgentStarted": "Agent session started",
                 "AuditEventGitPush": "Git push detected",
@@ -32473,12 +32609,21 @@
                 "AuditEventProjectSettingsUpdated",
                 "AuditEventProjectGuidelinesUpdated",
                 "AuditEventIdentityAttestationMinted",
-                "AuditEventIdentityAttestationVerified"
+                "AuditEventIdentityAttestationVerified",
+                "AuditEventAPIKeyCreated",
+                "AuditEventAPIKeyRevoked"
             ]
         },
         "types.AuditMetadata": {
             "type": "object",
             "properties": {
+                "api_key_id": {
+                    "description": "API key events: the key's non-secret id and name, never the secret",
+                    "type": "string"
+                },
+                "api_key_name": {
+                    "type": "string"
+                },
                 "attestation_audience": {
                     "type": "string"
                 },
