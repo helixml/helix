@@ -52,7 +52,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
   postgres:
-    image: postgres:12.22-alpine
+    image: ${HELIX_POSTGRES_IMAGE:-postgres:17-alpine}
     restart: always
     ports:
       - 5432:5432

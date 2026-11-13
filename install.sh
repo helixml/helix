@@ -861,16 +861,104 @@ helix_compose_args() {
     fi
 }
 
-# warn_postgres_eol: the controlplane compose file defaults to PostgreSQL 12
-# so existing data volumes keep starting. 12 is end-of-life; moving to a
-# supported major is an opt-in dump/restore (docs/postgres-upgrade.md).
-warn_postgres_eol() {
-    local image=""
-    if [ -f "$INSTALL_DIR/.env" ]; then
-        image=$(grep -E '^[[:space:]]*HELIX_POSTGRES_IMAGE[[:space:]]*=' "$INSTALL_DIR/.env" 2>/dev/null \
-            | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+# BEGIN postgres-pin (scripts/test-install-postgres-pin.sh loads this block)
+#
+# docker-compose.yaml defaults new installs to PostgreSQL 17. A data directory
+# created by an older major will not start under 17: PostgreSQL refuses it
+# ("database files are incompatible with server") and leaves it untouched.
+# Installs that already hold older data therefore keep their major, pinned as
+# HELIX_POSTGRES_IMAGE in .env, until the operator upgrades it with the
+# dump/restore in docs/postgres-upgrade.md.
+HELIX_POSTGRES_DEFAULT_MAJOR=17
+HELIX_POSTGRES_LEGACY_IMAGE=postgres:12.22-alpine
+
+# env_file_value FILE KEY: the last uncommented value of KEY in FILE.
+env_file_value() {
+    [ -f "$1" ] || return 0
+    grep -E "^[[:space:]]*$2[[:space:]]*=" "$1" 2>/dev/null \
+        | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true
+}
+
+# compose_project_name: the project name docker compose derives for
+# $INSTALL_DIR, which prefixes its named volumes.
+compose_project_name() {
+    local name="${COMPOSE_PROJECT_NAME:-$(env_file_value "$INSTALL_DIR/.env" COMPOSE_PROJECT_NAME)}"
+    name="${name:-$(basename "$INSTALL_DIR")}"
+    echo "$name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-'
+}
+
+# read_file_maybe_sudo PATH: cat PATH, with sudo when it is not readable.
+read_file_maybe_sudo() {
+    if [ -r "$1" ]; then
+        cat "$1" 2>/dev/null
+    elif [ "$ENVIRONMENT" != "gitbash" ]; then
+        sudo cat "$1" 2>/dev/null
     fi
-    case "${image:-postgres:12}" in
+}
+
+# postgres_data_major: the PostgreSQL major recorded in the existing data
+# directory (PG_VERSION), or nothing for a fresh install.
+postgres_data_major() {
+    local data volume mountpoint version=""
+    data=$(env_file_value "$INSTALL_DIR/.env" POSTGRES_DATA)
+    case "$data" in
+        /*) read_file_maybe_sudo "$data/PG_VERSION" | tr -d '[:space:]'; return 0 ;;
+        ./*|../*) read_file_maybe_sudo "$INSTALL_DIR/$data/PG_VERSION" | tr -d '[:space:]'; return 0 ;;
+    esac
+
+    data="${data:-helix-postgres-db}"
+    volume=$($DOCKER_CMD volume ls -q \
+        --filter "label=com.docker.compose.project=$(compose_project_name)" \
+        --filter "label=com.docker.compose.volume=$data" 2>/dev/null | head -n1)
+    if [ -z "$volume" ] && $DOCKER_CMD volume inspect "$(compose_project_name)_$data" >/dev/null 2>&1; then
+        volume="$(compose_project_name)_$data"
+    fi
+    [ -n "$volume" ] || return 0
+
+    mountpoint=$($DOCKER_CMD volume inspect -f '{{ .Mountpoint }}' "$volume" 2>/dev/null || true)
+    if [ -n "$mountpoint" ]; then
+        version=$(read_file_maybe_sudo "$mountpoint/PG_VERSION")
+    fi
+    # Docker Desktop keeps volumes inside its VM; read through a container.
+    if [ -z "$version" ]; then
+        version=$($DOCKER_CMD run --rm -v "$volume:/pgdata:ro" --entrypoint cat \
+            "$HELIX_POSTGRES_LEGACY_IMAGE" /pgdata/PG_VERSION 2>/dev/null || true)
+    fi
+    echo "$version" | tr -d '[:space:]'
+}
+
+# pin_postgres_for_existing_data: keep an existing install on the PostgreSQL
+# major its data was created with. Never overrides an operator's own
+# HELIX_POSTGRES_IMAGE.
+pin_postgres_for_existing_data() {
+    local env_file="$INSTALL_DIR/.env" major image
+    if [ -n "${HELIX_POSTGRES_IMAGE:-}" ] || [ -n "$(env_file_value "$env_file" HELIX_POSTGRES_IMAGE)" ]; then
+        return 0
+    fi
+    major=$(postgres_data_major)
+    case "$major" in ''|*[!0-9]*) return 0 ;; esac
+    [ "$major" -lt "$HELIX_POSTGRES_DEFAULT_MAJOR" ] || return 0
+
+    if [ "$major" = 12 ]; then
+        image="$HELIX_POSTGRES_LEGACY_IMAGE"
+    else
+        image="postgres:${major}-alpine"
+    fi
+    local pin
+    pin=$(printf '\n# Existing PostgreSQL %s data: stay on %s until it is upgraded\n# (https://github.com/helixml/helix/blob/main/docs/postgres-upgrade.md).\nHELIX_POSTGRES_IMAGE=%s\n' "$major" "$major" "$image")
+    if [ -w "$env_file" ] || [ "$ENVIRONMENT" = "gitbash" ]; then
+        echo "$pin" >> "$env_file"
+    else
+        echo "$pin" | sudo tee -a "$env_file" >/dev/null
+    fi
+    echo "Existing PostgreSQL $major data found: set HELIX_POSTGRES_IMAGE=$image in $env_file"
+}
+
+# warn_postgres_eol: point installs still pinned to PostgreSQL 12 (end of
+# life) at the upgrade guide.
+warn_postgres_eol() {
+    local image="${HELIX_POSTGRES_IMAGE:-$(env_file_value "$INSTALL_DIR/.env" HELIX_POSTGRES_IMAGE)}"
+    case "${image:-postgres:$HELIX_POSTGRES_DEFAULT_MAJOR}" in
         postgres:12*|*/postgres:12*)
             echo
             echo "┌───────────────────────────────────────────────────────────────────────────"
@@ -882,6 +970,7 @@ warn_postgres_eol() {
             ;;
     esac
 }
+# END postgres-pin
 
 # --------------------------------------------------------------------------
 # do_upgrade: lightweight controlplane upgrade path.
@@ -940,9 +1029,10 @@ do_upgrade() {
     echo "Planned actions:"
     echo "  1. Back up $INSTALL_DIR/.env to $INSTALL_DIR/.env.bak.<timestamp>"
     echo "  2. Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
-    echo "  3. Fetch docker-compose.tls.yaml from release $target_version if missing"
-    echo "  4. cd $INSTALL_DIR && $DOCKER_CMD compose pull"
-    echo "  5. cd $INSTALL_DIR && $DOCKER_CMD compose up -d --remove-orphans"
+    echo "  3. Pin HELIX_POSTGRES_IMAGE in $INSTALL_DIR/.env if the existing database predates PostgreSQL $HELIX_POSTGRES_DEFAULT_MAJOR"
+    echo "  4. Fetch docker-compose.tls.yaml from release $target_version if missing"
+    echo "  5. cd $INSTALL_DIR && $DOCKER_CMD compose pull"
+    echo "  6. cd $INSTALL_DIR && $DOCKER_CMD compose up -d --remove-orphans"
     echo
 
     if [ "$DRY_RUN" = true ]; then
@@ -978,6 +1068,8 @@ do_upgrade() {
         printf '\nHELIX_VERSION=%s\n' "$target_version" | $SUDO tee -a "$INSTALL_DIR/.env" >/dev/null
     fi
     echo "Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
+
+    pin_postgres_for_existing_data
 
     cd "$INSTALL_DIR" || exit 1
 
@@ -2186,6 +2278,8 @@ EOF
     elif [ "$ENV_TARGET" != "$ENV_FILE" ]; then
         mv "$ENV_TARGET" "$ENV_FILE"
     fi
+
+    pin_postgres_for_existing_data
 
     CADDY=false
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu

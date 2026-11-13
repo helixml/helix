@@ -134,7 +134,7 @@ services:
       - "outer-api:${OUTER_API_IP:-127.0.0.1}"
   postgres:
     logging: *default-logging
-    image: postgres:12.22-alpine
+    image: ${HELIX_POSTGRES_IMAGE:-postgres:17-alpine}
     restart: always
     ports:
       - 127.0.0.1:5432:5432

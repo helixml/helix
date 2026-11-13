@@ -33,6 +33,35 @@ function detect_tls_overlay() {
 }
 detect_tls_overlay
 
+# docker-compose.dev.yaml defaults postgres to 17, which refuses a data
+# directory created by an older major. Keep an existing dev database on its
+# major by pinning HELIX_POSTGRES_IMAGE in .env (docs/postgres-upgrade.md
+# upgrades it).
+function pin_dev_postgres_major() {
+  local env_file="$DIR/.env" data project volume major
+  if [[ -n "${HELIX_POSTGRES_IMAGE:-}" ]] || grep -qE '^[[:space:]]*HELIX_POSTGRES_IMAGE[[:space:]]*=' "$env_file" 2>/dev/null; then
+    return 0
+  fi
+  data=$(grep -E '^[[:space:]]*POSTGRES_DATA[[:space:]]*=' "$env_file" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+  data="${data:-helix-postgres-db}"
+  if [[ "$data" == */* ]]; then
+    [[ "$data" == /* ]] || data="$DIR/$data"
+    major=$(cat "$data/PG_VERSION" 2>/dev/null || true)
+  else
+    project="${COMPOSE_PROJECT_NAME:-$(basename "$DIR")}"
+    project=$(echo "$project" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+    volume="${project}_${data}"
+    docker volume inspect "$volume" >/dev/null 2>&1 || return 0
+    major=$(docker run --rm -v "$volume:/pgdata:ro" --entrypoint cat postgres:12.22-alpine /pgdata/PG_VERSION 2>/dev/null || true)
+  fi
+  major=$(echo "$major" | tr -d '[:space:]')
+  [[ "$major" =~ ^[0-9]+$ ]] && (( major < 17 )) || return 0
+  local image="postgres:${major}-alpine"
+  [[ "$major" == 12 ]] && image="postgres:12.22-alpine"
+  printf '\n# Existing PostgreSQL %s dev database (docs/postgres-upgrade.md to upgrade).\nHELIX_POSTGRES_IMAGE=%s\n' "$major" "$image" >> "$env_file"
+  echo "🐘 Existing PostgreSQL $major dev database: pinned HELIX_POSTGRES_IMAGE=$image in .env"
+}
+
 # Smart --load logic has been consolidated into the docker wrapper
 # (desktop/shared/docker-buildx-wrapper.sh), which intercepts both
 # 'docker build' and 'docker buildx build' and applies smart --load
@@ -638,6 +667,7 @@ function _start_services() {
 
   # Setup sandbox profile based on GPU detection
   setup_sandbox_profile
+  pin_dev_postgres_major
 
   # Start services based on enabled profiles
   # NOTE: do NOT stop the sandbox before `up -d` — `docker compose up -d` already
@@ -838,6 +868,7 @@ function stop() {
 function up() {
   # Setup sandbox profile based on GPU detection (if not already in .env)
   setup_sandbox_profile
+  pin_dev_postgres_major
 
   # Sandbox services are enabled via COMPOSE_PROFILES in .env or auto-detected above
   # Profile 'code-nvidia' = NVIDIA GPU, 'code-amd-intel' = AMD/Intel GPU

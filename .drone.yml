@@ -131,6 +131,8 @@ steps:
       - ./desktop/shared/test-start-zed-mcp-readiness.sh
       - ./scripts/test-deploy-prod.sh
       - sh scripts/test-image-publish.sh
+      - sh scripts/check-postgres-defaults.sh
+      - bash scripts/test-install-postgres-pin.sh
     when:
       event:
         - push
@@ -982,7 +984,7 @@ steps:
 
 services:
   - name: postgres
-    image: postgres:12.22-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
