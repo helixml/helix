@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -139,6 +140,44 @@ func TestMain(m *testing.M) {
 	os.Exit(runTests)
 }
 
+// noProviderEnvVar, set to "true", starts the server without the test
+// process's LLM provider credentials, so no request can reach a real (paid)
+// upstream. The authorization matrix requires it; the agent suites, which do
+// call a model, run without it.
+const noProviderEnvVar = "HELIX_INTEGRATION_NO_PROVIDER_ENV"
+
+// providerEnvPrefixes are the environment variables that configure a real
+// LLM provider for the server.
+var providerEnvPrefixes = []string{"OPENAI_", "ANTHROPIC_", "TOGETHER_", "INFERENCE_", "GEMINI_", "VLLM_", "HELIX_INFERENCE_"}
+
+func providerEnvStripped() bool {
+	return os.Getenv(noProviderEnvVar) == "true"
+}
+
+func isProviderEnv(kv string) bool {
+	for _, prefix := range providerEnvPrefixes {
+		if strings.HasPrefix(kv, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// serverEnviron is the test process's environment, without provider
+// credentials when noProviderEnvVar is set.
+func serverEnviron() []string {
+	if !providerEnvStripped() {
+		return os.Environ()
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		if !isProviderEnv(kv) {
+			env = append(env, kv)
+		}
+	}
+	return env
+}
+
 func startAPIServer() *serverLogBuffer {
 	buf := &serverLogBuffer{}
 
@@ -147,7 +186,7 @@ func startAPIServer() *serverLogBuffer {
 	serverCmd.Stderr = buf
 
 	// Get the main env variables for keycloak, database, etc.
-	serverCmd.Env = os.Environ()
+	serverCmd.Env = serverEnviron()
 
 	// Define the rest env variables, similarly to what we set in docker-compose.dev.yaml
 	serverCmd.Env = append(serverCmd.Env,
@@ -161,6 +200,9 @@ func startAPIServer() *serverLogBuffer {
 		"FILESTORE_LOCALFS_PATH=/tmp",
 		"FRONTEND_URL=/tmp", // No frontend here but doesn't matter for API integration tests
 		"FILESTORE_AVATARS_PATH=/tmp/avatars",
+		// Tenants manage their own provider endpoints, so the authorization
+		// matrix can exercise those routes as their owners.
+		"ENABLE_CUSTOM_USER_PROVIDERS=true",
 	)
 
 	fmt.Printf("Starting API server on port %s\n", integrationServerPort())

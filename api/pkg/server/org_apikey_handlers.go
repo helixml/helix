@@ -126,6 +126,14 @@ func (apiServer *HelixAPIServer) createOrgAPIKey(rw http.ResponseWriter, r *http
 		http.Error(rw, "Not a member of this organization: "+err.Error(), http.StatusForbidden)
 		return
 	}
+	// An org key is a durable credential. Minting one takes a personal key
+	// or a browser session: a project, session or app key would shed its
+	// narrower scope, and an org key could re-mint itself indefinitely, so
+	// revoking a leaked key would not end the access.
+	if isScopedAPIKeyCaller(user) {
+		http.Error(rw, "a scoped API key cannot create organization API keys; use a personal API key or sign in", http.StatusForbidden)
+		return
+	}
 
 	var req struct {
 		Name string `json:"name"`

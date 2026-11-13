@@ -70,8 +70,19 @@ func (b *HelixMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
+	// Authorize on every request, not only when the server is built: the
+	// cache below is per user, so a server built for the owner's personal key
+	// would otherwise also serve their project-scoped keys, and outlive a
+	// revoked grant.
+	app, err := b.authorizedApp(r.Context(), user, appID)
+	if err != nil {
+		log.Warn().Err(err).Str("app_id", appID).Msg("MCP access to app refused")
+		http.Error(w, "app not found", http.StatusNotFound)
+		return
+	}
+
 	// Get or create SSE server for this app
-	sseServer, err := b.getOrCreateServer(r.Context(), user, appID)
+	sseServer, err := b.getOrCreateServer(r.Context(), user, app)
 	if err != nil {
 		log.Error().Err(err).Str("app_id", appID).Msg("failed to create MCP server for app")
 		http.Error(w, "failed to initialize MCP server: "+err.Error(), http.StatusInternalServerError)
@@ -95,8 +106,27 @@ func (b *HelixMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 	sseServer.ServeHTTP(w, r)
 }
 
-// getOrCreateServer gets or creates an SSE server for the given app
-func (b *HelixMCPBackend) getOrCreateServer(ctx context.Context, user *types.User, appID string) (*server.SSEServer, error) {
+// authorizedApp loads an app the user may use through MCP. It uses the same
+// RBAC path as the REST handlers (owner, org owner, access grants,
+// project-referenced access, key scope). Fail closed if no authorizer is wired.
+func (b *HelixMCPBackend) authorizedApp(ctx context.Context, user *types.User, appID string) (*types.App, error) {
+	app, err := b.store.GetApp(ctx, appID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get app: %w", err)
+	}
+	if b.authorizeApp == nil {
+		return nil, fmt.Errorf("access denied: no app authorizer configured")
+	}
+	if err := b.authorizeApp(ctx, user, app, types.ActionGet); err != nil {
+		return nil, fmt.Errorf("access denied: %w", err)
+	}
+	return app, nil
+}
+
+// getOrCreateServer gets or creates an SSE server for an app the caller has
+// already been authorized for (authorizedApp).
+func (b *HelixMCPBackend) getOrCreateServer(ctx context.Context, user *types.User, app *types.App) (*server.SSEServer, error) {
+	appID := app.ID
 	// Check cache first (with TTL check)
 	cacheKey := fmt.Sprintf("%s:%s", user.ID, appID)
 	cacheTTL := 5 * time.Minute
@@ -124,23 +154,6 @@ func (b *HelixMCPBackend) getOrCreateServer(ctx context.Context, user *types.Use
 		if err := appServer.sseServer.Shutdown(ctx); err != nil {
 			log.Warn().Err(err).Str("app_id", appID).Msg("failed to shutdown old MCP server")
 		}
-	}
-
-	// Get app from database
-	app, err := b.store.GetApp(ctx, appID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get app: %w", err)
-	}
-
-	// Verify the user is authorized for this app. This uses the same RBAC path as
-	// the REST handlers (owner, org owner, access grants, project-referenced
-	// access) so a scoped app can be delegated to a specific end-user session
-	// without transferring ownership. Fail closed if no authorizer is wired.
-	if b.authorizeApp == nil {
-		return nil, fmt.Errorf("access denied: no app authorizer configured")
-	}
-	if err := b.authorizeApp(ctx, user, app, types.ActionGet); err != nil {
-		return nil, fmt.Errorf("access denied: %w", err)
 	}
 
 	// Create MCP server

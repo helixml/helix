@@ -67,6 +67,12 @@ func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, u
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	// Unlike the REST routes (helixOrgAuthority), a worker keeps its hiring
+	// user's role here. Only worker sessions reach this backend, and the
+	// owner's Chief of Staff relies on owner authority to hire Bots with the
+	// org-management tools it holds itself (nodes.AuthorizeTools; see
+	// TestHelixOrgMCPOwnerBotCanCreateWithHeldTool). A Bot still cannot grant
+	// a tool outside its own set.
 	r = r.WithContext(helixorgserver.WithOrgAuthorization(r.Context(), membership.Role, isAdmin(user)))
 	if err := b.scope.ensureBootstrap(r.Context(), session.OrganizationID); err != nil {
 		http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)

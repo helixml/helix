@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -193,7 +194,7 @@ func (suite *HelixMCPBackendSuite) TestServeHTTP_AppNotFound() {
 
 	suite.backend.ServeHTTP(rec, req, suite.testUser())
 
-	suite.Equal(http.StatusInternalServerError, rec.Code)
+	suite.Equal(http.StatusNotFound, rec.Code)
 }
 
 func (suite *HelixMCPBackendSuite) TestServeHTTP_AccessDenied() {
@@ -209,8 +210,10 @@ func (suite *HelixMCPBackendSuite) TestServeHTTP_AccessDenied() {
 
 	suite.backend.ServeHTTP(rec, req, suite.testUser())
 
-	suite.Equal(http.StatusInternalServerError, rec.Code)
-	suite.Contains(rec.Body.String(), "access denied")
+	// Refused like a missing app, so the answer does not reveal that an
+	// app the caller cannot use exists.
+	suite.Equal(http.StatusNotFound, rec.Code)
+	suite.Contains(rec.Body.String(), "app not found")
 }
 
 // TestGetOrCreateServer_DelegatedAccessGrant proves the backend authorizes via
@@ -236,7 +239,7 @@ func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_DelegatedAccessGrant() 
 		return nil
 	}
 
-	server, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-123")
+	server, err := suite.backend.serverFor(suite.ctx, suite.testUser(), "app-123")
 	suite.NoError(err)
 	suite.NotNil(server)
 	suite.True(granted, "authorizer must be consulted")
@@ -252,7 +255,7 @@ func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_FailsClosedWithoutAutho
 
 	suite.backend.authorizeApp = nil // misconfigured
 
-	_, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-123")
+	_, err := suite.backend.serverFor(suite.ctx, suite.testUser(), "app-123")
 	suite.Error(err)
 	suite.Contains(err.Error(), "access denied")
 }
@@ -264,21 +267,21 @@ func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_FailsClosedWithoutAutho
 func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_Caching() {
 	app := suite.testApp()
 
-	// First call - should create new server
+	// Each call loads and authorizes the app; only the server is cached.
 	suite.mockStore.EXPECT().
 		GetApp(gomock.Any(), "app-123").
-		Return(app, nil)
+		Return(app, nil).Times(2)
 	suite.mockStore.EXPECT().
 		ListKnowledge(gomock.Any(), gomock.Any()).
 		Return([]*types.Knowledge{}, nil)
 
 	user := suite.testUser()
-	server1, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-123")
+	server1, err := suite.backend.serverFor(suite.ctx, user, "app-123")
 	suite.NoError(err)
 	suite.NotNil(server1)
 
-	// Second call - should return cached server (no new GetApp call)
-	server2, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-123")
+	// Second call - should return the cached server
+	server2, err := suite.backend.serverFor(suite.ctx, user, "app-123")
 	suite.NoError(err)
 	suite.NotNil(server2)
 
@@ -301,7 +304,7 @@ func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_DifferentApps() {
 		ListKnowledge(gomock.Any(), gomock.Any()).
 		Return([]*types.Knowledge{}, nil)
 
-	server1, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-123")
+	server1, err := suite.backend.serverFor(suite.ctx, user, "app-123")
 	suite.NoError(err)
 
 	// Create server for app2
@@ -314,7 +317,7 @@ func (suite *HelixMCPBackendSuite) TestGetOrCreateServer_DifferentApps() {
 			{ID: "k1", Name: "docs", Description: "Documentation"},
 		}, nil)
 
-	server2, err := suite.backend.getOrCreateServer(suite.ctx, user, "app-456")
+	server2, err := suite.backend.serverFor(suite.ctx, user, "app-456")
 	suite.NoError(err)
 
 	// Should be different servers
@@ -465,7 +468,7 @@ func (suite *HelixMCPBackendSuite) TestAddToolsFromAssistant_WithAPIs() {
 		GetApp(gomock.Any(), "app-123").
 		Return(app, nil)
 
-	_, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-123")
+	_, err := suite.backend.serverFor(suite.ctx, suite.testUser(), "app-123")
 	suite.NoError(err)
 
 	// Server should be cached
@@ -487,7 +490,7 @@ func (suite *HelixMCPBackendSuite) TestAddToolsFromAssistant_WithKnowledge() {
 		GetApp(gomock.Any(), "app-456").
 		Return(app, nil)
 
-	_, err := suite.backend.getOrCreateServer(suite.ctx, suite.testUser(), "app-456")
+	_, err := suite.backend.serverFor(suite.ctx, suite.testUser(), "app-456")
 	suite.NoError(err)
 
 	// Server should be cached
@@ -603,4 +606,37 @@ func parseSSEEvents(body string) []map[string]string {
 	}
 
 	return events
+}
+
+// serverFor is what ServeHTTP does per request: authorize, then fetch the
+// (possibly cached) server.
+func (b *HelixMCPBackend) serverFor(ctx context.Context, user *types.User, appID string) (*mcpserver.SSEServer, error) {
+	app, err := b.authorizedApp(ctx, user, appID)
+	if err != nil {
+		return nil, err
+	}
+	return b.getOrCreateServer(ctx, user, app)
+}
+
+// A server cached for a user must not answer that user's later requests once
+// they are no longer authorized: the same user's project-scoped key, or a
+// revoked grant, reaches the same cache entry.
+func (suite *HelixMCPBackendSuite) TestServeHTTP_ReauthorizesCachedServer() {
+	app := suite.testApp()
+	suite.mockStore.EXPECT().GetApp(gomock.Any(), "app-123").Return(app, nil).Times(2)
+	suite.mockStore.EXPECT().ListKnowledge(gomock.Any(), gomock.Any()).Return([]*types.Knowledge{}, nil)
+
+	user := suite.testUser()
+	_, err := suite.backend.serverFor(suite.ctx, user, "app-123")
+	suite.Require().NoError(err)
+	suite.Require().Len(suite.backend.servers, 1)
+
+	suite.backend.authorizeApp = func(context.Context, *types.User, *types.App, types.Action) error {
+		return errors.New("credential is scoped to another project")
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/helix/message?app_id=app-123", nil)
+	rec := httptest.NewRecorder()
+	suite.backend.ServeHTTP(rec, req, user)
+
+	suite.Equal(http.StatusNotFound, rec.Code)
 }

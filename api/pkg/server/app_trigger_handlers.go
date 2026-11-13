@@ -46,10 +46,18 @@ func requireTriggerAgentKind(app *types.Agent) error {
 // key, a person who left), and without it such a trigger can never be cleaned up by
 // anyone while the cron scheduler goes on firing it.
 func (s *HelixAPIServer) authorizeUserToTrigger(ctx context.Context, user *types.User, trigger *types.TriggerConfiguration) error {
-	if trigger.Owner == user.ID {
+	if trigger.Owner == user.ID && user.ProjectID == "" {
 		return nil
 	}
 	app, err := s.Store.GetApp(ctx, trigger.AppID)
+	if trigger.Owner == user.ID {
+		// The creator shortcut must not carry a project-scoped key past its
+		// project: the trigger runs as an agent the project may not use.
+		if err != nil {
+			return fmt.Errorf("%w: %v", errProjectScopedKey, err)
+		}
+		return s.enforceKeyAppScope(ctx, user, app, types.ActionUpdate)
+	}
 	if err != nil {
 		return fmt.Errorf("could not load the agent this trigger belongs to: %w", err)
 	}
@@ -459,11 +467,14 @@ func (s *HelixAPIServer) listTriggerExecutions(_ http.ResponseWriter, r *http.Re
 	user := getRequestUser(r)
 
 	// Load trigger to verify it exists and for authorization
-	_, err := s.Store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{
+	trigger, err := s.Store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{
 		ID:    triggerID,
 		Owner: user.ID,
 	})
 	if err != nil {
+		return nil, system.NewHTTPError404("Trigger configuration not found")
+	}
+	if err := s.authorizeUserToTrigger(ctx, user, trigger); err != nil {
 		return nil, system.NewHTTPError404("Trigger configuration not found")
 	}
 

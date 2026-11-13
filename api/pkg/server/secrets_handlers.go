@@ -49,6 +49,10 @@ func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]
 		query.OwnerType = types.OwnerTypeOrg
 		query.Owner = org.ID
 	} else {
+		// Personal secrets are outside any project's scope.
+		if err := enforceKeyProjectScope(user, ""); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
 		query.OwnerType = types.OwnerTypeUser
 		query.Owner = user.ID
 	}
@@ -85,6 +89,11 @@ func (s *HelixAPIServer) createSecret(_ http.ResponseWriter, r *http.Request) (*
 	var secretReq types.CreateSecretRequest
 	if err := json.NewDecoder(r.Body).Decode(&secretReq); err != nil {
 		return nil, jsonDecodeHTTPError(err)
+	}
+	if secretReq.ProjectID == "" {
+		if err := enforceKeyProjectScope(user, ""); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
 	}
 	if secretReq.ProjectID != "" {
 		project, err := s.Store.GetProject(ctx, secretReq.ProjectID)
@@ -166,7 +175,9 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 	// original creator still owns the secret row. This validates that the
 	// project still exists and prevents an owner from rotating a credential in
 	// a project they can no longer update.
-	authorized := existing.Owner == user.ID && existing.ProjectID == ""
+	// A project-scoped key never reaches a personal secret: enforceKeyProjectScope
+	// refuses it, as it refuses every resource outside the key's project.
+	authorized := existing.Owner == user.ID && existing.ProjectID == "" && enforceKeyProjectScope(user, "") == nil
 	if existing.ProjectID != "" {
 		project, projectErr := s.Store.GetProject(ctx, existing.ProjectID)
 		if projectErr != nil {
@@ -267,15 +278,17 @@ func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Check authorization: either user owns the secret OR has access to the project
+	// A personal secret belongs to its owner alone. A project secret is
+	// governed by its project, even for the user who created it: the
+	// project's own authorization confines a project-scoped key to its
+	// project, which an owner shortcut would skip.
 	authorized := false
-	if existing.Owner == user.ID {
-		authorized = true
-	} else if existing.ProjectID != "" {
-		// For project secrets, check if user has delete access to the project
+	if existing.ProjectID != "" {
 		if err := s.authorizeUserToProjectByID(ctx, user, existing.ProjectID, types.ActionDelete); err == nil {
 			authorized = true
 		}
+	} else if existing.Owner == user.ID && enforceKeyProjectScope(user, "") == nil {
+		authorized = true
 	}
 	if !authorized {
 		return nil, system.NewHTTPError403("Access denied")

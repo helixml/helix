@@ -498,6 +498,15 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		if rejectInactiveAccount(w, user) {
 			return
 		}
+		// These routes are mounted outside authRouter, so this is their only
+		// authentication. Without a credential the handlers would run as an
+		// empty user and fall back to the server's own provider keys.
+		// CORS preflights carry no credentials and are answered by the
+		// handlers themselves.
+		if r.Method != http.MethodOptions && !hasUserOrRunner(user) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 
 		if user.AppID != "" {
 			if _, ok := AppAPIKeyPaths[r.URL.Path]; !ok {
