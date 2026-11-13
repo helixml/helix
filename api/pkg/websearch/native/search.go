@@ -108,9 +108,10 @@ func (p *Provider) runSearch(ctx context.Context, req *websearch.SearchRequest) 
 		}
 		queries = append(queries, expanded...)
 	}
+	n := numResults(req.NumResults)
 	dreq := &DiscoverRequest{
 		Queries:            queries,
-		NumResults:         numResults(req.NumResults),
+		NumResults:         p.candidatePool(n),
 		Category:           req.Category,
 		IncludeDomains:     req.IncludeDomains,
 		ExcludeDomains:     req.ExcludeDomains,
@@ -125,10 +126,11 @@ func (p *Provider) runSearch(ctx context.Context, req *websearch.SearchRequest) 
 	if err != nil {
 		return nil, nil, err
 	}
-	hits, err := candidateHits(found.Candidates)
+	candidates, err := p.rerank(ctx, req.Query, found.Candidates, n)
 	if err != nil {
 		return nil, nil, err
 	}
+	hits := candidateHits(candidates)
 
 	contextOpt := req.Context
 	if contextOpt == nil && req.Contents != nil {

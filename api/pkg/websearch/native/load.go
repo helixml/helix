@@ -63,8 +63,11 @@ func (p *Provider) loadDoc(ctx context.Context, pageURL string, pol fetchPolicy,
 		return nil, err
 	}
 	page, err := p.opts.Extractor.Extract(ctx, raw, opts)
-	if errors.Is(err, ErrUnsupportedDocument) {
+	switch {
+	case errors.Is(err, ErrUnsupportedDocument):
 		return nil, &FetchError{Tag: websearch.TagUnsupportedDocument, Err: err}
+	case errors.Is(err, ErrExtractionFailed):
+		return nil, &FetchError{Tag: websearch.TagExtractionFailed, Err: err}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("extract %s: %w", raw.URL, err)

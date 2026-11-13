@@ -40,8 +40,19 @@ import {
   getUncachedInputTokens,
 } from '../../utils/usageMetrics'
 import { initialUsageParam, toUsageDateInput, usageRangeFrom } from '../../utils/usageDateRange'
+import { formatCompact, formatCost, formatNumber, formatPercent } from '../../utils/usageFormat'
+import {
+  OverviewStat,
+  OverviewStatStrip,
+  USAGE_RANGE_DAYS,
+  UsageHeadline,
+  UsagePageHeader,
+  UsageRangeControls,
+  UsageRangeKey,
+  UsageSection,
+  UsageShareRow,
+} from '../usage/UsageOverview'
 
-type RangeKey = '7d' | '30d' | '90d'
 type UsageLoadingScope = 'filters' | 'projects' | 'tasks' | 'sessions' | 'users'
 type OverviewMetric = 'cost' | 'tokens'
 type LatencyMetric = 'per-request' | 'per-1k-output'
@@ -95,26 +106,7 @@ const fromURLDate = (value: string | null, fallback: string) => {
 
 const currentSearchParams = () => new URLSearchParams(window.location.search)
 
-const formatCompact = (value?: number) => {
-  const n = value ?? 0
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
-  return n.toLocaleString()
-}
-
-const formatNumber = (value?: number) => (value ?? 0).toLocaleString()
-
-const formatCost = (value?: number) => {
-  const n = value ?? 0
-  if (n === 0) return '$0.00'
-  if (n < 0.01) return `$${n.toFixed(4)}`
-  return `$${n.toFixed(2)}`
-}
-
 const formatMs = (value?: number) => `${Math.round(value ?? 0).toLocaleString()} ms`
-
-const formatPercent = (ratio: number | null) => ratio === null ? '—' : `${(ratio * 100).toFixed(1)}%`
 
 const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString() : '-'
 
@@ -270,14 +262,6 @@ const exportJSON = (filename: string, rows: TypesUsageBreakdownRow[]) => {
   URL.revokeObjectURL(url)
 }
 
-const OverviewStat: FC<{ label: string; value: string; detail: string }> = ({ label, value, detail }) => (
-  <Box sx={{ bgcolor: 'background.default', px: 2, py: 1.5, minWidth: 0 }}>
-    <Typography variant="caption" color="text.secondary">{label}</Typography>
-    <Typography sx={{ fontSize: '1.1rem', lineHeight: 1.45, fontVariantNumeric: 'tabular-nums' }}>{value}</Typography>
-    <Typography variant="caption" color="text.secondary" noWrap>{detail}</Typography>
-  </Box>
-)
-
 const ProviderSummaryRow: FC<{
   provider: TypesUsageBreakdownRow
   metric: OverviewMetric
@@ -287,23 +271,14 @@ const ProviderSummaryRow: FC<{
   const value = metric === 'cost' ? (provider.total_cost ?? 0) : (provider.total_tokens ?? 0)
   const share = total > 0 ? value / total : 0
   return (
-    <Box>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-          <UsageProviderIcon provider={provider.provider} />
-          <Typography variant="body2" noWrap>{provider.name || provider.provider || 'Unknown'}</Typography>
-        </Stack>
-        <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-          {metric === 'cost' ? formatCost(value) : formatCompact(value)}
-        </Typography>
-      </Stack>
-      <Box sx={{ height: 4, bgcolor: 'action.hover', borderRadius: 4, overflow: 'hidden', mt: 0.75 }}>
-        <Box sx={{ width: `${Math.min(share * 100, 100)}%`, height: '100%', bgcolor: color }} />
-      </Box>
-      <Typography variant="caption" color="text.secondary">
-        {formatPercent(share)} of {metric} · {formatCompact(provider.total_tokens)} tokens
-      </Typography>
-    </Box>
+    <UsageShareRow
+      icon={<UsageProviderIcon provider={provider.provider} />}
+      label={provider.name || provider.provider || 'Unknown'}
+      value={metric === 'cost' ? formatCost(value) : formatCompact(value)}
+      share={share}
+      color={color}
+      caption={`${formatPercent(share)} of ${metric} · ${formatCompact(provider.total_tokens)} tokens`}
+    />
   )
 }
 
@@ -314,18 +289,6 @@ const UsagePanel: FC<{ children: React.ReactNode }> = ({ children }) => (
   <Paper variant="outlined" sx={{ p: 2, overflow: 'hidden' }}>
     {children}
   </Paper>
-)
-
-const Section: FC<{ title: string; action?: React.ReactNode; children: React.ReactNode }> = ({ title, action, children }) => (
-  <Box sx={{ width: '100%' }}>
-    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2} sx={{ mb: 1.5 }}>
-      <Typography variant="h6" sx={{ fontSize: '1rem' }}>
-        {title}
-      </Typography>
-      {action}
-    </Stack>
-    {children}
-  </Box>
 )
 
 const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = ({ filename, rows }) => (
@@ -595,7 +558,7 @@ const OrgUsage: FC = () => {
   const today = toUsageDateInput(new Date())
   const initialParams = useMemo(() => currentSearchParams(), [])
   const initialParam = (key: string) => initialUsageParam(router.params, initialParams, key)
-  const [range, setRange] = useState<RangeKey | null>(() => (initialParam('from') || initialParam('to') ? null : '7d'))
+  const [range, setRange] = useState<UsageRangeKey | null>(() => (initialParam('from') || initialParam('to') ? null : '7d'))
   const [from, setFrom] = useState(() => fromURLDate(initialParam('from'), usageRangeFrom(7)))
   const [to, setTo] = useState(() => fromURLDate(initialParam('to'), today))
   const [userId, setUserId] = useState(() => initialParam('user_id'))
@@ -939,12 +902,10 @@ const OrgUsage: FC = () => {
 
   const isScopedLoading = (scope: UsageLoadingScope) => loadingScope === scope && usage.isFetching && !usage.isLoading
 
-  const handleRangeChange = (_: React.MouseEvent<HTMLElement>, next: RangeKey | null) => {
-    if (!next) return
+  const handleRangeChange = (next: UsageRangeKey) => {
     markFilterChange()
     setRange(next)
-    const days = next === '7d' ? 7 : next === '30d' ? 30 : 90
-    setFrom(usageRangeFrom(days))
+    setFrom(usageRangeFrom(USAGE_RANGE_DAYS[next]))
     setTo(today)
   }
 
@@ -1010,23 +971,20 @@ const OrgUsage: FC = () => {
       <Container maxWidth="xl">
         <Box sx={{ mt: 3, pb: 4 }}>
           <Stack spacing={2.5}>
-            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={2}>
-              <Box>
-                <Typography variant="h5" component="h2" sx={{ mb: 1 }}>Usage</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  LLM calls, tokens, cost, latency, and sandbox compute for this organization.
-                </Typography>
-              </Box>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                <ToggleButtonGroup value={range} exclusive size="small" onChange={handleRangeChange}>
-                  <ToggleButton value="7d">7D</ToggleButton>
-                  <ToggleButton value="30d">30D</ToggleButton>
-                  <ToggleButton value="90d">90D</ToggleButton>
-                </ToggleButtonGroup>
-                <TextField size="small" label="From" type="date" value={from} onChange={e => { markFilterChange(); setFrom(e.target.value); setRange(null) }} InputLabelProps={{ shrink: true }} />
-                <TextField size="small" label="To" type="date" value={to} onChange={e => { markFilterChange(); setTo(e.target.value); setRange(null) }} InputLabelProps={{ shrink: true }} />
-              </Stack>
-            </Stack>
+            <UsagePageHeader
+              title="Usage"
+              description="LLM calls, tokens, cost, latency, and sandbox compute for this organization."
+              actions={(
+                <UsageRangeControls
+                  range={range}
+                  from={from}
+                  to={to}
+                  onRangeChange={handleRangeChange}
+                  onFromChange={value => { markFilterChange(); setFrom(value); setRange(null) }}
+                  onToChange={value => { markFilterChange(); setTo(value); setRange(null) }}
+                />
+              )}
+            />
 
             {usage.isError && (
               <Alert severity="error">
@@ -1042,19 +1000,13 @@ const OrgUsage: FC = () => {
               <>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(260px, 0.72fr) minmax(0, 1.6fr)' }, gap: 3 }}>
                   <Stack spacing={2.25}>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                        {overviewMetric === 'cost' ? 'Raw token cost' : 'Processed tokens'}
-                      </Typography>
-                      <Typography sx={{ mt: 0.25, fontSize: { xs: '2.25rem', md: '2.6rem' }, lineHeight: 1.1, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                        {overviewMetric === 'cost' ? `${formatCost(rawTokenCost)}*` : formatCompact(totals.total)}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {overviewMetric === 'cost'
-                          ? '* API-rate equivalent; subscription usage is not charged per token'
-                          : `${formatNumber(totals.requests)} LLM calls in this window`}
-                      </Typography>
-                    </Box>
+                    <UsageHeadline
+                      label={overviewMetric === 'cost' ? 'Raw token cost' : 'Processed tokens'}
+                      value={overviewMetric === 'cost' ? `${formatCost(rawTokenCost)}*` : formatCompact(totals.total)}
+                      detail={overviewMetric === 'cost'
+                        ? '* API-rate equivalent; subscription usage is not charged per token'
+                        : `${formatNumber(totals.requests)} LLM calls in this window`}
+                    />
 
                     {providerRows.length ? providerRows.map((row, index) => (
                       <ProviderSummaryRow
@@ -1092,17 +1044,7 @@ const OrgUsage: FC = () => {
                   </Box>
                 </Box>
 
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr))' },
-                    gap: '1px',
-                    bgcolor: 'divider',
-                    borderTop: '1px solid',
-                    borderBottom: '1px solid',
-                    borderColor: 'divider',
-                  }}
-                >
+                <OverviewStatStrip columns={5}>
                   <OverviewStat label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatCompact(averageTokens)} per active day`} />
                   <OverviewStat
                     label="Subscription savings"
@@ -1116,11 +1058,11 @@ const OrgUsage: FC = () => {
                   />
                   <OverviewStat label="Helix credits" value={formatCost(helixCredits)} detail="Actually debited for paid tokens" />
                   <OverviewStat label="Cached input" value={formatCompact(totals.cacheRead)} detail={`${formatPercent(cachedShare)} of observed input`} />
-                </Box>
+                </OverviewStatStrip>
 
-                <Section title="Model breakdown">
+                <UsageSection title="Model breakdown">
                   <SimpleTable authenticated fields={modelOverviewFields} data={modelOverviewRows} compact />
-                </Section>
+                </UsageSection>
               </>
             )}
 
@@ -1206,17 +1148,7 @@ const OrgUsage: FC = () => {
                   </Typography>
                 </Box>
 
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
-                    gap: '1px',
-                    bgcolor: 'divider',
-                    borderTop: '1px solid',
-                    borderBottom: '1px solid',
-                    borderColor: 'divider',
-                  }}
-                >
+                <OverviewStatStrip columns={4}>
                   <OverviewStat
                     label="Desktops"
                     value={formatCost(computeTotals.desktop)}
@@ -1237,7 +1169,7 @@ const OrgUsage: FC = () => {
                     value={`${compute.running_sandboxes ?? 0}`}
                     detail="Sandboxes currently billing"
                   />
-                </Box>
+                </OverviewStatStrip>
 
                 <Box sx={{ p: 2 }}>
                   <ShadcnAreaChart
@@ -1252,9 +1184,9 @@ const OrgUsage: FC = () => {
 
                 {computeSandboxRows.length > 0 && (
                   <Box sx={{ px: 2, pb: 2 }}>
-                    <Section title="Sandbox breakdown">
+                    <UsageSection title="Sandbox breakdown">
                       <SimpleTable authenticated fields={computeSandboxFields} data={computeSandboxRows} compact />
-                    </Section>
+                    </UsageSection>
                   </Box>
                 )}
 
@@ -1348,7 +1280,7 @@ const OrgUsage: FC = () => {
 
                 <Stack spacing={3} sx={{ width: '100%' }}>
                   <UsagePanel>
-                    <Section title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
+                    <UsageSection title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
                       <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} />
                       <TablePagination
                         component="div"
@@ -1366,17 +1298,17 @@ const OrgUsage: FC = () => {
                         }}
                         rowsPerPageOptions={[10, 25, 50, 100]}
                       />
-                    </Section>
+                    </UsageSection>
                   </UsagePanel>
 
                   <UsagePanel>
-                    <Section title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
+                    <UsageSection title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
                       <SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact />
-                    </Section>
+                    </UsageSection>
                   </UsagePanel>
 
                   <UsagePanel>
-                    <Section title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
+                    <UsageSection title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
                       <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} />
                       <TablePagination
                         component="div"
@@ -1394,11 +1326,11 @@ const OrgUsage: FC = () => {
                         }}
                         rowsPerPageOptions={[10, 25, 50, 100]}
                       />
-                    </Section>
+                    </UsageSection>
                   </UsagePanel>
 
                   <UsagePanel>
-                    <Section title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
+                    <UsageSection title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
                       <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} />
                       <TablePagination
                         component="div"
@@ -1416,11 +1348,11 @@ const OrgUsage: FC = () => {
                         }}
                         rowsPerPageOptions={[10, 25, 50, 100]}
                       />
-                    </Section>
+                    </UsageSection>
                   </UsagePanel>
 
                   <UsagePanel>
-                    <Section
+                    <UsageSection
                       title="Users"
                       action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
                     >
@@ -1459,7 +1391,7 @@ const OrgUsage: FC = () => {
                         }}
                         rowsPerPageOptions={[10, 25, 50, 100]}
                       />
-                    </Section>
+                    </UsageSection>
                   </UsagePanel>
                 </Stack>
               </>

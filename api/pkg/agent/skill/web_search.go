@@ -135,6 +135,7 @@ func withWebSearchCaller(ctx context.Context, meta agent.Meta) context.Context {
 		UserID:    meta.UserID,
 		OrgID:     orgID,
 		RequestID: system.GenerateRequestID(),
+		Source:    types.WebSearchSourceAgent,
 	})
 }
 

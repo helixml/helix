@@ -392,8 +392,18 @@ func TestExtractDocumentErrors(t *testing.T) {
 
 	page := &RawPage{FinalURL: "https://x.example.com/a.pdf", ContentType: "application/pdf", Body: []byte("%PDF-")}
 	_, err := NewExtractor(documents).Extract(context.Background(), page, websearch.TextOptions{})
-	if !errors.Is(err, failure) || errors.Is(err, ErrUnsupportedDocument) {
-		t.Errorf("err = %v, want the document service error, not a page failure", err)
+	if !errors.Is(err, failure) || !errors.Is(err, ErrExtractionFailed) {
+		t.Errorf("err = %v, want the document service error, reported for this page", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	documents.EXPECT().Extract(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, *extract.Request) (string, error) {
+		cancel()
+		return "", context.Canceled
+	})
+	_, err = NewExtractor(documents).Extract(ctx, page, websearch.TextOptions{})
+	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrExtractionFailed) {
+		t.Errorf("err = %v, want the cancellation, which fails the request", err)
 	}
 }
 

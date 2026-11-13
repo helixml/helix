@@ -178,6 +178,22 @@ func TestContentsExtractErrors(t *testing.T) {
 		assert.Equal(t, websearch.ContentStatusSuccess, resp.Statuses[1].Status)
 		assert.Equal(t, []string{"https://b.com/"}, resultURLs(resp.Results))
 	})
+	t.Run("the document service failing on a page is that page's status", func(t *testing.T) {
+		e := newEnv(t)
+		e.web(nil)
+		e.memCache()
+		e.ext.EXPECT().Extract(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, raw *RawPage, _ websearch.TextOptions) (*Page, error) {
+				if raw.URL == "https://a.com/paper.pdf" {
+					return nil, fmt.Errorf("%w: llamaindex: no such host", ErrExtractionFailed)
+				}
+				return &Page{Text: string(raw.Body)}, nil
+			}).Times(2)
+		resp, err := e.provider(t).Contents(context.Background(), contentsReq(websearch.ContentsOptions{}, "https://a.com/paper.pdf", "https://b.com/"))
+		require.NoError(t, err)
+		assert.Equal(t, &websearch.ContentError{Tag: websearch.TagExtractionFailed}, resp.Statuses[0].Error)
+		assert.Equal(t, []string{"https://b.com/"}, resultURLs(resp.Results))
+	})
 	t.Run("other extract errors fail the request", func(t *testing.T) {
 		e := newEnv(t)
 		e.web(nil)
@@ -255,7 +271,7 @@ func TestContentsTextOptionsReachExtractor(t *testing.T) {
 }
 
 func TestContentsHighlightsQuery(t *testing.T) {
-	e := newEnv(t)
+	e := newEnv(t).withRanker()
 	e.pipeline(nil)
 	e.rank.EXPECT().Rank(gomock.Any(), "Page https://a.com/", gomock.Any()).Return([]float64{0.3}, nil)
 	e.rank.EXPECT().Rank(gomock.Any(), "mine", gomock.Any()).Return([]float64{0.4}, nil)
@@ -272,7 +288,7 @@ func TestContentsHighlightsQuery(t *testing.T) {
 }
 
 func TestContentsHighlightsRankerError(t *testing.T) {
-	e := newEnv(t)
+	e := newEnv(t).withRanker()
 	e.pipeline(nil)
 	e.rank.EXPECT().Rank(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("embeddings down"))
 	_, err := e.provider(t).Contents(context.Background(), contentsReq(websearch.ContentsOptions{

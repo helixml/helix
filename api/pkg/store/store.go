@@ -600,6 +600,10 @@ type Store interface {
 	GetSandboxUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 	GetOrgComputeUsage(ctx context.Context, q *GetOrgComputeUsageQuery) (*types.OrgComputeUsage, error)
 
+	CreateWebSearchRequest(ctx context.Context, request *types.WebSearchRequest) error
+	ListWebSearchRequests(ctx context.Context, q *WebSearchRequestsQuery) (*types.WebSearchRequestList, error)
+	GetWebSearchUsage(ctx context.Context, q *WebSearchRequestsQuery) (*types.WebSearchUsage, error)
+
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
 	GetSlackThreadBySpecTaskID(ctx context.Context, appID, specTaskID string) (*types.SlackThread, error)

@@ -435,9 +435,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       // },
     ]
 
-    // Providers, Org Chart and Sandboxes are intentionally omitted from the
-    // rail: they are reachable from Settings (OrgSidebar -> org_providers,
-    // helix_org_chart, org_sandboxes).
+    // Providers, Org Chart, Sandboxes and Search are intentionally omitted from
+    // the rail: they are reachable from Settings (OrgSidebar -> org_providers,
+    // helix_org_chart, org_sandboxes, org_websearch).
 
     // Add org settings button when we have an org context.
     // Highlights for any of the grouped admin pages (general, members,
@@ -460,6 +460,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             'org_provider_detail',
             'org_sandboxes',
             'org_sandbox_detail',
+            'org_websearch',
             'helix_org_chart',
           ]),
           onClick: () => orgNavigateTo('org_general', { org_id: currentOrgSlug }),

@@ -421,6 +421,7 @@ const (
 	TagSourceNotAvailable  = "SOURCE_NOT_AVAILABLE"
 	TagBlockedDestination  = "BLOCKED_DESTINATION"
 	TagUnsupportedDocument = "UNSUPPORTED_DOCUMENT"
+	TagExtractionFailed    = "EXTRACTION_FAILED"
 )
 
 type FindSimilarResponse struct {

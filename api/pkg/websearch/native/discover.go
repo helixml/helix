@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/conc/pool"
 
 	"github.com/helixml/helix/api/pkg/searxng"
@@ -45,8 +46,11 @@ func NewSearXNGDiscoverer(client *searxng.Client) *SearXNGDiscoverer {
 // categoryRewrites are keywords appended to the query for Exa categories
 // SearXNG has no equivalent for, steering keyword engines toward the kind of
 // page Exa returns (people → LinkedIn profiles, financial report → filings).
+// A company query already names the company, and its own site is the best
+// result; appending "company" only pulls in pages about the word, so it is
+// searched as given.
 var categoryRewrites = map[string]string{
-	websearch.CategoryCompany:         "company",
+	websearch.CategoryCompany:         "",
 	websearch.CategoryPeople:          "linkedin",
 	websearch.CategoryPersonalSite:    "personal blog",
 	websearch.CategoryPublication:     "article",
@@ -93,29 +97,42 @@ func (d *SearXNGDiscoverer) Discover(ctx context.Context, req *DiscoverRequest) 
 	}
 	p.Wait()
 
+	// A cancelled request is the caller's doing, not the engines' failure.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// Engine errors carry SearXNG's address and response bodies: they go to
+	// the server log, and callers get a description without them.
 	warnings := plan.warnings
-	ranked := make([][]Candidate, len(req.Queries))
+	ranked := make([][]keyedCandidate, len(req.Queries))
 	var failed []error
 	unresponsive := map[string]string{} // engine → reason
+	skipped := 0
 	for i, err := range errs {
 		path := queryPath(i)
 		if err != nil {
 			failed = append(failed, fmt.Errorf("%s: %w", path, err))
-			warnings = append(warnings, partialResults(path, "this query failed and its results are missing: "+err.Error()))
+			warnings = append(warnings, partialResults(path, "this query failed and its results are missing"))
 			continue
 		}
 		ranked[i] = runs[i].candidates
+		skipped += runs[i].skipped
 		if runs[i].pageErr != nil {
-			warnings = append(warnings, partialResults(path, fmt.Sprintf("stopped paging early: %v", runs[i].pageErr)))
+			failed = append(failed, fmt.Errorf("%s: %w", path, runs[i].pageErr))
+			warnings = append(warnings, partialResults(path, "a later page of results failed; the earlier pages are kept"))
 		}
 		for _, e := range runs[i].unresponsive {
 			unresponsive[e.Name] = e.Reason
 		}
 	}
-	if len(failed) == len(req.Queries) {
+	if len(failed) > 0 || len(unresponsive) > 0 || skipped > 0 {
+		logDegradedDiscovery(ctx, len(req.Queries), failed, unresponsive, skipped)
+	}
+	if allFailed(errs) {
 		return nil, &websearch.Error{
 			Status: http.StatusServiceUnavailable, Tag: websearch.TagUpstreamError,
-			Message: "search engines unavailable: " + errors.Join(failed...).Error(),
+			Message: "the search engines are unavailable",
 		}
 	}
 	if len(unresponsive) > 0 {
@@ -127,6 +144,29 @@ func (d *SearXNGDiscoverer) Discover(ctx context.Context, req *DiscoverRequest) 
 		warnings = append(warnings, w)
 	}
 	return &DiscoverResult{Candidates: candidates, Warnings: warnings}, nil
+}
+
+func allFailed(errs []error) bool {
+	for _, err := range errs {
+		if err == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// logDegradedDiscovery records, once per search, what the engines did not
+// deliver, so operators see CAPTCHAs and outages without reading responses.
+func logDegradedDiscovery(ctx context.Context, queries int, failed []error, unresponsive map[string]string, skipped int) {
+	caller := websearch.CallerFrom(ctx)
+	log.Warn().
+		Str("request_id", caller.RequestID).
+		Int("queries", queries).
+		Int("failures", len(failed)).
+		AnErr("error", errors.Join(failed...)).
+		Interface("unresponsive_engines", unresponsive).
+		Int("skipped_results", skipped).
+		Msg("websearch: discovery degraded")
 }
 
 // queryPath is the request path of the i-th query: the user's query, then
@@ -168,10 +208,13 @@ func (d *SearXNGDiscoverer) plan(req *DiscoverRequest) (*discoverPlan, error) {
 		if !ok {
 			return nil, websearch.InvalidRequest("category: unknown value %q", req.Category)
 		}
-		suffix = append(suffix, rewrite)
+		message := fmt.Sprintf("%q is approximated by a general web search", req.Category)
+		if rewrite != "" {
+			suffix = append(suffix, rewrite)
+			message = fmt.Sprintf("%q is approximated by adding %q to a general web search", req.Category, rewrite)
+		}
 		plan.warnings = append(plan.warnings, websearch.Warning{
-			Code: websearch.WarningApproximatedField, Path: "category",
-			Message: fmt.Sprintf("%q is approximated by adding %q to a general web search", req.Category, rewrite),
+			Code: websearch.WarningApproximatedField, Path: "category", Message: message,
 		})
 	}
 
@@ -229,10 +272,17 @@ func timeRangeSince(age time.Duration) string {
 	return ""
 }
 
+// keyedCandidate is a candidate with its dedupeKey, which merging needs.
+type keyedCandidate struct {
+	Candidate
+	key string
+}
+
 type queryRun struct {
-	candidates   []Candidate // filtered, deduplicated, in SearXNG rank order
-	pageErr      error       // a later page failed; candidates are from earlier pages
+	candidates   []keyedCandidate // filtered, deduplicated, in SearXNG rank order
+	pageErr      error            // a later page failed; candidates are from earlier pages
 	unresponsive []searxng.UnresponsiveEngine
+	skipped      int // results whose URL is not a fetchable web page
 }
 
 // runQuery pages through SearXNG until numResults candidates survive the
@@ -241,7 +291,7 @@ type queryRun struct {
 func (d *SearXNGDiscoverer) runQuery(ctx context.Context, plan *discoverPlan, q string, numResults int) (queryRun, error) {
 	query := plan.base
 	query.Q = strings.TrimSpace(q + " " + plan.suffix)
-	seen := map[string]bool{}
+	seen := map[string]bool{} // dedupe keys
 	var run queryRun
 
 	for page := 1; page <= discoverMaxPages && len(run.candidates) < numResults; page++ {
@@ -257,25 +307,29 @@ func (d *SearXNGDiscoverer) runQuery(ctx context.Context, plan *discoverPlan, q 
 		run.unresponsive = append(run.unresponsive, resp.UnresponsiveEngines...)
 		added := 0
 		for _, r := range resp.Results {
+			// Engines return the odd javascript: or relative link; it is not
+			// a page anyone can fetch, and costs only itself.
 			norm, err := websearch.NormalizeURL(r.URL)
 			if err != nil {
-				return queryRun{}, fmt.Errorf("result url %q: %w", r.URL, err)
-			}
-			if seen[norm] {
+				run.skipped++
 				continue
 			}
-			seen[norm] = true
+			u, err := url.Parse(norm)
+			if err != nil {
+				return queryRun{}, fmt.Errorf("parse normalised url %q: %w", norm, err)
+			}
+			key := dedupeKey(u)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
 			added++
 			c := Candidate{URL: norm, Title: r.Title, Snippet: r.Content, PublishedDate: r.PublishedDate, Image: r.Thumbnail}
 			if c.Image == "" {
 				c.Image = r.ImgSrc
 			}
-			keep, err := plan.filter.keep(norm, c.PublishedDate)
-			if err != nil {
-				return queryRun{}, err
-			}
-			if keep {
-				run.candidates = append(run.candidates, c)
+			if plan.filter.keep(u, c.PublishedDate) {
+				run.candidates = append(run.candidates, keyedCandidate{Candidate: c, key: key})
 			}
 		}
 		if added == 0 {
@@ -288,24 +342,25 @@ func (d *SearXNGDiscoverer) runQuery(ctx context.Context, plan *discoverPlan, q 
 // mergeRanked fuses per-query rankings (index 0 is the user's query) and
 // returns the top n. Each URL keeps the fields of its best-ranked
 // occurrence, with a missing date or image taken from another.
-func mergeRanked(ranked [][]Candidate, n int) []Candidate {
+func mergeRanked(ranked [][]keyedCandidate, n int) []Candidate {
 	type entry struct {
 		c        Candidate
 		bestRank int
 		score    float64
 	}
-	byURL := map[string]*entry{}
+	byKey := map[string]*entry{}
 	var order []*entry
 	for qi, list := range ranked {
 		weight := 1.0
 		if qi == 0 {
 			weight = userQueryWeight
 		}
-		for rank, c := range list {
-			e, ok := byURL[c.URL]
+		for rank, kc := range list {
+			c := kc.Candidate
+			e, ok := byKey[kc.key]
 			if !ok {
 				e = &entry{c: c, bestRank: rank}
-				byURL[c.URL] = e
+				byKey[kc.key] = e
 				order = append(order, e)
 			} else if rank < e.bestRank {
 				prev := e.c
@@ -438,26 +493,22 @@ type candidateFilter struct {
 	start, end       *time.Time
 }
 
-func (f candidateFilter) keep(normalizedURL string, published *time.Time) (bool, error) {
-	u, err := url.Parse(normalizedURL)
-	if err != nil {
-		return false, err
-	}
+func (f candidateFilter) keep(u *url.URL, published *time.Time) bool {
 	if len(f.include) > 0 && !anyRuleMatches(f.include, u) {
-		return false, nil
+		return false
 	}
 	if anyRuleMatches(f.exclude, u) {
-		return false, nil
+		return false
 	}
 	if published != nil {
 		if f.start != nil && published.Before(*f.start) {
-			return false, nil
+			return false
 		}
 		if f.end != nil && published.After(*f.end) {
-			return false, nil
+			return false
 		}
 	}
-	return true, nil
+	return true
 }
 
 func anyRuleMatches(rules []domainRule, u *url.URL) bool {

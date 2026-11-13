@@ -3,6 +3,7 @@ package native
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -313,7 +314,11 @@ func TestDiscover_PartialFailureWarnsAndTotalFailureErrors(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, websearch.TagUpstreamError, apiErr.Tag)
 	require.Equal(t, http.StatusServiceUnavailable, apiErr.Status)
-	require.ErrorContains(t, err, "status 500")
+	require.NotContains(t, err.Error(), "status 500", "SearXNG's own errors stay in the server log")
+	require.NotContains(t, err.Error(), "127.0.0.1", "SearXNG's address stays in the server log")
+	for _, w := range out.Warnings {
+		require.NotContains(t, w.Message, "status 500")
+	}
 }
 
 func TestDiscover_WithoutCountrySearchesInQueryLanguage(t *testing.T) {
@@ -372,4 +377,55 @@ func TestDiscover_RejectsInvalidInput(t *testing.T) {
 		_, err := d.Discover(context.Background(), req)
 		require.Error(t, err, name)
 	}
+}
+
+// One engine's junk result costs only itself: a non-web URL is skipped, an
+// unparseable date becomes no date, and later pages still count.
+func TestDiscover_JunkResultsCostOnlyThemselves(t *testing.T) {
+	bad := "13 Nov 2026"
+	f := &fakeSearXNG{pages: map[string][]fakeResult{
+		"golang|1": {res("https://go.dev/"), res("javascript:void(0)"), {URL: "https://x.example/", Title: "x", PublishedDate: &bad}},
+		"golang|2": {res("ftp://mirror/"), res("https://pkg.go.dev/")},
+	}}
+	out, err := newTestDiscoverer(t, f).Discover(context.Background(), &DiscoverRequest{Queries: []string{"golang"}, NumResults: 3})
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://go.dev/", "https://x.example/", "https://pkg.go.dev/"}, urls(out.Candidates))
+	require.Nil(t, out.Candidates[1].PublishedDate)
+	require.Empty(t, out.Warnings, "skipped junk is an operator concern, not a degraded result")
+}
+
+// The same page reached several ways is one candidate, kept under the URL
+// the engines ranked first.
+func TestDiscover_CollapsesNearDuplicateURLs(t *testing.T) {
+	f := &fakeSearXNG{pages: map[string][]fakeResult{
+		"golang|1": {
+			res("https://go.dev/doc"), res("http://go.dev/doc"), res("https://www.go.dev/doc/"),
+			res("https://go.dev/doc?utm_source=x&fbclid=y"), res("https://go.dev/doc?page=2"),
+		},
+	}}
+	out, err := newTestDiscoverer(t, f).Discover(context.Background(), &DiscoverRequest{Queries: []string{"golang"}, NumResults: 10})
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://go.dev/doc", "https://go.dev/doc?page=2"}, urls(out.Candidates))
+}
+
+func TestDiscover_CancelledRequestIsTheContextError(t *testing.T) {
+	f := &fakeSearXNG{pages: map[string][]fakeResult{"golang|1": {res("https://go.dev/")}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := newTestDiscoverer(t, f).Discover(ctx, &DiscoverRequest{Queries: []string{"golang"}, NumResults: 2})
+	require.ErrorIs(t, err, context.Canceled)
+	var apiErr *websearch.Error
+	require.False(t, errors.As(err, &apiErr), "not reported as an upstream failure")
+}
+
+// A company query names the company; adding "company" pulls in pages about
+// the word instead of its own site.
+func TestDiscover_CompanyCategorySearchesTheQueryAsGiven(t *testing.T) {
+	f := &fakeSearXNG{pages: map[string][]fakeResult{"Hugging Face|1": {res("https://huggingface.co/")}}}
+	out, err := newTestDiscoverer(t, f).Discover(context.Background(), &DiscoverRequest{Queries: []string{"Hugging Face"}, NumResults: 1, Category: websearch.CategoryCompany})
+	require.NoError(t, err)
+	require.Equal(t, "Hugging Face", f.queries()[0].Get("q"))
+	require.Equal(t, []string{"https://huggingface.co/"}, urls(out.Candidates))
+	require.Len(t, out.Warnings, 1)
+	require.Equal(t, websearch.WarningApproximatedField, out.Warnings[0].Code)
 }
