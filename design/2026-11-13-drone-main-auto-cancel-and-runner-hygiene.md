@@ -16,7 +16,7 @@ the next main build was created (for example 5715 for `7e970cc`: `build-sandbox-
 `killed` and `manifest-sandbox` was `skipped`). **All 12 had already started**, so turning off
 `auto_cancel_running` alone would have saved every one of them.
 
-**Admin action (not done here):**
+**Admin action (applied 2026-11-13 17:55 UTC; `auto_cancel_running` is now false):**
 
 ```bash
 drone repo update helixml/helix --auto-cancel-running=false
