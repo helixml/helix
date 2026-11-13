@@ -1,25 +1,23 @@
 import React, { useState } from 'react';
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
-  TextField,
-  FormControl,
-  CircularProgress,
-  InputLabel,
-  Select,
-  MenuItem,
-  FormHelperText,
-  Checkbox,
-  Box,
-  Alert,
-  Typography,
-} from '@mui/material';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import RadioGroup from '@mui/material/RadioGroup';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Radio from '@mui/material/Radio';
+import TextField from '@mui/material/TextField';
+import FormControl from '@mui/material/FormControl';
+import CircularProgress from '@mui/material/CircularProgress';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormHelperText from '@mui/material/FormHelperText';
+import Checkbox from '@mui/material/Checkbox';
+import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
+import Typography from '@mui/material/Typography';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { IKnowledgeSource } from '../../types';
 import { useListOAuthProviders, useListOAuthConnections } from '../../services/oauthProvidersService';

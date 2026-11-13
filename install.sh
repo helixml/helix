@@ -861,6 +861,28 @@ helix_compose_args() {
     fi
 }
 
+# warn_postgres_eol: the controlplane compose file defaults to PostgreSQL 12
+# so existing data volumes keep starting. 12 is end-of-life; moving to a
+# supported major is an opt-in dump/restore (docs/postgres-upgrade.md).
+warn_postgres_eol() {
+    local image=""
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        image=$(grep -E '^[[:space:]]*HELIX_POSTGRES_IMAGE[[:space:]]*=' "$INSTALL_DIR/.env" 2>/dev/null \
+            | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+    fi
+    case "${image:-postgres:12}" in
+        postgres:12*|*/postgres:12*)
+            echo
+            echo "┌───────────────────────────────────────────────────────────────────────────"
+            echo "│ ⚠️  Helix's database runs PostgreSQL 12, which is end-of-life and no longer"
+            echo "│    receives security fixes. Upgrading is a one-time dump and restore that"
+            echo "│    keeps your current data volume as a rollback:"
+            echo "│    https://github.com/helixml/helix/blob/main/docs/postgres-upgrade.md"
+            echo "└───────────────────────────────────────────────────────────────────────────"
+            ;;
+    esac
+}
+
 # --------------------------------------------------------------------------
 # do_upgrade: lightweight controlplane upgrade path.
 #
@@ -987,6 +1009,7 @@ do_upgrade() {
     echo
     echo "Upgrade complete. Running containers:"
     $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" ps
+    warn_postgres_eol
     exit 0
 }
 
@@ -1912,6 +1935,11 @@ EOF
         RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
         PGVECTOR_PASSWORD=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | sed 's/^PGVECTOR_PASSWORD=//' || generate_password)
         HELIX_ENCRYPTION_KEY=$(grep '^HELIX_ENCRYPTION_KEY=' "$ENV_FILE" | sed 's/^HELIX_ENCRYPTION_KEY=//' || generate_encryption_key)
+        REGULAR_AUTH_JWT_SECRET=$(grep '^REGULAR_AUTH_JWT_SECRET=' "$ENV_FILE" | sed 's/^REGULAR_AUTH_JWT_SECRET=//')
+        case "$REGULAR_AUTH_JWT_SECRET" in
+            ""|helix-default-jwt-secret|helix-default-secret-change-in-production)
+                REGULAR_AUTH_JWT_SECRET=$(generate_encryption_key) ;;
+        esac
 
         # Preserve API keys if not provided as command line arguments
         if [ -z "$ANTHROPIC_API_KEY" ]; then
@@ -1926,6 +1954,7 @@ EOF
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
         PGVECTOR_PASSWORD=$(generate_password)
         HELIX_ENCRYPTION_KEY=$(generate_encryption_key)
+        REGULAR_AUTH_JWT_SECRET=$(generate_encryption_key)
     fi
 
     # On upgrades, write to a temp file so we can merge user customizations
@@ -1951,6 +1980,10 @@ PGVECTOR_PASSWORD=$PGVECTOR_PASSWORD
 # Encryption key for secrets at rest (SSH keys, PATs, etc.)
 # 64-character hex string (32 bytes for AES-256-GCM)
 HELIX_ENCRYPTION_KEY=$HELIX_ENCRYPTION_KEY
+
+# Signing key for login sessions and password-reset links
+# 64-character hex string (32 bytes). Changing it signs everyone out.
+REGULAR_AUTH_JWT_SECRET=$REGULAR_AUTH_JWT_SECRET
 
 # URLs
 KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
@@ -2299,6 +2332,7 @@ CADDYEOF"
         echo
         echo "✅ Helix $LATEST_RELEASE started"
         echo "   Helix is available at $API_HOST"
+        warn_postgres_eol
     fi
 fi
 

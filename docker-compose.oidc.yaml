@@ -52,7 +52,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
   postgres:
-    image: postgres:12.13-alpine
+    image: postgres:12.22-alpine
     restart: always
     ports:
       - 5432:5432
@@ -65,7 +65,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
       - POSTGRES_DATABASES=keycloak
   chrome:
-    image: ghcr.io/go-rod/rod:v0.115.0
+    image: ghcr.io/go-rod/rod:v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107
     restart: always
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke

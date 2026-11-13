@@ -36,7 +36,9 @@ chrome:
   enabled: true
   image:
     repository: ghcr.io/go-rod/rod
-    tag: "v0.115.0"
+    # Pinned by digest: the crawler browser loads user-supplied URLs. Keep the
+    # version in step with github.com/go-rod/rod in go.mod (the launcher client).
+    tag: "v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107"
   # Extra environment variables for the Chrome container (in addition to global.extraEnv)
   extraEnv: []
 
@@ -54,9 +56,21 @@ controlplane:
   # Encryption key for secrets at rest (SSH keys, PATs, etc.)
   # 64-character hex string (32 bytes for AES-256-GCM)
   # Generate with: openssl rand -hex 32
+  # Set this (or encryptionKeyExistingSecret) on every install. When unset the
+  # API falls back to a publicly known default key and logs an error at
+  # startup. Set it before storing any credentials: data encrypted under one
+  # key cannot be read with another.
   encryptionKey: ""
   encryptionKeyExistingSecret: ""
   encryptionKeyExistingSecretKey: ""
+  # Signing key for login sessions and password-reset links (authProvider: regular).
+  # Optional. When unset, the API generates a random key on first boot and
+  # stores it in its database (shared by all replicas, kept across restarts).
+  # Set it to keep the key out of database backups or to manage rotation
+  # yourself; changing it signs everyone out. Generate with: openssl rand -hex 32
+  regularAuthJWTSecret: ""
+  regularAuthJWTSecretExistingSecret: ""
+  regularAuthJWTSecretExistingSecretKey: ""
   licenseKey: ""
   licenseKeyExistingSecret: ""
   licenseKeyExistingSecretKey: ""

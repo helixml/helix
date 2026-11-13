@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
+	"github.com/helixml/helix/api/pkg/connman"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -51,7 +53,7 @@ func (s *OrgDeleteDesktopTeardownSuite) TestStopsOnlyDesktopSessions() {
 	noDesktop := &types.Session{ID: "ses_chat"} // no container → skipped
 
 	s.store.EXPECT().
-		ListSessions(ctx, store.ListSessionsQuery{OrganizationID: orgID, IncludeExternalAgents: true}).
+		ListSessions(ctx, store.ListSessionsQuery{OrganizationID: orgID, AnyOwner: true, IncludeExternalAgents: true}).
 		Return([]*types.Session{withDesktop, noDesktop}, int64(2), nil)
 
 	// Only the desktop session is stopped and soft-deleted.
@@ -71,10 +73,28 @@ func (s *OrgDeleteDesktopTeardownSuite) TestStopFailurePreservesSessionTracking(
 	second.Metadata.DevContainerID = "ubuntu-external-2"
 
 	s.store.EXPECT().
-		ListSessions(ctx, store.ListSessionsQuery{OrganizationID: orgID, IncludeExternalAgents: true}).
+		ListSessions(ctx, store.ListSessionsQuery{OrganizationID: orgID, AnyOwner: true, IncludeExternalAgents: true}).
 		Return([]*types.Session{first, second}, int64(2), nil)
 
 	s.executor.EXPECT().StopDesktop(ctx, "ses_1").Return(context.DeadlineExceeded)
 
 	s.Require().ErrorContains(s.server.stopOrgDesktops(ctx, orgID), "stop desktop ses_1")
+}
+
+// A desktop whose sandbox host is gone has nothing left to stop; the session
+// is still soft-deleted so the orphan reaper treats it as dead.
+func (s *OrgDeleteDesktopTeardownSuite) TestHostGoneDesktopIsStillDeleted() {
+	ctx := context.Background()
+	orgID := "org_teardown"
+	gone := &types.Session{ID: "ses_gone"}
+	gone.Metadata.DevContainerID = "ubuntu-external-gone"
+
+	s.store.EXPECT().
+		ListSessions(ctx, store.ListSessionsQuery{OrganizationID: orgID, AnyOwner: true, IncludeExternalAgents: true}).
+		Return([]*types.Session{gone}, int64(1), nil)
+	s.executor.EXPECT().StopDesktop(ctx, "ses_gone").
+		Return(fmt.Errorf("failed to dial Hydra via RevDial: %w", connman.ErrNoConnection))
+	s.store.EXPECT().DeleteSession(ctx, "ses_gone").Return(gone, nil)
+
+	s.Require().NoError(s.server.stopOrgDesktops(ctx, orgID))
 }

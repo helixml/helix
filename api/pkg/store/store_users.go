@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 
@@ -17,6 +18,12 @@ import (
 type GetUserQuery struct {
 	ID    string
 	Email string
+	// OIDCSubject selects the account linked to this identity provider
+	// subject (types.User.OIDCSubject).
+	OIDCSubject string
+	// DesktopIdentity selects the Helix Desktop auto-login account (the
+	// oldest, should there ever be more than one).
+	DesktopIdentity bool
 }
 
 func (s *PostgresStore) GetUserMeta(ctx context.Context, userID string) (*types.UserMeta, error) {
@@ -126,20 +133,37 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 
 // GetUser retrieves a user by ID
 func (s *PostgresStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.User, error) {
-	if q.ID == "" && q.Email == "" {
+	if q.ID == "" && q.Email == "" && q.OIDCSubject == "" && !q.DesktopIdentity {
 		return nil, fmt.Errorf("userID or email cannot be empty")
 	}
 
 	query := s.gdb.WithContext(ctx)
 
+	if q.DesktopIdentity {
+		query = query.Where("desktop_identity = ?", true).Order("created_at ASC")
+	}
+	if q.OIDCSubject != "" {
+		query = query.Where("oidc_subject = ?", q.OIDCSubject).Order("created_at ASC")
+	}
+
 	if q.ID != "" {
 		query = query.Where("id = ?", q.ID)
 	}
+	var user types.User
 	if q.Email != "" {
-		query = query.Where("email = ?", q.Email)
+		// Emails are matched case-insensitively (as invitations are), so an
+		// address cannot be registered twice in different cases. Rows created
+		// before that rule may differ only in case: an exact match wins, so
+		// such an account keeps resolving to itself.
+		exact := query.Session(&gorm.Session{}).Where("email = ?", strings.TrimSpace(q.Email))
+		if err := exact.Order("created_at ASC").First(&user).Error; err == nil {
+			return &user, nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		query = query.Where("LOWER(email) = ?", NormalizeEmail(q.Email)).Order("created_at ASC")
 	}
 
-	var user types.User
 	err := query.First(&user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -148,6 +172,79 @@ func (s *PostgresStore) GetUser(ctx context.Context, q *GetUserQuery) (*types.Us
 		return nil, err
 	}
 	return &user, nil
+}
+
+// UpdateUserEmailVerification sets email_verified (and oidc_subject when
+// given) by a column update rather than a whole-row save, so it cannot write
+// back a stale password hash over a concurrent password change.
+func (s *PostgresStore) UpdateUserEmailVerification(ctx context.Context, id string, verified bool, oidcSubject string) error {
+	if id == "" {
+		return fmt.Errorf("userID cannot be empty")
+	}
+	values := map[string]any{"email_verified": verified, "updated_at": time.Now()}
+	if oidcSubject != "" {
+		values["oidc_subject"] = oidcSubject
+	}
+	res := s.gdb.WithContext(ctx).Model(&types.User{}).Where("id = ?", id).Updates(values)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// MarkUserOnboarded records that the user has an organization (an accepted
+// invitation): onboarding is complete and the waitlist is lifted. Column
+// update only; see UpdateUserEmailVerification.
+func (s *PostgresStore) MarkUserOnboarded(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("userID cannot be empty")
+	}
+	now := time.Now()
+	res := s.gdb.WithContext(ctx).Model(&types.User{}).Where("id = ?", id).Updates(map[string]any{
+		"onboarding_completed":    true,
+		"onboarding_completed_at": now,
+		"waitlisted":              false,
+		"updated_at":              now,
+	})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// backfillEmailVerified marks accounts created from an identity provider
+// assertion as having a verified email, once, for rows that predate the
+// column. Such accounts use the provider's subject as their ID (not the
+// usr_ prefix of password sign-ups) or record an SSO auth provider. Password
+// sign-ups stay unverified. Idempotent: it only ever sets false to true.
+//
+// Accounts an admin created through POST /api/v1/users before the column
+// existed are indistinguishable from self-service sign-ups (same usr_ ID,
+// provider and password shape), so they are not backfilled: they become
+// verified when their owner accepts an invitation or completes a password
+// reset, and until then "add by email" invites them instead of adding them.
+// New admin-created accounts are verified at creation.
+func (s *PostgresStore) backfillEmailVerified(ctx context.Context) error {
+	if !s.gdb.Migrator().HasTable(&types.User{}) {
+		return nil
+	}
+	err := s.gdb.WithContext(ctx).Exec(`
+		UPDATE users
+		SET email_verified = true
+		WHERE email_verified = false
+		  AND email <> ''
+		  AND (auth_provider = ? OR (id NOT LIKE ? AND auth_provider <> ? AND auth_provider <> ?))
+	`, types.AuthProviderOIDC, system.UserPrefix+"%", types.AuthProviderRegular, types.AuthProviderService).Error
+	if err != nil {
+		return fmt.Errorf("backfill users.email_verified: %w", err)
+	}
+	return nil
 }
 
 // CreateUser creates a new user
@@ -177,31 +274,95 @@ func (s *PostgresStore) UpdateUser(ctx context.Context, user *types.User) (*type
 }
 
 // DeleteUser deletes a user by ID
+// RevokeUserAPIKeys deletes every API key the user owns, including org-,
+// project- and session-scoped keys, and keys the user created for an
+// organization's agent. Those last ones are deleted rather than kept because
+// a key always authenticates as its owner, and authentication refuses a key
+// whose owner is gone: kept, they would be dead credentials that look live in
+// the agent's key list. The agent itself is kept; an org member mints a new
+// key. Authentication looks keys up on every request, so they stop working as
+// soon as this returns.
+func (s *PostgresStore) RevokeUserAPIKeys(ctx context.Context, userID string) error {
+	if userID == "" {
+		return fmt.Errorf("userID cannot be empty")
+	}
+	return s.gdb.WithContext(ctx).Where("owner = ?", userID).Delete(&types.ApiKey{}).Error
+}
+
+// DeleteUser deletes a user and, in one transaction, the data that belongs to
+// the user alone: credentials (API keys, login sessions, OAuth and git
+// provider connections, agent subscriptions), personal agents and their
+// triggers, personal secrets and provider endpoints, memories, the personal
+// wallet, and every organization, team and access-grant membership.
+//
+// Resources owned by an organization are kept even when the user created
+// them; removing the memberships revokes the user's access to them. Personal
+// projects, repositories, chat sessions and files need runtime teardown and
+// are removed by the caller before this runs. The users row is soft-deleted.
 func (s *PostgresStore) DeleteUser(ctx context.Context, userID string) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")
 	}
 
-	err := s.gdb.WithContext(ctx).Delete(&types.User{ID: userID}).Error
-	if err != nil {
-		return err
-	}
-
-	// Delete all API keys for the user
-	err = s.gdb.WithContext(ctx).Where("owner = ?", userID).Delete(&types.ApiKey{}).Error
-	if err != nil {
-		return err
-	}
-
-	// Delete user meta
-	err = s.gdb.WithContext(ctx).Delete(&types.UserMeta{
-		ID: userID,
-	}).Error
-	if err != nil {
-		return err
-	}
-
-	return nil
+	personal := "(organization_id = '' OR organization_id IS NULL)"
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		personalApps := tx.Model(&types.App{}).Select("id").Where("owner = ? AND "+personal, userID)
+		steps := []struct {
+			what string
+			run  func() error
+		}{
+			{"api keys", func() error { return tx.Where("owner = ?", userID).Delete(&types.ApiKey{}).Error }},
+			{"login sessions", func() error { return tx.Where("user_id = ?", userID).Delete(&types.UserSession{}).Error }},
+			{"oauth connections", func() error {
+				return tx.Unscoped().Where("user_id = ?", userID).Delete(&types.OAuthConnection{}).Error
+			}},
+			{"oauth request tokens", func() error {
+				return tx.Where("user_id = ?", userID).Delete(&types.OAuthRequestToken{}).Error
+			}},
+			{"git provider connections", func() error {
+				return tx.Unscoped().Where("user_id = ?", userID).Delete(&types.GitProviderConnection{}).Error
+			}},
+			{"claude subscriptions", func() error {
+				return tx.Where("owner_id = ? AND owner_type = ?", userID, types.OwnerTypeUser).Delete(&types.ClaudeSubscription{}).Error
+			}},
+			{"codex subscriptions", func() error {
+				return tx.Where("owner_id = ? AND owner_type = ?", userID, types.OwnerTypeUser).Delete(&types.CodexSubscription{}).Error
+			}},
+			{"triggers", func() error {
+				return tx.Where("app_id IN (?) OR (owner = ? AND "+personal+")", personalApps, userID).
+					Delete(&types.TriggerConfiguration{}).Error
+			}},
+			{"secrets", func() error {
+				return tx.Where("owner = ? AND owner_type = ? AND (project_id = '' OR project_id IS NULL) AND "+
+					"(app_id = '' OR app_id IS NULL OR app_id IN (?))", userID, types.OwnerTypeUser, personalApps).
+					Delete(&types.Secret{}).Error
+			}},
+			{"provider endpoints", func() error {
+				return tx.Where("owner = ? AND owner_type = ?", userID, types.OwnerTypeUser).Delete(&types.ProviderEndpoint{}).Error
+			}},
+			{"memories", func() error { return tx.Where("user_id = ?", userID).Delete(&types.Memory{}).Error }},
+			{"agents", func() error { return tx.Where("owner = ? AND "+personal, userID).Delete(&types.App{}).Error }},
+			{"wallet", func() error { return tx.Where("user_id = ?", userID).Delete(&types.Wallet{}).Error }},
+			{"access grant role bindings", func() error {
+				return tx.Where("access_grant_id IN (?)",
+					tx.Model(&types.AccessGrant{}).Select("id").Where("user_id = ?", userID),
+				).Delete(&types.AccessGrantRoleBinding{}).Error
+			}},
+			{"access grants", func() error { return tx.Where("user_id = ?", userID).Delete(&types.AccessGrant{}).Error }},
+			{"team memberships", func() error { return tx.Where("user_id = ?", userID).Delete(&types.TeamMembership{}).Error }},
+			{"organization memberships", func() error {
+				return tx.Where("user_id = ?", userID).Delete(&types.OrganizationMembership{}).Error
+			}},
+			{"user meta", func() error { return tx.Where("id = ?", userID).Delete(&types.UserMeta{}).Error }},
+			{"user", func() error { return tx.Delete(&types.User{ID: userID}).Error }},
+		}
+		for _, step := range steps {
+			if err := step.run(); err != nil {
+				return fmt.Errorf("delete user %s: %w", step.what, err)
+			}
+		}
+		return nil
+	})
 }
 
 func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error) {
@@ -424,7 +585,7 @@ func (s *PostgresStore) generateUserSlug(ctx context.Context, userID string) str
 			break
 		}
 		if (userErr != nil && userErr != gorm.ErrRecordNotFound) ||
-		   (orgErr != nil && orgErr != gorm.ErrRecordNotFound) {
+			(orgErr != nil && orgErr != gorm.ErrRecordNotFound) {
 			// On error, just use the slug as-is
 			break
 		}

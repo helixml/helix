@@ -623,6 +623,7 @@ export const filterProjectChatGroups = (groups: SidebarGroup[], query: string): 
 export type SidebarBot = {
   id: string
   name: string
+  portraitIndex?: number
   running: boolean
   working: boolean
   restartRequired: boolean
@@ -640,6 +641,7 @@ export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
     .map((bot) => ({
       id: bot.id!,
       name: bot.name || bot.id!,
+      portraitIndex: bot.portrait_index,
       running: bot.status === 'running',
       working: bot.status === 'running' && bot.agent_work_state === 'working',
       restartRequired: !!bot.restart_required,

@@ -21,6 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/project"
 	"github.com/helixml/helix/api/pkg/cli/provider"
 	"github.com/helixml/helix/api/pkg/cli/roles"
+	"github.com/helixml/helix/api/pkg/cli/runner"
 	"github.com/helixml/helix/api/pkg/cli/sandbox"
 	"github.com/helixml/helix/api/pkg/cli/secret"
 	"github.com/helixml/helix/api/pkg/cli/spectask"
@@ -67,6 +68,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(team.New())
 	RootCmd.AddCommand(member.New())
 	RootCmd.AddCommand(user.New())
+	RootCmd.AddCommand(runner.New())
 	RootCmd.AddCommand(websearch.New())
 
 	// Commands available on all platforms

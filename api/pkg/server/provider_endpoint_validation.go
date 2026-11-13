@@ -1,13 +1,12 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"unicode"
 
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -32,13 +31,62 @@ func validateProviderEndpointShape(endpoint *types.ProviderEndpoint) error {
 	if strings.IndexFunc(endpoint.Name, unicode.IsControl) >= 0 {
 		return errors.New("name contains control characters")
 	}
-	if endpoint.BaseURL == "" {
-		if endpoint.VertexProjectID != "" {
-			return nil
+	if endpoint.VertexRegion != "" {
+		if err := anthropic.ValidateVertexRegion(endpoint.VertexRegion); err != nil {
+			return err
 		}
-		return errors.New("base_url is required")
 	}
-	return validateProviderBaseURL(endpoint.BaseURL)
+	if endpoint.BaseURL == "" {
+		if endpoint.VertexProjectID == "" {
+			return errors.New("base_url is required")
+		}
+	} else if err := validateProviderBaseURL(endpoint.BaseURL); err != nil {
+		return err
+	}
+	return validateProviderEndpointVertex(endpoint)
+}
+
+// validateProviderEndpointVertex checks the Vertex AI settings of an endpoint
+// that routes through Vertex. The region becomes part of the request hostname,
+// and user and org endpoints must bring their own service account key rather
+// than fall back to the server's Google identity.
+func validateProviderEndpointVertex(endpoint *types.ProviderEndpoint) error {
+	if endpoint.VertexProjectID == "" {
+		return nil
+	}
+	if err := anthropic.ValidateVertexRegion(endpoint.VertexRegion); err != nil {
+		return err
+	}
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal {
+		return nil
+	}
+	return anthropic.ValidateTenantVertexCredentials(endpoint.VertexCredentialsJSON)
+}
+
+// errVertexCredentialsFileAdminOnly and errVertexCredentialsRequired are the
+// two ways a non-admin Vertex endpoint could otherwise authenticate with the
+// server's own Google credentials: a path to a key file on the server, or no
+// credentials at all, which falls back to the server's Application Default
+// Credentials.
+var (
+	errVertexCredentialsFileAdminOnly = errors.New("only admins can add endpoints that read Vertex credentials from a server file")
+	errVertexCredentialsRequired      = errors.New("vertex_credentials_json is required for a Vertex AI endpoint")
+)
+
+// validateVertexCredentialsSource rejects Vertex configurations that would
+// borrow the server's own Google credentials. Admins configure the server, so
+// they may use a credentials file or the server's default credentials.
+func validateVertexCredentialsSource(endpoint *types.ProviderEndpoint, isAdmin bool) error {
+	if isAdmin {
+		return nil
+	}
+	if endpoint.VertexCredentialsFile != "" {
+		return errVertexCredentialsFileAdminOnly
+	}
+	if endpoint.VertexProjectID != "" && endpoint.VertexCredentialsJSON == "" {
+		return errVertexCredentialsRequired
+	}
+	return nil
 }
 
 // validateProviderBaseURL checks the base URL's form. Scheme and host rules
@@ -60,20 +108,4 @@ func validateProviderBaseURL(raw string) error {
 		return errors.New("base_url must not contain a fragment")
 	}
 	return nil
-}
-
-// jsonDecodeErrorMessage converts an encoding/json decode error into a
-// client-facing message that names the offending JSON field without exposing
-// Go type names (e.g. "pq.StringArray", "Go struct field ProviderEndpoint").
-func jsonDecodeErrorMessage(err error) string {
-	var typeErr *json.UnmarshalTypeError
-	var syntaxErr *json.SyntaxError
-	switch {
-	case errors.As(err, &typeErr) && typeErr.Field != "":
-		return fmt.Sprintf("Invalid request body: field %q has the wrong type", typeErr.Field)
-	case errors.As(err, &syntaxErr), errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
-		return "Invalid request body: must be a valid JSON object"
-	default:
-		return "Invalid request body"
-	}
 }

@@ -280,6 +280,67 @@ curl -s $BASE_URL/chat/completions -H "Authorization: Bearer $KEY" \
 - **CLEAN UP DEAD CODE** immediately
 - **Org lookup in API handlers**: when a handler reads an `{org_id}` URL segment (or any `org_id` request field), ALWAYS resolve it via `s.lookupOrg(ctx, orgStr)` (in `wallet_handlers.go`) before using it as a key for store lookups, authorization, or persisting onto a row. `lookupOrg` accepts both an `org_…` id AND an org name/slug, so handlers transparently work whether the frontend sent the canonical id or the URL-facing slug. Never write the raw URL segment into a row's `OrganizationID` column — the slug doesn't match wallet/membership rows keyed by id (this caused sandbox delete to fail with `get org wallet: not found`).
 
+### API handler security checklist (MANDATORY)
+
+Applies to every API handler you **add or touch**. When you change an existing handler, bring
+it up to this bar in the same PR; don't leave a known gap for "later". A handler that fails
+any item is not done. (On Nov 10 2026, meta.helix.ml leaked its whole environment because one
+update handler checked the stored row and not the requested value.)
+
+1. **Auth (who are you).**
+   - Register the route on the narrowest router that fits: `adminRouter`, then `authRouter`,
+     then `runnerRouter`. Use `insecureRouter` only for routes that really are public, and
+     say why in a comment.
+   - Declare every new route in its `api/pkg/server/route_policy_<area>_test.go` file (class of
+     caller, and for object routes the authorize* helper the handler calls). The route
+     policy tests fail on an undeclared route, a class that doesn't match the router, a
+     handler that doesn't call its declared helper, or a probe the route fails to refuse.
+   - Never re-implement token parsing in a handler.
+   - Inactive, waitlisted and deleted accounts get no API access (`User.AccountAccessError`).
+     Don't add a credential path that skips that check.
+   - When OIDC is configured, password auth stays off, and the reverse.
+2. **Authz (may you touch *this* object).**
+   - Load the object, then authorize the caller against **that object's** owner and org:
+     `authorizeUserToResource` / `authorizeUserToProject` / `authorizeUserToApp` /
+     `authorizeUserToSession` / `authorizeUserToRepository` in `api/pkg/server/authz.go`.
+     Do this before any read, write or side effect.
+   - Never trust an owner, org, project or user id taken from the body or query string.
+     Derive it from the authenticated user, or verify it against the loaded object.
+     Resolve `{org_id}` with `lookupOrg` (see above).
+   - On **update**, authorize the new values as well as the stored row. Moving an object to
+     another org or project, or setting a privileged field (`api_key_file`, `owner`, `admin`,
+     `base_url` and the like), needs authorization for the target too.
+   - Lists filter by the caller's scope in the **store query**, not afterwards in Go, and
+     can't be widened by a query param unless the caller is an admin.
+   - For an object outside the caller's scope, return 404 or 403 consistently, and never
+     leak whether it exists in another tenant.
+3. **Audit.**
+   - Every HTTP request is recorded by the request audit middleware, which wraps the outer
+     handler in `ListenAndServe` (`api/pkg/server/request_audit.go`). Don't mount routes or
+     handlers that bypass it.
+   - If a new route's request body can carry a secret (keys, tokens, passwords, env, headers),
+     add the route to the body denylist in `api/pkg/auditlog/routes.go` and add a redaction
+     test.
+   - Security-relevant state changes (membership and role changes, access grants, secrets,
+     credentials, provider endpoints, org settings) also write a domain audit row:
+     `org_audit_logs` or `project_audit_logs`.
+4. **IDOR / cross-tenant tests (verified, not assumed).** Each new or changed handler needs a
+   test that:
+   - creates **two tenants** (two users in different orgs, plus an org member without the
+     required role);
+   - has tenant B call tenant A's object by id for **every verb** the route supports (read,
+     update, delete, list, plus any sub-resource or action endpoint);
+   - asserts the request is refused **and that nothing changed**: re-read the object or
+     check the store mock received no write.
+   
+   Also cover: a waitlisted or deactivated user, an API key scoped to another org, and an
+   update that tries to re-parent the object into another tenant. Run the test and watch it
+   **fail with the check removed** before you call it verified. A test that passes either way
+   proves nothing. Example: `api/pkg/server/user_details_authz_test.go`.
+5. **PR description.** Add a short "Security" section to the PR listing, for each touched
+   route: router or auth level, the authz call used, the cross-tenant test name, and any
+   audit denylist entry.
+
 Test suite pattern:
 ```golang
 type MySuite struct {
@@ -541,6 +602,13 @@ the image tag in `/opt/HelixML/prod-app-runner/run.sh`. The CD key must be autho
 three hosts. See `design/2026-06-25-prod-version-bump-runbook.md`. Watch the build with
 `gh pr checks` / the Drone MCP tools and confirm all three deploy steps go green.
 
+**A failed tag build keeps its tag.** `release-rollback` deletes the GitHub release, helm
+charts and R2 assets and reverts `latest.json`, but keeps the git tag. If the failure was flaky,
+retry the same version: wait for the rollback run to finish (its Slack notification), recreate
+the release with `gh release create <tag> --verify-tag --generate-notes` (this does not trigger a
+new build), then restart the tag's Drone build. Never delete and re-push a tag. If the release
+needs a code fix, cut the next patch version instead.
+
 ## CI (Drone)
 **ALWAYS check CI yourself after pushing a PR.** Don't make the user discover the failure and tell you. As soon as a push is up, use `gh pr checks <num>` (or the Drone MCP tools / fallback below) to confirm green or surface failures. If failing, drill into the logs, fix, push the fix, and re-check — all without being asked.
 
@@ -728,11 +796,13 @@ cd api && go test -v -run TestWebSocketSyncSuite ./pkg/server/ -count=1
 ```
 
 ### CI (Drone)
-The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build pipeline:
-1. Clones Zed at commit pinned in `sandbox-versions.txt` (`ZED_COMMIT=...`)
-2. Builds Zed binary (cached by commit hash)
+The `zed-e2e-amd64` pipeline in `.drone.yml` runs on every push and tag:
+1. Clones Zed at the commit pinned in `sandbox-versions.txt` (`ZED_COMMIT=...`)
+2. Builds the Zed binary, cached per commit on the runner (`scripts/build-zed-binary.sh`)
 3. Multi-stage Docker build: Go test server (with current helix source) + runtime
-4. Runs 9-phase E2E test for both `zed-agent` and `claude` with `ANTHROPIC_API_KEY` from Drone secrets
+4. Runs the deterministic lanes (headless smoke, plan lifecycle, 17-phase protocol lifecycle). The live `claude-agent-acp@latest` lane, which makes real Anthropic calls, runs on tags only.
+
+On main and tags, `build-sandbox-amd64` waits for it, so desktop and sandbox images are only published after the e2e passes.
 
 **Updating pinned Zed version**: After pushing Zed changes, update `sandbox-versions.txt` with the new commit hash. The Go test server's `go.mod` has a `replace` directive for local dev; CI overrides it to point to `/drone/src`.
 

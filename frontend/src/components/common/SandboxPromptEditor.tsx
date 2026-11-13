@@ -1,5 +1,5 @@
 import React, { forwardRef, useCallback, useEffect, useRef } from 'react'
-import { Box } from '@mui/material'
+import Box from '@mui/material/Box';
 import { useTheme } from '@mui/material/styles'
 import {
   ensureChangedFileIconSprite,

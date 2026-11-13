@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -39,6 +40,7 @@ func runsWithin(t *testing.T, timeout time.Duration, what string, fn func()) {
 // cancelled by a context. This regressed all OpenAI inference in the process
 // the first time a provider replied 429.
 func TestHandle429ErrorDoesNotDeadlock(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	headers := http.Header{}
@@ -64,6 +66,7 @@ func TestHandle429ErrorDoesNotDeadlock(t *testing.T) {
 }
 
 func TestHandle429ErrorParsesRateLimitHeaders(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	headers := http.Header{}
@@ -86,6 +89,7 @@ func TestHandle429ErrorParsesRateLimitHeaders(t *testing.T) {
 }
 
 func TestHandle429ErrorUsesRetryAfterHeader(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	headers := http.Header{}
@@ -99,6 +103,7 @@ func TestHandle429ErrorUsesRetryAfterHeader(t *testing.T) {
 }
 
 func TestHandle429ErrorBacksOffExponentiallyAndCaps(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 	headers := http.Header{} // no retry-after
 
@@ -128,6 +133,7 @@ func TestHandle429ErrorBacksOffExponentiallyAndCaps(t *testing.T) {
 // other caller behind the one that is backing off, and callers blocked on
 // Lock() cannot observe their own context cancellation.
 func TestWaitForTokensDoesNotHoldLockWhileWaiting(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	headers := http.Header{}
@@ -153,6 +159,7 @@ func TestWaitForTokensDoesNotHoldLockWhileWaiting(t *testing.T) {
 }
 
 func TestWaitForTokensCancelsDuringBackoff(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	headers := http.Header{}
@@ -177,6 +184,7 @@ func TestWaitForTokensCancelsDuringBackoff(t *testing.T) {
 }
 
 func TestWaitForTokensCancelsWhileWaitingForRefill(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	// Drain the bucket without setting a backoff, so the wait comes from the
@@ -203,6 +211,7 @@ func TestWaitForTokensCancelsWhileWaitingForRefill(t *testing.T) {
 }
 
 func TestWaitForTokensDeductsFromBucket(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	rl.mu.RLock()
@@ -223,6 +232,7 @@ func TestWaitForTokensDeductsFromBucket(t *testing.T) {
 // A 429 followed by a successful call is the sequence that stalled production:
 // every request after the 429 must still get through once the backoff expires.
 func TestWaitForTokensRecoversAfterBackoffExpires(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	headers := http.Header{}
@@ -253,6 +263,7 @@ func TestWaitForTokensRecoversAfterBackoffExpires(t *testing.T) {
 // window out in between — that is the sustained-outage case it exists for — and
 // must reset once the provider accepts a request.
 func TestBackoffEscalatesAcrossRetriesAndResetsOnSuccess(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 	headers := http.Header{} // no retry-after, so the exponential ladder applies
 
@@ -289,6 +300,7 @@ func TestBackoffEscalatesAcrossRetriesAndResetsOnSuccess(t *testing.T) {
 // keep making progress against the shared mutex. Throughput semantics are
 // covered by TestWaitForTokensDoesNotOverAdmitUnderConcurrency.
 func TestRateLimiterConcurrentAccessDoesNotDeadlock(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
@@ -342,6 +354,7 @@ func TestRateLimiterConcurrentAccessDoesNotDeadlock(t *testing.T) {
 // bucket, so admitting on the strength of that stale snapshot lets every one of
 // them through at the same instant — N times the configured budget.
 func TestWaitForTokensDoesNotOverAdmitUnderConcurrency(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	const tokensPerSecond = 1000
@@ -368,7 +381,6 @@ func TestWaitForTokensDoesNotOverAdmitUnderConcurrency(t *testing.T) {
 		err error
 	}
 
-	start := time.Now()
 	results := make(chan admission, callers)
 
 	var wg sync.WaitGroup
@@ -377,7 +389,7 @@ func TestWaitForTokensDoesNotOverAdmitUnderConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			err := rl.WaitForTokens(ctx, tokensEach)
-			results <- admission{at: time.Since(start), err: err}
+			results <- admission{at: time.Since(now), err: err}
 		}()
 	}
 	wg.Wait()
@@ -391,17 +403,24 @@ func TestWaitForTokensDoesNotOverAdmitUnderConcurrency(t *testing.T) {
 	require.Len(t, times, callers)
 	slices.Sort(times)
 
-	// Each caller must wait for the bucket to refill its own share — roughly
-	// 200ms apart. Admitting all three at once is the regression.
-	for i := 1; i < callers; i++ {
-		assert.GreaterOrEqualf(t, times[i]-times[i-1], 100*time.Millisecond,
-			"callers %d and %d were admitted %s apart; expected them to be serialised (all admissions: %v)",
-			i-1, i, times[i]-times[i-1], times)
+	// The bucket started empty at `now`, so the k-th admission cannot happen
+	// before k shares (200ms each) have accrued. Admitting them together is the
+	// regression. A lower bound, unlike a gap between admissions, holds under
+	// CPU load: late wakeups only push admissions later.
+	for i, at := range times {
+		share := time.Duration(i+1) * tokensEach * time.Second / tokensPerSecond
+		assert.GreaterOrEqualf(t, at, share,
+			"admission %d came %s after the bucket emptied, before its %s share had accrued; callers were over-admitted (all admissions: %v)",
+			i, at, share, times)
 	}
 
+	// Every token accrued up to the limiter's last refill, minus one share per
+	// admission. Derived from lastRefill rather than wall time so a slow
+	// machine, which accrues more before the last admission, cannot fail it.
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
-	assert.LessOrEqual(t, rl.currentTokens, int64(tokensPerSecond), "bucket should have been charged for every admission")
+	accrued := int64(math.Round(rl.lastRefill.Sub(now).Seconds() * tokensPerSecond))
+	assert.Equal(t, accrued-callers*tokensEach, rl.currentTokens, "bucket should have been charged for every admission")
 }
 
 // A 429 that lands while another caller is asleep in its backoff must extend
@@ -409,6 +428,7 @@ func TestWaitForTokensDoesNotOverAdmitUnderConcurrency(t *testing.T) {
 // the exponential ladder in Handle429Error resets to zero during exactly the
 // sustained-429 storm it exists for.
 func TestHandle429DuringBackoffIsNotDiscarded(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	short := http.Header{}
@@ -443,6 +463,7 @@ func TestHandle429DuringBackoffIsNotDiscarded(t *testing.T) {
 // full step, so callers keep paying the backoff long after the window it was
 // granted for has passed.
 func TestAdmissionDoesNotReArmBackoffWindow(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	headers := http.Header{}
@@ -475,6 +496,7 @@ func TestAdmissionDoesNotReArmBackoffWindow(t *testing.T) {
 // nanoseconds before scaling, so every rate that doesn't divide 60 exactly
 // collapses to zero. 60 is the one value that happens to work.
 func TestWaitTimeForEmptyRequestBucket(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		requestsPerMinute int64
 		want              time.Duration
@@ -502,6 +524,7 @@ func TestWaitTimeForEmptyRequestBucket(t *testing.T) {
 // actually consumed. Polling faster than one unit's interval would otherwise
 // discard every partial interval, so the bucket never accrues at all.
 func TestRefillAccruesAcrossPollsShorterThanOneUnit(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	const requestsPerMinute = 600 // one slot per 100ms
@@ -533,6 +556,7 @@ func TestRefillAccruesAcrossPollsShorterThanOneUnit(t *testing.T) {
 // bucket never accrues, so the caller spins until its context expires. This is
 // the normal header path — any provider reporting remaining-requests: 0.
 func TestWaitForTokensConvergesWhenRequestBucketIsEmpty(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	headers := http.Header{}
@@ -553,6 +577,7 @@ func TestWaitForTokensConvergesWhenRequestBucketIsEmpty(t *testing.T) {
 // Under load some requests succeed while others 429. A success on one must not
 // cancel a retry-after the server explicitly asked for on another.
 func TestHandleSuccessLeavesAnOpenWindowStanding(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	headers := http.Header{}
@@ -576,6 +601,7 @@ func TestHandleSuccessLeavesAnOpenWindowStanding(t *testing.T) {
 // Only 2xx is acceptance. An overloaded provider alternating 503 and 429 would
 // otherwise be knocked back to the base rung on every other response.
 func TestInterceptorOnlyResetsLadderOnSuccessStatus(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		status      int
 		wantCleared bool
@@ -633,6 +659,7 @@ func TestInterceptorOnlyResetsLadderOnSuccessStatus(t *testing.T) {
 // spin-until-ctx trap as the truncation bug, reached from the header path. A
 // zero *remaining* is legitimate and must still be honoured.
 func TestZeroLimitHeadersDoNotWedgeTheBucket(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	before := rl.requestsPerMinute
@@ -658,6 +685,7 @@ func TestZeroLimitHeadersDoNotWedgeTheBucket(t *testing.T) {
 // cap. The full-bucket branch is the only one such a count ever reaches, so it
 // has to clamp — otherwise the excess sticks there indefinitely.
 func TestRefillClampsACountSeededAboveTheCap(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 	maxTokens := rl.maxTokens
 
@@ -685,6 +713,7 @@ func TestRefillClampsACountSeededAboveTheCap(t *testing.T) {
 // covered by the bucket. It must still be admitted once the bucket is full
 // rather than looping until the caller's context expires.
 func TestWaitForTokensAdmitsRequestLargerThanWholeBudget(t *testing.T) {
+	t.Parallel()
 	rl := NewUniversalRateLimiter("openai")
 
 	rl.mu.Lock()

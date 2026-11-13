@@ -50,6 +50,12 @@ func TestValidateEndpointURL(t *testing.T) {
 		{name: "loopback rejected", url: "https://127.0.0.1/hook", wantErr: true},
 		{name: "private rejected", url: "https://10.0.0.1/hook", wantErr: true},
 		{name: "local development opt in", url: "http://127.0.0.1:9000/hook", allowPrivate: true},
+		{name: "CGNAT rejected", url: "https://100.64.0.1/hook", wantErr: true},
+		{name: "Alibaba metadata rejected", url: "https://100.100.100.200/latest/meta-data", wantErr: true},
+		{name: "this-network rejected", url: "https://0.0.0.0/hook", wantErr: true},
+		{name: "this-network rejected with private opt in", url: "http://0.0.0.0:9000/hook", allowPrivate: true, wantErr: true},
+		{name: "metadata rejected with private opt in", url: "http://169.254.169.254/latest/meta-data", allowPrivate: true, wantErr: true},
+		{name: "localhost subdomain rejected", url: "https://api.localhost/hook", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -61,6 +67,20 @@ func TestValidateEndpointURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Deliveries re-check every dialled address, so a hostname that resolves to
+// an internal address (or an IP literal stored before validation tightened)
+// is refused at delivery time too.
+func TestHTTPClientRefusesNonPublicAddresses(t *testing.T) {
+	for _, target := range []string{"https://100.100.100.200/", "http://0.0.0.0:1/", "http://127.0.0.1:1/", "http://localhost:1/"} {
+		t.Run(target, func(t *testing.T) {
+			_, err := NewHTTPClient(time.Second, false).Get(target)
+			require.ErrorContains(t, err, "destination not allowed")
+		})
+	}
+	_, err := NewHTTPClient(time.Second, true).Get("http://169.254.169.254/latest/meta-data")
+	require.ErrorContains(t, err, "destination not allowed")
 }
 
 func TestSignIncludesCurrentAndUnexpiredPreviousSecret(t *testing.T) {

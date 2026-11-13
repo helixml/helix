@@ -202,6 +202,11 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
     if (emailLookup.is_member) {
       return { state: 'in_org', label: 'Already a member', helper: 'This user is already in the organization.' }
     }
+    if (!emailLookup.email_verified) {
+      // The account registered this address but has not shown it owns it,
+      // so the backend invites the address instead of adding the account.
+      return { state: 'not_helix', label: 'Create invitation', helper: 'A Helix account registered this email but has not verified it. An invitation will be sent to the address; whoever owns the mailbox joins by accepting it.' }
+    }
     return { state: 'not_in_org', label: 'Add to organization', helper: 'This user already has a Helix account. Adding them will make them a member of this organization.' }
   }, [debouncedSearchQuery, searchResults, lookingUpEmail, emailLookup])
 

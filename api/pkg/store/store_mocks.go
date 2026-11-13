@@ -236,6 +236,21 @@ func (mr *MockStoreMockRecorder) ClearSessionInteractions(ctx, sessionID any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSessionInteractions", reflect.TypeOf((*MockStore)(nil).ClearSessionInteractions), ctx, sessionID)
 }
 
+// ClearSessionProviderRecovery mocks base method.
+func (m *MockStore) ClearSessionProviderRecovery(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearSessionProviderRecovery", ctx, sessionID, promptID, interactionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearSessionProviderRecovery indicates an expected call of ClearSessionProviderRecovery.
+func (mr *MockStoreMockRecorder) ClearSessionProviderRecovery(ctx, sessionID, promptID, interactionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSessionProviderRecovery", reflect.TypeOf((*MockStore)(nil).ClearSessionProviderRecovery), ctx, sessionID, promptID, interactionID)
+}
+
 // ClearSessionStartingStatus mocks base method.
 func (m *MockStore) ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -292,6 +307,21 @@ func (m *MockStore) CompleteWebhookDelivery(ctx context.Context, update *Webhook
 func (mr *MockStoreMockRecorder) CompleteWebhookDelivery(ctx, update any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteWebhookDelivery", reflect.TypeOf((*MockStore)(nil).CompleteWebhookDelivery), ctx, update)
+}
+
+// ConsumeInvitation mocks base method.
+func (m *MockStore) ConsumeInvitation(ctx context.Context, user *types.User, invitationID, token string) ([]*types.OrganizationMembership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumeInvitation", ctx, user, invitationID, token)
+	ret0, _ := ret[0].([]*types.OrganizationMembership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConsumeInvitation indicates an expected call of ConsumeInvitation.
+func (mr *MockStoreMockRecorder) ConsumeInvitation(ctx, user, invitationID, token any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumeInvitation", reflect.TypeOf((*MockStore)(nil).ConsumeInvitation), ctx, user, invitationID, token)
 }
 
 // ConsumePendingInvitations mocks base method.
@@ -991,6 +1021,21 @@ func (m *MockStore) CreateRunnerProfile(ctx context.Context, p *types.RunnerProf
 func (mr *MockStoreMockRecorder) CreateRunnerProfile(ctx, p any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRunnerProfile", reflect.TypeOf((*MockStore)(nil).CreateRunnerProfile), ctx, p)
+}
+
+// CreateRunnerToken mocks base method.
+func (m *MockStore) CreateRunnerToken(ctx context.Context, t *types.RunnerToken) (*types.RunnerToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateRunnerToken", ctx, t)
+	ret0, _ := ret[0].(*types.RunnerToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateRunnerToken indicates an expected call of CreateRunnerToken.
+func (mr *MockStoreMockRecorder) CreateRunnerToken(ctx, t any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRunnerToken", reflect.TypeOf((*MockStore)(nil).CreateRunnerToken), ctx, t)
 }
 
 // CreateSampleProject mocks base method.
@@ -2357,6 +2402,21 @@ func (mr *MockStoreMockRecorder) DeleteUserSession(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserSession", reflect.TypeOf((*MockStore)(nil).DeleteUserSession), ctx, id)
 }
 
+// DeleteUserSessionWithRefreshToken mocks base method.
+func (m *MockStore) DeleteUserSessionWithRefreshToken(ctx context.Context, id, refreshToken string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUserSessionWithRefreshToken", ctx, id, refreshToken)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteUserSessionWithRefreshToken indicates an expected call of DeleteUserSessionWithRefreshToken.
+func (mr *MockStoreMockRecorder) DeleteUserSessionWithRefreshToken(ctx, id, refreshToken any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserSessionWithRefreshToken", reflect.TypeOf((*MockStore)(nil).DeleteUserSessionWithRefreshToken), ctx, id, refreshToken)
+}
+
 // DeleteUserSessionsByUser mocks base method.
 func (m *MockStore) DeleteUserSessionsByUser(ctx context.Context, userID string) error {
 	m.ctrl.T.Helper()
@@ -2512,6 +2572,21 @@ func (mr *MockStoreMockRecorder) EnqueueWebhookEvent(ctx, eventType, organizatio
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueWebhookEvent", reflect.TypeOf((*MockStore)(nil).EnqueueWebhookEvent), ctx, eventType, organizationID, projectID, data)
 }
 
+// EnsureJWTSigningSecret mocks base method.
+func (m *MockStore) EnsureJWTSigningSecret(ctx context.Context, candidate string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnsureJWTSigningSecret", ctx, candidate)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EnsureJWTSigningSecret indicates an expected call of EnsureJWTSigningSecret.
+func (mr *MockStoreMockRecorder) EnsureJWTSigningSecret(ctx, candidate any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureJWTSigningSecret", reflect.TypeOf((*MockStore)(nil).EnsureJWTSigningSecret), ctx, candidate)
+}
+
 // EnsureUserMeta mocks base method.
 func (m *MockStore) EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -2615,6 +2690,21 @@ func (m *MockStore) GetAccessGrantRoleBindings(ctx context.Context, q *GetAccess
 func (mr *MockStoreMockRecorder) GetAccessGrantRoleBindings(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccessGrantRoleBindings", reflect.TypeOf((*MockStore)(nil).GetAccessGrantRoleBindings), ctx, q)
+}
+
+// GetActiveRunnerTokenByHash mocks base method.
+func (m *MockStore) GetActiveRunnerTokenByHash(ctx context.Context, tokenHash string) (*types.RunnerToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveRunnerTokenByHash", ctx, tokenHash)
+	ret0, _ := ret[0].(*types.RunnerToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActiveRunnerTokenByHash indicates an expected call of GetActiveRunnerTokenByHash.
+func (mr *MockStoreMockRecorder) GetActiveRunnerTokenByHash(ctx, tokenHash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveRunnerTokenByHash", reflect.TypeOf((*MockStore)(nil).GetActiveRunnerTokenByHash), ctx, tokenHash)
 }
 
 // GetAgentRunner mocks base method.
@@ -3216,6 +3306,21 @@ func (m *MockStore) GetKnowledgeVersion(ctx context.Context, id string) (*types.
 func (mr *MockStoreMockRecorder) GetKnowledgeVersion(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKnowledgeVersion", reflect.TypeOf((*MockStore)(nil).GetKnowledgeVersion), ctx, id)
+}
+
+// GetLatestActivationPromptHistoryEntry mocks base method.
+func (m *MockStore) GetLatestActivationPromptHistoryEntry(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestActivationPromptHistoryEntry", ctx, sessionID)
+	ret0, _ := ret[0].(*types.PromptHistoryEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestActivationPromptHistoryEntry indicates an expected call of GetLatestActivationPromptHistoryEntry.
+func (mr *MockStoreMockRecorder) GetLatestActivationPromptHistoryEntry(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestActivationPromptHistoryEntry", reflect.TypeOf((*MockStore)(nil).GetLatestActivationPromptHistoryEntry), ctx, sessionID)
 }
 
 // GetLatestDesignReview mocks base method.
@@ -4762,6 +4867,20 @@ func (mr *MockStoreMockRecorder) IncrementSandboxContainerCount(ctx, id any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementSandboxContainerCount", reflect.TypeOf((*MockStore)(nil).IncrementSandboxContainerCount), ctx, id)
 }
 
+// InsertRequestAuditEvents mocks base method.
+func (m *MockStore) InsertRequestAuditEvents(ctx context.Context, events []*types.RequestAuditEvent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertRequestAuditEvents", ctx, events)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertRequestAuditEvents indicates an expected call of InsertRequestAuditEvents.
+func (mr *MockStoreMockRecorder) InsertRequestAuditEvents(ctx, events any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertRequestAuditEvents", reflect.TypeOf((*MockStore)(nil).InsertRequestAuditEvents), ctx, events)
+}
+
 // IsCommentBeingProcessedForSession mocks base method.
 func (m *MockStore) IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -5121,6 +5240,21 @@ func (m *MockStore) ListGitRepositories(ctx context.Context, request *types.List
 func (mr *MockStoreMockRecorder) ListGitRepositories(ctx, request any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitRepositories", reflect.TypeOf((*MockStore)(nil).ListGitRepositories), ctx, request)
+}
+
+// ListGitRepositoriesByKoditRepoID mocks base method.
+func (m *MockStore) ListGitRepositoriesByKoditRepoID(ctx context.Context, koditRepoID int64) ([]*types.GitRepository, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListGitRepositoriesByKoditRepoID", ctx, koditRepoID)
+	ret0, _ := ret[0].([]*types.GitRepository)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListGitRepositoriesByKoditRepoID indicates an expected call of ListGitRepositoriesByKoditRepoID.
+func (mr *MockStoreMockRecorder) ListGitRepositoriesByKoditRepoID(ctx, koditRepoID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitRepositoriesByKoditRepoID", reflect.TypeOf((*MockStore)(nil).ListGitRepositoriesByKoditRepoID), ctx, koditRepoID)
 }
 
 // ListGoldenBuilds mocks base method.
@@ -5530,6 +5664,21 @@ func (mr *MockStoreMockRecorder) ListReposWithoutProjects(ctx, organizationID, o
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListReposWithoutProjects", reflect.TypeOf((*MockStore)(nil).ListReposWithoutProjects), ctx, organizationID, ownerID)
 }
 
+// ListRequestAuditEvents mocks base method.
+func (m *MockStore) ListRequestAuditEvents(ctx context.Context, filters *types.RequestAuditEventFilters) (*types.RequestAuditEventResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRequestAuditEvents", ctx, filters)
+	ret0, _ := ret[0].(*types.RequestAuditEventResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRequestAuditEvents indicates an expected call of ListRequestAuditEvents.
+func (mr *MockStoreMockRecorder) ListRequestAuditEvents(ctx, filters any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRequestAuditEvents", reflect.TypeOf((*MockStore)(nil).ListRequestAuditEvents), ctx, filters)
+}
+
 // ListRoles mocks base method.
 func (m *MockStore) ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error) {
 	m.ctrl.T.Helper()
@@ -5573,6 +5722,21 @@ func (m *MockStore) ListRunnerProfiles(ctx context.Context) ([]*types.RunnerProf
 func (mr *MockStoreMockRecorder) ListRunnerProfiles(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunnerProfiles", reflect.TypeOf((*MockStore)(nil).ListRunnerProfiles), ctx)
+}
+
+// ListRunnerTokens mocks base method.
+func (m *MockStore) ListRunnerTokens(ctx context.Context, runnerID string) ([]*types.RunnerToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRunnerTokens", ctx, runnerID)
+	ret0, _ := ret[0].([]*types.RunnerToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRunnerTokens indicates an expected call of ListRunnerTokens.
+func (mr *MockStoreMockRecorder) ListRunnerTokens(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunnerTokens", reflect.TypeOf((*MockStore)(nil).ListRunnerTokens), ctx, runnerID)
 }
 
 // ListSampleProjects mocks base method.
@@ -6380,6 +6544,35 @@ func (mr *MockStoreMockRecorder) MarkStaleInteractionErrorIfWaiting(ctx, interac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkStaleInteractionErrorIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkStaleInteractionErrorIfWaiting), ctx, interactionID, generationID, observedUpdated, reason)
 }
 
+// MarkUserOnboarded mocks base method.
+func (m *MockStore) MarkUserOnboarded(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkUserOnboarded", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkUserOnboarded indicates an expected call of MarkUserOnboarded.
+func (mr *MockStoreMockRecorder) MarkUserOnboarded(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkUserOnboarded", reflect.TypeOf((*MockStore)(nil).MarkUserOnboarded), ctx, id)
+}
+
+// MarkUserSessionOIDCRefreshDead mocks base method.
+func (m *MockStore) MarkUserSessionOIDCRefreshDead(ctx context.Context, id, refreshToken string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkUserSessionOIDCRefreshDead", ctx, id, refreshToken)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkUserSessionOIDCRefreshDead indicates an expected call of MarkUserSessionOIDCRefreshDead.
+func (mr *MockStoreMockRecorder) MarkUserSessionOIDCRefreshDead(ctx, id, refreshToken any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkUserSessionOIDCRefreshDead", reflect.TypeOf((*MockStore)(nil).MarkUserSessionOIDCRefreshDead), ctx, id, refreshToken)
+}
+
 // MarkVHostRouteVerified mocks base method.
 func (m *MockStore) MarkVHostRouteVerified(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -6407,6 +6600,21 @@ func (m *MockStore) ParseAndCreateImplementationTasks(ctx context.Context, specT
 func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTaskID, implementationPlan any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
+}
+
+// PruneRequestAuditEvents mocks base method.
+func (m *MockStore) PruneRequestAuditEvents(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PruneRequestAuditEvents", ctx, before, batchSize)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PruneRequestAuditEvents indicates an expected call of PruneRequestAuditEvents.
+func (mr *MockStoreMockRecorder) PruneRequestAuditEvents(ctx, before, batchSize any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PruneRequestAuditEvents", reflect.TypeOf((*MockStore)(nil).PruneRequestAuditEvents), ctx, before, batchSize)
 }
 
 // ReapExpiredSecretIntakes mocks base method.
@@ -6453,6 +6661,20 @@ func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileStuckSendingPrompts", reflect.TypeOf((*MockStore)(nil).ReconcileStuckSendingPrompts), ctx)
 }
 
+// RecordSessionAgentConfigApplied mocks base method.
+func (m *MockStore) RecordSessionAgentConfigApplied(ctx context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordSessionAgentConfigApplied", ctx, sessionID, appliedAt, handoffDelivered)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordSessionAgentConfigApplied indicates an expected call of RecordSessionAgentConfigApplied.
+func (mr *MockStoreMockRecorder) RecordSessionAgentConfigApplied(ctx, sessionID, appliedAt, handoffDelivered any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordSessionAgentConfigApplied", reflect.TypeOf((*MockStore)(nil).RecordSessionAgentConfigApplied), ctx, sessionID, appliedAt, handoffDelivered)
+}
+
 // RecoverProviderPrompt mocks base method.
 func (m *MockStore) RecoverProviderPrompt(ctx context.Context, sessionID, promptID string, now, nextCheckAt time.Time, maxAttempts int) (bool, error) {
 	m.ctrl.T.Helper()
@@ -6466,6 +6688,21 @@ func (m *MockStore) RecoverProviderPrompt(ctx context.Context, sessionID, prompt
 func (mr *MockStoreMockRecorder) RecoverProviderPrompt(ctx, sessionID, promptID, now, nextCheckAt, maxAttempts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverProviderPrompt", reflect.TypeOf((*MockStore)(nil).RecoverProviderPrompt), ctx, sessionID, promptID, now, nextCheckAt, maxAttempts)
+}
+
+// RecoverProviderPromptForConfigChange mocks base method.
+func (m *MockStore) RecoverProviderPromptForConfigChange(ctx context.Context, sessionID, promptID, interactionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecoverProviderPromptForConfigChange", ctx, sessionID, promptID, interactionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecoverProviderPromptForConfigChange indicates an expected call of RecoverProviderPromptForConfigChange.
+func (mr *MockStoreMockRecorder) RecoverProviderPromptForConfigChange(ctx, sessionID, promptID, interactionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverProviderPromptForConfigChange", reflect.TypeOf((*MockStore)(nil).RecoverProviderPromptForConfigChange), ctx, sessionID, promptID, interactionID)
 }
 
 // RedeemSecretIntakeInvitation mocks base method.
@@ -6657,6 +6894,21 @@ func (mr *MockStoreMockRecorder) RevertPromptToPending(ctx, promptID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevertPromptToPending", reflect.TypeOf((*MockStore)(nil).RevertPromptToPending), ctx, promptID)
 }
 
+// RevokeRunnerToken mocks base method.
+func (m *MockStore) RevokeRunnerToken(ctx context.Context, id, revokedBy string) (*types.RunnerToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeRunnerToken", ctx, id, revokedBy)
+	ret0, _ := ret[0].(*types.RunnerToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RevokeRunnerToken indicates an expected call of RevokeRunnerToken.
+func (mr *MockStoreMockRecorder) RevokeRunnerToken(ctx, id, revokedBy any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeRunnerToken", reflect.TypeOf((*MockStore)(nil).RevokeRunnerToken), ctx, id, revokedBy)
+}
+
 // RevokeSecretIntake mocks base method.
 func (m *MockStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) error {
 	m.ctrl.T.Helper()
@@ -6669,6 +6921,35 @@ func (m *MockStore) RevokeSecretIntake(arg0 context.Context, arg1, arg2 string) 
 func (mr *MockStoreMockRecorder) RevokeSecretIntake(arg0, arg1, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeSecretIntake", reflect.TypeOf((*MockStore)(nil).RevokeSecretIntake), arg0, arg1, arg2)
+}
+
+// RevokeUserAPIKeys mocks base method.
+func (m *MockStore) RevokeUserAPIKeys(ctx context.Context, userID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeUserAPIKeys", ctx, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeUserAPIKeys indicates an expected call of RevokeUserAPIKeys.
+func (mr *MockStoreMockRecorder) RevokeUserAPIKeys(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeUserAPIKeys", reflect.TypeOf((*MockStore)(nil).RevokeUserAPIKeys), ctx, userID)
+}
+
+// RotateOrganizationInvitationToken mocks base method.
+func (m *MockStore) RotateOrganizationInvitationToken(ctx context.Context, id string) (*types.OrganizationInvitation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RotateOrganizationInvitationToken", ctx, id)
+	ret0, _ := ret[0].(*types.OrganizationInvitation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RotateOrganizationInvitationToken indicates an expected call of RotateOrganizationInvitationToken.
+func (mr *MockStoreMockRecorder) RotateOrganizationInvitationToken(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateOrganizationInvitationToken", reflect.TypeOf((*MockStore)(nil).RotateOrganizationInvitationToken), ctx, id)
 }
 
 // RotateVHostRouteHostname mocks base method.
@@ -6913,6 +7194,21 @@ func (m *MockStore) SetSessionProviderRecovery(ctx context.Context, sessionID st
 func (mr *MockStoreMockRecorder) SetSessionProviderRecovery(ctx, sessionID, recovery any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSessionProviderRecovery", reflect.TypeOf((*MockStore)(nil).SetSessionProviderRecovery), ctx, sessionID, recovery)
+}
+
+// SetWalletPlanOverride mocks base method.
+func (m *MockStore) SetWalletPlanOverride(ctx context.Context, walletID, plan string) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetWalletPlanOverride", ctx, walletID, plan)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetWalletPlanOverride indicates an expected call of SetWalletPlanOverride.
+func (mr *MockStoreMockRecorder) SetWalletPlanOverride(ctx, walletID, plan any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetWalletPlanOverride", reflect.TypeOf((*MockStore)(nil).SetWalletPlanOverride), ctx, walletID, plan)
 }
 
 // SetWebServiceHostDeviceID mocks base method.
@@ -8097,6 +8393,20 @@ func (mr *MockStoreMockRecorder) UpdateUser(ctx, user any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUser", reflect.TypeOf((*MockStore)(nil).UpdateUser), ctx, user)
 }
 
+// UpdateUserEmailVerification mocks base method.
+func (m *MockStore) UpdateUserEmailVerification(ctx context.Context, id string, verified bool, oidcSubject string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUserEmailVerification", ctx, id, verified, oidcSubject)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateUserEmailVerification indicates an expected call of UpdateUserEmailVerification.
+func (mr *MockStoreMockRecorder) UpdateUserEmailVerification(ctx, id, verified, oidcSubject any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserEmailVerification", reflect.TypeOf((*MockStore)(nil).UpdateUserEmailVerification), ctx, id, verified, oidcSubject)
+}
+
 // UpdateUserMeta mocks base method.
 func (m *MockStore) UpdateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -8127,21 +8437,6 @@ func (mr *MockStoreMockRecorder) UpdateUserSession(ctx, session any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserSession", reflect.TypeOf((*MockStore)(nil).UpdateUserSession), ctx, session)
 }
 
-// UpdateWallet mocks base method.
-func (m *MockStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateWallet", ctx, wallet)
-	ret0, _ := ret[0].(*types.Wallet)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UpdateWallet indicates an expected call of UpdateWallet.
-func (mr *MockStoreMockRecorder) UpdateWallet(ctx, wallet any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWallet", reflect.TypeOf((*MockStore)(nil).UpdateWallet), ctx, wallet)
-}
-
 // UpdateWalletBalance mocks base method.
 func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
 	m.ctrl.T.Helper()
@@ -8155,6 +8450,21 @@ func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, am
 func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount, meta)
+}
+
+// UpdateWalletSubscription mocks base method.
+func (m *MockStore) UpdateWalletSubscription(ctx context.Context, walletID string, state types.WalletSubscriptionState) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWalletSubscription", ctx, walletID, state)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateWalletSubscription indicates an expected call of UpdateWalletSubscription.
+func (mr *MockStoreMockRecorder) UpdateWalletSubscription(ctx, walletID, state any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletSubscription", reflect.TypeOf((*MockStore)(nil).UpdateWalletSubscription), ctx, walletID, state)
 }
 
 // UpdateWebServiceDeploy mocks base method.

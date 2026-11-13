@@ -3,12 +3,16 @@ package tools
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -49,6 +53,31 @@ func (c *ChainStrategy) validateAndDefaultAPI(ctx context.Context, tool *types.T
 	// TODO: create a better summary for the tool if possible
 
 	return tool, nil
+}
+
+// apiToolDestinationTimeout bounds the DNS lookup CheckAPIToolDestination
+// makes while an agent is being saved.
+const apiToolDestinationTimeout = 3 * time.Second
+
+// CheckAPIToolDestination refuses an API tool URL the outbound policy would
+// block when the tool is called (loopback, private, link-local and metadata
+// addresses), so the mistake surfaces when the agent is saved. A relative URL
+// (an OpenAPI servers entry such as "/api") names no host and is left alone,
+// as before; the dial-time guard still applies to whatever it resolves to.
+func CheckAPIToolDestination(ctx context.Context, policy netguard.Policy, rawURL string) error {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err == nil && u.Scheme == "" && u.Host == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, apiToolDestinationTimeout)
+	defer cancel()
+	if err := policy.ValidateURL(ctx, rawURL); err != nil {
+		if errors.Is(err, netguard.ErrBlockedDestination) {
+			return fmt.Errorf("API URL is not an allowed destination: %w", err)
+		}
+		return fmt.Errorf("invalid API URL: %w", err)
+	}
+	return nil
 }
 
 func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, schema *openapi3.T) error {
@@ -137,6 +166,14 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 	case types.ToolTypeAzureDevOps:
 		if tool.Config.AzureDevOps == nil {
 			return system.NewHTTPError400("Azure DevOps config is required for Azure DevOps tools")
+		}
+
+		// The organization URL is fetched from the API server; addresses are
+		// checked against the outbound policy on every connection.
+		if u := tool.Config.AzureDevOps.OrganizationURL; u != "" {
+			if parsed, err := netguard.ValidateHTTPURL(u); err != nil || parsed.Scheme != "https" {
+				return system.NewHTTPError400("Azure DevOps organization URL must be an https URL")
+			}
 		}
 
 		// TODO: re-enable this when we have a way to validate the credentials

@@ -34,6 +34,41 @@ type Wallet struct {
 	Balance float64 `json:"balance"`
 }
 
+// WalletSubscriptionState is the set of wallet columns mirrored from a Stripe
+// subscription. Stripe sync paths write exactly these columns.
+type WalletSubscriptionState struct {
+	StripeSubscriptionID string
+	Status               stripe.SubscriptionStatus
+	CurrentPeriodStart   int64
+	CurrentPeriodEnd     int64
+	Created              int64
+	CancelAtPeriodEnd    bool
+}
+
+// SubscriptionStateFromStripe mirrors a Stripe subscription onto wallet columns.
+func SubscriptionStateFromStripe(sub *stripe.Subscription) WalletSubscriptionState {
+	return WalletSubscriptionState{
+		StripeSubscriptionID: sub.ID,
+		Status:               sub.Status,
+		CurrentPeriodStart:   sub.CurrentPeriodStart,
+		CurrentPeriodEnd:     sub.CurrentPeriodEnd,
+		Created:              sub.Created,
+		CancelAtPeriodEnd:    sub.CancelAtPeriodEnd,
+	}
+}
+
+// SubscriptionState returns the wallet's Stripe-mirrored subscription columns.
+func (w *Wallet) SubscriptionState() WalletSubscriptionState {
+	return WalletSubscriptionState{
+		StripeSubscriptionID: w.StripeSubscriptionID,
+		Status:               w.SubscriptionStatus,
+		CurrentPeriodStart:   w.SubscriptionCurrentPeriodStart,
+		CurrentPeriodEnd:     w.SubscriptionCurrentPeriodEnd,
+		Created:              w.SubscriptionCreated,
+		CancelAtPeriodEnd:    w.SubscriptionCancelAtPeriodEnd,
+	}
+}
+
 const ErrorInsufficientBalance = "insufficient balance"
 
 // Plan override values for Wallet.PlanOverride.
@@ -90,8 +125,20 @@ type TransactionMetadata struct {
 	TopUpID                 string          `json:"top_up_id"`
 	StripePaymentIntentID   string          `json:"stripe_payment_intent_id"`
 	StripeCheckoutSessionID string          `json:"stripe_checkout_session_id"`
+	StripeInvoiceID         string          `json:"stripe_invoice_id"` // see SubscriptionInvoiceCredit
 	WebSearchRequestID      string          `json:"web_search_request_id"`
 	TransactionType         TransactionType `json:"transaction_type"`
+}
+
+// SubscriptionInvoiceCredit records that a paid Stripe subscription invoice
+// has credited a wallet. The invoice id is the primary key, so a redelivered
+// invoice.paid webhook cannot credit the wallet twice; the row is written in
+// the same transaction as the balance change.
+type SubscriptionInvoiceCredit struct {
+	StripeInvoiceID string    `json:"stripe_invoice_id" gorm:"primaryKey"`
+	CreatedAt       time.Time `json:"created_at"`
+	WalletID        string    `json:"wallet_id" gorm:"index"`
+	Amount          float64   `json:"amount"`
 }
 
 type TransactionType string

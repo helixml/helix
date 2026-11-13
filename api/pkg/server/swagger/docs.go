@@ -24721,6 +24721,13 @@ const docTemplate = `{
                 "full_name": {
                     "type": "string"
                 },
+                "invitation_id": {
+                    "description": "InvitationID and InvitationToken come from the invite link\n(/login?invitation=<id>&token=<token>). Password sign-up does not\nverify the email address, so only the invitation presented here is\naccepted, and only with its secret token and when it was sent to Email.",
+                    "type": "string"
+                },
+                "invitation_token": {
+                    "type": "string"
+                },
                 "password": {
                     "type": "string"
                 },

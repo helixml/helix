@@ -136,6 +136,10 @@ func newTokenSource(ctx context.Context, credentialsJSON, credentialsFile string
 // This replicates the logic from the Anthropic SDK's vertex middleware, which is
 // unexported and designed for the SDK's own client pipeline rather than a reverse proxy.
 func vertexTransformRequest(r *http.Request, projectID, region string, tokenSource oauth2.TokenSource) error {
+	if err := ValidateVertexRegion(region); err != nil {
+		return err
+	}
+
 	// Get a valid OAuth2 token (auto-refreshes if expired)
 	token, err := tokenSource.Token()
 	if err != nil {

@@ -30,7 +30,8 @@ func TestLoadAssistant_AppliesCodeAgentOverrides(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().GetAppWithTools(gomock.Any(), "app-1").Return(&types.App{
-		ID: "app-1",
+		ID:    "app-1",
+		Owner: "user-1",
 		Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
 			AgentType:        types.AgentTypeZedExternal,
 			CodeAgentRuntime: types.CodeAgentRuntimeOpenCode,

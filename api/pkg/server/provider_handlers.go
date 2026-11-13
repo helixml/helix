@@ -51,6 +51,58 @@ func (s *HelixAPIServer) listProviders(rw http.ResponseWriter, r *http.Request) 
 
 var blankAPIKey = "********"
 
+// maskedSecret replaces a stored credential in API responses. A request that
+// sends it back unchanged means "keep the stored value".
+const maskedSecret = "*****"
+
+// isMaskedSecret reports whether v is one of the placeholders the API returns
+// in place of a stored credential.
+func isMaskedSecret(v string) bool {
+	return v == maskedSecret || v == blankAPIKey
+}
+
+// redactProviderEndpointCredentials masks every credential an endpoint holds
+// before it is written to a response. Provider endpoints are readable by more
+// people than can edit them (global endpoints by every user, org endpoints by
+// every member), so the API key, custom header values (often an
+// Authorization or x-api-key header) and the Vertex service account JSON must
+// never leave the server.
+func redactProviderEndpointCredentials(endpoint *types.ProviderEndpoint) {
+	if endpoint.APIKey != "" {
+		endpoint.APIKey = maskedSecret
+	}
+	if len(endpoint.Headers) > 0 {
+		masked := make(map[string]string, len(endpoint.Headers))
+		for name := range endpoint.Headers {
+			masked[name] = maskedSecret
+		}
+		endpoint.Headers = masked
+	}
+	if endpoint.VertexCredentialsJSON != "" {
+		endpoint.VertexCredentialsJSON = maskedSecret
+	}
+}
+
+// callerOwnsProviderEndpoint reports whether the caller manages endpoint and
+// may therefore see its connection details: a deployment admin, the user who
+// owns it, or a member of the organization being listed when that org owns it.
+func callerOwnsProviderEndpoint(user *types.User, orgID string, endpoint *types.ProviderEndpoint) bool {
+	if isAdmin(user) {
+		return true
+	}
+	if !hasUser(user) {
+		return false
+	}
+	switch endpoint.OwnerType {
+	case types.OwnerTypeUser:
+		return endpoint.Owner == user.ID
+	case types.OwnerTypeOrg:
+		return orgID != "" && endpoint.Owner == orgID
+	default:
+		return false
+	}
+}
+
 // providersManagementEnabled reports whether non-admin users may manage their
 // own provider endpoints. Two operator controls grant this and they mean the
 // same thing: the static ENABLE_CUSTOM_USER_PROVIDERS env var and the admin
@@ -143,16 +195,16 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		All:        all,
 	}
 
-	if orgID != "" {
-		query.OwnerType = types.OwnerTypeOrg
-		query.Owner = orgID
-	} else {
-		query.OwnerType = types.OwnerTypeUser
-		query.Owner = user.ID
-	}
-
 	// If authenticated, fetch user endpoints
 	if user != nil {
+		if orgID != "" {
+			query.OwnerType = types.OwnerTypeOrg
+			query.Owner = orgID
+		} else {
+			query.OwnerType = types.OwnerTypeUser
+			query.Owner = user.ID
+		}
+
 		if query.All && !user.Admin {
 			http.Error(rw, "Only system admins can list all endpoints", http.StatusForbidden)
 			return
@@ -163,12 +215,6 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			log.Err(err).Msg("error listing provider endpoints")
 			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 			return
-		}
-
-		for idx := range providerEndpoints {
-			if providerEndpoints[idx].APIKey != "" {
-				providerEndpoints[idx].APIKey = blankAPIKey
-			}
 		}
 
 		// Sort endpoints by name before adding global ones
@@ -272,6 +318,15 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 	}
 
 	wg.Wait()
+
+	for _, endpoint := range providerEndpoints {
+		redactProviderEndpointCredentials(endpoint)
+		if !callerOwnsProviderEndpoint(user, orgID, endpoint) {
+			// Global and other tenants' endpoints are usable by name; where
+			// they point is backend infrastructure the caller does not manage.
+			endpoint.BaseURL = ""
+		}
+	}
 
 	writeResponse(rw, providerEndpoints, http.StatusOK)
 }
@@ -521,7 +576,8 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 		// and chat-completions routing both work. The catalogue read can't use
 		// that fallback — it exists to show what the upstream offers, so an
 		// unreachable upstream must surface as an error, not an empty list.
-		if wantCatalogue || len(providerEndpoint.Models) == 0 || !errors.Is(fetchErr, errUpstreamUnreachable) {
+		_, discoveredBefore := s.loadCachedModels(catalogueKey)
+		if wantCatalogue || discoveredBefore || len(providerEndpoint.Models) == 0 || !errors.Is(fetchErr, errUpstreamUnreachable) {
 			return nil, fetchErr
 		}
 		log.Debug().
@@ -530,7 +586,16 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 			Str("owner", providerEndpoint.Owner).
 			Strs("enabled_models", providerEndpoint.Models).
 			Msg("upstream /v1/models failed; using the endpoint's configured model list")
-		catalogue = nil
+		catalogue = make([]types.OpenAIModel, 0, len(providerEndpoint.Models))
+		for _, id := range providerEndpoint.Models {
+			catalogue = append(catalogue, types.OpenAIModel{
+				ID:      id,
+				Object:  "model",
+				OwnedBy: providerEndpoint.Name,
+				Type:    "chat",
+				Enabled: true,
+			})
+		}
 	}
 
 	fetchedAt := time.Now()
@@ -602,10 +667,8 @@ func (s *HelixAPIServer) fetchUpstreamModels(ctx context.Context, providerEndpoi
 
 // applyModelWhitelist reduces a provider's upstream catalogue to the models the
 // operator enabled on the endpoint. An empty list means "everything upstream
-// offers" — the default for a freshly added provider. Enabled ids the upstream
-// doesn't advertise are still returned, synthesized: that is what makes a
-// custom endpoint with no working /v1/models usable, and it keeps a pinned
-// model working when an aggregator temporarily drops it from its listing.
+// offers" - the default for a freshly added provider. Missing configured IDs
+// are excluded because a successful discovery response is authoritative.
 func applyModelWhitelist(providerEndpoint *types.ProviderEndpoint, catalogue []types.OpenAIModel) []types.OpenAIModel {
 	if len(providerEndpoint.Models) == 0 {
 		return catalogue
@@ -625,15 +688,7 @@ func applyModelWhitelist(providerEndpoint *types.ProviderEndpoint, catalogue []t
 		seen[id] = true
 		if m, ok := byID[id]; ok {
 			models = append(models, m)
-			continue
 		}
-		models = append(models, types.OpenAIModel{
-			ID:      id,
-			Object:  "model",
-			OwnedBy: providerEndpoint.Name,
-			Type:    "chat",
-			Enabled: true,
-		})
 	}
 	return models
 }
@@ -789,11 +844,24 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	// Credential files are read from the API server's filesystem.
+	endpoint.VertexCredentialsFile = strings.TrimSpace(endpoint.VertexCredentialsFile)
+	if endpoint.VertexCredentialsFile != "" && !isAdmin {
+		http.Error(rw, "Only admins can add endpoints with Vertex credentials file auth", http.StatusForbidden)
+		return
+	}
+
 	endpoint.Name = strings.TrimSpace(endpoint.Name)
 	endpoint.BaseURL = strings.TrimSpace(endpoint.BaseURL)
 	endpoint.VertexProjectID = strings.TrimSpace(endpoint.VertexProjectID)
+	endpoint.VertexRegion = strings.TrimSpace(endpoint.VertexRegion)
+	endpoint.VertexCredentialsJSON = strings.TrimSpace(endpoint.VertexCredentialsJSON)
 	if err := validateProviderEndpointShape(&endpoint); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := validateVertexCredentialsSource(&endpoint, isAdmin); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 	if err := s.validateProviderEndpointBaseURL(ctx, &endpoint); err != nil {
@@ -826,7 +894,8 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 
 	// Mask API key before any concurrent access to createdEndpoint.
 	endpointForWarm := *createdEndpoint // copy — goroutine needs the real API key
-	createdEndpoint.APIKey = "*****"
+	redactProviderEndpointCredentials(createdEndpoint)
+	createdEndpoint.APIKey = maskedSecret
 
 	// Warm the model cache asynchronously so the first ?with_models=true request is instant.
 	// Use a detached context so the HTTP request completing doesn't cancel the fetch.
@@ -934,7 +1003,8 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	// If endpoint is org endpoint, authorize org owner
+	// An org endpoint belongs to its org's owners; any other endpoint to
+	// its user (or an admin).
 	if existingEndpoint.OwnerType == types.OwnerTypeOrg {
 		_, err := s.authorizeOrgOwner(r.Context(), user, existingEndpoint.Owner)
 		if err != nil {
@@ -942,11 +1012,8 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 			return
 		}
-	}
-
-	// Check ownership - only allow updates to owned endpoints or if user is admin
-	if existingEndpoint.Owner != user.ID && !user.Admin {
-		http.Error(rw, "Unauthorized", http.StatusUnauthorized)
+	} else if err := authorizePersonalProviderEndpoint(user, existingEndpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -974,8 +1041,9 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	// Only admins can add endpoints with API key path auth
-	if existingEndpoint.APIKeyFromFile != "" && !user.Admin {
+	// Only admins can add or change endpoints with API key path auth.
+	if (existingEndpoint.APIKeyFromFile != "" ||
+		(updatedEndpoint.APIKeyFromFile != nil && strings.TrimSpace(*updatedEndpoint.APIKeyFromFile) != "")) && !user.Admin {
 		http.Error(rw, "Only admins can add endpoints with API key path auth", http.StatusForbidden)
 		return
 	}
@@ -1045,7 +1113,15 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	// means "remove every header". Both are legitimate, so only the nil case
 	// keeps the stored headers.
 	if updatedEndpoint.Headers != nil {
-		existingEndpoint.Headers = updatedEndpoint.Headers
+		existingEndpoint.Headers = mergeMaskedHeaders(existingEndpoint.Headers, updatedEndpoint.Headers)
+	}
+	// Responses mask credentials, so a client that round-trips the endpoint
+	// sends the placeholder back. That means "unchanged", not "store *****".
+	if updatedEndpoint.APIKey != nil && isMaskedSecret(strings.TrimSpace(*updatedEndpoint.APIKey)) {
+		updatedEndpoint.APIKey = nil
+	}
+	if updatedEndpoint.VertexCredentialsJSON != nil && isMaskedSecret(strings.TrimSpace(*updatedEndpoint.VertexCredentialsJSON)) {
+		updatedEndpoint.VertexCredentialsJSON = nil
 	}
 	if updatedEndpoint.APIKey != nil {
 		existingEndpoint.APIKey = strings.TrimSpace(*updatedEndpoint.APIKey)
@@ -1079,9 +1155,18 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	if updatedEndpoint.VertexCredentialsFile != nil {
 		existingEndpoint.VertexCredentialsFile = strings.TrimSpace(*updatedEndpoint.VertexCredentialsFile)
 	}
+	// Credential files are read from the API server's filesystem.
+	if existingEndpoint.VertexCredentialsFile != "" && !user.Admin {
+		http.Error(rw, "Only admins can add endpoints with Vertex credentials file auth", http.StatusForbidden)
+		return
+	}
 
 	if err := validateProviderEndpointShape(existingEndpoint); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := validateVertexCredentialsSource(existingEndpoint, user.Admin); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1103,7 +1188,8 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	}
 
 	// Mask API key in response
-	savedEndpoint.APIKey = "*****"
+	redactProviderEndpointCredentials(savedEndpoint)
+	savedEndpoint.APIKey = maskedSecret
 
 	rw.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(rw).Encode(savedEndpoint); err != nil {
@@ -1111,6 +1197,23 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+}
+
+// mergeMaskedHeaders applies a header update. A header sent back with the
+// masked placeholder keeps its stored value; any other value replaces it, and
+// headers missing from the update are removed.
+func mergeMaskedHeaders(stored, updated map[string]string) map[string]string {
+	merged := make(map[string]string, len(updated))
+	for name, value := range updated {
+		if isMaskedSecret(value) {
+			if storedValue, ok := stored[name]; ok {
+				merged[name] = storedValue
+			}
+			continue
+		}
+		merged[name] = value
+	}
+	return merged
 }
 
 // loadEditableProviderEndpoint loads a provider endpoint and authorizes the
@@ -1144,8 +1247,8 @@ func (s *HelixAPIServer) loadEditableProviderEndpoint(rw http.ResponseWriter, r 
 			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 			return nil, false
 		}
-	} else if endpoint.Owner != user.ID && !user.Admin {
-		http.Error(rw, "Unauthorized", http.StatusUnauthorized)
+	} else if err := authorizePersonalProviderEndpoint(user, endpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
 		return nil, false
 	}
 
@@ -1245,7 +1348,8 @@ func (s *HelixAPIServer) updateProviderEndpointModels(rw http.ResponseWriter, r 
 	// up to modelCacheTTL.
 	s.invalidateProviderModelCache(saved.Name, saved.Owner)
 
-	saved.APIKey = "*****"
+	redactProviderEndpointCredentials(saved)
+	saved.APIKey = maskedSecret
 	writeResponse(rw, saved, http.StatusOK)
 }
 
@@ -1294,12 +1398,9 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
 			return
 		}
-	} else {
-		// Check ownership - only allow deletion of owned endpoints or if user is admin
-		if existingEndpoint.Owner != user.ID && !user.Admin {
-			http.Error(rw, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
+	} else if err := authorizePersonalProviderEndpoint(user, existingEndpoint); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
 	}
 
 	if err := s.Store.DeleteProviderEndpoint(ctx, endpointID); err != nil {
@@ -1509,6 +1610,20 @@ func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *h
 		}
 	}
 
+	// A deployment-wide provider is used by every user, so its per-user
+	// breakdown is other users' activity: admins only.
+	if !user.Admin {
+		global, err := s.isGlobalProvider(ctx, id)
+		if err != nil {
+			writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
+			return
+		}
+		if global {
+			writeErrResponse(rw, errors.New("only admins can view per-user usage of a global provider"), http.StatusForbidden)
+			return
+		}
+	}
+
 	visible, err := s.providerVisible(r.Context(), user, id)
 	if err != nil {
 		writeErrResponse(rw, fmt.Errorf("error checking provider visibility: %w", err), http.StatusInternalServerError)
@@ -1526,7 +1641,46 @@ func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *h
 		return
 	}
 
-	writeResponse(rw, metrics, http.StatusOK)
+	writeResponse(rw, redactUsageUsers(metrics), http.StatusOK)
+}
+
+// isGlobalProvider reports whether id names a provider available to the whole
+// deployment: one configured through the server environment, or a stored
+// endpoint of the global type (whose owner need not be an admin).
+func (s *HelixAPIServer) isGlobalProvider(ctx context.Context, id string) (bool, error) {
+	providers, err := s.providerManager.ListProviders(ctx, "")
+	if err != nil {
+		return false, fmt.Errorf("error listing providers: %w", err)
+	}
+	for _, provider := range providers {
+		if string(provider) == id {
+			return true, nil
+		}
+	}
+	endpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: id})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("error getting provider endpoint: %w", err)
+	}
+	return endpoint.EndpointType == types.ProviderEndpointTypeGlobal, nil
+}
+
+// redactUsageUsers reduces each user in a per-user usage report to the fields
+// the report displays. The store loads full user rows, which carry account
+// state (admin flag, trial and credit grants, stored tokens) that other users
+// must not see.
+func redactUsageUsers(metrics []*types.UsersAggregatedUsageMetric) []*types.UsersAggregatedUsageMetric {
+	for _, metric := range metrics {
+		metric.User = types.User{
+			ID:       metric.User.ID,
+			Username: metric.User.Username,
+			Email:    metric.User.Email,
+			FullName: metric.User.FullName,
+		}
+	}
+	return metrics
 }
 
 func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, id string) (bool, error) {
@@ -1551,9 +1705,8 @@ func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, 
 
 	// If it's an org provider, authorize as org member to this org
 	if providerEndpoint.OwnerType == types.OwnerTypeOrg {
-		_, err := s.authorizeOrgMember(ctx, user, providerEndpoint.Owner)
-		if err != nil {
-			return false, fmt.Errorf("error authorizing org member: %w", err)
+		if _, err := s.authorizeOrgMember(ctx, user, providerEndpoint.Owner); err != nil {
+			return false, nil
 		}
 		return true, nil
 	}
@@ -1688,4 +1841,20 @@ func (s *HelixAPIServer) refreshAllProviderModels(ctx context.Context) {
 		Int("error_count", errorCount).
 		Dur("duration", time.Since(startTime)).
 		Msg("completed model cache refresh")
+}
+
+// authorizePersonalProviderEndpoint allows changing a non-org endpoint to its
+// owner and to admins. A project- or session-scoped key acts for its owner
+// only inside its scope; the owner's own provider credentials are outside it.
+func authorizePersonalProviderEndpoint(user *types.User, endpoint *types.ProviderEndpoint) error {
+	if isAgentScopedKey(user) {
+		return errors.New("project- and session-scoped credentials cannot change provider endpoints")
+	}
+	if user.Admin {
+		return nil
+	}
+	if endpoint.Owner != user.ID {
+		return errors.New("not authorized to change this provider endpoint")
+	}
+	return nil
 }

@@ -1408,7 +1408,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 					return fmt.Errorf("%s", FormatDivergenceErrorForUser(divergeErr, repo.Name))
 				}
 				log.Error().Err(err).Str("repo_id", repo.ID).Str("branch", effectiveBaseBranch).Msg("Failed to sync from remote")
-				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", repo.ExternalURL, err)
+				return fmt.Errorf("failed to sync base branch from external repository '%s': %w", RedactURLCredentials(repo.ExternalURL), redactURLSecretInError(err, repo.ExternalURL))
 			}
 		}
 
@@ -2094,15 +2094,32 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		keyType = types.APIkeytypeBotInstance
 	}
 
-	// Check for existing session-scoped key of that type. The type is part of
-	// the lookup so a full key minted before an instance existed is never
-	// reused for it.
+	// Derive project ID and spec task ID from session metadata. A bot
+	// instance's key is bound to its project: git access is limited to it.
+	// So is a project's exploratory desktop: it works across the project
+	// (its spec tasks and their sessions), so its key is confined to the
+	// project rather than to its single session.
+	projectID, specTaskID := sessionKeyScope(session)
+	if session.Metadata.SpecTaskID != "" {
+		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get spec task for API key attribution")
+		} else {
+			projectID = specTask.ProjectID
+		}
+	}
+
+	// Check for existing session-scoped key of that type and scope. Type and
+	// project are part of the lookup so a broader key minted earlier (before
+	// an instance existed, or before exploratory keys carried their project)
+	// is never reused.
 	existing, err := s.store.GetAPIKey(ctx, &types.ApiKey{
 		OrganizationID: req.OrganizationID,
 		Owner:          req.UserID,
 		OwnerType:      types.OwnerTypeUser,
 		SessionID:      req.SessionID,
 		Type:           keyType,
+		ProjectID:      projectID,
 	})
 	if err != nil && err != store.ErrNotFound {
 		return "", fmt.Errorf("failed to get existing API key: %w", err)
@@ -2110,22 +2127,6 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 
 	if existing != nil {
 		return existing.Key, nil
-	}
-
-	// Derive project ID and spec task ID from session metadata. A bot
-	// instance's key is bound to its project: git access is limited to it.
-	var projectID, specTaskID string
-	if keyType == types.APIkeytypeBotInstance {
-		projectID = session.ProjectID
-	}
-	if session.Metadata.SpecTaskID != "" {
-		specTaskID = session.Metadata.SpecTaskID
-		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
-		if err != nil {
-			log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get spec task for API key attribution")
-		} else {
-			projectID = specTask.ProjectID
-		}
 	}
 
 	newKey, err := system.GenerateAPIKey()
@@ -2434,4 +2435,29 @@ func ProjectUsesPullRequests(project *types.Project, repos []*types.GitRepositor
 		}
 	}
 	return false
+}
+
+// sessionKeyScope is the project and spec task a session's API key is
+// confined to, before the spec task's own project is looked up.
+//   - A spec task session: its spec task (and that task's project).
+//   - A bot instance: its project.
+//   - A project's exploratory desktop (not a helix-org worker, which runs
+//     with its own org-level reach): its project.
+//   - Anything else (a plain chat, an org worker): no project; the key is
+//     confined to its session instead.
+func sessionKeyScope(session *types.Session) (projectID, specTaskID string) {
+	projectID = session.ProjectID
+	if projectID == "" {
+		projectID = session.Metadata.ProjectID
+	}
+	switch {
+	case session.Metadata.SpecTaskID != "":
+		return projectID, session.Metadata.SpecTaskID
+	case session.Metadata.SessionRole == types.SessionRoleOrgBotInstance:
+		return session.ProjectID, ""
+	case session.Metadata.SessionRole == "exploratory" && session.Metadata.OrgWorkerID == "":
+		return projectID, ""
+	default:
+		return "", ""
+	}
 }

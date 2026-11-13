@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -68,7 +69,7 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 		})
 		if err != nil {
 			log.Err(err).Msg("error listing organization memberships")
-			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			http.Error(rw, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
@@ -90,7 +91,7 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 					continue
 				}
 				log.Err(err).Msg("error getting organization")
-				http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+				http.Error(rw, "Internal server error", http.StatusInternalServerError)
 				return
 			}
 			org.Member = true
@@ -108,7 +109,7 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 	organizations, err := apiServer.Store.ListOrganizations(r.Context(), &store.ListOrganizationsQuery{})
 	if err != nil {
 		log.Err(err).Msg("error listing organizations")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -117,7 +118,7 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 	})
 	if err != nil {
 		log.Err(err).Msg("error listing organization memberships")
-		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -196,28 +197,30 @@ func (apiServer *HelixAPIServer) getOrganization(rw http.ResponseWriter, r *http
 	user := getRequestUser(r)
 	reference := mux.Vars(r)["id"]
 
+	// Unknown orgs and orgs the caller cannot see answer the same 404, so the
+	// route does not reveal which organization ids or names exist.
 	organization, err := apiServer.lookupOrg(r.Context(), reference)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			http.Error(rw, "Organization not found: "+reference, http.StatusNotFound)
+			http.Error(rw, "Organization not found", http.StatusNotFound)
 			return
 		}
 		log.Err(err).Msg("error getting organization")
-		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Could not get organization", http.StatusInternalServerError)
 		return
 	}
 
 	if _, err := apiServer.authorizeOrgMember(r.Context(), user, organization.ID); err != nil {
-		// Only a missing membership row is a permission answer. Any other
-		// store error (connection failure, timeout) is a server fault, and
-		// reporting it as 403 is actively harmful: the frontend treats 403 as
-		// permanent and evicts the user from an org they can fully access.
-		if !errors.Is(err, store.ErrNotFound) {
-			log.Err(err).Msg("error checking org membership")
-			http.Error(rw, "Could not check org membership: "+err.Error(), http.StatusInternalServerError)
+		// Only a missing membership row or a key scoped to another org is a
+		// permission answer. Any other store error (connection failure,
+		// timeout) is a server fault: the frontend treats 403/404 as permanent
+		// and evicts the user from an org they can fully access.
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, orgstore.ErrKeyOrgScope) {
+			http.Error(rw, "Organization not found", http.StatusNotFound)
 			return
 		}
-		http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
+		log.Err(err).Msg("error checking org membership")
+		http.Error(rw, "Could not check org membership", http.StatusInternalServerError)
 		return
 	}
 
@@ -302,7 +305,7 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		}
 		if err != nil {
 			log.Err(err).Msg("error checking organization name uniqueness")
-			http.Error(rw, "Could not check organization name: "+err.Error(), http.StatusInternalServerError)
+			http.Error(rw, "Could not check organization name", http.StatusInternalServerError)
 			return
 		}
 		// Name exists, try next suffix
@@ -317,7 +320,7 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 	createdOrg, err := apiServer.Store.CreateOrganization(ctx, organization)
 	if err != nil {
 		log.Err(err).Msg("error creating organization")
-		http.Error(rw, "Could not create organization: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Could not create organization", http.StatusInternalServerError)
 		return
 	}
 
@@ -329,7 +332,7 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 	})
 	if err != nil {
 		log.Err(err).Msg("error creating organization membership")
-		http.Error(rw, "Could not create organization membership: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Could not create organization membership", http.StatusInternalServerError)
 		return
 	}
 
@@ -358,24 +361,42 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 	err = apiServer.seedOrganizationRoles(ctx, createdOrg)
 	if err != nil {
 		log.Err(err).Msg("error seeding organization roles")
-		http.Error(rw, "Could not seed organization roles: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Could not seed organization roles", http.StatusInternalServerError)
 		return
 	}
 
-	// If an admin pre-stashed trial intent on this user, apply it to this
-	// first owned org. Best-effort: logs errors but does not block.
-	apiServer.consumeUserTrialIntent(ctx, user, createdOrg.ID)
+	// The consume* helpers save the user row. Give them the stored row, not
+	// the request user: that one carries the caller's bearer token and a
+	// request-scoped admin flag, which a full-row save would persist.
+	if storedUser := apiServer.storedUserForUpdate(ctx, user.ID); storedUser != nil {
+		// If an admin pre-stashed trial intent on this user, apply it to this
+		// first owned org. Best-effort: logs errors but does not block.
+		apiServer.consumeUserTrialIntent(ctx, storedUser, createdOrg.ID)
 
-	// Same for plain admin credit grants (PendingAdminCreditsOnFirstOrg), which
-	// are tracked separately from trial intent so an admin can comp credits
-	// without entangling them with trial-state UI or revocation flows.
-	apiServer.consumeUserAdminCredits(ctx, user, createdOrg.ID)
+		// Same for plain admin credit grants (PendingAdminCreditsOnFirstOrg), which
+		// are tracked separately from trial intent so an admin can comp credits
+		// without entangling them with trial-state UI or revocation flows.
+		apiServer.consumeUserAdminCredits(ctx, storedUser, createdOrg.ID)
 
-	// Apply any admin-stashed paid-plan grant (PlanOnFirstOrg) as a
-	// PlanOverride on this first org's wallet (out-of-band paid customers).
-	apiServer.consumeUserPlanOnFirstOrg(ctx, user, createdOrg.ID)
+		// Apply any admin-stashed paid-plan grant (PlanOnFirstOrg) as a
+		// PlanOverride on this first org's wallet (out-of-band paid customers).
+		apiServer.consumeUserPlanOnFirstOrg(ctx, storedUser, createdOrg.ID)
+	}
 
 	writeResponse(rw, createdOrg, http.StatusCreated)
+}
+
+// storedUserForUpdate loads a user's stored row for a read-modify-write. The
+// users table has token columns only because the request-scoped fields share
+// the struct; they are cleared so a save never keeps a bearer token there.
+func (apiServer *HelixAPIServer) storedUserForUpdate(ctx context.Context, userID string) *types.User {
+	storedUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil || storedUser == nil {
+		log.Warn().Err(err).Str("user_id", userID).Msg("could not load user to apply first-org grants")
+		return nil
+	}
+	scrubUserCredentials(storedUser)
+	return storedUser
 }
 
 func (apiServer *HelixAPIServer) seedOrganizationRoles(ctx context.Context, org *types.Organization) error {
@@ -415,28 +436,34 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	}
 
 	// Check if user is owner
-	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
-	if err != nil {
-		log.Err(err).Msg("error authorizing org owner")
-		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusInternalServerError)
+	if _, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID); err != nil {
+		writeOrgOwnerAuthzError(rw, err)
 		return
 	}
 
-	// Remove all repositories
-	repositories, err := apiServer.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+	if err := apiServer.purgeOrganization(r.Context(), orgID); err != nil {
+		log.Err(err).Str("org_id", orgID).Msg("error deleting organization")
+		http.Error(rw, "Could not delete organization", http.StatusInternalServerError)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
+}
+
+// purgeOrganization deletes an organization and everything it owns:
+// repositories, running desktops, project web services, artifacts, then the
+// organization's rows. Callers authorize first. It stops at the first error
+// so a retry can finish the job.
+func (apiServer *HelixAPIServer) purgeOrganization(ctx context.Context, orgID string) error {
+	repositories, err := apiServer.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		OrganizationID: orgID,
 	})
 	if err != nil {
-		log.Err(err).Msg("error listing repositories")
-		http.Error(rw, "Could not list repositories: "+err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("list repositories: %w", err)
 	}
 	for _, repository := range repositories {
-		err := apiServer.gitRepositoryService.DeleteRepository(r.Context(), repository.ID)
-		if err != nil {
-			log.Err(err).Msg("error deleting repository")
-			http.Error(rw, "Could not delete repository: "+err.Error(), http.StatusInternalServerError)
-			return
+		if err := apiServer.gitRepositoryService.DeleteRepository(ctx, repository.ID); err != nil {
+			return fmt.Errorf("delete repository %s: %w", repository.ID, err)
 		}
 	}
 
@@ -445,34 +472,84 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	// containers are owned by the sessions (which it does not delete), so
 	// without this they linger until the desktop idle reaper stops them
 	// (HELIX_DESKTOP_IDLE_TIMEOUT, default 1h).
-	if err := apiServer.stopOrgDesktops(r.Context(), orgID); err != nil {
-		http.Error(rw, "Could not stop organization desktops: "+err.Error(), http.StatusInternalServerError)
-		return
+	if err := apiServer.stopOrgDesktops(ctx, orgID); err != nil {
+		return fmt.Errorf("stop organization desktops: %w", err)
+	}
+
+	// Project web services run in their own sandboxes behind public
+	// hostnames (default subdomains and custom domains). Deleting the project
+	// rows would leave them serving, so tear each one down as project delete
+	// does.
+	if err := apiServer.teardownOrgWebServices(ctx, orgID); err != nil {
+		return fmt.Errorf("tear down organization web services: %w", err)
+	}
+
+	if err := apiServer.deleteSandboxes(ctx, &store.ListSandboxesQuery{OrganizationID: orgID}, nil); err != nil {
+		return fmt.Errorf("delete organization sandboxes: %w", err)
 	}
 
 	// Public artifacts remain independently addressable, so deleting only the
 	// project rows would orphan live content. Remove every artifact route and
 	// blob owned by the organization before deleting its database graph.
-	artifacts, err := apiServer.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{OrganizationID: orgID})
+	artifacts, err := apiServer.Store.ListArtifacts(ctx, &store.ListArtifactsQuery{OrganizationID: orgID})
 	if err != nil {
-		http.Error(rw, "Could not list organization artifacts: "+err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("list organization artifacts: %w", err)
 	}
 	for _, artifact := range artifacts {
-		if err := apiServer.deleteArtifactResources(r.Context(), artifact); err != nil {
-			http.Error(rw, "Could not delete organization artifact: "+err.Error(), http.StatusInternalServerError)
-			return
+		if err := apiServer.deleteArtifactResources(ctx, artifact); err != nil {
+			return fmt.Errorf("delete organization artifact: %w", err)
 		}
 	}
 
-	err = apiServer.Store.DeleteOrganization(r.Context(), orgID)
-	if err != nil {
-		log.Err(err).Msg("error deleting organization")
-		http.Error(rw, "Could not delete organization: "+err.Error(), http.StatusInternalServerError)
-		return
+	if err := apiServer.Store.DeleteOrganization(ctx, orgID); err != nil {
+		return fmt.Errorf("delete organization rows: %w", err)
 	}
+	return nil
+}
 
-	rw.WriteHeader(http.StatusOK)
+// deleteSandboxes deletes every live sandbox row matching q through the
+// sandbox controller: final billing, key revocation, container (for a
+// Sandboxes-API sandbox) and row. Callers run it after their desktop teardown
+// (stopOrgDesktops, purgeProject), so a session-backed row normally only has
+// its already closed meter left; one whose desktop is still running is
+// stopped through the session, and when that desktop's host is gone the row
+// is deleted anyway, as the session teardown does.
+func (apiServer *HelixAPIServer) deleteSandboxes(ctx context.Context, q *store.ListSandboxesQuery, keep func(*types.Sandbox) bool) error {
+	sandboxes, err := apiServer.Store.ListSandboxes(ctx, q)
+	if err != nil {
+		return fmt.Errorf("list sandboxes: %w", err)
+	}
+	for _, sandbox := range sandboxes {
+		if keep != nil && keep(sandbox) {
+			continue
+		}
+		err := apiServer.sandboxController.Delete(ctx, sandbox.ID)
+		switch {
+		case err == nil, errors.Is(err, store.ErrNotFound):
+		case sandbox.SessionBacked() && sandboxHostGone(err, sandbox.SessionID):
+			if err := apiServer.Store.DeleteSandbox(ctx, sandbox.ID); err != nil {
+				return fmt.Errorf("delete sandbox %s: %w", sandbox.ID, err)
+			}
+		default:
+			return fmt.Errorf("delete sandbox %s: %w", sandbox.ID, err)
+		}
+	}
+	return nil
+}
+
+// teardownOrgWebServices removes the web service (sandbox, public routes and
+// enabled state) of every project in the org.
+func (apiServer *HelixAPIServer) teardownOrgWebServices(ctx context.Context, orgID string) error {
+	projects, err := apiServer.Store.ListProjects(ctx, &store.ListProjectsQuery{OrganizationID: orgID})
+	if err != nil {
+		return fmt.Errorf("list organization projects: %w", err)
+	}
+	for _, project := range projects {
+		if err := apiServer.webServiceController.Teardown(ctx, project.ID); err != nil {
+			return fmt.Errorf("tear down web service of project %s: %w", project.ID, err)
+		}
+	}
+	return nil
 }
 
 // stopOrgDesktops stops and soft-deletes every running external-agent desktop
@@ -481,6 +558,7 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID string) error {
 	sessions, _, err := apiServer.Store.ListSessions(ctx, store.ListSessionsQuery{
 		OrganizationID:        orgID,
+		AnyOwner:              true,
 		IncludeExternalAgents: true,
 	})
 	if err != nil {
@@ -490,7 +568,8 @@ func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID stri
 		if session.Metadata.DevContainerID == "" {
 			continue
 		}
-		if err := apiServer.externalAgentExecutor.StopDesktop(ctx, session.ID); err != nil {
+		// A desktop whose sandbox host is gone has nothing left to stop.
+		if err := apiServer.externalAgentExecutor.StopDesktop(ctx, session.ID); err != nil && !sandboxHostGone(err, session.ID) {
 			return fmt.Errorf("stop desktop %s: %w", session.ID, err)
 		}
 		if _, err := apiServer.Store.DeleteSession(ctx, session.ID); err != nil {
@@ -525,10 +604,8 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	_, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID)
-	if err != nil {
-		log.Err(err).Msg("error authorizing org owner")
-		http.Error(rw, "Could not authorize org owner: "+err.Error(), http.StatusInternalServerError)
+	if _, err = apiServer.authorizeOrgOwner(r.Context(), user, orgID); err != nil {
+		writeOrgOwnerAuthzError(rw, err)
 		return
 	}
 
@@ -537,7 +614,7 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 	})
 	if err != nil {
 		log.Err(err).Msg("error getting organization")
-		http.Error(rw, "Could not get organization: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Could not get organization", http.StatusInternalServerError)
 		return
 	}
 
@@ -557,7 +634,7 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 			existingOrgWithDomain, err := apiServer.Store.GetOrganizationByDomain(r.Context(), normalizedDomain)
 			if err != nil && !errors.Is(err, store.ErrNotFound) {
 				log.Err(err).Msg("error checking domain availability")
-				http.Error(rw, "Could not check domain availability: "+err.Error(), http.StatusInternalServerError)
+				http.Error(rw, "Could not check domain availability", http.StatusInternalServerError)
 				return
 			}
 			if existingOrgWithDomain != nil && existingOrgWithDomain.ID != orgID {
@@ -601,7 +678,7 @@ func (apiServer *HelixAPIServer) updateOrganization(rw http.ResponseWriter, r *h
 	existingOrg, err = apiServer.Store.UpdateOrganization(r.Context(), existingOrg)
 	if err != nil {
 		log.Err(err).Msg("error updating organization")
-		http.Error(rw, "Could not update organization: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Could not update organization", http.StatusInternalServerError)
 		return
 	}
 
@@ -627,7 +704,7 @@ func (apiServer *HelixAPIServer) listOrganizationDomains(rw http.ResponseWriter,
 	organizations, err := apiServer.Store.ListOrganizations(r.Context(), &store.ListOrganizationsQuery{})
 	if err != nil {
 		log.Err(err).Msg("error listing organizations")
-		http.Error(rw, "Could not list organizations: "+err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "Could not list organizations", http.StatusInternalServerError)
 		return
 	}
 
@@ -679,12 +756,9 @@ func (apiServer *HelixAPIServer) getOrganizationGuidelinesHistory(rw http.Respon
 		return
 	}
 
-	// Check if user is a member of the organization
-	_, err = apiServer.Store.GetOrganizationMembership(r.Context(), &store.GetOrganizationMembershipQuery{
-		OrganizationID: org.ID,
-		UserID:         user.ID,
-	})
-	if err != nil && !user.Admin {
+	// Members (and platform admins) may read; org-scoped keys stay confined
+	// to their own organization.
+	if _, err := apiServer.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
 		http.Error(rw, "Not authorized to view organization guidelines history", http.StatusForbidden)
 		return
 	}
@@ -710,4 +784,19 @@ func (apiServer *HelixAPIServer) getOrganizationGuidelinesHistory(rw http.Respon
 	}
 
 	writeResponse(rw, history, http.StatusOK)
+}
+
+// writeOrgOwnerAuthzError answers a failed authorizeOrgOwner check: callers
+// outside the org get the same 404 as an unknown org, members without the
+// owner role get 403, and store failures a generic 500.
+func writeOrgOwnerAuthzError(rw http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, orgstore.ErrKeyOrgScope):
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+	case errors.Is(err, orgstore.ErrNotOrgOwner):
+		http.Error(rw, "Only organization owners can perform this action", http.StatusForbidden)
+	default:
+		log.Err(err).Msg("error authorizing org owner")
+		http.Error(rw, "Could not authorize org owner", http.StatusInternalServerError)
+	}
 }

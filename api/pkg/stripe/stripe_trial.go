@@ -71,9 +71,10 @@ func (s *Stripe) CreateTrialSubscription(_ context.Context, wallet *types.Wallet
 	return sub, nil
 }
 
-// CancelTrialSubscription cancels a Stripe subscription immediately. The
-// webhook (customer.subscription.deleted) marks the wallet as canceled.
-func (s *Stripe) CancelTrialSubscription(_ context.Context, subscriptionID string) error {
+// CancelSubscription cancels a Stripe subscription (trial or paid)
+// immediately. The webhook (customer.subscription.deleted) marks the wallet
+// as canceled.
+func (s *Stripe) CancelSubscription(_ context.Context, subscriptionID string) error {
 	if err := s.EnabledError(); err != nil {
 		return err
 	}

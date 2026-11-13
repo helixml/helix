@@ -74,7 +74,7 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 	var body SwitchAgentRequest
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 		if !errors.Is(err, io.EOF) {
-			return nil, system.NewHTTPError400(fmt.Sprintf("invalid request body: %v", err))
+			return nil, jsonDecodeHTTPError(err)
 		}
 	}
 
@@ -842,11 +842,7 @@ func (apiServer *HelixAPIServer) agentConfigApplied(_ http.ResponseWriter, req *
 	// only set when a live connection actually took the turn — a callback with
 	// nothing delivered is not evidence the turn is moving.
 	now := time.Now()
-	session.Metadata.AgentConfigAppliedAt = now
-	if requestID != "" {
-		session.Metadata.AgentHandoffDeliveredAt = now
-	}
-	if _, err := apiServer.Store.UpdateSession(ctx, *session); err != nil {
+	if err := apiServer.Store.RecordSessionAgentConfigApplied(ctx, sessionID, now, requestID != ""); err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).
 			Msg("switch-agent: failed to record agent-config-applied on the session; the restart fallback will fall back to its 9s budget")
 	}

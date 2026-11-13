@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -39,12 +40,18 @@ type Default struct {
 	browser *browser.Browser
 
 	pageTimeout time.Duration
+	// requestTimeout bounds colly's HTTP fetch of each page.
+	requestTimeout time.Duration
 
 	updateProgress func(progress types.KnowledgeProgress)
 
 	// disableDomainCheck disables colly's AllowedDomains restriction
 	// Useful for testing with localhost where AllowedDomains doesn't work properly
 	disableDomainCheck bool
+
+	// transport, if set, is used for the collector's requests. Pages are
+	// rendered in the browser only after the collector has fetched them.
+	transport http.RoundTripper
 }
 
 func NewDefault(browser *browser.Browser, k *types.Knowledge, updateProgress func(progress types.KnowledgeProgress)) (*Default, error) {
@@ -54,6 +61,7 @@ func NewDefault(browser *browser.Browser, k *types.Knowledge, updateProgress fun
 		parser:         readability.NewParser(),
 		browser:        browser,
 		pageTimeout:    15 * time.Second,
+		requestTimeout: 10 * time.Second,
 		updateProgress: updateProgress,
 	}
 
@@ -129,6 +137,10 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	}
 
 	collector := colly.NewCollector(collyOptions...)
+	collector.SetRequestTimeout(d.requestTimeout)
+	if d.transport != nil {
+		collector.WithTransport(d.transport)
+	}
 
 	b, err := d.browser.GetBrowser(ctx)
 	if err != nil {
@@ -313,6 +325,17 @@ func (d *Default) crawlWithBrowser(ctx context.Context, b *rod.Browser, url stri
 		return nil, fmt.Errorf("error getting page for %s: %w", url, err)
 	}
 	defer d.browser.PutPage(page)
+
+	// The page is rendered in Chrome, which would otherwise resolve and
+	// fetch the URL (and anything its HTML or scripts load or redirect to)
+	// itself, outside the outbound policy enforced by d.transport.
+	if d.transport != nil {
+		stop, err := browser.GuardPage(page, &http.Client{Transport: d.transport})
+		if err != nil {
+			return nil, fmt.Errorf("error guarding page for %s: %w", url, err)
+		}
+		defer stop()
+	}
 
 	if d.knowledge.Source.Web.Crawler.UserAgent != "" {
 		if err := page.SetUserAgent(&proto.NetworkSetUserAgentOverride{

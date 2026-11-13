@@ -119,7 +119,7 @@ func (apiServer *HelixAPIServer) assignRunnerProfile(rw http.ResponseWriter, r *
 	runnerID := mux.Vars(r)["runner_id"]
 	var body runnerProfileAssignRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	if body.ProfileID == "" {
@@ -198,6 +198,11 @@ func (apiServer *HelixAPIServer) clearRunnerProfile(rw http.ResponseWriter, r *h
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getRunnerAssignment(rw http.ResponseWriter, r *http.Request) {
 	runnerID := mux.Vars(r)["runner_id"]
+	// Admins read any runner's assignment; a runner only its own.
+	if err := apiServer.authorizeRunnerIdentity(getRequestUser(r), runnerID); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 	a, err := apiServer.Store.GetRunnerAssignment(r.Context(), runnerID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {

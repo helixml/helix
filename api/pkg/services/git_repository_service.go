@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
 	"code.gitea.io/gitea/modules/setting"
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -85,6 +87,10 @@ type GitRepositoryService struct {
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
 	// rate limit. Set on construction; safe for concurrent use.
 	prListCache *prListCache
+
+	// outboundPolicy, when set, restricts the addresses external repository
+	// URLs may reach (see SetOutboundPolicy).
+	outboundPolicy *netguard.Policy
 
 	// githubReviewWebhooksURL enables PR review feedback for spec tasks: when
 	// set, creating a GitHub pull request also installs (idempotently) a
@@ -527,7 +533,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		// This ensures the repo exists in Helix before Kodit tries to index it
 		log.Info().
 			Str("repo_id", repoID).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 			Str("oauth_connection_id", gitRepo.OAuthConnectionID).
 			Msg("Cloning external repository using native git...")
 
@@ -562,7 +568,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 
 		log.Info().
 			Str("repo_id", repoID).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 			Int("branches", len(gitRepo.Branches)).
 			Msg("Successfully cloned external repository")
 	}
@@ -590,7 +596,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		Str("repo_id", repoID).
 		Str("repo_path", repoPath).
 		Str("repo_type", string(gitRepo.RepoType)).
-		Str("external_url", gitRepo.ExternalURL).
+		Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 		Msg("Created git repository")
 
 	// Register with Kodit if kodit_indexing is enabled
@@ -715,7 +721,7 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 			repoPath := filepath.Join(s.gitRepoBase, gitRepo.ID)
 			log.Info().
 				Str("repo_id", gitRepo.ID).
-				Str("external_url", gitRepo.ExternalURL).
+				Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 				Str("repo_path", repoPath).
 				Msg("Starting async clone using native git")
 
@@ -753,7 +759,7 @@ func (s *GitRepositoryService) CloneRepositoryAsync(gitRepo *types.GitRepository
 
 			log.Info().
 				Str("repo_id", gitRepo.ID).
-				Str("external_url", gitRepo.ExternalURL).
+				Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 				Int("branches", len(gitRepo.Branches)).
 				Msg("Async clone completed successfully")
 			return nil
@@ -1514,7 +1520,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 
 		log.Info().
 			Str("repo_id", gitRepo.ID).
-			Str("external_url", gitRepo.ExternalURL).
+			Str("external_url", RedactURLCredentials(gitRepo.ExternalURL)).
 			Msg("Cloned external repository as bare repo")
 	}
 
@@ -2729,7 +2735,47 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 // upstreamRemoteForRepo returns the external URL and the credentials to send with it.
 func (s *GitRepositoryService) upstreamRemoteForRepo(ctx context.Context, gitRepo *types.GitRepository, userID ...string) upstreamRemote {
 	username, password := s.getCredentialsForRepo(ctx, gitRepo, userID...)
-	return newUpstreamRemote(gitRepo.ExternalURL, username, password)
+	return s.pinUpstream(ctx, newUpstreamRemote(gitRepo.ExternalURL, username, password))
+}
+
+// SetOutboundPolicy restricts the addresses external repository URLs may
+// reach. Each upstream command is pinned to addresses the policy approved
+// at the time the remote was prepared.
+func (s *GitRepositoryService) SetOutboundPolicy(policy netguard.Policy) {
+	s.outboundPolicy = &policy
+}
+
+// adoPolicy is the outbound policy for Azure DevOps organization URLs:
+// the configured one, or the strict default.
+func (s *GitRepositoryService) adoPolicy() netguard.Policy {
+	if s.outboundPolicy == nil {
+		return netguard.Policy{}
+	}
+	return *s.outboundPolicy
+}
+
+// gitProviderAPITimeout bounds one git provider API request made through
+// providerHTTPClient.
+const gitProviderAPITimeout = 60 * time.Second
+
+// providerHTTPClient returns the HTTP client for a GitHub, GitLab or
+// Bitbucket API at baseURL. A repository-supplied (self-hosted) baseURL gets
+// a client guarded by the outbound policy, so it cannot reach loopback,
+// internal services or cloud metadata, including through a redirect (each
+// hop is re-checked); "" keeps the SDK default for the public host.
+func (s *GitRepositoryService) providerHTTPClient(baseURL string) *http.Client {
+	if baseURL == "" {
+		return nil
+	}
+	return s.adoPolicy().NewRedirectingClient(gitProviderAPITimeout)
+}
+
+// pinUpstream applies the outbound policy, when one is set, to remote.
+func (s *GitRepositoryService) pinUpstream(ctx context.Context, remote upstreamRemote) upstreamRemote {
+	if s.outboundPolicy == nil {
+		return remote
+	}
+	return remote.pin(ctx, *s.outboundPolicy)
 }
 
 // getCredentialsForRepo returns username and password/token for a repository

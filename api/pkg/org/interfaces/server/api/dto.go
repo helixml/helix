@@ -59,6 +59,11 @@ type BotDTO struct {
 	ProjectIDs     []string `json:"project_ids,omitempty"`
 	ParentIDs      []string `json:"parent_ids,omitempty"`
 	OrganizationID string   `json:"organization_id,omitempty"`
+	PortraitIndex  *int     `json:"portrait_index,omitempty"`
+	// CanEdit is true when the caller may change this Bot: organization
+	// owners and platform admins, or a member who may update the Bot's
+	// agent app. The UI hides edit, delete and re-parent controls when false.
+	CanEdit bool `json:"can_edit"`
 	// PreserveContext, when true, stops the runtime from wiping this
 	// Bot's chat session before each re-activation, so it accumulates
 	// context across triggers (e.g. Slack). Defaults to false.

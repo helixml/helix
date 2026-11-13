@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // orgAuthorizer builds an org authorizer over the server's store. The org
@@ -43,6 +45,10 @@ func (apiServer *HelixAPIServer) resolveOrgID(ctx context.Context, orgRef string
 // authorizeUserToAppAccessGrants checks if the user is a member of the organization or the app owner
 // and has the necessary permissions to perform the action on the access grant
 func (apiServer *HelixAPIServer) authorizeUserToAppAccessGrants(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
+	if err := denyAccessGrantsToScopedKey(user); err != nil {
+		return err
+	}
+
 	// Check if user is a member of the org
 	orgMembership, err := apiServer.authorizeOrgMember(ctx, user, app.OrganizationID)
 	if err != nil {
@@ -65,6 +71,12 @@ func (apiServer *HelixAPIServer) authorizeUserToAppAccessGrants(ctx context.Cont
 // authorizeUserToApp checks if a user has access to an app
 // This is a server-level method that centralizes the authorization logic
 func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
+	// Scope check first: the owner and org-owner shortcuts below would
+	// otherwise let a project-scoped key reach any app its owner can.
+	if err := apiServer.enforceKeyAppScope(ctx, user, app, action); err != nil {
+		return err
+	}
+
 	// If the organization ID is not set and the user is not the app owner, then error
 	if app.OrganizationID == "" {
 		// This is the old style app logic, where the app is owned by a user and optionally made global
@@ -128,8 +140,9 @@ func (apiServer *HelixAPIServer) authorizeUserToApp(ctx context.Context, user *t
 			project.PullRequestReviewerHelixAppID != app.ID {
 			continue
 		}
-		// App is referenced by this project — check if user has access to the project
-		if err := apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet); err == nil {
+		// App is referenced by this project — the user needs the same action on
+		// the project: reading a project must not grant editing its apps.
+		if err := apiServer.authorizeUserToProject(ctx, user, project, action); err == nil {
 			return nil
 		}
 	}
@@ -167,15 +180,128 @@ var errProjectScopedKey = errors.New("credential is scoped to another project")
 // other project sub-resources belonging to projects it was never dispatched
 // to.
 //
-// Only credentials that carry a project are constrained. Keycloak sessions and
-// ordinary user keys leave User.ProjectID empty and are unaffected, as are
-// session keys minted for work with no project (helix-org workers, plain chat
-// sessions), which keep their existing reach.
+// Only credentials that carry a project are constrained here. Keycloak
+// sessions and ordinary user keys leave User.ProjectID empty and are
+// unaffected; session keys minted for work with no project are confined to
+// their own session by enforceKeySessionScope.
 func enforceKeyProjectScope(user *types.User, projectID string) error {
 	if user == nil || user.ProjectID == "" || user.ProjectID == projectID {
 		return nil
 	}
 	return fmt.Errorf("%w: key is scoped to project %s, request targets %s", errProjectScopedKey, user.ProjectID, projectID)
+}
+
+// errSessionScopedKey is returned when a key minted for one session (and no
+// project) is used against another session.
+var errSessionScopedKey = errors.New("credential is scoped to another session")
+
+// enforceKeySessionScope confines a project-scoped credential to sessions of
+// its own project (and to the session it was minted for), and a key minted
+// for a session outside any project (a plain chat's desktop, a helix-org
+// worker) to that one session: it belongs to the session's owner, so
+// without this it would read every other session the owner has.
+func enforceKeySessionScope(user *types.User, session *types.Session) error {
+	if user == nil {
+		return nil
+	}
+	if user.ProjectID == "" {
+		if user.SessionID != "" && session.ID != user.SessionID {
+			return fmt.Errorf("%w: key is scoped to session %s, request targets %s", errSessionScopedKey, user.SessionID, session.ID)
+		}
+		return nil
+	}
+	if user.SessionID != "" && session.ID == user.SessionID {
+		return nil
+	}
+	projectID := session.ProjectID
+	if projectID == "" {
+		projectID = session.Metadata.ProjectID
+	}
+	if projectID == user.ProjectID {
+		return nil
+	}
+	return fmt.Errorf("%w: key is scoped to project %s, session %s is outside it", errProjectScopedKey, user.ProjectID, session.ID)
+}
+
+// enforceKeyAppScope confines a project-scoped credential to the apps its
+// project uses: the project's configured apps and the app of the session the
+// key was minted for. Global apps stay readable, as they are for everyone.
+func (apiServer *HelixAPIServer) enforceKeyAppScope(ctx context.Context, user *types.User, app *types.App, action types.Action) error {
+	if user == nil || user.ProjectID == "" {
+		return nil
+	}
+	readOnly := action == types.ActionGet || action == types.ActionList || action == types.ActionUseAction
+	if app.OrganizationID == "" && app.Global && readOnly {
+		return nil
+	}
+	project, err := apiServer.Store.GetProject(ctx, user.ProjectID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errProjectScopedKey, err)
+	}
+	return apiServer.keyProjectAppScope(ctx, user, project, app, action)
+}
+
+// keyProjectAppScope is enforceKeyAppScope with the key's project already
+// loaded, for callers checking many apps.
+func (apiServer *HelixAPIServer) keyProjectAppScope(ctx context.Context, user *types.User, project *types.Project, app *types.App, action types.Action) error {
+	readOnly := action == types.ActionGet || action == types.ActionList || action == types.ActionUseAction
+	if app.OrganizationID == "" && app.Global && readOnly {
+		return nil
+	}
+	if project.DefaultHelixAppID == app.ID ||
+		project.ProjectManagerHelixAppID == app.ID ||
+		project.PullRequestReviewerHelixAppID == app.ID {
+		return nil
+	}
+	if readOnly && user.SessionID != "" {
+		session, err := apiServer.Store.GetSession(ctx, user.SessionID)
+		if err == nil && session.ParentApp == app.ID {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: key is scoped to project %s, app %s is not used by it", errProjectScopedKey, user.ProjectID, app.ID)
+}
+
+// enforceKeyRepositoryScope confines a project-scoped credential to the
+// repositories attached to its project.
+func (apiServer *HelixAPIServer) enforceKeyRepositoryScope(ctx context.Context, user *types.User, repository *types.GitRepository) error {
+	if user == nil || user.ProjectID == "" {
+		return nil
+	}
+	links, err := apiServer.Store.ListProjectRepositories(ctx, &types.ListProjectRepositoriesQuery{
+		ProjectID:    user.ProjectID,
+		RepositoryID: repository.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("%w: %v", errProjectScopedKey, err)
+	}
+	for _, link := range links {
+		if link.RepositoryID == repository.ID {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: key is scoped to project %s, repository %s is not attached to it", errProjectScopedKey, user.ProjectID, repository.ID)
+}
+
+// isAgentScopedKey reports whether the caller authenticated with a key minted
+// for a project or a session, as handed to sandbox agents.
+func isAgentScopedKey(user *types.User) bool {
+	return user != nil && (user.ProjectID != "" || user.SessionID != "")
+}
+
+// errAgentKeyDecision is returned when a project- or session-scoped key tries
+// to take a decision reserved for a human: approving its own pull requests or
+// completion, or enabling auto-approval.
+var errAgentKeyDecision = errors.New("this decision cannot be made with a project- or session-scoped key")
+
+// denyAccessGrantsToScopedKey refuses access-grant management to a
+// project-scoped credential: changing who may reach a resource is never part
+// of the work such a key is minted for.
+func denyAccessGrantsToScopedKey(user *types.User) error {
+	if user == nil || user.ProjectID == "" {
+		return nil
+	}
+	return fmt.Errorf("%w: project-scoped keys cannot manage access grants", errProjectScopedKey)
 }
 
 func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, user *types.User, project *types.Project, action types.Action) error {
@@ -221,13 +347,39 @@ func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, use
 	return apiServer.authorizeUserToResource(ctx, user, project.OrganizationID, project.ID, types.ResourceProject, action)
 }
 
+// errNotRepositoryOwner refuses a personal (org-less) repository to anyone but
+// its owner.
+var errNotRepositoryOwner = errors.New("user is not the owner of the repository")
+
+// writeRepositoryAuthzError answers a failed authorizeUserToRepository: a
+// caller outside the repository's tenant (not a member of its org, a key
+// scoped to another org or project, or not the owner of a personal repository)
+// gets the same 404 as for a repository that does not exist; an org member
+// without a grant gets 403. Neither carries the internal error text.
+func writeRepositoryAuthzError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, orgstore.ErrKeyOrgScope),
+		errors.Is(err, errProjectScopedKey), errors.Is(err, errNotRepositoryOwner):
+		http.Error(w, "repository not found", http.StatusNotFound)
+	default:
+		log.Debug().Err(err).Msg("repository access refused")
+		http.Error(w, "not authorized to access this repository", http.StatusForbidden)
+	}
+}
+
 func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, user *types.User, repository *types.GitRepository, action types.Action) error {
+	// Scope check first: the owner and org-owner shortcuts below would
+	// otherwise let a project-scoped key reach any repository its owner can.
+	if err := apiServer.enforceKeyRepositoryScope(ctx, user, repository); err != nil {
+		return err
+	}
+
 	// If the organization ID is not set, only the owner can access
 	if repository.OrganizationID == "" {
 		if user.ID == repository.OwnerID {
 			return nil
 		}
-		return fmt.Errorf("user is not the owner of the repository")
+		return errNotRepositoryOwner
 	}
 
 	// If organization ID is set, authorize the user against the organization
@@ -284,6 +436,13 @@ func (apiServer *HelixAPIServer) authorizeUserToRepository(ctx context.Context, 
 }
 
 func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, user *types.User, session *types.Session, action types.Action) error {
+	// Scope check first: the owner and org-owner shortcuts below would
+	// otherwise let a project-scoped key read its owner's sessions in other
+	// projects and their chats outside any project.
+	if err := enforceKeySessionScope(user, session); err != nil {
+		return err
+	}
+
 	// If the organization ID is not set and the user is not the project owner, then error
 	if session.OrganizationID == "" {
 		// This is the old style project logic, where the project is owned by a user and optionally made global

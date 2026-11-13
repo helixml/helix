@@ -48,7 +48,7 @@ chrome:
   # Use custom image if needed
   # image:
   #   repository: ghcr.io/go-rod/rod
-  #   tag: "v0.116.0"
+  #   tag: "v0.116.2"
 
 ## Controlplane configuration
 controlplane:

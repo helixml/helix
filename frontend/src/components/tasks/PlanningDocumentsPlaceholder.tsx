@@ -1,4 +1,5 @@
-import { Box, Typography } from "@mui/material";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 import { FileText, TriangleAlert } from "lucide-react";
 import { TypesPushError } from "../../api/api";
 

@@ -13,18 +13,23 @@ const gitProviderRequestTimeout = 60 * time.Second
 
 // gitProviderURLPolicy is the destination policy for caller-supplied git
 // host URLs (GitHub Enterprise / GitLab base_url, ADO organization_url).
+// Without config it falls back to the strict default.
 func (s *HelixAPIServer) gitProviderURLPolicy() netguard.Policy {
+	if s.Cfg == nil {
+		return netguard.Policy{}
+	}
 	return netguard.Policy{AllowPrivate: s.Cfg.GitProviders.AllowPrivateNetworks}
 }
 
 // gitProviderHTTPClient returns a netguard-guarded client when the caller
 // supplied a self-hosted baseURL, and nil (library default, i.e. github.com /
-// gitlab.com) otherwise.
+// gitlab.com) otherwise. It follows redirects (self-hosted servers often sit
+// behind one), re-checking every hop against the policy.
 func gitProviderHTTPClient(policy netguard.Policy, baseURL string) *http.Client {
 	if baseURL == "" {
 		return nil
 	}
-	return policy.NewClient(gitProviderRequestTimeout)
+	return policy.NewRedirectingClient(gitProviderRequestTimeout)
 }
 
 // rejectDisallowedOutboundURL validates rawURL against policy and, if it is

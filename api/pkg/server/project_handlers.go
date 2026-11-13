@@ -67,6 +67,16 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	if user.ProjectID != "" {
+		scoped := projects[:0]
+		for _, project := range projects {
+			if project.ID == user.ProjectID {
+				scoped = append(scoped, project)
+			}
+		}
+		projects = scoped
+	}
+
 	s.populateActiveAgentSessions(projects)
 	s.populateProjectOwners(r.Context(), projects)
 
@@ -737,6 +747,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		project.AutoStartBacklogTasks = *req.AutoStartBacklogTasks
 	}
 	if req.AutoApprovePullRequests != nil {
+		if isAgentScopedKey(user) {
+			return nil, system.NewHTTPError403(errAgentKeyDecision.Error())
+		}
 		project.AutoApprovePullRequests = *req.AutoApprovePullRequests
 	}
 	if req.HelixRepoPullRequests != nil {
@@ -1004,90 +1017,13 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	// CRITICAL: Stop all active sessions BEFORE deleting the project
-	// Otherwise sessions become orphaned and can't be stopped via UI
-
-	// 1. Stop exploratory session if exists
-	exploratorySession, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
-	if err == nil && exploratorySession != nil {
-		log.Info().
-			Str("project_id", projectID).
-			Str("session_id", exploratorySession.ID).
-			Msg("Stopping exploratory session before project deletion")
-
-		stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), exploratorySession.ID)
-		if stopErr != nil && !sandboxHostGone(stopErr, exploratorySession.ID) {
-			return nil, system.NewHTTPError500(fmt.Sprintf("stop exploratory session before project deletion: %s", stopErr))
-		}
-	}
-
-	// 2. Stop all SpecTask planning sessions for this project, then delete the
-	// tasks themselves — including archived ones. Tasks that outlive their
-	// project stay in whatever status they had forever: the orchestrator
-	// re-drives the active ones every tick and nothing else reconciles them
-	// (102 such orphans had accumulated in prod by 2026-10). A failure to list
-	// or delete a task aborts the project deletion so no orphan can be created;
-	// the caller can simply retry.
-	tasks, err := s.Store.ListSpecTasks(r.Context(), &types.SpecTaskFilters{
-		ProjectID:       projectID,
-		IncludeArchived: true,
-	})
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("list project tasks before deletion: %s", err))
-	}
-	for _, task := range tasks {
-		if task.PlanningSessionID != "" {
-			log.Info().
-				Str("project_id", projectID).
-				Str("task_id", task.ID).
-				Str("session_id", task.PlanningSessionID).
-				Msg("Stopping SpecTask session before project deletion")
-
-			stopErr := s.externalAgentExecutor.StopDesktop(r.Context(), task.PlanningSessionID)
-			if stopErr != nil && !sandboxHostGone(stopErr, task.PlanningSessionID) {
-				return nil, system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
-			}
-			if _, delErr := s.Store.DeleteSession(r.Context(), task.PlanningSessionID); delErr != nil && !errors.Is(delErr, store.ErrNotFound) {
-				return nil, system.NewHTTPError500(fmt.Sprintf("delete session %s before project deletion: %s", task.PlanningSessionID, delErr))
-			}
-		}
-
-		if delErr := s.deleteSpecTaskCascade(r.Context(), task.ID); delErr != nil {
-			return nil, system.NewHTTPError500(fmt.Sprintf("delete task %s before project deletion: %s", task.ID, delErr))
-		}
-		log.Info().
-			Str("project_id", projectID).
-			Str("task_id", task.ID).
-			Msg("Deleted SpecTask before project deletion")
-	}
-
-	// Static artifacts inherit project ownership, so project deletion must
-	// remove their routes, blobs, and metadata before archiving the project.
-	artifacts, err := s.Store.ListArtifacts(r.Context(), &store.ListArtifactsQuery{ProjectID: projectID})
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("list project artifacts: %s", err))
-	}
-	for _, artifact := range artifacts {
-		if err := s.deleteArtifactResources(r.Context(), artifact); err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-	}
-
-	// The web service runs in its own sandbox with a public hostname; it must
-	// not outlive the project.
-	if err := s.webServiceController.Teardown(r.Context(), projectID); err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
-	}
-
-	// Now soft delete the project
-	err = s.Store.DeleteProject(r.Context(), projectID)
-	if err != nil {
+	if httpErr := s.purgeProject(r.Context(), projectID); httpErr != nil {
 		log.Error().
-			Err(err).
 			Str("user_id", user.ID).
 			Str("project_id", projectID).
+			Str("error", httpErr.Message).
 			Msg("failed to delete project")
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, httpErr
 	}
 
 	log.Info().
@@ -1100,7 +1036,101 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		s.auditLogService.LogProjectDeleted(r.Context(), project, user.ID, user.Email)
 	}
 
+	// Release what the project owned only once it is deleted, so a failure
+	// here can never leave a live project whose repositories are gone. Each
+	// step runs even if an earlier one failed; what could not be released is
+	// logged with its id.
+	if err := s.releaseProjectOwnedResources(r.Context(), project); err != nil {
+		log.Error().Err(err).Str("project_id", projectID).Msg("project deleted, but some project-owned resources were not released")
+		return nil, system.NewHTTPError500("project deleted, but some of its resources could not be released")
+	}
+
 	return map[string]string{"message": "project deleted successfully"}, nil
+}
+
+// purgeProject stops a project's desktops, deletes its spec tasks, artifacts
+// and web service, then soft-deletes the project. Callers authorize first.
+func (s *HelixAPIServer) purgeProject(ctx context.Context, projectID string) *system.HTTPError {
+	// CRITICAL: Stop all active sessions BEFORE deleting the project
+	// Otherwise sessions become orphaned and can't be stopped via UI
+
+	// 1. Stop exploratory session if exists
+	exploratorySession, err := s.Store.GetProjectExploratorySession(ctx, projectID)
+	if err == nil && exploratorySession != nil {
+		log.Info().
+			Str("project_id", projectID).
+			Str("session_id", exploratorySession.ID).
+			Msg("Stopping exploratory session before project deletion")
+
+		stopErr := s.externalAgentExecutor.StopDesktop(ctx, exploratorySession.ID)
+		if stopErr != nil && !sandboxHostGone(stopErr, exploratorySession.ID) {
+			return system.NewHTTPError500(fmt.Sprintf("stop exploratory session before project deletion: %s", stopErr))
+		}
+	}
+
+	// 2. Stop all SpecTask planning sessions for this project, then delete the
+	// tasks themselves — including archived ones. Tasks that outlive their
+	// project stay in whatever status they had forever: the orchestrator
+	// re-drives the active ones every tick and nothing else reconciles them
+	// (102 such orphans had accumulated in prod by 2026-10). A failure to list
+	// or delete a task aborts the project deletion so no orphan can be created;
+	// the caller can simply retry.
+	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:       projectID,
+		IncludeArchived: true,
+	})
+	if err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("list project tasks before deletion: %s", err))
+	}
+	for _, task := range tasks {
+		if task.PlanningSessionID != "" {
+			log.Info().
+				Str("project_id", projectID).
+				Str("task_id", task.ID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Stopping SpecTask session before project deletion")
+
+			stopErr := s.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
+			if stopErr != nil && !sandboxHostGone(stopErr, task.PlanningSessionID) {
+				return system.NewHTTPError500(fmt.Sprintf("stop session %s before project deletion: %s", task.PlanningSessionID, stopErr))
+			}
+			if _, delErr := s.Store.DeleteSession(ctx, task.PlanningSessionID); delErr != nil && !errors.Is(delErr, store.ErrNotFound) {
+				return system.NewHTTPError500(fmt.Sprintf("delete session %s before project deletion: %s", task.PlanningSessionID, delErr))
+			}
+		}
+
+		if delErr := s.deleteSpecTaskCascade(ctx, task.ID); delErr != nil {
+			return system.NewHTTPError500(fmt.Sprintf("delete task %s before project deletion: %s", task.ID, delErr))
+		}
+		log.Info().
+			Str("project_id", projectID).
+			Str("task_id", task.ID).
+			Msg("Deleted SpecTask before project deletion")
+	}
+
+	// Static artifacts inherit project ownership, so project deletion must
+	// remove their routes, blobs, and metadata before archiving the project.
+	artifacts, err := s.Store.ListArtifacts(ctx, &store.ListArtifactsQuery{ProjectID: projectID})
+	if err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("list project artifacts: %s", err))
+	}
+	for _, artifact := range artifacts {
+		if err := s.deleteArtifactResources(ctx, artifact); err != nil {
+			return system.NewHTTPError500(err.Error())
+		}
+	}
+
+	// The web service runs in its own sandbox with a public hostname; it must
+	// not outlive the project.
+	if err := s.webServiceController.Teardown(ctx, projectID); err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
+	}
+
+	// Now soft delete the project
+	if err := s.Store.DeleteProject(ctx, projectID); err != nil {
+		return system.NewHTTPError500(err.Error())
+	}
+	return nil
 }
 
 // getProjectRepositories godoc
@@ -2300,6 +2330,10 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get project repositories: %v", err))
 	}
 
+	if httpErr := s.authorizeProjectMoveRepositories(r.Context(), user, repoIDs); httpErr != nil {
+		return nil, httpErr
+	}
+
 	// Get existing repo names in target org
 	existingRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
 		OrganizationID: req.OrganizationID,
@@ -2393,6 +2427,57 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 		Msg("project moved to organization")
 
 	return project, nil
+}
+
+// findApplyRepositoryByURL returns an existing external repository for url
+// that the user may attach, or nil when apply should create one. The first
+// row for a URL can belong to someone else (another user attaching the same
+// public repository); then the caller's own row for that URL is used, so
+// each caller converges on one row instead of being refused or duplicating.
+func (s *HelixAPIServer) findApplyRepositoryByURL(ctx context.Context, user *types.User, orgID, url string) (*types.GitRepository, error) {
+	repo, err := s.Store.GetGitRepositoryByExternalURL(ctx, orgID, url)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if s.authorizeUserToRepository(ctx, user, repo, types.ActionGet) == nil {
+		return repo, nil
+	}
+	owned, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{OwnerID: user.ID, OrganizationID: orgID})
+	if err != nil {
+		return nil, err
+	}
+	for _, candidate := range owned {
+		if candidate.OwnerID == user.ID && candidate.IsExternal && candidate.ExternalURL == url && candidate.OrganizationID == orgID {
+			return candidate, nil
+		}
+	}
+	return nil, nil
+}
+
+// authorizeProjectMoveRepositories checks that the user may change every
+// repository attached to a project being moved. A move re-homes the attached
+// repositories into the target org, so project ownership alone is not enough:
+// a repository attached from someone else's account would change hands too.
+func (s *HelixAPIServer) authorizeProjectMoveRepositories(ctx context.Context, user *types.User, repoIDs []string) *system.HTTPError {
+	if user.Admin {
+		return nil
+	}
+	for _, repoID := range repoIDs {
+		repo, err := s.Store.GetGitRepository(ctx, repoID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			return system.NewHTTPError500(fmt.Sprintf("failed to get repository %s: %v", repoID, err))
+		}
+		if err := s.authorizeUserToRepository(ctx, user, repo, types.ActionUpdate); err != nil {
+			return system.NewHTTPError403(fmt.Sprintf("you must have access to repository %s to move it", repo.Name))
+		}
+	}
+	return nil
 }
 
 // getProjectUsage godoc
@@ -2692,9 +2777,9 @@ func (s *HelixAPIServer) pinProject(_ http.ResponseWriter, r *http.Request) (*Pi
 	user := getRequestUser(r)
 	projectID := getID(r)
 
-	// Verify project exists
-	_, err := s.Store.GetProject(r.Context(), projectID)
-	if err != nil {
+	// Only a project the caller can read may be pinned; "not found" either way
+	// so the pin list is not an existence check on other tenants' projects.
+	if err := s.authorizeUserToProjectByID(r.Context(), user, projectID, types.ActionGet); err != nil {
 		return nil, system.NewHTTPError404("project not found")
 	}
 
@@ -2827,6 +2912,35 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 	}
 
 	wasCreated := project == nil
+	if !wasCreated {
+		// A name match in the org is not permission to change that project.
+		if err := s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+	}
+
+	// Resolve every repository before the project is written, so a rejected
+	// repository never leaves a created or half-updated project behind.
+	resolvedRepos := req.Spec.ResolvedRepositories()
+	existingRepos := make([]*types.GitRepository, len(resolvedRepos))
+	for i, repoSpec := range resolvedRepos {
+		repo, err := s.findApplyRepositoryByURL(r.Context(), user, orgID, repoSpec.URL)
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to look up repository %s: %v", repoSpec.URL, err))
+		}
+		if repo != nil {
+			existingRepos[i] = repo
+			continue
+		}
+		if s.gitRepositoryService == nil {
+			return nil, system.NewHTTPError500("git repository service is not configured")
+		}
+		if err := s.gitProviderURLPolicy().ValidateURL(r.Context(), repoSpec.URL); err != nil {
+			log.Warn().Err(err).Str("field", "repository url").Msg("rejected outbound URL")
+			return nil, system.NewHTTPError400(fmt.Sprintf("repository %s is not an allowed destination", repoSpec.URL))
+		}
+	}
+
 	if wasCreated {
 		project = &types.Project{
 			ID:             system.GenerateProjectID(),
@@ -2887,15 +3001,12 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 
 	// Attach repositories
 	var primaryRepo *types.GitRepository
-	resolvedRepos := req.Spec.ResolvedRepositories()
-	for _, repoSpec := range resolvedRepos {
-		// Find-or-create git repository by external URL
-		repo, err := s.Store.GetGitRepositoryByExternalURL(r.Context(), orgID, repoSpec.URL)
+	for i, repoSpec := range resolvedRepos {
+		// Find-or-create git repository by external URL (resolved above)
+		repo := existingRepos[i]
+		var err error
 		repairedExistingRepo := false
-		if err != nil {
-			if err != store.ErrNotFound {
-				return nil, system.NewHTTPError500(fmt.Sprintf("failed to look up repository %s: %v", repoSpec.URL, err))
-			}
+		if repo == nil {
 			// Derive a short human-readable name from the URL (e.g. "robot-hq" from
 			// "https://github.com/binocarlos/robot-hq"). This name is used as the
 			// workspace directory name inside the sandbox (/home/retro/work/<name>),
@@ -2903,9 +3014,6 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			repoName := strings.TrimSuffix(path.Base(repoSpec.URL), ".git")
 			if repoName == "" || repoName == "." {
 				repoName = repoSpec.URL
-			}
-			if s.gitRepositoryService == nil {
-				return nil, system.NewHTTPError500("git repository service is not configured")
 			}
 			repo, err = s.gitRepositoryService.CreateRepository(r.Context(), &types.GitRepositoryCreateRequest{
 				Name:           repoName,

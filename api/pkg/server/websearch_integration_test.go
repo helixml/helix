@@ -261,7 +261,7 @@ func (s *WebSearchIntegrationSuite) requireError(resp wsResponse, status int, ta
 	return body
 }
 
-func jsonBody(v any) string {
+func jsonString(v any) string {
 	b, err := json.Marshal(v)
 	if err != nil {
 		panic(err)
@@ -327,7 +327,7 @@ func (s *WebSearchIntegrationSuite) TestSearchPlain() {
 }
 
 func (s *WebSearchIntegrationSuite) TestSearchWithContents() {
-	resp := s.call(s.api, "/search", jsonBody(map[string]any{
+	resp := s.call(s.api, "/search", jsonString(map[string]any{
 		"query":      "go generics",
 		"numResults": 2,
 		"contents": map[string]any{
@@ -421,7 +421,7 @@ func (s *WebSearchIntegrationSuite) TestSearchFilters() {
 		s.Contains(s.firstPageQueries(), "go errors -site:localhost")
 	})
 	s.Run("startPublishedDate", func() {
-		resp := s.call(s.api, "/search", jsonBody(map[string]any{
+		resp := s.call(s.api, "/search", jsonString(map[string]any{
 			"query": "go dates", "startPublishedDate": s.searx.now.Add(-90 * day).Format(time.RFC3339),
 		}))
 		s.requireOK(resp)
@@ -440,7 +440,7 @@ func (s *WebSearchIntegrationSuite) TestSearchFilters() {
 		s.Equal(searxng.TimeRangeYear, sent)
 	})
 	s.Run("endPublishedDate", func() {
-		resp := s.call(s.api, "/search", jsonBody(map[string]any{
+		resp := s.call(s.api, "/search", jsonString(map[string]any{
 			"query": "go dates", "endPublishedDate": s.searx.now.Add(-30 * day).Format(time.RFC3339),
 		}))
 		s.requireOK(resp)
@@ -481,7 +481,7 @@ func (s *WebSearchIntegrationSuite) TestDeepSearchWithAdditionalQueries() {
 }
 
 func (s *WebSearchIntegrationSuite) TestSearchOutputSchemaObject() {
-	resp := s.call(s.api, "/search", jsonBody(map[string]any{
+	resp := s.call(s.api, "/search", jsonString(map[string]any{
 		"query": "when did go get generics",
 		"outputSchema": map[string]any{
 			"type": "object",
@@ -616,7 +616,7 @@ func (s *WebSearchIntegrationSuite) TestSearchEngineOutageWarning() {
 
 func (s *WebSearchIntegrationSuite) TestContentsByURL() {
 	pdf := s.web.newsURL("/report.pdf")
-	resp := s.call(s.api, "/contents", jsonBody(map[string]any{
+	resp := s.call(s.api, "/contents", jsonString(map[string]any{
 		"urls":   []string{s.genericsURL(), s.rustURL(), pdf},
 		"text":   true,
 		"extras": map[string]any{"richImageLinks": 1},
@@ -654,7 +654,7 @@ func (s *WebSearchIntegrationSuite) TestContentsMixedOutcomes() {
 		"http://169.254.169.254/latest/meta-data/", // cloud metadata: blocked under every policy
 	}
 	start := time.Now()
-	resp := s.call(s.api, "/contents", jsonBody(map[string]any{"urls": targets, "text": true, "livecrawlTimeout": 500}))
+	resp := s.call(s.api, "/contents", jsonString(map[string]any{"urls": targets, "text": true, "livecrawlTimeout": 500}))
 	s.requireOK(resp)
 	s.Less(time.Since(start), 5*time.Second, "livecrawlTimeout bounds the slow page")
 	body := decodeAs[websearch.ContentsResponse](s, resp)
@@ -674,7 +674,7 @@ func (s *WebSearchIntegrationSuite) TestContentsMixedOutcomes() {
 func (s *WebSearchIntegrationSuite) TestContentsBlockedByDefaultPolicy() {
 	api := s.startAPI(wsStack{policy: netguard.Policy{}, cache: newWSPageCache(), llm: true})
 	targets := []string{s.genericsURL(), s.rustURL()}
-	resp := s.call(api, "/contents", jsonBody(map[string]any{"urls": targets, "text": true}))
+	resp := s.call(api, "/contents", jsonString(map[string]any{"urls": targets, "text": true}))
 	s.requireOK(resp)
 	body := decodeAs[websearch.ContentsResponse](s, resp)
 	for i, st := range body.Statuses {
@@ -713,21 +713,21 @@ func (s *WebSearchIntegrationSuite) TestContentsByIDsAndCache() {
 		return out
 	}
 
-	s.Equal([]string{"crawled", "crawled"}, sources(statuses(jsonBody(map[string]any{"ids": ids, "text": true}))), "ids from a search resolve to their pages")
+	s.Equal([]string{"crawled", "crawled"}, sources(statuses(jsonString(map[string]any{"ids": ids, "text": true}))), "ids from a search resolve to their pages")
 	s.Equal(1, s.web.hitCount(s.genericsURL()))
 
-	s.Equal([]string{"cached", "cached"}, sources(statuses(jsonBody(map[string]any{"ids": ids, "text": true}))))
+	s.Equal([]string{"cached", "cached"}, sources(statuses(jsonString(map[string]any{"ids": ids, "text": true}))))
 	s.Equal(1, s.web.hitCount(s.genericsURL()), "a cache hit does not fetch")
 
-	s.Equal([]string{"crawled"}, sources(statuses(jsonBody(map[string]any{"ids": ids[:1], "text": true, "maxAgeHours": 0}))), "maxAgeHours 0 always fetches")
+	s.Equal([]string{"crawled"}, sources(statuses(jsonString(map[string]any{"ids": ids[:1], "text": true, "maxAgeHours": 0}))), "maxAgeHours 0 always fetches")
 	s.Equal(2, s.web.hitCount(s.genericsURL()))
 
 	s.Require().True(s.cache.age(s.genericsURL(), 3*time.Hour))
-	s.Equal([]string{"cached"}, sources(statuses(jsonBody(map[string]any{"ids": ids[:1], "text": true, "maxAgeHours": 4}))))
-	s.Equal([]string{"crawled"}, sources(statuses(jsonBody(map[string]any{"ids": ids[:1], "text": true, "maxAgeHours": 2}))), "older than maxAgeHours is refetched")
+	s.Equal([]string{"cached"}, sources(statuses(jsonString(map[string]any{"ids": ids[:1], "text": true, "maxAgeHours": 4}))))
+	s.Equal([]string{"crawled"}, sources(statuses(jsonString(map[string]any{"ids": ids[:1], "text": true, "maxAgeHours": 2}))), "older than maxAgeHours is refetched")
 	s.Equal(3, s.web.hitCount(s.genericsURL()))
 
-	uncached := statuses(jsonBody(map[string]any{"urls": []string{s.web.newsURL("/about")}, "maxAgeHours": -1}))
+	uncached := statuses(jsonString(map[string]any{"urls": []string{s.web.newsURL("/about")}, "maxAgeHours": -1}))
 	s.Require().Len(uncached, 1)
 	s.Equal(websearch.ContentStatusError, uncached[0].Status, "maxAgeHours -1 is cache only")
 	s.Equal(websearch.TagSourceNotAvailable, uncached[0].Error.Tag)
@@ -735,7 +735,7 @@ func (s *WebSearchIntegrationSuite) TestContentsByIDsAndCache() {
 }
 
 func (s *WebSearchIntegrationSuite) TestContentsLivecrawlWithMaxAgeHours() {
-	body := jsonBody(map[string]any{"urls": []string{s.genericsURL()}, "livecrawl": "always", "maxAgeHours": 0})
+	body := jsonString(map[string]any{"urls": []string{s.genericsURL()}, "livecrawl": "always", "maxAgeHours": 0})
 	// The spec cannot express that the two fields exclude each other, so
 	// it accepts this body; Exa's API rejects it, and so does Helix.
 	resp := s.call(s.api, "/contents", body)
@@ -748,7 +748,7 @@ func (s *WebSearchIntegrationSuite) TestContentsLivecrawlWithMaxAgeHours() {
 
 func (s *WebSearchIntegrationSuite) TestFindSimilar() {
 	s.Run("excludeSourceDomain", func() {
-		resp := s.call(s.api, "/findSimilar", jsonBody(map[string]any{
+		resp := s.call(s.api, "/findSimilar", jsonString(map[string]any{
 			"url": s.genericsURL(), "numResults": 3, "excludeSourceDomain": true,
 			"contents": map[string]any{"highlights": true},
 		}))
@@ -770,7 +770,7 @@ func (s *WebSearchIntegrationSuite) TestFindSimilar() {
 		s.Contains(s.firstPageQueries(), wsDescribeReply, "the LLM's description of the page is the search query")
 	})
 	s.Run("same domain allowed", func() {
-		resp := s.call(s.api, "/findSimilar", jsonBody(map[string]any{"url": s.genericsURL()}))
+		resp := s.call(s.api, "/findSimilar", jsonString(map[string]any{"url": s.genericsURL()}))
 		s.requireOK(resp)
 		body := decodeAs[websearch.FindSimilarResponse](s, resp)
 		urls := resultURLs(body.Results)
@@ -807,7 +807,7 @@ func (s *WebSearchIntegrationSuite) TestAnswer() {
 		s.Equal(wsStrongModel, calls[len(calls)-1].Model, "exa-pro answers on the strong model")
 	})
 	s.Run("outputSchema", func() {
-		resp := s.call(s.api, "/answer", jsonBody(map[string]any{
+		resp := s.call(s.api, "/answer", jsonString(map[string]any{
 			"query": "When did Go get generics?",
 			"outputSchema": map[string]any{
 				"type":                 "object",
@@ -878,7 +878,7 @@ func (s *WebSearchIntegrationSuite) TestAnswerStreamFailure() {
 // TestWarningsOnContentsAndFindSimilar: ignored fields are reported on
 // /contents and /findSimilar too.
 func (s *WebSearchIntegrationSuite) TestWarningsOnContentsAndFindSimilar() {
-	contents := s.call(s.api, "/contents", jsonBody(map[string]any{
+	contents := s.call(s.api, "/contents", jsonString(map[string]any{
 		"urls": []string{s.genericsURL()}, "highlights": map[string]any{"highlightsPerUrl": 3},
 	}))
 	s.requireOK(contents)
@@ -886,7 +886,7 @@ func (s *WebSearchIntegrationSuite) TestWarningsOnContentsAndFindSimilar() {
 	s.Require().Len(cw, 1)
 	s.Equal(websearch.Warning{Code: websearch.WarningIgnoredField, Path: "/highlights/highlightsPerUrl", Message: "highlights.highlightsPerUrl is deprecated and ignored"}, cw[0])
 
-	similar := s.call(s.api, "/findSimilar", jsonBody(map[string]any{"url": s.genericsURL(), "startCrawlDate": "2026-01-01T00:00:00Z"}))
+	similar := s.call(s.api, "/findSimilar", jsonString(map[string]any{"url": s.genericsURL(), "startCrawlDate": "2026-01-01T00:00:00Z"}))
 	s.requireOK(similar)
 	sw := decodeAs[websearch.FindSimilarResponse](s, similar).Warnings
 	s.Require().Len(sw, 1)
@@ -934,8 +934,8 @@ func (s *WebSearchIntegrationSuite) TestNoMoreCredits() {
 	for _, tc := range []struct{ path, body string }{
 		{"/search", `{"query":"go generics"}`},
 		{"/search", `{"query":"go generics","stream":true,"outputSchema":{"type":"text"}}`},
-		{"/contents", jsonBody(map[string]any{"urls": []string{s.genericsURL()}, "text": true})},
-		{"/findSimilar", jsonBody(map[string]any{"url": s.genericsURL()})},
+		{"/contents", jsonString(map[string]any{"urls": []string{s.genericsURL()}, "text": true})},
+		{"/findSimilar", jsonString(map[string]any{"url": s.genericsURL()})},
 		{"/answer", `{"query":"When did Go get generics?"}`},
 		{"/answer", `{"query":"When did Go get generics?","stream":true}`},
 	} {
@@ -955,13 +955,13 @@ func (s *WebSearchIntegrationSuite) TestFeaturesNeedingAnLLMWithoutOne() {
 		name, path, body, field string
 	}{
 		{"summary", "/search", `{"query":"go generics","contents":{"summary":{}}}`, "contents.summary"},
-		{"highlights", "/contents", jsonBody(map[string]any{"urls": []string{s.genericsURL()}, "highlights": true}), "highlights"},
+		{"highlights", "/contents", jsonString(map[string]any{"urls": []string{s.genericsURL()}, "highlights": true}), "highlights"},
 		{"deep search", "/search", `{"query":"go generics","type":"deep"}`, "type"},
 		{"outputSchema", "/search", `{"query":"go generics","outputSchema":{"type":"text"}}`, "outputSchema"},
 		{"streamed outputSchema", "/search", `{"query":"go generics","stream":true,"outputSchema":{"type":"text"}}`, "outputSchema"},
 		{"answer", "/answer", `{"query":"When did Go get generics?"}`, "answer"},
 		{"streamed answer", "/answer", `{"query":"When did Go get generics?","stream":true}`, "answer"},
-		{"findSimilar", "/findSimilar", jsonBody(map[string]any{"url": s.genericsURL()}), "findSimilar"},
+		{"findSimilar", "/findSimilar", jsonString(map[string]any{"url": s.genericsURL()}), "findSimilar"},
 	} {
 		s.Run(tc.name, func() {
 			resp := s.call(api, tc.path, tc.body)

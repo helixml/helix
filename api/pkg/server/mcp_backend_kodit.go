@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ type KoditMCPBackend struct {
 	koditClient *kodit.Client
 	store       store.Store
 	enabled     bool
+	authorize   SessionAuthorizer
 
 	handlers   map[string]*sessionHandler
 	handlersMu sync.RWMutex
@@ -134,6 +136,25 @@ func (b *KoditMCPBackend) cleanupExpired(ttl time.Duration) {
 	log.Debug().Int("count", len(expired)).Msg("cleaned up expired Kodit MCP session handlers")
 }
 
+// SetSessionAuthorizer wires the session RBAC check applied to every request.
+func (b *KoditMCPBackend) SetSessionAuthorizer(fn SessionAuthorizer) {
+	b.authorize = fn
+}
+
+// authorizeSession checks the caller may read the session whose repository
+// scope it asks for. It runs on every request, before the per-session handler
+// cache, so a cached handler is never served to another caller.
+func (b *KoditMCPBackend) authorizeSession(ctx context.Context, sessionID string, user *types.User) error {
+	if b.authorize == nil || user == nil {
+		return errors.New("not authorized for this session")
+	}
+	session, err := b.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return errors.New("not authorized for this session")
+	}
+	return b.authorize(ctx, user, session, types.ActionGet)
+}
+
 // ServeHTTP implements MCPBackend.
 func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user *types.User) {
 	if !b.enabled {
@@ -147,6 +168,11 @@ func (b *KoditMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user
 	}
 	if sessionID == "" {
 		http.Error(w, "session_id is required for Kodit MCP access", http.StatusBadRequest)
+		return
+	}
+
+	if err := b.authorizeSession(r.Context(), sessionID, user); err != nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 

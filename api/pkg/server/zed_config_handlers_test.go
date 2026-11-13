@@ -55,6 +55,10 @@ func TestGetZedConfigHarnessPolicyUsesGenerationModelProvider(t *testing.T) {
 				getSessionCalls = 2
 			}
 			mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).Times(getSessionCalls)
+			// The owner still has to be a member of the session's organization.
+			mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+				OrganizationID: session.OrganizationID, UserID: session.Owner, Role: types.OrganizationRoleMember,
+			}, nil)
 			mockStore.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
 			mockStore.EXPECT().GetOrgCodeAgentHarness(gomock.Any(), app.OrganizationID, types.CodeAgentRuntimeZedAgent).Return(&types.OrgCodeAgentHarness{
 				Enabled: true, ProviderRefs: []string{"pe_allowed"},
@@ -147,6 +151,42 @@ func TestGetProviderSnapshotSubscriptionExcludesGlobalProviders(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Empty(t, snapshot)
+}
+
+func TestGetProviderSnapshotIncludesCachedModelAvailability(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	providerManager := manager.NewMockProviderManager(ctrl)
+	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+		NumCounters: 1e3,
+		MaxCost:     1 << 20,
+		BufferItems: 64,
+	})
+	require.NoError(t, err)
+	defer cache.Close()
+
+	server := &HelixAPIServer{providerManager: providerManager, cache: cache}
+	endpoints := []*types.ProviderEndpoint{
+		nil,
+		{ID: "pe_available", Name: "available", Owner: "user_1"},
+		{ID: "pe_empty", Name: "empty", Owner: "user_1"},
+		{ID: "pe_unknown", Name: "unknown", Owner: "user_1"},
+	}
+	providerManager.EXPECT().ListProviderEndpoints(gomock.Any(), "user_1").Return(endpoints, nil)
+	server.storeCachedModels(modelCacheKey("available", "user_1"), []types.OpenAIModel{
+		{ID: "model-1", Enabled: true},
+		{ID: "billing-disabled", Enabled: false},
+	}, time.Now())
+	server.storeCachedModels(modelCacheKey("empty", "user_1"), []types.OpenAIModel{}, time.Now())
+	cache.Wait()
+
+	snapshot, err := server.getProviderSnapshot(context.Background(), "user_1", &types.App{})
+
+	require.NoError(t, err)
+	require.Equal(t, []external_agent.ProviderRef{
+		{ID: "pe_available", Name: "available", ModelsKnown: true, Models: []string{"model-1"}},
+		{ID: "pe_empty", Name: "empty", ModelsKnown: true, Models: []string{}},
+		{ID: "pe_unknown", Name: "unknown"},
+	}, snapshot)
 }
 
 func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {

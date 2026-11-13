@@ -1,17 +1,15 @@
 import React, { useEffect, useRef, useState, FC } from 'react'
 import mermaid from 'mermaid'
-import {
-  Box,
-  CircularProgress,
-  Alert,
-  useTheme,
-  Dialog,
-  DialogContent,
-  IconButton,
-  Slider,
-  Typography,
-  Stack,
-} from '@mui/material'
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
+import Dialog from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
+import IconButton from '@mui/material/IconButton';
+import Slider from '@mui/material/Slider';
+import Typography from '@mui/material/Typography';
+import Stack from '@mui/material/Stack';
+import { useTheme } from '@mui/material/styles';
 import { X as CloseIcon, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react'
 import { MERMAID_CONFIG } from './mermaidConfig'
 import { sanitizeMermaidSvg } from './sanitizeMermaidSvg'

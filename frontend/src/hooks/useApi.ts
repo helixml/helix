@@ -19,6 +19,8 @@ import {
   CSRF_HEADER_NAME,
 } from '../utils/csrf'
 
+import { sessionExpiry } from '../utils/sessionExpiry'
+
 const API_MOUNT = ""
 
 export interface IApiOptions {
@@ -218,6 +220,39 @@ const enhanceErrorMessage = (error: any) => {
 }
 axios.interceptors.response.use(undefined, enhanceErrorMessage)
 apiClientSingleton.instance.interceptors.response.use(undefined, enhanceErrorMessage)
+
+// A 403 "CSRF validation failed" means the browser is signed in with cookies
+// that predate the CSRF cookie (a legacy token cookie), so every write would
+// fail the same way. Treat it as a sign-in prompt rather than a per-request
+// error: remember why and send the user to the login page, once.
+export const isCSRFFailure = (error: any): boolean => {
+  if (error?.response?.status !== 403) return false
+  const data = error.response?.data
+  const body = typeof data === 'string' ? data : (typeof data?.message === 'string' ? data.message : '')
+  return body.includes('CSRF validation failed')
+}
+
+const reauthOnCSRFFailure = (error: any) => {
+  if (isCSRFFailure(error) && typeof window !== 'undefined' && window.location.pathname !== '/login') {
+    try {
+      localStorage.setItem('logout_reason', 'Your sign-in needs to be refreshed. Please sign in again.')
+    } catch {
+      // storage unavailable — the redirect alone still re-authenticates
+    }
+    window.location.assign('/login')
+  }
+  return Promise.reject(error)
+}
+axios.interceptors.response.use(undefined, reauthOnCSRFFailure)
+apiClientSingleton.instance.interceptors.response.use(undefined, reauthOnCSRFFailure)
+
+// A cookie session that ended server side answers every call with 401; send
+// the user to sign in instead of letting polling hooks keep calling. Embed
+// pages authenticate with their own key and never mark a session signed in.
+if (!embedToken) {
+  axios.interceptors.response.use(undefined, sessionExpiry.onResponseError)
+  apiClientSingleton.instance.interceptors.response.use(undefined, sessionExpiry.onResponseError)
+}
 
 // Helper function to check if an error is auth-related
 const isAuthError = (error: any): boolean => {

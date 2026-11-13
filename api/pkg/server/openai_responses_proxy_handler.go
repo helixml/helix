@@ -107,7 +107,7 @@ func (s *HelixAPIServer) openAIResponsesProxyHandler(w http.ResponseWriter, r *h
 	}
 	var request openAIResponsesRequest
 	if err := json.Unmarshal(body, &request); err != nil {
-		http.Error(w, "invalid Responses request: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, jsonDecodeErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	if request.Model == "" || selection.Model == "" || request.Model != selection.Model {

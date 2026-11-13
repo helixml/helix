@@ -1,6 +1,10 @@
 import React, { FC } from 'react'
 import { useRoute } from 'react-router5'
-import { Box, Button, CircularProgress, Typography, useTheme } from '@mui/material'
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import Typography from '@mui/material/Typography';
+import { useTheme } from '@mui/material/styles';
 import SpecTaskDetailContent from '../components/tasks/SpecTaskDetailContent'
 import AgentChat from '../components/session/AgentChat'
 import { useSpecTask } from '../services/specTaskService'

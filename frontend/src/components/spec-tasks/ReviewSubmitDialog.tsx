@@ -1,12 +1,10 @@
-import {
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  TextField,
-} from "@mui/material";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import TextField from "@mui/material/TextField";
 
 interface ReviewSubmitDialogProps {
   open: boolean;

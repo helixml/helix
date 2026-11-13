@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/secret"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -151,7 +152,7 @@ func providerEndpointAPIKey(endpoint *types.ProviderEndpoint) (string, error) {
 		}
 		return endpoint.APIKey, nil
 	}
-	data, err := os.ReadFile(endpoint.APIKeyFromFile)
+	data, err := secret.ReadProviderAPIKeyFile(endpoint.APIKeyFromFile)
 	if err != nil {
 		return "", fmt.Errorf("read provider API key file: %w", err)
 	}

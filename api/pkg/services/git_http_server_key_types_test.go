@@ -41,6 +41,9 @@ func TestGitKeyTypes(t *testing.T) {
 		{"instance cannot read status", instance, gitReq("GET", "/git/repo_bot/status", "repo_bot"), false},
 		{"instance key without a project reads nothing", &types.ApiKey{Type: types.APIkeytypeBotInstance}, gitReq("POST", "/git/repo_bot/git-upload-pack", "repo_bot"), false},
 		{"embed key never reaches git", &types.ApiKey{Type: types.APIkeytypeEmbed}, gitReq("POST", "/git/repo_bot/git-upload-pack", "repo_bot"), false},
+		{"sandbox key outside a project reaches no repository", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A"}, gitReq("POST", "/git/repo_other/git-upload-pack", "repo_other"), false},
+		{"project sandbox key is left to project scope", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "sbx_A", ProjectID: "prj_1"}, gitReq("POST", "/git/repo_bot/git-upload-pack", "repo_bot"), true},
+		{"session key is unchanged", &types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses_A"}, gitReq("POST", "/git/repo_other/git-upload-pack", "repo_other"), true},
 		{"ordinary key is unchanged", &types.ApiKey{Type: types.APIkeytypeAPI}, gitReq("POST", "/git/repo_other/git-receive-pack", "repo_other"), true},
 	}
 	for _, c := range cases {
@@ -58,6 +61,29 @@ func TestGitAuthRejectsWaitlistedUser(t *testing.T) {
 	}, nil)
 	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-123"}).Return(&types.User{
 		ID: "user-123", Waitlisted: true,
+	}, nil)
+	server := &GitHTTPServer{store: st, authTokenHeader: "X-API-Key"}
+	request := httptest.NewRequest(http.MethodGet, "/git/repo/info/refs", nil)
+	request.Header.Set("X-API-Key", "hl-test")
+	response := httptest.NewRecorder()
+
+	server.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("got status %d, want %d", response.Code, http.StatusForbidden)
+	}
+}
+
+func TestGitAuthRejectsDeactivatedUser(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	st.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: "hl-test"}).Return(&types.ApiKey{
+		Key: "hl-test", Owner: "user-123", Type: types.APIkeytypeAPI,
+	}, nil)
+	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "user-123"}).Return(&types.User{
+		ID: "user-123", Deactivated: true,
 	}, nil)
 	server := &GitHTTPServer{store: st, authTokenHeader: "X-API-Key"}
 	request := httptest.NewRequest(http.MethodGet, "/git/repo/info/refs", nil)

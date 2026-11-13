@@ -825,6 +825,7 @@ type SpecTaskUpdateRequest struct {
 	DependsOn               []string         `json:"depends_on"`                                  // IDs of tasks this task depends on
 	AssigneeID              *string          `json:"assignee_id,omitempty"`                       // Pointer to allow clearing (set to empty string to unassign)
 	AgentTools              *[]string        `json:"agent_tools,omitempty"`                       // Extra Helix MCP tools for this task, on top of the project's
+	Archived                *bool            `json:"archived,omitempty" swaggerignore:"true"`     // Rejected: archiving goes through PATCH /spec-tasks/{taskId}/archive
 }
 
 // SpecTaskExecutionConfigUpdateRequest replaces exactly one of the task's

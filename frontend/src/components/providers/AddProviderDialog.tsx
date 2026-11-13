@@ -1,18 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import {
-  DialogContent,
-  DialogActions,
-  Dialog,
-  DialogContentText,
-  DialogTitle,
-  Button,
-  Box,
-  Typography,
-  TextField,
-  Alert,
-  IconButton,
-  InputAdornment,
-} from '@mui/material';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Dialog from '@mui/material/Dialog';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import TextField from '@mui/material/TextField';
+import Alert from '@mui/material/Alert';
+import IconButton from '@mui/material/IconButton';
+import InputAdornment from '@mui/material/InputAdornment';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';

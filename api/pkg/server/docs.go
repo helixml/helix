@@ -111,6 +111,99 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/audit-events": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin-only forensic read of the request audit trail, newest first. Paginate by passing next_cursor back as cursor.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List request audit events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by user ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by TCP peer IP (no port)",
+                        "name": "remote_ip",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by derived client IP (only populated for trusted proxies)",
+                        "name": "client_ip",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by path prefix",
+                        "name": "path",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by HTTP method",
+                        "name": "method",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by response status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only events created at or after this RFC3339 time",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only events created at or before this RFC3339 time",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Opaque keyset cursor from the previous response's next_cursor",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Also count all matching events (expensive on a large table)",
+                        "name": "include_total",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RequestAuditEventResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/kodit/queue": {
             "get": {
                 "security": [
@@ -795,6 +888,113 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Wallet"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/runner-tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List per-runner tokens (never their secrets), newest first, revoked ones included.",
+                "tags": [
+                    "runner_tokens"
+                ],
+                "summary": "List per-runner tokens",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Only this runner's tokens",
+                        "name": "runner_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.RunnerToken"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mint a token bound to one runner id. The token is returned once and only its hash is stored.",
+                "tags": [
+                    "runner_tokens"
+                ],
+                "summary": "Mint a per-runner token",
+                "parameters": [
+                    {
+                        "description": "Runner id and an optional name",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRunnerTokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateRunnerTokenResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/runner-tokens/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke a per-runner token. Requests with it are refused (401) from then on; tunnels it already opened stay up until the host reconnects.",
+                "tags": [
+                    "runner_tokens"
+                ],
+                "summary": "Revoke a per-runner token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Runner token id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.RunnerToken"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -8425,13 +8625,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/invitations/{id}/accept": {
+            "post": {
+                "description": "Accept the invitation from an invite link as the signed-in user. Requires the invitation's secret token from the link, and the account's email must be the invited address. Works for waitlisted accounts (an invitation lifts the waitlist).",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Accept an organization invitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Token from the invite link",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AcceptInvitationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/invitations/{id}/info": {
             "get": {
-                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. The invitation ID itself acts as the secret token (same threat model as password-reset tokens).",
+                "description": "Unauthenticated. Returns the invited email and organization display name so the registration page can pre-fill the form. Requires the secret token from the invite link.",
                 "tags": [
                     "organizations"
                 ],
                 "summary": "Look up basic info for an invitation by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Secret token from the invite link",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -9647,6 +9891,28 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/organizations/{id}/invitations/{invitation_id}/link": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Owners only. Generates a new secret token for the invitation and returns its invite link, for sending outside email. Links issued earlier (including the emailed one) stop working.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Issue a new invite link for a pending invitation",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.InvitationLinkResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/organizations/{id}/members": {
             "get": {
                 "security": [
@@ -10120,7 +10386,7 @@ const docTemplate = `{
                 "tags": [
                     "organizations"
                 ],
-                "summary": "Disable an organization webhook endpoint",
+                "summary": "Delete an organization webhook endpoint",
                 "parameters": [
                     {
                         "type": "string",
@@ -18716,7 +18982,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get decrypted Claude credentials for use inside a desktop container.\nOnly accepts runner/session-scoped tokens.",
+                "description": "Get decrypted Claude credentials for use inside a desktop container.\nAccepts the session's own API key or a runner token; otherwise only the subscription's owner.",
                 "produces": [
                     "application/json"
                 ],
@@ -20806,7 +21072,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get the Kanban board settings (WIP limits) for the default project",
+                "description": "Get the Kanban board settings (WIP limits) of a project",
                 "produces": [
                     "application/json"
                 ],
@@ -20814,6 +21080,15 @@ const docTemplate = `{
                     "spec-driven-tasks"
                 ],
                 "summary": "Get board settings for spec tasks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -20821,8 +21096,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.BoardSettings"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -20835,7 +21116,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update the Kanban board settings (WIP limits) for the default project",
+                "description": "Update the Kanban board settings (WIP limits) of a project",
                 "consumes": [
                     "application/json"
                 ],
@@ -20847,6 +21128,13 @@ const docTemplate = `{
                 ],
                 "summary": "Update board settings for spec tasks",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "query",
+                        "required": true
+                    },
                     {
                         "description": "Board settings",
                         "name": "request",
@@ -20870,8 +21158,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.APIError"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -24767,6 +25061,18 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.APIError"
                         }
                     },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -24896,6 +25202,18 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -25339,6 +25657,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "can_edit": {
+                    "description": "CanEdit is true when the caller may change this Bot: organization\nowners and platform admins, or a member who may update the Bot's\nagent app. The UI hides edit, delete and re-parent controls when false.",
+                    "type": "boolean"
+                },
                 "code_agent_credential_type": {
                     "$ref": "#/definitions/types.CodeAgentCredentialType"
                 },
@@ -25390,6 +25712,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "portrait_index": {
+                    "type": "integer"
                 },
                 "preserve_context": {
                     "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
@@ -30505,6 +30830,15 @@ const docTemplate = `{
                 "APIkeytypeBotInstance"
             ]
         },
+        "types.AcceptInvitationRequest": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "description": "Token is the invitation's secret token from the invite link.",
+                    "type": "string"
+                }
+            }
+        },
         "types.AccessGrant": {
             "type": "object",
             "properties": {
@@ -32012,6 +32346,10 @@ const docTemplate = `{
             "properties": {
                 "enabled": {
                     "type": "boolean"
+                },
+                "webhook_secret": {
+                    "description": "WebhookSecret authenticates deliveries to /api/v1/webhooks/{id}.\nGenerated by the server when the trigger is saved; deliveries without\nit are rejected.",
+                    "type": "string"
                 }
             }
         },
@@ -33319,6 +33657,51 @@ const docTemplate = `{
                 },
                 "provider": {
                     "$ref": "#/definitions/types.ExternalRepositoryType"
+                }
+            }
+        },
+        "types.CreateRunnerTokenRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "runner_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateRunnerTokenResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "revoked_by": {
+                    "description": "RevokedBy is the user who revoked the token. With CreatedBy and the\ntimestamps, the row is the token's durable audit record; the request\naudit log has the full requests.",
+                    "type": "string"
+                },
+                "runner_id": {
+                    "description": "RunnerID is the host this token may act as. A host registers RevDial\ntunnels as \"hydra-{id}\" and \"sandbox-{id}\" and calls the sandbox and\nrunner routes with the bare id; all of those match (RunnerIDsMatch).",
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "token_prefix": {
+                    "type": "string"
                 }
             }
         },
@@ -35415,6 +35798,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.InvitationLinkResponse": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Item": {
             "type": "object",
             "properties": {
@@ -37001,6 +37392,10 @@ const docTemplate = `{
             "properties": {
                 "email": {
                     "type": "string"
+                },
+                "email_verified": {
+                    "description": "EmailVerified — the existing account has been shown to own the address.\nAdding by email only adds such an account; otherwise it is invited.",
+                    "type": "boolean"
                 },
                 "exists": {
                     "description": "a Helix user account exists with this email",
@@ -38960,6 +39355,13 @@ const docTemplate = `{
                 "full_name": {
                     "type": "string"
                 },
+                "invitation_id": {
+                    "description": "InvitationID and InvitationToken come from the invite link\n(/login?invitation=\u003cid\u003e\u0026token=\u003ctoken\u003e). Password sign-up does not\nverify the email address, so only the invitation presented here is\naccepted, and only with its secret token and when it was sent to Email.",
+                    "type": "string"
+                },
+                "invitation_token": {
+                    "type": "string"
+                },
                 "password": {
                     "type": "string"
                 },
@@ -39078,6 +39480,124 @@ const docTemplate = `{
                 },
                 "private": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.RequestAuditEvent": {
+            "type": "object",
+            "properties": {
+                "api_key_type": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "body_size": {
+                    "type": "integer"
+                },
+                "body_truncated": {
+                    "type": "boolean"
+                },
+                "cf_connecting_ip": {
+                    "type": "string"
+                },
+                "client_ip": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "credential_fingerprint": {
+                    "type": "string"
+                },
+                "credential_source": {
+                    "description": "CredentialSource names where the credential came from (session, bearer,\napi-key, cookie, query, socket). CredentialFingerprint is the first 12\nhex characters of an HMAC-SHA256 of the credential, keyed from the\ndeployment's encryption key - enough to correlate a stolen key with\nrequests without storing the key or allowing an offline brute force.",
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "id": {
+                    "description": "ID is the primary key and half of the keyset pagination cursor.",
+                    "type": "string"
+                },
+                "method": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "remote_addr": {
+                    "description": "RemoteAddr is the raw TCP peer as reported by net/http. RemoteIP and\nRemotePort split it so the address is a usable filter (the raw value\nincludes the ephemeral port). ClientIP is filled only when the peer is\ninside HELIX_AUDIT_LOG_TRUSTED_PROXIES; the proxy headers below are\notherwise recorded as the client sent them and are NOT trusted.",
+                    "type": "string"
+                },
+                "remote_ip": {
+                    "type": "string"
+                },
+                "remote_port": {
+                    "type": "integer"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "response_bytes": {
+                    "type": "integer"
+                },
+                "route_template": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "token_type": {
+                    "type": "string"
+                },
+                "user_admin": {
+                    "type": "boolean"
+                },
+                "user_agent": {
+                    "type": "string"
+                },
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "x_forwarded_for": {
+                    "type": "string"
+                },
+                "x_real_ip": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RequestAuditEventResponse": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.RequestAuditEvent"
+                    }
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "next_cursor": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -39392,6 +39912,37 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.RunnerToken": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "revoked_by": {
+                    "description": "RevokedBy is the user who revoked the token. With CreatedBy and the\ntimestamps, the row is the token's durable audit record; the request\naudit log has the full requests.",
+                    "type": "string"
+                },
+                "runner_id": {
+                    "description": "RunnerID is the host this token may act as. A host registers RevDial\ntunnels as \"hydra-{id}\" and \"sandbox-{id}\" and calls the sandbox and\nrunner routes with the bare id; all of those match (RunnerIDsMatch).",
+                    "type": "string"
+                },
+                "token_prefix": {
                     "type": "string"
                 }
             }
@@ -44606,8 +45157,16 @@ const docTemplate = `{
                 "deleted_at": {
                     "$ref": "#/definitions/gorm.DeletedAt"
                 },
+                "desktop_identity": {
+                    "description": "DesktopIdentity marks the single account that Helix Desktop's\nauto-login (DESKTOP_AUTO_LOGIN_SECRET) signs in as. The desktop flow\nnever signs in as, or promotes, any other account.",
+                    "type": "boolean"
+                },
                 "email": {
                     "type": "string"
+                },
+                "email_verified": {
+                    "description": "EmailVerified records that the account's owner has been shown to control\nEmail: the identity provider asserted email_verified, an admin created the\naccount, or the owner used a link sent to the address (invitation,\npassword reset). A password sign-up proves nothing, so it is false until\nthen. Resolving an account by email for a grant (adding an org or team\nmember) requires it; anything else would hand the grant to whoever\nregistered the address first.",
+                    "type": "boolean"
                 },
                 "embed_interactive": {
                     "description": "EmbedInteractive: an embed key that may drive its bound session's desktop.",
@@ -44633,6 +45192,10 @@ const docTemplate = `{
                 "must_change_password": {
                     "description": "if the user must change their password",
                     "type": "boolean"
+                },
+                "oidc_subject": {
+                    "description": "OIDCSubject is the identity provider's subject this account is signed in\nwith. For accounts created by SSO it equals ID; for an account created\nanother way and later linked to an SSO identity by its verified email,\nit records that link so later sign-ins resolve by subject.",
+                    "type": "string"
                 },
                 "onboarding_completed": {
                     "type": "boolean"
@@ -44660,6 +45223,10 @@ const docTemplate = `{
                     "description": "When running in Helix Code sandbox",
                     "type": "string"
                 },
+                "runner_id": {
+                    "description": "RunnerID is the runner a per-runner token is bound to. Empty for the\nshared runner token and for every non-runner credential.",
+                    "type": "string"
+                },
                 "sb": {
                     "type": "boolean"
                 },
@@ -44669,10 +45236,6 @@ const docTemplate = `{
                 },
                 "spec_task_id": {
                     "description": "When running in Helix Code sandbox",
-                    "type": "string"
-                },
-                "token": {
-                    "description": "the actual token used and its type",
                     "type": "string"
                 },
                 "token_type": {
@@ -44899,6 +45462,9 @@ const docTemplate = `{
                 },
                 "email": {
                     "type": "string"
+                },
+                "email_verified": {
+                    "type": "boolean"
                 },
                 "git_commit_email": {
                     "type": "string"
@@ -45389,11 +45955,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "active",
-                "disabled"
+                "disabled",
+                "deleted"
             ],
             "x-enum-varnames": [
                 "WebhookEndpointStatusActive",
-                "WebhookEndpointStatusDisabled"
+                "WebhookEndpointStatusDisabled",
+                "WebhookEndpointStatusDeleted"
             ]
         },
         "types.WebsiteCrawler": {

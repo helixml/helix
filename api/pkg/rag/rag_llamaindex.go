@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -33,12 +34,17 @@ type Llamaindex struct {
 	httpClient *http.Client
 }
 
-func NewLlamaindex(settings *types.RAGSettings) *Llamaindex {
+// NewLlamaindex returns a client for a custom, user-configured RAG server.
+// Its URLs are user input, so every connection (redirects and DNS rebinding
+// included) is checked against policy.
+func NewLlamaindex(settings *types.RAGSettings, policy netguard.Policy) *Llamaindex {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	policy.GuardTransport(transport)
 	return &Llamaindex{
 		indexURL:   settings.IndexURL,
 		queryURL:   settings.QueryURL,
 		deleteURL:  settings.DeleteURL,
-		httpClient: http.DefaultClient,
+		httpClient: &http.Client{Transport: transport},
 	}
 }
 

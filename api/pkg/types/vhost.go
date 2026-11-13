@@ -63,6 +63,18 @@ type VHostRoute struct {
 // would derive "v_host_routes" from the camel-cased struct name.
 func (VHostRoute) TableName() string { return "vhost_routes" }
 
+// DomainOwnershipTXTLabel is the DNS label, prepended to a custom hostname,
+// whose TXT record must carry the route's VerificationToken before the
+// domain is verified. Pointing the hostname at Helix is not proof of
+// ownership on its own: a previous holder's stale CNAME does that too.
+const DomainOwnershipTXTLabel = "_helix-challenge"
+
+// DomainOwnershipTXTName returns the DNS name of the ownership TXT record
+// for hostname.
+func DomainOwnershipTXTName(hostname string) string {
+	return DomainOwnershipTXTLabel + "." + hostname
+}
+
 // ProjectWebServiceState is the per-project enablement and runtime state for
 // the web-service hosting feature.
 type ProjectWebServiceState struct {
