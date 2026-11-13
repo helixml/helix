@@ -136,12 +136,19 @@ func (s *PostgresStore) autoMigrate() error {
 		}
 	}
 
-	return s.withMigrationLock(context.Background(), s.runMigrations)
+	ctx, cancel := context.WithTimeout(context.Background(), migrationLockWait)
+	defer cancel()
+	return s.withMigrationLock(ctx, s.runMigrations)
 }
 
-// migrationLockPollInterval is how often a process waiting for another one's
-// migration retries the advisory lock.
-const migrationLockPollInterval = 500 * time.Millisecond
+const (
+	// migrationLockPollInterval is how often a process waiting for another
+	// one's migration retries the advisory lock.
+	migrationLockPollInterval = 500 * time.Millisecond
+	// migrationLockWait bounds how long startup waits for another process's
+	// migration; past it startup fails instead of hanging on a stuck holder.
+	migrationLockWait = 30 * time.Minute
+)
 
 // withMigrationLock runs migrate while holding a Postgres advisory lock scoped
 // to this database and schema, so API replicas starting together migrate one
@@ -186,7 +193,7 @@ func (s *PostgresStore) withMigrationLock(ctx context.Context, migrate func() er
 	}
 
 	migrateErr := migrate()
-	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_unlock(hashtext($1))", key); err != nil && migrateErr == nil {
+	if _, err := conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock(hashtext($1))", key); err != nil && migrateErr == nil {
 		return fmt.Errorf("release migration lock: %w", err)
 	}
 	return migrateErr

@@ -37,6 +37,8 @@ func GetTestDB() *PostgresStore {
 	})
 
 	if testDBErr != nil {
+		// log.Fatal exits before TestMain's DropTestDB runs.
+		DropTestDB()
 		log.Fatal().Err(testDBErr).Msg("failed to initialize test database")
 	}
 
@@ -60,10 +62,11 @@ func newIsolatedTestDB() (*PostgresStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to Postgres: %w", err)
 	}
-	testDBName = fmt.Sprintf("helix_test_%d_%d", os.Getpid(), time.Now().UnixNano())
-	if err := testDBAdmin.gdb.Exec("CREATE DATABASE " + testDBName).Error; err != nil {
+	name := fmt.Sprintf("helix_test_%d_%d", os.Getpid(), time.Now().UnixNano())
+	if err := testDBAdmin.gdb.Exec("CREATE DATABASE " + name).Error; err != nil {
 		return nil, fmt.Errorf("create test database: %w", err)
 	}
+	testDBName = name
 
 	isolated := cfg
 	isolated.Database = testDBName
@@ -87,12 +90,19 @@ func newIsolatedTestDB() (*PostgresStore, error) {
 	return db, nil
 }
 
-// DropTestDB drops the database GetTestDB created, if any.
+// DropTestDB drops the database GetTestDB created, if any, including one left
+// half-initialised by a failed GetTestDB.
 func DropTestDB() {
-	if testDB == nil {
+	if testDBAdmin == nil {
 		return
 	}
-	_ = testDB.Close()
+	if testDB != nil {
+		_ = testDB.Close()
+	}
+	if testDBName == "" {
+		_ = testDBAdmin.Close()
+		return
+	}
 	if err := testDBAdmin.gdb.Exec("DROP DATABASE " + testDBName + " WITH (FORCE)").Error; err != nil {
 		log.Error().Err(err).Str("database", testDBName).Msg("failed to drop test database")
 	}
