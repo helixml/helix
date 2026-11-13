@@ -31,6 +31,7 @@ func TestNewProviderNativeWithoutLLMOrEmbeddings(t *testing.T) {
 	res, err := NewProvider(config.WebSearch{
 		Provider:         ProviderNative,
 		SearXNGBaseURL:   "http://searxng:8080",
+		SearXNGEngines:   []string{"yandex"},
 		FetchConcurrency: 4,
 	}, Deps{})
 	require.NoError(t, err)
@@ -44,4 +45,16 @@ func TestLLMModelsDefaultToMainModel(t *testing.T) {
 		native.TierDefault: "main",
 		native.TierStrong:  "big",
 	}, llmModels(config.WebSearch{LLMModel: "main", LLMStrongModel: "big"}))
+}
+
+func TestNewProviderNativeRejectsUnsupportedEngines(t *testing.T) {
+	for _, engines := range [][]string{nil, {"yandex", "startpage"}} {
+		_, err := NewProvider(config.WebSearch{
+			Provider:         ProviderNative,
+			SearXNGBaseURL:   "http://searxng:8080",
+			SearXNGEngines:   engines,
+			FetchConcurrency: 4,
+		}, Deps{})
+		require.ErrorContains(t, err, "SEARCH_SEARXNG_ENGINES", "engines %v", engines)
+	}
 }

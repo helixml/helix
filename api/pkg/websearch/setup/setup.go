@@ -5,6 +5,8 @@ package setup
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
@@ -24,6 +26,10 @@ const (
 	ProviderNative = "native"
 	ProviderExa    = "exa"
 )
+
+// SearchEngines are the SearXNG engines SEARCH_SEARXNG_ENGINES may name. Our
+// SearXNG settings enable each of them.
+var SearchEngines = []string{"google", "bing", "duckduckgo", "brave", "yandex"}
 
 // Deps are the shared services the native provider is built from.
 type Deps struct {
@@ -57,6 +63,10 @@ func NewProvider(cfg config.WebSearch, deps Deps) (*Result, error) {
 }
 
 func newNative(cfg config.WebSearch, deps Deps) (*Result, error) {
+	engines, err := searchEngines(cfg.SearXNGEngines)
+	if err != nil {
+		return nil, err
+	}
 	policy := netguard.Policy{AllowPrivate: cfg.AllowPrivateNetworks}
 
 	proxy, err := netguard.NewProxy(policy)
@@ -77,7 +87,7 @@ func newNative(cfg config.WebSearch, deps Deps) (*Result, error) {
 	}
 
 	opts := native.Options{
-		Discoverer:       native.NewSearXNGDiscoverer(searxng.NewClient(cfg.SearXNGBaseURL, cfg.SearXNGEngines)),
+		Discoverer:       native.NewSearXNGDiscoverer(searxng.NewClient(cfg.SearXNGBaseURL, engines)),
 		Fetcher:          fetcher,
 		Extractor:        native.NewExtractor(deps.Documents),
 		Cache:            pagecache.New(deps.Store),
@@ -115,4 +125,16 @@ func llmModels(cfg config.WebSearch) map[native.Tier]string {
 		}
 	}
 	return models
+}
+
+func searchEngines(names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, fmt.Errorf("web search: SEARCH_SEARXNG_ENGINES is empty (choose from %s)", strings.Join(SearchEngines, ", "))
+	}
+	for _, n := range names {
+		if !slices.Contains(SearchEngines, n) {
+			return nil, fmt.Errorf("web search: unsupported search engine %q in SEARCH_SEARXNG_ENGINES (choose from %s)", n, strings.Join(SearchEngines, ", "))
+		}
+	}
+	return names, nil
 }

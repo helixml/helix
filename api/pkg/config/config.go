@@ -584,7 +584,7 @@ type WebSearch struct {
 	ExaBaseURL string `envconfig:"SEARCH_EXA_BASE_URL" default:"https://api.exa.ai"`
 
 	SearXNGBaseURL string   `envconfig:"SEARCH_SEARXNG_BASE_URL" default:"http://searxng:8080"`
-	SearXNGEngines []string `envconfig:"SEARCH_SEARXNG_ENGINES" default:"duckduckgo,google,startpage,yandex"`
+	SearXNGEngines []string `envconfig:"SEARCH_SEARXNG_ENGINES" default:"yandex"`
 
 	// AllowPrivateNetworks lets page fetches reach loopback/RFC1918 hosts.
 	// Only for self-hosted installs searching an internal web.
