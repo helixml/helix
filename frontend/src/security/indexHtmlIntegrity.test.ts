@@ -14,7 +14,7 @@ const INDEX_HTML = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 
 const UNHASHABLE_ORIGINS = ['https://fonts.googleapis.com']
 
 const externalStylesheets = (): string[] =>
-  [...INDEX_HTML.matchAll(/<link\b[^>]*>/gs)]
+  [...INDEX_HTML.matchAll(/<link\b[^>]*>/g)]
     .map((m) => m[0])
     .filter((tag) => /rel="stylesheet"/.test(tag) && /href="https:\/\//.test(tag))
 

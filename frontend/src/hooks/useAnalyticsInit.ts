@@ -60,7 +60,11 @@ export default function useAnalyticsInit() {
     // RudderStack
     if (config.rudderstack_write_key && config.rudderstack_data_plane_url) {
       const rudderAnalytics = new RudderAnalytics()
-      rudderAnalytics.load(config.rudderstack_write_key, config.rudderstack_data_plane_url, {})
+      // The app targets current browsers; never fetch the SDK's polyfill
+      // bundle from a third-party CDN.
+      rudderAnalytics.load(config.rudderstack_write_key, config.rudderstack_data_plane_url, {
+        polyfillIfRequired: false,
+      })
       win.setUserFunctions.push((user: any) => {
         const { token, ...safeUser } = user
         rudderAnalytics.identify(user.email, safeUser)

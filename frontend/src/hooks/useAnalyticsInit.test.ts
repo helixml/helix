@@ -132,7 +132,9 @@ describe('useAnalyticsInit', () => {
       renderHook(() => useAnalyticsInit())
 
       const instance = (RudderAnalytics as any).mock.results[0].value
-      expect(instance.load).toHaveBeenCalledWith('write-key', 'https://data.plane.url', {})
+      expect(instance.load).toHaveBeenCalledWith('write-key', 'https://data.plane.url', {
+        polyfillIfRequired: false,
+      })
     })
 
     it('does not initialize RudderStack when only write_key is set', () => {
