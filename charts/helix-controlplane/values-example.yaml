@@ -47,8 +47,8 @@ chrome:
   enabled: true
   # Use custom image if needed
   # image:
-  #   repository: ghcr.io/go-rod/rod
-  #   tag: "v0.116.2"
+  #   repository: ghcr.io/helixml/chrome
+  #   tag: ""  # defaults to the chart appVersion
 
 ## Controlplane configuration
 controlplane:

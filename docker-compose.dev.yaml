@@ -225,7 +225,12 @@ services:
       - UWSGI_THREADS=4
   chrome:
     logging: *default-logging
-    image: ghcr.io/go-rod/rod:v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107
+    # Built locally from Dockerfile.chrome; `docker compose build chrome`
+    # refreshes Chromium. HELIX_CHROME_IMAGE uses a published image instead.
+    image: ${HELIX_CHROME_IMAGE:-helix-chrome:dev}
+    build:
+      context: .
+      dockerfile: Dockerfile.chrome
     restart: always
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke

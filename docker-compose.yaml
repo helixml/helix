@@ -111,7 +111,10 @@ services:
       - UWSGI_THREADS=4
   chrome:
     logging: *default-logging
-    image: ghcr.io/go-rod/rod:v0.116.2@sha256:2c8abaec69299834027e482d03b8cfaed647c0853b34248e85a64c9522948107
+    # Crawler browser (Dockerfile.chrome): go-rod's launcher manager and a
+    # current Chromium, released with Helix. HELIX_CHROME_IMAGE overrides it
+    # with any image serving the go-rod launcher protocol on :7317.
+    image: ${HELIX_CHROME_IMAGE:-ghcr.io/helixml/chrome:${HELIX_VERSION:-latest}}
     restart: always
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke
