@@ -2195,8 +2195,10 @@ steps:
         # scripts/lib/deploy-runner-remote.sh). The fingerprint must never
         # block a release: without the label those deploys recreate the
         # sandbox, exactly as they did before the label existed.
-        apk add --no-cache bash git > /dev/null 2>&1 ||
-          echo "WARNING: could not install bash/git for the sandbox fingerprint"
+        # GNU tar/findutils are required: busybox tar has no --null and no
+        # --ignore-failed-read, and busybox find has no -printf.
+        apk add --no-cache bash git tar findutils > /dev/null 2>&1 ||
+          echo "WARNING: could not install bash/git/tar/findutils for the sandbox fingerprint"
         FINGERPRINT=$$(bash scripts/sandbox-fingerprint.sh . || true)
         if [ -n "$${FINGERPRINT}" ]; then
           LABEL="--label helix.sandbox.fingerprint=$${FINGERPRINT}"
