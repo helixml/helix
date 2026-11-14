@@ -2459,14 +2459,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindHelixEvents = "helix_events",
-  KindEmail = "email",
   KindGitLab = "gitlab",
-  KindCron = "cron",
-  KindGitHub = "github",
-  KindSlack = "slack",
   KindLocal = "local",
+  KindGitHub = "github",
+  KindCron = "cron",
+  KindEmail = "email",
   KindWebhook = "webhook",
+  KindHelixEvents = "helix_events",
+  KindSlack = "slack",
 }
 
 export interface TransportResolvedActivation {
@@ -5800,6 +5800,11 @@ export interface TypesPendingQuestion {
   questions?: TypesUserQuestion[];
   request_id?: string;
   source?: string;
+  /**
+   * Submission is the action Helix's API accepted for this question and
+   * forwarded to the agent. Server-written only; cleared on resolution.
+   */
+  submission?: TypesQuestionSubmission;
   thread_id?: string;
   tool_call_id?: string;
   turn_request_id?: string;
@@ -6457,6 +6462,13 @@ export interface TypesQuestionRespondRequest {
   answers?: Record<string, string>;
 }
 
+export interface TypesQuestionSubmission {
+  answers?: Record<string, string>;
+  by?: TypesTurnProvenance;
+  outcome?: string;
+  submitted_at?: string;
+}
+
 export interface TypesQuotaResponse {
   active_concurrent_desktops?: number;
   /**
@@ -6680,6 +6692,11 @@ export interface TypesRequestAuditEventResponse {
 }
 
 export interface TypesResolvedQuestion {
+  /**
+   * AnsweredBy says who resolved the question. Server-set; entries from
+   * before it existed read as origin "unknown".
+   */
+  answered_by?: TypesTurnProvenance;
   answers?: Record<string, string>;
   asked_at?: string;
   outcome?: string;
@@ -6687,6 +6704,11 @@ export interface TypesResolvedQuestion {
   request_id?: string;
   resolved_at?: string;
   source?: string;
+  /**
+   * Submission is the action Helix's API accepted for this question and
+   * forwarded to the agent. Server-written only; cleared on resolution.
+   */
+  submission?: TypesQuestionSubmission;
   thread_id?: string;
   tool_call_id?: string;
   turn_request_id?: string;
@@ -8931,6 +8953,7 @@ export enum TypesSystemTurnKind {
   SystemTurnEvaluationQuestion = "evaluation_question",
   SystemTurnExternalAgentTestHarness = "external_agent_test_harness",
   SystemTurnThreadReseed = "thread_reseed",
+  SystemTurnQuestionSettled = "question_settled",
   SystemTurnOrgBotAction = "org_bot_action",
   SystemTurnHelixAgentTool = "helix_agent_tool",
   SystemTurnTriggerConfiguration = "trigger_configuration",

@@ -3185,7 +3185,8 @@ func (s *WebSocketSyncSuite) TestQuestionResolved_ClearsAndArchivesQuestion() {
 	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
 	s.store.EXPECT().ResolveInteractionPendingQuestion(
 		gomock.Any(), interaction.ID, 2, "question-1", "answered", map[string]string{"framework": "React"},
-	).DoAndReturn(func(_ context.Context, _ string, _ int, _ string, _ string, answers map[string]string) (*types.Interaction, bool, error) {
+		types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
+	).DoAndReturn(func(_ context.Context, _ string, _ int, _ string, _ string, answers map[string]string, _ types.TurnProvenance) (*types.Interaction, bool, error) {
 		updated := *interaction
 		updated.PendingQuestion = nil
 		updated.QuestionHistory = []types.ResolvedQuestion{{Answers: answers, Outcome: "answered"}}
@@ -3218,6 +3219,7 @@ func (s *WebSocketSyncSuite) TestResumeRedeliverySettlesStalePendingQuestion() {
 	}}
 	s.store.EXPECT().ResolveInteractionPendingQuestion(
 		gomock.Any(), interaction.ID, 2, "question-stale", "cancelled", map[string]string(nil),
+		types.SystemTurn(types.SystemTurnQuestionSettled),
 	).Return(&updated, true, nil)
 	s.store.EXPECT().GetSession(gomock.Any(), interaction.SessionID).
 		Return(&types.Session{ID: interaction.SessionID, Owner: "user-1"}, nil)
@@ -4157,6 +4159,7 @@ func (s *WebSocketSyncSuite) TestTurnCancelledSettlesPendingQuestion() {
 	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
 	s.store.EXPECT().ResolveInteractionPendingQuestion(
 		gomock.Any(), waiting.ID, waiting.GenerationID, "question-1", "cancelled", map[string]string(nil),
+		types.SystemTurn(types.SystemTurnQuestionSettled),
 	).Return(&settled, true, nil)
 	s.store.EXPECT().MarkInteractionInterruptedIfWaiting(
 		gomock.Any(), waiting.ID, waiting.GenerationID,

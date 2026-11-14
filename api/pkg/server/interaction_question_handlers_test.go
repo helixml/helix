@@ -108,10 +108,12 @@ func (s *InteractionQuestionHandlerSuite) TestRejectsNonMember() {
 		OrganizationID: session.OrganizationID,
 		UserID:         "intruder",
 	}).Return(nil, store.ErrNotFound)
+	// No RecordInteractionQuestionSubmission expectation: a refused caller
+	// must not leave an answerer behind.
 
 	rr := s.callHandler("respond", types.QuestionRespondRequest{
 		Answers: map[string]string{"deploy": "No"},
-	}, &types.User{ID: "intruder"})
+	}, &types.User{ID: "intruder", TokenType: types.TokenTypeSession})
 
 	s.Equal(http.StatusForbidden, rr.Code)
 }
@@ -127,10 +129,11 @@ func (s *InteractionQuestionHandlerSuite) TestReturnsConflictWhenAgentDisconnect
 			sessionLoads <- struct{}{}
 			return session, nil
 		}).Times(2)
+	s.store.EXPECT().RecordInteractionQuestionSubmission(gomock.Any(), interaction.ID, 0, "request-1", gomock.Any()).Return(true, nil)
 
 	rr := s.callHandler("respond", types.QuestionRespondRequest{
 		Answers: map[string]string{"deploy": "No"},
-	}, &types.User{ID: session.Owner})
+	}, &types.User{ID: session.Owner, TokenType: types.TokenTypeSession})
 
 	s.Equal(http.StatusConflict, rr.Code)
 	<-sessionLoads // authorization load completed synchronously
@@ -153,7 +156,7 @@ func (s *InteractionQuestionHandlerSuite) TestDoubleAnswerAfterResolutionIsIdemp
 
 	rr := s.callHandler("respond", types.QuestionRespondRequest{
 		Answers: map[string]string{"deploy": "No"},
-	}, &types.User{ID: session.Owner})
+	}, &types.User{ID: session.Owner, TokenType: types.TokenTypeSession})
 
 	s.Equal(http.StatusOK, rr.Code)
 	s.Contains(rr.Body.String(), `"status":"resolved"`)
@@ -163,6 +166,8 @@ func (s *InteractionQuestionHandlerSuite) TestConcurrentAnswerAndCancelSendOneCo
 	interaction, session := questionHandlerFixture()
 	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil).Times(2)
 	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil).Times(2)
+	// Only the action that wins the race is recorded and sent.
+	s.store.EXPECT().RecordInteractionQuestionSubmission(gomock.Any(), interaction.ID, 0, "request-1", gomock.Any()).Return(true, nil).Times(1)
 	sendChan := make(chan types.ExternalAgentCommand, 2)
 	s.server.externalAgentWSManager.registerConnection(session.ID, &ExternalAgentWSConnection{
 		SessionID: session.ID,
@@ -178,12 +183,12 @@ func (s *InteractionQuestionHandlerSuite) TestConcurrentAnswerAndCancelSendOneCo
 		<-start
 		results <- s.callHandler("respond", types.QuestionRespondRequest{
 			Answers: map[string]string{"deploy": "No"},
-		}, &types.User{ID: session.Owner})
+		}, &types.User{ID: session.Owner, TokenType: types.TokenTypeSession})
 	}()
 	go func() {
 		ready.Done()
 		<-start
-		results <- s.callHandler("cancel", nil, &types.User{ID: session.Owner})
+		results <- s.callHandler("cancel", nil, &types.User{ID: session.Owner, TokenType: types.TokenTypeSession})
 	}()
 	ready.Wait()
 	close(start)

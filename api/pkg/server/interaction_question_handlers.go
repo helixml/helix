@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -50,6 +51,9 @@ func (s *HelixAPIServer) respondToInteractionQuestion(w http.ResponseWriter, req
 	if !s.beginQuestionAction(interaction.ID, question.RequestID) {
 		return &types.QuestionActionResponse{Status: "accepted"}, nil
 	}
+	if httpErr := s.recordQuestionSubmission(req, interaction, question, "answered", body.Answers); httpErr != nil {
+		return nil, httpErr
+	}
 	if err := s.sendCommandToExternalAgent(interaction.SessionID, types.ExternalAgentCommand{
 		Type: "respond_question",
 		Data: map[string]interface{}{
@@ -81,6 +85,9 @@ func (s *HelixAPIServer) cancelInteractionQuestion(_ http.ResponseWriter, req *h
 	if !s.beginQuestionAction(interaction.ID, question.RequestID) {
 		return &types.QuestionActionResponse{Status: "accepted"}, nil
 	}
+	if httpErr := s.recordQuestionSubmission(req, interaction, question, "cancelled", nil); httpErr != nil {
+		return nil, httpErr
+	}
 	if err := s.sendCommandToExternalAgent(interaction.SessionID, types.ExternalAgentCommand{
 		Type: "cancel_question",
 		Data: map[string]interface{}{
@@ -91,6 +98,34 @@ func (s *HelixAPIServer) cancelInteractionQuestion(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError409("agent is not available to cancel the question")
 	}
 	return &types.QuestionActionResponse{Status: "accepted"}, nil
+}
+
+// recordQuestionSubmission persists who submitted this action before it is
+// forwarded, so the resolution the agent reports back is attributed to the
+// authenticated caller. The answerer is derived from the credential only;
+// nothing in the request body can set it. On failure the in-flight action is
+// released.
+func (s *HelixAPIServer) recordQuestionSubmission(req *http.Request, interaction *types.Interaction, question *types.PendingQuestion, outcome string, answers map[string]string) *system.HTTPError {
+	by, err := requestTurnProvenance(req.Context(), getRequestUser(req))
+	if err != nil {
+		s.finishQuestionAction(interaction.ID, question.RequestID)
+		return system.NewHTTPError403("this credential cannot answer agent questions")
+	}
+	recorded, err := s.Store.RecordInteractionQuestionSubmission(req.Context(), interaction.ID, interaction.GenerationID, question.RequestID, types.QuestionSubmission{
+		Outcome:     outcome,
+		Answers:     answers,
+		By:          by,
+		SubmittedAt: time.Now(),
+	})
+	if err != nil {
+		s.finishQuestionAction(interaction.ID, question.RequestID)
+		return system.NewHTTPError500("failed to record question response")
+	}
+	if !recorded {
+		s.finishQuestionAction(interaction.ID, question.RequestID)
+		return system.NewHTTPError409("question is no longer pending")
+	}
+	return nil
 }
 
 func questionActionKey(interactionID, requestID string) string {

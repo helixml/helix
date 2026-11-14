@@ -65,6 +65,9 @@ const (
 	// SystemTurnThreadReseed: Helix prepended a context preamble to a
 	// replayed turn because the agent could not reopen its session.
 	SystemTurnThreadReseed SystemTurnKind = "thread_reseed"
+	// SystemTurnQuestionSettled: Helix cancelled an agent question because
+	// its turn ended before anyone answered.
+	SystemTurnQuestionSettled SystemTurnKind = "question_settled"
 )
 
 // Actor kinds appear only inside TriggeredBy, naming a non-human caller.

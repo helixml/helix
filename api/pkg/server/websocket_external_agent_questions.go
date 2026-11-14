@@ -104,6 +104,7 @@ func (apiServer *HelixAPIServer) settlePendingQuestionAsCancelled(
 		requestID,
 		"cancelled",
 		nil,
+		types.SystemTurn(types.SystemTurnQuestionSettled),
 	)
 	if err != nil {
 		return interaction, false, fmt.Errorf("settle pending question as cancelled: %w", err)
@@ -123,6 +124,8 @@ func (apiServer *HelixAPIServer) handleQuestionRequested(sessionID string, syncM
 	if err := validatePendingQuestion(&question); err != nil {
 		return fmt.Errorf("invalid question_requested event: %w", err)
 	}
+	// Only Helix's API writes a submission; never accept one from the agent.
+	question.Submission = nil
 	if question.AskedAt.IsZero() {
 		question.AskedAt = syncMsg.Timestamp
 		if question.AskedAt.IsZero() {
@@ -187,6 +190,9 @@ func (apiServer *HelixAPIServer) handleQuestionResolved(sessionID string, syncMs
 	}
 	updated, changed, err := apiServer.Store.ResolveInteractionPendingQuestion(
 		ctx, interaction.ID, interaction.GenerationID, event.RequestID, event.Outcome, event.Answers,
+		// Unless it matches what the API submitted, the resolution came
+		// from someone at the agent's own UI.
+		types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
 	)
 	if err != nil {
 		return fmt.Errorf("resolve pending question: %w", err)

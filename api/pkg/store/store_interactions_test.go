@@ -158,12 +158,14 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecy
 
 	updated, changed, err = suite.db.ResolveInteractionPendingQuestion(
 		ctx, interaction.ID, 1, question.RequestID, "answered", map[string]string{"choice": "A"},
+		types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
 	)
 	suite.Require().NoError(err)
 	suite.True(changed)
 	suite.Nil(updated.PendingQuestion)
 	suite.Require().Len(updated.QuestionHistory, 1)
 	suite.Equal("A", updated.QuestionHistory[0].Answers["choice"])
+	suite.Equal(types.TurnOriginExternalAgent, updated.QuestionHistory[0].AnsweredBy.Origin)
 
 	updated, changed, err = suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 1, question)
 	suite.Require().NoError(err)
@@ -173,7 +175,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecy
 
 	_, _, err = suite.db.SetInteractionPendingQuestion(ctx, "missing-interaction", 1, question)
 	suite.ErrorIs(err, ErrNotFound)
-	_, _, err = suite.db.ResolveInteractionPendingQuestion(ctx, "missing-interaction", 1, question.RequestID, "cancelled", nil)
+	_, _, err = suite.db.ResolveInteractionPendingQuestion(ctx, "missing-interaction", 1, question.RequestID, "cancelled", nil, types.SystemTurn(types.SystemTurnQuestionSettled))
 	suite.ErrorIs(err, ErrNotFound)
 }
 
@@ -806,4 +808,45 @@ func (suite *PostgresStoreTestSuite) TestGetInteractionByExternalAgentUserEntryI
 
 	_, err = suite.db.GetInteractionByExternalAgentUserEntry(ctx, "ses_other", "3")
 	suite.ErrorIs(err, ErrNotFound)
+}
+
+func (suite *PostgresStoreTestSuite) TestQuestionSubmissionAttributesResolution() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-answerer-test", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	question := &types.PendingQuestion{RequestID: "q-1", ThreadID: "t", TurnRequestID: "r", Source: "elicitation",
+		Questions: []types.UserQuestion{{ID: "deploy", Question: "Where?"}}}
+	_, changed, err := suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 0, question)
+	suite.Require().NoError(err)
+	suite.Require().True(changed)
+
+	recorded, err := suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-other", types.QuestionSubmission{})
+	suite.Require().NoError(err)
+	suite.False(recorded, "a submission for another question is not recorded")
+
+	by := types.TurnProvenance{Origin: types.TurnOriginUser, UserID: session.Owner}
+	recorded, err = suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-1", types.QuestionSubmission{
+		Outcome: "answered", Answers: map[string]string{"deploy": "free text"}, By: by, SubmittedAt: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.True(recorded)
+
+	updated, changed, err := suite.db.ResolveInteractionPendingQuestion(ctx, interaction.ID, 0, "q-1", "answered",
+		map[string]string{"deploy": "free text"}, types.TurnProvenance{Origin: types.TurnOriginExternalAgent})
+	suite.Require().NoError(err)
+	suite.Require().True(changed)
+	suite.Equal(by, updated.QuestionHistory[0].AnsweredBy)
+
+	reloaded, err := suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(reloaded.QuestionHistory, 1)
+	suite.Equal(by, reloaded.QuestionHistory[0].AnsweredBy)
+	suite.Nil(reloaded.QuestionHistory[0].Submission)
 }

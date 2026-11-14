@@ -31103,24 +31103,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "helix_events",
-                "email",
                 "gitlab",
-                "cron",
-                "github",
-                "slack",
                 "local",
-                "webhook"
+                "github",
+                "cron",
+                "email",
+                "webhook",
+                "helix_events",
+                "slack"
             ],
             "x-enum-varnames": [
-                "KindHelixEvents",
-                "KindEmail",
                 "KindGitLab",
-                "KindCron",
-                "KindGitHub",
-                "KindSlack",
                 "KindLocal",
-                "KindWebhook"
+                "KindGitHub",
+                "KindCron",
+                "KindEmail",
+                "KindWebhook",
+                "KindHelixEvents",
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {
@@ -38341,6 +38341,14 @@ const docTemplate = `{
                 "source": {
                     "type": "string"
                 },
+                "submission": {
+                    "description": "Submission is the action Helix's API accepted for this question and\nforwarded to the agent. Server-written only; cleared on resolution.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.QuestionSubmission"
+                        }
+                    ]
+                },
                 "thread_id": {
                     "type": "string"
                 },
@@ -39762,6 +39770,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.QuestionSubmission": {
+            "type": "object",
+            "properties": {
+                "answers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "by": {
+                    "$ref": "#/definitions/types.TurnProvenance"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "submitted_at": {
+                    "type": "string"
+                }
+            }
+        },
         "types.QuotaResponse": {
             "type": "object",
             "properties": {
@@ -40189,6 +40217,14 @@ const docTemplate = `{
         "types.ResolvedQuestion": {
             "type": "object",
             "properties": {
+                "answered_by": {
+                    "description": "AnsweredBy says who resolved the question. Server-set; entries from\nbefore it existed read as origin \"unknown\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
                 "answers": {
                     "type": "object",
                     "additionalProperties": {
@@ -40215,6 +40251,14 @@ const docTemplate = `{
                 },
                 "source": {
                     "type": "string"
+                },
+                "submission": {
+                    "description": "Submission is the action Helix's API accepted for this question and\nforwarded to the agent. Server-written only; cleared on resolution.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.QuestionSubmission"
+                        }
+                    ]
                 },
                 "thread_id": {
                     "type": "string"
@@ -44615,6 +44659,7 @@ const docTemplate = `{
                 "evaluation_question",
                 "external_agent_test_harness",
                 "thread_reseed",
+                "question_settled",
                 "org_bot_action",
                 "helix_agent_tool",
                 "trigger_configuration",
@@ -44650,6 +44695,7 @@ const docTemplate = `{
                 "SystemTurnEvaluationQuestion",
                 "SystemTurnExternalAgentTestHarness",
                 "SystemTurnThreadReseed",
+                "SystemTurnQuestionSettled",
                 "SystemTurnOrgBotAction",
                 "SystemTurnHelixAgentTool",
                 "SystemTurnTriggerConfiguration",

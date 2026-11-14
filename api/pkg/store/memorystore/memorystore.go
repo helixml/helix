@@ -442,7 +442,7 @@ func (m *MemoryStore) SetInteractionPendingQuestion(_ context.Context, interacti
 	return &cp, true, nil
 }
 
-func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error) {
+func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, fallback types.TurnProvenance) (*types.Interaction, bool, error) {
 	m.mu.Lock()
 	existing, ok := m.interactions[interactionID]
 	if !ok || existing.GenerationID != generationID {
@@ -454,12 +454,7 @@ func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, inter
 		m.mu.Unlock()
 		return &cp, false, nil
 	}
-	existing.QuestionHistory = append(existing.QuestionHistory, types.ResolvedQuestion{
-		PendingQuestion: *existing.PendingQuestion,
-		Outcome:         outcome,
-		Answers:         answers,
-		ResolvedAt:      time.Now(),
-	})
+	existing.QuestionHistory = append(existing.QuestionHistory, types.NewResolvedQuestion(existing.PendingQuestion, outcome, answers, fallback))
 	existing.PendingQuestion = nil
 	existing.Updated = time.Now()
 	cp := *existing
@@ -469,6 +464,23 @@ func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, inter
 		cb(&cp)
 	}
 	return &cp, true, nil
+}
+
+func (m *MemoryStore) RecordInteractionQuestionSubmission(_ context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		return false, store.ErrNotFound
+	}
+	if existing.PendingQuestion == nil || existing.PendingQuestion.RequestID != requestID {
+		return false, nil
+	}
+	pending := *existing.PendingQuestion
+	pending.Submission = &submission
+	existing.PendingQuestion = &pending
+	existing.Updated = time.Now()
+	return true, nil
 }
 
 func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {

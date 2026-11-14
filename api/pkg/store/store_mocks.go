@@ -6734,6 +6734,21 @@ func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileStuckSendingPrompts", reflect.TypeOf((*MockStore)(nil).ReconcileStuckSendingPrompts), ctx)
 }
 
+// RecordInteractionQuestionSubmission mocks base method.
+func (m *MockStore) RecordInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordInteractionQuestionSubmission", ctx, interactionID, generationID, requestID, submission)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordInteractionQuestionSubmission indicates an expected call of RecordInteractionQuestionSubmission.
+func (mr *MockStoreMockRecorder) RecordInteractionQuestionSubmission(ctx, interactionID, generationID, requestID, submission any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordInteractionQuestionSubmission", reflect.TypeOf((*MockStore)(nil).RecordInteractionQuestionSubmission), ctx, interactionID, generationID, requestID, submission)
+}
+
 // RecordSessionAgentConfigApplied mocks base method.
 func (m *MockStore) RecordSessionAgentConfigApplied(ctx context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error {
 	m.ctrl.T.Helper()
@@ -6938,9 +6953,9 @@ func (mr *MockStoreMockRecorder) ResetStuckComments(ctx any) *gomock.Call {
 }
 
 // ResolveInteractionPendingQuestion mocks base method.
-func (m *MockStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error) {
+func (m *MockStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, fallback types.TurnProvenance) (*types.Interaction, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ResolveInteractionPendingQuestion", ctx, interactionID, generationID, requestID, outcome, answers)
+	ret := m.ctrl.Call(m, "ResolveInteractionPendingQuestion", ctx, interactionID, generationID, requestID, outcome, answers, fallback)
 	ret0, _ := ret[0].(*types.Interaction)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -6948,9 +6963,9 @@ func (m *MockStore) ResolveInteractionPendingQuestion(ctx context.Context, inter
 }
 
 // ResolveInteractionPendingQuestion indicates an expected call of ResolveInteractionPendingQuestion.
-func (mr *MockStoreMockRecorder) ResolveInteractionPendingQuestion(ctx, interactionID, generationID, requestID, outcome, answers any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ResolveInteractionPendingQuestion(ctx, interactionID, generationID, requestID, outcome, answers, fallback any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveInteractionPendingQuestion", reflect.TypeOf((*MockStore)(nil).ResolveInteractionPendingQuestion), ctx, interactionID, generationID, requestID, outcome, answers)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveInteractionPendingQuestion", reflect.TypeOf((*MockStore)(nil).ResolveInteractionPendingQuestion), ctx, interactionID, generationID, requestID, outcome, answers, fallback)
 }
 
 // ResourceSearch mocks base method.

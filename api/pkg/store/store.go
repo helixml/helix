@@ -353,7 +353,13 @@ type Store interface {
 	// websocket_external_agent_sync.go.
 	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
 	SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error)
-	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error)
+	// ResolveInteractionPendingQuestion moves the pending question into
+	// history, attributing it with PendingQuestion.ResolveAnswerer.
+	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, fallback types.TurnProvenance) (*types.Interaction, bool, error)
+	// RecordInteractionQuestionSubmission stores the API action accepted for
+	// the pending question requestID. False when that question is no longer
+	// pending.
+	RecordInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error)
 	// BindInteractionExternalAgentRequest persists the request ID before an
 	// external-agent turn is dispatched, so queued turns remain identifiable
 	// across API restarts.

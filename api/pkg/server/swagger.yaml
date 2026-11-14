@@ -3799,24 +3799,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - helix_events
-    - email
     - gitlab
-    - cron
-    - github
-    - slack
     - local
+    - github
+    - cron
+    - email
     - webhook
+    - helix_events
+    - slack
     type: string
     x-enum-varnames:
-    - KindHelixEvents
-    - KindEmail
     - KindGitLab
-    - KindCron
-    - KindGitHub
-    - KindSlack
     - KindLocal
+    - KindGitHub
+    - KindCron
+    - KindEmail
     - KindWebhook
+    - KindHelixEvents
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -9153,6 +9153,12 @@ definitions:
         type: string
       source:
         type: string
+      submission:
+        allOf:
+        - $ref: '#/definitions/types.QuestionSubmission'
+        description: |-
+          Submission is the action Helix's API accepted for this question and
+          forwarded to the agent. Server-written only; cleared on resolution.
       thread_id:
         type: string
       tool_call_id:
@@ -10167,6 +10173,19 @@ definitions:
           type: string
         type: object
     type: object
+  types.QuestionSubmission:
+    properties:
+      answers:
+        additionalProperties:
+          type: string
+        type: object
+      by:
+        $ref: '#/definitions/types.TurnProvenance'
+      outcome:
+        type: string
+      submitted_at:
+        type: string
+    type: object
   types.QuotaResponse:
     properties:
       active_concurrent_desktops:
@@ -10508,6 +10527,12 @@ definitions:
     type: object
   types.ResolvedQuestion:
     properties:
+      answered_by:
+        allOf:
+        - $ref: '#/definitions/types.TurnProvenance'
+        description: |-
+          AnsweredBy says who resolved the question. Server-set; entries from
+          before it existed read as origin "unknown".
       answers:
         additionalProperties:
           type: string
@@ -10526,6 +10551,12 @@ definitions:
         type: string
       source:
         type: string
+      submission:
+        allOf:
+        - $ref: '#/definitions/types.QuestionSubmission'
+        description: |-
+          Submission is the action Helix's API accepted for this question and
+          forwarded to the agent. Server-written only; cleared on resolution.
       thread_id:
         type: string
       tool_call_id:
@@ -13997,6 +14028,7 @@ definitions:
     - evaluation_question
     - external_agent_test_harness
     - thread_reseed
+    - question_settled
     - org_bot_action
     - helix_agent_tool
     - trigger_configuration
@@ -14032,6 +14064,7 @@ definitions:
     - SystemTurnEvaluationQuestion
     - SystemTurnExternalAgentTestHarness
     - SystemTurnThreadReseed
+    - SystemTurnQuestionSettled
     - SystemTurnOrgBotAction
     - SystemTurnHelixAgentTool
     - SystemTurnTriggerConfiguration
