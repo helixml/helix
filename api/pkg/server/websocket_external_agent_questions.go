@@ -23,6 +23,10 @@ type questionResolvedEvent struct {
 	TurnRequestID string            `json:"turn_request_id"`
 	Outcome       string            `json:"outcome"`
 	Answers       map[string]string `json:"answers"`
+	// SubmissionID echoes the nonce Helix sent with an API answer or cancel.
+	// The Zed build pinned in sandbox-versions.txt does not echo it yet, so
+	// every resolution it reports is attributed to external_agent.
+	SubmissionID string `json:"submission_id"`
 }
 
 func decodeSyncData(data map[string]interface{}, target interface{}) error {
@@ -89,6 +93,12 @@ func validatePendingQuestion(question *types.PendingQuestion) error {
 	return nil
 }
 
+// settledByHelix attributes a question Helix cancels itself, ignoring any
+// API submission still on it: nobody's answer reached the agent.
+func settledByHelix(*types.QuestionSubmission) types.TurnProvenance {
+	return types.SystemTurn(types.SystemTurnQuestionSettled)
+}
+
 func (apiServer *HelixAPIServer) settlePendingQuestionAsCancelled(
 	ctx context.Context,
 	interaction *types.Interaction,
@@ -104,6 +114,7 @@ func (apiServer *HelixAPIServer) settlePendingQuestionAsCancelled(
 		requestID,
 		"cancelled",
 		nil,
+		settledByHelix,
 	)
 	if err != nil {
 		return interaction, false, fmt.Errorf("settle pending question as cancelled: %w", err)
@@ -135,8 +146,10 @@ func (apiServer *HelixAPIServer) handleQuestionRequested(sessionID string, syncM
 	if interaction == nil {
 		return fmt.Errorf("question turn request %q does not map to an interaction", question.TurnRequestID)
 	}
-	if interaction.SessionID != sessionID {
-		return fmt.Errorf("question session %q does not match interaction session %q", sessionID, interaction.SessionID)
+	// Turns on agent-created threads belong to child sessions carried by
+	// this (the parent's) connection; another lane's turn is refused.
+	if err := apiServer.interactionOnConnection(ctx, sessionID, interaction); err != nil {
+		return fmt.Errorf("question for interaction %q: %w", interaction.ID, err)
 	}
 
 	updated, changed, err := apiServer.Store.SetInteractionPendingQuestion(
@@ -150,10 +163,15 @@ func (apiServer *HelixAPIServer) handleQuestionRequested(sessionID string, syncM
 	}
 	if !changed {
 		if updated.PendingQuestion != nil && updated.PendingQuestion.RequestID == question.RequestID {
-			// A replay proves the agent is still waiting. Release any action that
-			// was accepted by the API but lost with the previous connection so the
-			// user can submit it again.
-			apiServer.finishQuestionAction(interaction.ID, question.RequestID)
+			// A replay proves the agent is still waiting. An API action that
+			// is recorded for this question is resent, nonce and all, rather
+			// than dropped: the replay may have been emitted before that
+			// action reached the agent, and dropping it would let a second,
+			// different action through. Resending the same command is at
+			// worst a duplicate of the one answer.
+			if err := apiServer.resendQuestionSubmission(ctx, updated, question.RequestID); err != nil {
+				return err
+			}
 			return apiServer.publishQuestionInteractionUpdate(updated)
 		}
 		for _, resolved := range updated.QuestionHistory {
@@ -164,6 +182,27 @@ func (apiServer *HelixAPIServer) handleQuestionRequested(sessionID string, syncM
 		return fmt.Errorf("interaction %q cannot accept question %q", interaction.ID, question.RequestID)
 	}
 	return apiServer.publishQuestionInteractionUpdate(updated)
+}
+
+// resendQuestionSubmission redelivers the API submission recorded for the
+// replayed question requestID. With none recorded, any in-memory claim on the
+// question is released: whatever held it was lost with the old connection.
+// If the resend cannot be delivered the submission is withdrawn, exactly as
+// when the first send failed.
+func (apiServer *HelixAPIServer) resendQuestionSubmission(ctx context.Context, interaction *types.Interaction, requestID string) error {
+	submission := interaction.SubmissionFor(requestID)
+	if submission == nil {
+		apiServer.finishQuestionAction(interaction.ID, requestID)
+		return nil
+	}
+	if err := apiServer.sendCommandToExternalAgent(interaction.SessionID, questionCommand(submission)); err != nil {
+		clearErr := apiServer.Store.ClearInteractionQuestionSubmission(ctx, interaction.ID, interaction.GenerationID, requestID, submission.ID)
+		apiServer.finishQuestionAction(interaction.ID, requestID)
+		if clearErr != nil {
+			return fmt.Errorf("withdraw undeliverable question submission: %w", clearErr)
+		}
+	}
+	return nil
 }
 
 func (apiServer *HelixAPIServer) handleQuestionResolved(sessionID string, syncMsg *types.SyncMessage) error {
@@ -182,11 +221,16 @@ func (apiServer *HelixAPIServer) handleQuestionResolved(sessionID string, syncMs
 	if interaction == nil {
 		return fmt.Errorf("question turn request %q does not map to an interaction", event.TurnRequestID)
 	}
-	if interaction.SessionID != sessionID {
-		return fmt.Errorf("question session %q does not match interaction session %q", sessionID, interaction.SessionID)
+	// Turns on agent-created threads belong to child sessions carried by
+	// this (the parent's) connection; another lane's turn is refused.
+	if err := apiServer.interactionOnConnection(ctx, sessionID, interaction); err != nil {
+		return fmt.Errorf("question for interaction %q: %w", interaction.ID, err)
 	}
 	updated, changed, err := apiServer.Store.ResolveInteractionPendingQuestion(
 		ctx, interaction.ID, interaction.GenerationID, event.RequestID, event.Outcome, event.Answers,
+		func(submission *types.QuestionSubmission) types.TurnProvenance {
+			return submission.Answerer(event.RequestID, event.SubmissionID, event.Outcome)
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("resolve pending question: %w", err)

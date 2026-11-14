@@ -219,6 +219,9 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 		if query.SpecTaskID != "" && s.Metadata.SpecTaskID != query.SpecTaskID {
 			continue
 		}
+		if query.ExternalAgentID != "" && s.Metadata.ExternalAgentID != query.ExternalAgentID {
+			continue
+		}
 		cp := *s
 		if query.SortBy == "last_message" {
 			for _, interaction := range m.interactions {
@@ -349,10 +352,22 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 	if interaction.Updated.IsZero() {
 		interaction.Updated = time.Now()
 	}
+	if interaction.ExternalAgentUserEntryID != "" {
+		for id, other := range m.interactions {
+			if id != interaction.ID && other.SessionID == interaction.SessionID && other.GenerationID == interaction.GenerationID &&
+				other.ExternalAgentUserThreadID == interaction.ExternalAgentUserThreadID &&
+				other.ExternalAgentUserEntryID == interaction.ExternalAgentUserEntryID &&
+				other.PromptMessage == interaction.PromptMessage {
+				return nil, store.ErrDuplicateExternalAgentUserEntry
+			}
+		}
+	}
 	cp := *interaction
 	if existing, ok := m.interactions[interaction.ID]; ok {
 		cp.PendingQuestion = existing.PendingQuestion
 		cp.QuestionHistory = existing.QuestionHistory
+		cp.QuestionSubmission = existing.QuestionSubmission
+		cp.ThreadReseeds = existing.ThreadReseeds
 	}
 	m.interactions[interaction.ID] = &cp
 	return &cp, nil
@@ -365,6 +380,8 @@ func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.In
 		cp.PendingQuestion = existing.PendingQuestion
 		cp.QuestionHistory = existing.QuestionHistory
 		cp.Provenance = existing.Provenance
+		cp.QuestionSubmission = existing.QuestionSubmission
+		cp.ThreadReseeds = existing.ThreadReseeds
 	}
 	m.interactions[interaction.ID] = &cp
 	cb := m.OnInteractionUpdated
@@ -439,7 +456,7 @@ func (m *MemoryStore) SetInteractionPendingQuestion(_ context.Context, interacti
 	return &cp, true, nil
 }
 
-func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error) {
+func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.QuestionSubmission) types.TurnProvenance) (*types.Interaction, bool, error) {
 	m.mu.Lock()
 	existing, ok := m.interactions[interactionID]
 	if !ok || existing.GenerationID != generationID {
@@ -451,13 +468,9 @@ func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, inter
 		m.mu.Unlock()
 		return &cp, false, nil
 	}
-	existing.QuestionHistory = append(existing.QuestionHistory, types.ResolvedQuestion{
-		PendingQuestion: *existing.PendingQuestion,
-		Outcome:         outcome,
-		Answers:         answers,
-		ResolvedAt:      time.Now(),
-	})
+	existing.QuestionHistory = append(existing.QuestionHistory, types.NewResolvedQuestion(existing.PendingQuestion, outcome, answers, answeredBy(existing.SubmissionFor(requestID))))
 	existing.PendingQuestion = nil
+	existing.QuestionSubmission = nil
 	existing.Updated = time.Now()
 	cp := *existing
 	cb := m.OnInteractionUpdated
@@ -466,6 +479,47 @@ func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, inter
 		cb(&cp)
 	}
 	return &cp, true, nil
+}
+
+func (m *MemoryStore) RecordInteractionQuestionSubmission(_ context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		return false, store.ErrNotFound
+	}
+	if existing.PendingQuestion == nil || existing.PendingQuestion.RequestID != requestID || existing.QuestionSubmission != nil {
+		return false, nil
+	}
+	submission.RequestID = requestID
+	existing.QuestionSubmission = &submission
+	existing.Updated = time.Now()
+	return true, nil
+}
+
+func (m *MemoryStore) ClearInteractionQuestionSubmission(_ context.Context, interactionID string, generationID int, requestID, submissionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		return store.ErrNotFound
+	}
+	if sub := existing.SubmissionFor(requestID); sub != nil && sub.ID == submissionID {
+		existing.QuestionSubmission = nil
+		existing.Updated = time.Now()
+	}
+	return nil
+}
+
+// settlePendingQuestion mirrors the Postgres terminal transitions: an ended
+// turn's open question is recorded as cancelled by Helix. Caller holds m.mu.
+func settlePendingQuestion(existing *types.Interaction) {
+	if existing.PendingQuestion != nil {
+		existing.QuestionHistory = append(existing.QuestionHistory, types.NewResolvedQuestion(
+			existing.PendingQuestion, "cancelled", nil, types.SystemTurn(types.SystemTurnQuestionSettled)))
+		existing.PendingQuestion = nil
+	}
+	existing.QuestionSubmission = nil
 }
 
 func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
@@ -477,6 +531,18 @@ func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, int
 	}
 	existing.ExternalAgentRequestID = requestID
 	return true, nil
+}
+
+func (m *MemoryStore) AppendInteractionThreadReseed(_ context.Context, interactionID string, generationID int, reseed types.ThreadReseed) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		return store.ErrNotFound
+	}
+	existing.ThreadReseeds = append(existing.ThreadReseeds, reseed)
+	existing.Updated = time.Now()
+	return nil
 }
 
 func (m *MemoryStore) MarkInteractionExternalAgentDispatched(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
@@ -524,10 +590,31 @@ func (m *MemoryStore) MarkInteractionInterruptedIfWaiting(_ context.Context, int
 		return false, nil
 	}
 	now := time.Now()
+	settlePendingQuestion(existing)
 	existing.State = types.InteractionStateInterrupted
 	existing.Completed = now
 	existing.Updated = now
 	return true, nil
+}
+
+func (m *MemoryStore) GetInteractionByExternalAgentUserEntry(_ context.Context, sessionID string, generationID int, threadID, entryID string) (*types.Interaction, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var latest *types.Interaction
+	for _, interaction := range m.interactions {
+		if interaction.SessionID != sessionID || interaction.GenerationID != generationID ||
+			interaction.ExternalAgentUserThreadID != threadID || interaction.ExternalAgentUserEntryID != entryID {
+			continue
+		}
+		if latest == nil || interaction.Created.After(latest.Created) {
+			cp := *interaction
+			latest = &cp
+		}
+	}
+	if latest == nil {
+		return nil, store.ErrNotFound
+	}
+	return latest, nil
 }
 
 func (m *MemoryStore) GetInteractionByExternalAgentRequestID(_ context.Context, requestID string) (*types.Interaction, error) {
@@ -563,6 +650,7 @@ func (m *MemoryStore) MarkInteractionCompleteIfWaiting(_ context.Context, intera
 		m.mu.Unlock()
 		return false, nil
 	}
+	settlePendingQuestion(existing)
 	existing.State = types.InteractionStateComplete
 	existing.Completed = time.Now()
 	existing.Updated = time.Now()
@@ -583,6 +671,7 @@ func (m *MemoryStore) MarkInteractionErrorIfWaiting(_ context.Context, interacti
 		m.mu.Unlock()
 		return false, nil
 	}
+	settlePendingQuestion(existing)
 	existing.State = types.InteractionStateError
 	existing.Error = reason
 	existing.Completed = time.Now()
@@ -604,6 +693,7 @@ func (m *MemoryStore) MarkStaleInteractionErrorIfWaiting(_ context.Context, inte
 		m.mu.Unlock()
 		return false, nil
 	}
+	settlePendingQuestion(existing)
 	existing.State = types.InteractionStateError
 	existing.Error = reason
 	existing.Completed = time.Now()
@@ -1166,6 +1256,18 @@ func (m *MemoryStore) CreateSpecTaskWorkSession(_ context.Context, workSession *
 	cp := *workSession
 	m.workSessions[workSession.ID] = &cp
 	return nil
+}
+
+func (m *MemoryStore) GetSpecTaskWorkSessionByHelixSession(_ context.Context, helixSessionID string) (*types.SpecTaskWorkSession, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, workSession := range m.workSessions {
+		if workSession.HelixSessionID == helixSessionID {
+			cp := *workSession
+			return &cp, nil
+		}
+	}
+	return nil, store.ErrNotFound
 }
 
 func (m *MemoryStore) ListWorkSessionsBySpecTask(_ context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error) {

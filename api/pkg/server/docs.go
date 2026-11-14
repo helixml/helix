@@ -18960,6 +18960,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Only the sessions Helix created for threads opened on this external agent connection (session id the agent connected with). The connection session itself is not included. Implies include_external_agents.",
+                        "name": "external_agent_id",
+                        "in": "query"
+                    },
+                    {
                         "type": "boolean",
                         "description": "Return only archived sessions instead of only unarchived ones",
                         "name": "archived",
@@ -36164,6 +36170,13 @@ const docTemplate = `{
                     "description": "System prompt for the interaction (copy of the session's system prompt that was used to create this interaction)",
                     "type": "string"
                 },
+                "thread_reseeds": {
+                    "description": "ThreadReseeds records every time Helix prepended a context preamble to\nthis turn's prompt because the agent could not reopen its session, so\nwhat the agent was actually sent is auditable. Server-written only.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ThreadReseed"
+                    }
+                },
                 "tool_call_id": {
                     "description": "For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.",
                     "type": "string"
@@ -40172,6 +40185,14 @@ const docTemplate = `{
         "types.ResolvedQuestion": {
             "type": "object",
             "properties": {
+                "answered_by": {
+                    "description": "AnsweredBy says who resolved the question. Server-set; entries from\nbefore it existed read as origin \"unknown\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
                 "answers": {
                     "type": "object",
                     "additionalProperties": {
@@ -44597,6 +44618,8 @@ const docTemplate = `{
                 "code_review_trigger",
                 "evaluation_question",
                 "external_agent_test_harness",
+                "thread_reseed",
+                "question_settled",
                 "org_bot_action",
                 "helix_agent_tool",
                 "trigger_configuration",
@@ -44631,6 +44654,8 @@ const docTemplate = `{
                 "SystemTurnCodeReviewTrigger",
                 "SystemTurnEvaluationQuestion",
                 "SystemTurnExternalAgentTestHarness",
+                "SystemTurnThreadReseed",
+                "SystemTurnQuestionSettled",
                 "SystemTurnOrgBotAction",
                 "SystemTurnHelixAgentTool",
                 "SystemTurnTriggerConfiguration",
@@ -44739,6 +44764,57 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "TextSplitterTypeMarkdown",
                 "TextSplitterTypeText"
+            ]
+        },
+        "types.ThreadReseed": {
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "type": "string"
+                },
+                "at": {
+                    "type": "string"
+                },
+                "preamble_length": {
+                    "type": "integer"
+                },
+                "preamble_sha256": {
+                    "description": "PreambleSHA256 is the hex sha256 of the injected preamble text.",
+                    "type": "string"
+                },
+                "provenance": {
+                    "description": "Provenance is always origin=system, system_kind=thread_reseed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
+                "reason": {
+                    "description": "Reason is why the agent's session could not be resumed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ThreadReseedReason"
+                        }
+                    ]
+                },
+                "runtime": {
+                    "description": "Runtime and AgentName identify the coding agent that was reseeded.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentRuntime"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.ThreadReseedReason": {
+            "type": "string",
+            "enum": [
+                "agent_cannot_load_session"
+            ],
+            "x-enum-varnames": [
+                "ThreadReseedAgentCannotLoadSession"
             ]
         },
         "types.TitleHistoryEntry": {

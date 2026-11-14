@@ -54,7 +54,6 @@ func (s *PromptHistoryHandlersSuite) SetupTest() {
 		requestToInteractionMapping: make(map[string]string),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
-		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),

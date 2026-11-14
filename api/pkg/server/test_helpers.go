@@ -65,7 +65,6 @@ func NewTestServer(s store.Store, ps pubsub.PubSub) *HelixAPIServer {
 		interactionDispatchClaims:   make(map[string]dispatchClaim),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
-		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),
@@ -195,13 +194,10 @@ func (s *HelixAPIServer) ContextMappings() map[string]string {
 	return cp
 }
 
-// SetExternalAgentUserMapping sets the user ID mapping for an agent session.
-// The production handler uses this to determine the owner when creating sessions.
-func (s *HelixAPIServer) SetExternalAgentUserMapping(agentSessionID, userID string) {
-	s.contextMappingsMutex.Lock()
-	defer s.contextMappingsMutex.Unlock()
-	s.externalAgentUserMapping[agentSessionID] = userID
-}
+// SetExternalAgentUserMapping is a no-op kept for the Zed e2e test server at
+// the pinned ZED_COMMIT, which still calls it. Sessions for agent-created
+// threads now take their owner from the connection's own session.
+func (s *HelixAPIServer) SetExternalAgentUserMapping(_, _ string) {}
 
 // ProcessSyncEvent injects a sync event as if it came from a connected agent.
 // Used by E2E tests to simulate events that the Zed binary can't send in

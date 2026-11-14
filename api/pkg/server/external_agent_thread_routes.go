@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"net/http"
 	"strings"
 
@@ -43,11 +45,13 @@ func sessionConnection(session *types.Session) string {
 }
 
 // findSessionByZedThreadID is the database fallback when the in-memory route is
-// missing (e.g. after an API restart). Only sessions belonging to the reporting
-// connection are candidates, so a thread ID reused by another sandbox never
-// resolves to another user's session.
+// missing (e.g. after an API restart). Only the connection's own session and
+// the sessions recorded on that connection (ExternalAgentID) are candidates:
+// thread ids are chosen by the harness and can be predictable (Goose numbers
+// them per day), so a thread id alone must never reach another lane's session,
+// even one with the same owner and project.
 func (apiServer *HelixAPIServer) findSessionByZedThreadID(ctx context.Context, connection, zedThreadID string) (*types.Session, error) {
-	connSession, err := apiServer.Controller.Options.Store.GetSession(ctx, connection)
+	connSession, err := apiServer.connectionOwnerSession(ctx, connection)
 	if err != nil {
 		return nil, fmt.Errorf("load connection session %s: %w", connection, err)
 	}
@@ -55,40 +59,86 @@ func (apiServer *HelixAPIServer) findSessionByZedThreadID(ctx context.Context, c
 		return connSession, nil
 	}
 	sessions, _, err := apiServer.Controller.Options.Store.ListSessions(ctx, store.ListSessionsQuery{
-		Owner:   connSession.Owner,
-		PerPage: 100,
+		Owner:                 connSession.Owner,
+		OwnerType:             connSession.OwnerType,
+		AnyOrganization:       true,
+		IncludeExternalAgents: true,
+		ExternalAgentID:       connection,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
 	for _, session := range sessions {
-		if session.Metadata.ZedThreadID != zedThreadID {
-			continue
-		}
-		// Child sessions created before connections were recorded carry no
-		// ExternalAgentID; accept them only within the connection's project.
-		legacyChild := session.Metadata.ExternalAgentID == "" && session.ProjectID == connSession.ProjectID
-		if sessionConnection(session) == connection || legacyChild {
+		if session.Metadata.ZedThreadID == zedThreadID && session.Metadata.ExternalAgentID == connection {
 			return session, nil
 		}
 	}
 	return nil, fmt.Errorf("no session on connection %s with ZedThreadID %s", connection, zedThreadID)
 }
 
-// sameOwnerAsConnection rejects a session named by an agent event unless it
-// belongs to the user whose sandbox is connected.
-func (apiServer *HelixAPIServer) sameOwnerAsConnection(ctx context.Context, connection string, session *types.Session) error {
-	if session.ID == connection {
+// recordConnection marks a session as carried by this agent connection when
+// Helix binds one of the connection's threads to it, so later thread lookups
+// (findSessionByZedThreadID) can find it. Callers must first establish with
+// sessionOnConnection that the session belongs to this connection; a session
+// recorded on another connection is never re-assigned.
+func recordConnection(session *types.Session, connection string) {
+	if session.ID != connection && session.Metadata.ExternalAgentID == "" {
+		session.Metadata.ExternalAgentID = connection
+	}
+}
+
+// sessionOnConnection rejects a session an agent event names (by session_id,
+// or through a request_id Helix issued) unless that session is carried by the
+// reporting connection. Owner equality is not enough: one user runs many
+// lanes, and a lane must not be able to rebind another lane's session to a
+// thread it controls. A session is on the connection when it is:
+//   - the session the connection was opened for, or the session that
+//     connection is mapped to (connectionOwnerSession);
+//   - already recorded on this connection (ExternalAgentID); or
+//   - currently routed over this very WebSocket, i.e. Helix sends this
+//     session's commands on it.
+func (apiServer *HelixAPIServer) sessionOnConnection(ctx context.Context, connection string, session *types.Session) error {
+	if sessionConnection(session) == connection {
 		return nil
 	}
-	connSession, err := apiServer.Controller.Options.Store.GetSession(ctx, connection)
+	if owner, err := apiServer.connectionOwnerSession(ctx, connection); err == nil && owner.ID == session.ID {
+		return nil
+	}
+	if live, ok := apiServer.externalAgentWSManager.getConnection(connection); ok && live != nil {
+		if routed, ok := apiServer.externalAgentWSManager.getConnection(session.ID); ok && routed == live {
+			return nil
+		}
+	}
+	return fmt.Errorf("session %s is not carried by agent connection %s", session.ID, connection)
+}
+
+// interactionOnConnection rejects an interaction an agent event names by
+// request_id unless its session is carried by the reporting connection, so one
+// lane cannot cancel or fail another lane's turn by replaying its request id.
+func (apiServer *HelixAPIServer) interactionOnConnection(ctx context.Context, connection string, interaction *types.Interaction) error {
+	if interaction.SessionID == connection {
+		return nil
+	}
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, interaction.SessionID)
 	if err != nil {
-		return fmt.Errorf("load connection session %s: %w", connection, err)
+		return fmt.Errorf("load session %s of interaction %s: %w", interaction.SessionID, interaction.ID, err)
 	}
-	if connSession.Owner != session.Owner {
-		return fmt.Errorf("session %s does not belong to the owner of connection %s", session.ID, connection)
+	return apiServer.sessionOnConnection(ctx, connection, session)
+}
+
+// interactionOfOtherSession reports whether interactionID is a turn of a
+// session other than sessionID. An interaction that no longer exists is not
+// (its mapping is stale and may be replaced); any other lookup failure is
+// treated as foreign, so an outage never lets one lane write another's turn.
+func (apiServer *HelixAPIServer) interactionOfOtherSession(ctx context.Context, interactionID, sessionID string) bool {
+	interaction, err := apiServer.Controller.Options.Store.GetInteraction(ctx, interactionID)
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
+		return false
 	}
-	return nil
+	if err != nil || interaction == nil {
+		return true
+	}
+	return interaction.SessionID != sessionID
 }
 
 // authorizeExternalAgentSync lets a caller open the sync WebSocket only for a

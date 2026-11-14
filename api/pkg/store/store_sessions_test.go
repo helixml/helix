@@ -549,3 +549,93 @@ func (suite *PostgresStoreTestSuite) TestListSessionsByOrganizationNeedsAnyOwner
 	suite.Require().NoError(err)
 	suite.Len(all, 2)
 }
+
+// external_agent_id narrows a listing to one agent connection's sessions and
+// never widens the caller's scope: another tenant naming the same connection
+// id sees nothing.
+func (suite *PostgresStoreTestSuite) TestListSessionsByExternalAgentIDStaysInCallerScope() {
+	ctx := context.Background()
+	connection := system.GenerateSessionID()
+	ownerA, ownerB := "user-a-"+system.GenerateUUID(), "user-b-"+system.GenerateUUID()
+	orgA, orgB := "org-a-"+system.GenerateUUID(), "org-b-"+system.GenerateUUID()
+	child := types.Session{
+		ID: system.GenerateSessionID(), Owner: ownerA, OwnerType: types.OwnerTypeUser, OrganizationID: orgA,
+		ModelName: "external_agent", Created: time.Now(), Updated: time.Now(),
+		Metadata: types.SessionMetadata{ExternalAgentID: connection},
+	}
+	other := types.Session{
+		ID: system.GenerateSessionID(), Owner: ownerA, OwnerType: types.OwnerTypeUser, OrganizationID: orgA,
+		ModelName: "external_agent", Created: time.Now(), Updated: time.Now(),
+		Metadata: types.SessionMetadata{ExternalAgentID: system.GenerateSessionID()},
+	}
+	for _, session := range []types.Session{child, other} {
+		_, err := suite.db.CreateSession(ctx, session)
+		suite.Require().NoError(err)
+		id := session.ID
+		suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, id) })
+	}
+
+	own, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{
+		Owner: ownerA, OwnerType: types.OwnerTypeUser, OrganizationID: orgA,
+		IncludeExternalAgents: true, ExternalAgentID: connection,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(own, 1)
+	suite.Equal(child.ID, own[0].ID)
+
+	for _, q := range []ListSessionsQuery{
+		{Owner: ownerB, OwnerType: types.OwnerTypeUser, OrganizationID: orgB, IncludeExternalAgents: true, ExternalAgentID: connection},
+		{Owner: ownerB, OwnerType: types.OwnerTypeUser, OrganizationID: orgA, IncludeExternalAgents: true, ExternalAgentID: connection},
+	} {
+		foreign, _, err := suite.db.ListSessions(ctx, q)
+		suite.Require().NoError(err)
+		suite.Empty(foreign)
+	}
+}
+
+// The backfill records a child's connection only from its own parent session
+// in the same task. After a fork, backlog reset or launch retry the task's
+// planning session is a newer session (possibly another user's lane); older
+// top-level sessions must never be recorded on it.
+func (suite *PostgresStoreTestSuite) TestBackfillSessionAgentConnectionsUsesOwnParentOnly() {
+	ctx := context.Background()
+	oldPlanning, newPlanning, child, crossTaskChild, recorded := system.GenerateSessionID(), system.GenerateSessionID(), system.GenerateSessionID(), system.GenerateSessionID(), system.GenerateSessionID()
+	// The task was reset/forked: planning_session_id now names newPlanning.
+	task := &types.SpecTask{ID: "spt_" + system.GenerateUUID(), ProjectID: "prj-backfill", Name: "backfill", PlanningSessionID: newPlanning}
+	other := &types.SpecTask{ID: "spt_" + system.GenerateUUID(), ProjectID: "prj-backfill", Name: "other"}
+	for _, t := range []*types.SpecTask{task, other} {
+		suite.Require().NoError(suite.db.CreateSpecTask(ctx, t))
+		id := t.ID
+		suite.T().Cleanup(func() { _ = suite.db.DeleteSpecTask(ctx, id) })
+	}
+	for _, session := range []types.Session{
+		{ID: oldPlanning, Owner: "user-a", Metadata: types.SessionMetadata{SpecTaskID: task.ID, ZedThreadID: "t-old"}},
+		{ID: newPlanning, Owner: "user-b", Metadata: types.SessionMetadata{SpecTaskID: task.ID, ZedThreadID: "t-new"}},
+		{ID: child, Owner: "user-a", ParentSession: oldPlanning, Metadata: types.SessionMetadata{SpecTaskID: task.ID, ZedThreadID: "t-child"}},
+		{ID: crossTaskChild, Owner: "user-a", ParentSession: oldPlanning, Metadata: types.SessionMetadata{SpecTaskID: other.ID, ZedThreadID: "t-x"}},
+		{ID: recorded, Owner: "user-a", ParentSession: oldPlanning, Metadata: types.SessionMetadata{SpecTaskID: task.ID, ZedThreadID: "t-rec", ExternalAgentID: "ses_kept"}},
+	} {
+		session.OwnerType, session.Created, session.Updated = types.OwnerTypeUser, time.Now(), time.Now()
+		_, err := suite.db.CreateSession(ctx, session)
+		suite.Require().NoError(err)
+		id := session.ID
+		suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, id) })
+	}
+
+	for range 2 { // idempotent, and re-runs on every start
+		suite.Require().NoError(suite.db.backfillSessionAgentConnections(ctx))
+	}
+
+	expect := map[string]string{
+		oldPlanning:    "", // top-level: never recorded on the new lane
+		newPlanning:    "",
+		child:          oldPlanning,
+		crossTaskChild: "",
+		recorded:       "ses_kept",
+	}
+	for id, want := range expect {
+		got, err := suite.db.GetSession(ctx, id)
+		suite.Require().NoError(err)
+		suite.Equal(want, got.Metadata.ExternalAgentID, id)
+	}
+}

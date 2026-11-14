@@ -158,12 +158,16 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecy
 
 	updated, changed, err = suite.db.ResolveInteractionPendingQuestion(
 		ctx, interaction.ID, 1, question.RequestID, "answered", map[string]string{"choice": "A"},
+		func(sub *types.QuestionSubmission) types.TurnProvenance {
+			return sub.Answerer("question-1", "", "answered")
+		},
 	)
 	suite.Require().NoError(err)
 	suite.True(changed)
 	suite.Nil(updated.PendingQuestion)
 	suite.Require().Len(updated.QuestionHistory, 1)
 	suite.Equal("A", updated.QuestionHistory[0].Answers["choice"])
+	suite.Equal(types.TurnOriginExternalAgent, updated.QuestionHistory[0].AnsweredBy.Origin)
 
 	updated, changed, err = suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 1, question)
 	suite.Require().NoError(err)
@@ -173,7 +177,9 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecy
 
 	_, _, err = suite.db.SetInteractionPendingQuestion(ctx, "missing-interaction", 1, question)
 	suite.ErrorIs(err, ErrNotFound)
-	_, _, err = suite.db.ResolveInteractionPendingQuestion(ctx, "missing-interaction", 1, question.RequestID, "cancelled", nil)
+	_, _, err = suite.db.ResolveInteractionPendingQuestion(ctx, "missing-interaction", 1, question.RequestID, "cancelled", nil, func(sub *types.QuestionSubmission) types.TurnProvenance {
+		return sub.Answerer("question-1", "", "answered")
+	})
 	suite.ErrorIs(err, ErrNotFound)
 }
 
@@ -196,6 +202,12 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ReapSettlesPendingQuestio
 		Questions: []types.UserQuestion{{ID: "choice", Question: "Choose one"}},
 	})
 	suite.Require().NoError(err)
+	// An API cancel still in flight must not be credited when Helix reaps.
+	recorded, err := suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, interaction.GenerationID, "question-reap", types.QuestionSubmission{
+		ID: "s-reap", Outcome: "cancelled", By: types.TurnProvenance{Origin: types.TurnOriginAPI, APIKeyOwner: userID},
+	})
+	suite.Require().NoError(err)
+	suite.Require().True(recorded)
 	suite.True(changed)
 
 	reaped, err := suite.db.ReapWaitingInteractions(ctx, session.ID, types.InteractionStateInterrupted, "test reap")
@@ -204,6 +216,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ReapSettlesPendingQuestio
 	suite.Nil(reaped[0].PendingQuestion)
 	suite.Require().Len(reaped[0].QuestionHistory, 1)
 	suite.Equal("cancelled", reaped[0].QuestionHistory[0].Outcome)
+	suite.Equal(types.SystemTurn(types.SystemTurnQuestionSettled), reaped[0].QuestionHistory[0].AnsweredBy)
 
 	updated, err := suite.db.GetInteraction(ctx, interaction.ID)
 	suite.Require().NoError(err)
@@ -754,4 +767,203 @@ func (suite *PostgresStoreTestSuite) TestExternalAgentInteractionLifecycleSurviv
 	suite.NoError(err)
 	suite.Equal(types.InteractionStateInterrupted, final.State)
 	suite.NotNil(final.ExternalAgentCancelRequestedAt)
+}
+
+func (suite *PostgresStoreTestSuite) TestAppendInteractionThreadReseedKeepsEveryRecord() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-reseed-test", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptMessage: "keep going",
+		ResponseMessage: "partial", State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+
+	for _, length := range []int{10, 20} {
+		suite.Require().NoError(suite.db.AppendInteractionThreadReseed(ctx, interaction.ID, interaction.GenerationID, types.ThreadReseed{
+			At: time.Now(), Reason: types.ThreadReseedAgentCannotLoadSession, AgentName: "dsh",
+			PreambleSHA256: "abc", PreambleLength: length, Provenance: types.SystemTurn(types.SystemTurnThreadReseed),
+		}))
+	}
+
+	got, err := suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(got.ThreadReseeds, 2)
+	suite.Equal(10, got.ThreadReseeds[0].PreambleLength)
+	suite.Equal(20, got.ThreadReseeds[1].PreambleLength)
+	suite.Equal(types.SystemTurnThreadReseed, got.ThreadReseeds[1].Provenance.SystemKind)
+	suite.Equal("partial", got.ResponseMessage, "the append must not touch other columns")
+
+	suite.ErrorIs(suite.db.AppendInteractionThreadReseed(ctx, "int_missing", 0, types.ThreadReseed{}), ErrNotFound)
+}
+
+func (suite *PostgresStoreTestSuite) TestGetInteractionByExternalAgentUserEntryIsThreadScoped() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-entry-test", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptMessage: "hello",
+		ExternalAgentUserThreadID: "thread-a", ExternalAgentUserEntryID: "3",
+	})
+	suite.Require().NoError(err)
+
+	got, err := suite.db.GetInteractionByExternalAgentUserEntry(ctx, session.ID, 0, "thread-a", "3")
+	suite.Require().NoError(err)
+	suite.Equal(interaction.ID, got.ID)
+
+	for _, miss := range []struct {
+		session string
+		gen     int
+		thread  string
+	}{{"ses_other", 0, "thread-a"}, {session.ID, 1, "thread-a"}, {session.ID, 0, "thread-b"}} {
+		_, err = suite.db.GetInteractionByExternalAgentUserEntry(ctx, miss.session, miss.gen, miss.thread, "3")
+		suite.ErrorIs(err, ErrNotFound, "%+v", miss)
+	}
+}
+
+func (suite *PostgresStoreTestSuite) TestQuestionSubmissionIsCompareAndSetAndAttributedByNonce() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-answerer-test", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	question := &types.PendingQuestion{RequestID: "q-1", ThreadID: "t", TurnRequestID: "r", Source: "elicitation",
+		Questions: []types.UserQuestion{{ID: "deploy", Question: "Where?"}}}
+	_, changed, err := suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 0, question)
+	suite.Require().NoError(err)
+	suite.Require().True(changed)
+
+	recorded, err := suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-other", types.QuestionSubmission{ID: "s-0"})
+	suite.Require().NoError(err)
+	suite.False(recorded, "a submission for another question is not recorded")
+
+	by := types.TurnProvenance{Origin: types.TurnOriginUser, UserID: session.Owner}
+	first := types.QuestionSubmission{ID: "s-1", Outcome: "answered", Answers: map[string]string{"deploy": "free text"}, By: by, SubmittedAt: time.Now()}
+	recorded, err = suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-1", first)
+	suite.Require().NoError(err)
+	suite.True(recorded)
+	recorded, err = suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-1", types.QuestionSubmission{ID: "s-2"})
+	suite.Require().NoError(err)
+	suite.False(recorded, "a second writer cannot replace a submission in flight")
+
+	// Clearing with another nonce is a no-op; with its own nonce it clears.
+	suite.Require().NoError(suite.db.ClearInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-1", "s-2"))
+	reloaded, err := suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(reloaded.QuestionSubmission)
+	suite.Equal("q-1", reloaded.QuestionSubmission.RequestID)
+	suite.Require().NoError(suite.db.ClearInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-1", "s-1"))
+	reloaded, err = suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Nil(reloaded.QuestionSubmission)
+
+	recorded, err = suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-1", first)
+	suite.Require().NoError(err)
+	suite.True(recorded)
+	updated, changed, err := suite.db.ResolveInteractionPendingQuestion(ctx, interaction.ID, 0, "q-1", "answered",
+		map[string]string{"deploy": "free text"}, func(sub *types.QuestionSubmission) types.TurnProvenance {
+			return sub.Answerer("q-1", "s-1", "answered")
+		})
+	suite.Require().NoError(err)
+	suite.Require().True(changed)
+	suite.Equal(by, updated.QuestionHistory[0].AnsweredBy)
+
+	reloaded, err = suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(reloaded.QuestionHistory, 1)
+	suite.Equal(by, reloaded.QuestionHistory[0].AnsweredBy)
+	suite.Nil(reloaded.QuestionSubmission, "resolution drops the submission")
+}
+
+// Every Waiting→terminal transition settles an open question in the same
+// statement, so an errored or interrupted turn never keeps an unanswerable
+// question.
+func (suite *PostgresStoreTestSuite) TestTerminalTransitionsSettlePendingQuestion() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-settle", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	transitions := map[string]func(i *types.Interaction) (bool, error){
+		"error": func(i *types.Interaction) (bool, error) {
+			return suite.db.MarkInteractionErrorIfWaiting(ctx, i.ID, 0, "startup failed")
+		},
+		"stale error": func(i *types.Interaction) (bool, error) {
+			return suite.db.MarkStaleInteractionErrorIfWaiting(ctx, i.ID, 0, i.Updated, "stopped")
+		},
+		"interrupted": func(i *types.Interaction) (bool, error) {
+			return suite.db.MarkInteractionInterruptedIfWaiting(ctx, i.ID, 0)
+		},
+		"complete": func(i *types.Interaction) (bool, error) {
+			return suite.db.MarkInteractionCompleteIfWaiting(ctx, i.ID, 0)
+		},
+	}
+	for name, transition := range transitions {
+		interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+			ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, State: types.InteractionStateWaiting,
+		})
+		suite.Require().NoError(err)
+		_, changed, err := suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 0, &types.PendingQuestion{
+			RequestID: "q-" + name, ThreadID: "t", TurnRequestID: "r", Source: "permission",
+			Questions: []types.UserQuestion{{ID: "allow", Question: "Allow?"}},
+		})
+		suite.Require().NoError(err)
+		suite.Require().True(changed)
+		_, err = suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-"+name, types.QuestionSubmission{
+			ID: "s", Outcome: "cancelled", By: types.TurnProvenance{Origin: types.TurnOriginAPI},
+		})
+		suite.Require().NoError(err)
+		observed, err := suite.db.GetInteraction(ctx, interaction.ID)
+		suite.Require().NoError(err)
+
+		transitioned, err := transition(observed)
+		suite.Require().NoError(err, name)
+		suite.Require().True(transitioned, name)
+
+		got, err := suite.db.GetInteraction(ctx, interaction.ID)
+		suite.Require().NoError(err)
+		suite.Nil(got.PendingQuestion, name)
+		suite.Nil(got.QuestionSubmission, name)
+		suite.Require().Len(got.QuestionHistory, 1, name)
+		suite.Equal("q-"+name, got.QuestionHistory[0].RequestID, name)
+		suite.Equal("cancelled", got.QuestionHistory[0].Outcome, name)
+		suite.Equal(types.SystemTurn(types.SystemTurnQuestionSettled), got.QuestionHistory[0].AnsweredBy, name)
+	}
+}
+
+func (suite *PostgresStoreTestSuite) TestUpdateInteractionKeepsThreadReseeds() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-reseed-omit", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	stale, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.AppendInteractionThreadReseed(ctx, stale.ID, 0, types.ThreadReseed{PreambleLength: 7}))
+
+	// A full-row save from a snapshot taken before the reseed.
+	stale.ResponseMessage = "streamed"
+	_, err = suite.db.UpdateInteraction(ctx, stale)
+	suite.Require().NoError(err)
+
+	got, err := suite.db.GetInteraction(ctx, stale.ID)
+	suite.Require().NoError(err)
+	suite.Equal("streamed", got.ResponseMessage)
+	suite.Require().Len(got.ThreadReseeds, 1, "a stale full-row save must not erase reseed records")
 }
