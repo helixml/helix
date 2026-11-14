@@ -1086,7 +1086,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesInterruptedStateOnEmp
 		State:           types.InteractionStateInterrupted,
 		ResponseMessage: "",
 	}
-	s.store.EXPECT().GetInteraction(gomock.Any(), "int-int").Return(interruptedInteraction, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-int").Return(interruptedInteraction, nil).AnyTimes()
 
 	// Critical: no UpdateInteraction, no RequeueBouncedPrompt, no
 	// processPromptQueue follow-up. The handler must return as soon as it
@@ -1120,7 +1120,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_EmptyResponseRequeuesExactProm
 		PromptID:  "prompt-original",
 		State:     types.InteractionStateWaiting,
 	}
-	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil).AnyTimes()
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, got *types.Interaction) (*types.Interaction, error) {
 			s.Equal(types.InteractionStateError, got.State)
@@ -1159,7 +1159,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_DirectEmptyResponseDoesNotClai
 		SessionID: session.ID,
 		State:     types.InteractionStateWaiting,
 	}
-	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil).AnyTimes()
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, got *types.Interaction) (*types.Interaction, error) {
 			s.Equal(types.InteractionStateError, got.State)
@@ -1376,8 +1376,9 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive()
 
 	// Completion may reload once more to recover before-checkpoint metadata that
 	// was persisted after an in-memory streaming copy was created.
+	// One more read: message_completed checks the mapped turn is this session's.
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-skip").Return(targetInteraction, nil).
-		MinTimes(1).MaxTimes(2)
+		MinTimes(1).MaxTimes(3)
 	// Completion also reconciles the owning spec task; this session has one.
 	// A healthy task means reconciliation finds nothing to release.
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).
@@ -1449,8 +1450,9 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup()
 
 	// Completion may reload once more to recover before-checkpoint metadata that
 	// was persisted after an in-memory streaming copy was created.
+	// One more read: message_completed checks the mapped turn is this session's.
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-emit").Return(targetInteraction, nil).
-		MinTimes(1).MaxTimes(2)
+		MinTimes(1).MaxTimes(3)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
 
 	// Only the target interaction exists — no newer waiting one. Suppression
@@ -1531,7 +1533,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_AlreadyCompleteStillSignalsDon
 		SessionID:       helixSessionID,
 		State:           types.InteractionStateComplete,
 		ResponseMessage: "full reply already in DB",
-	}, nil)
+	}, nil).AnyTimes()
 	// No UpdateInteraction — early return on already-complete.
 
 	err := s.server.handleMessageCompleted("agent-1", &types.SyncMessage{
@@ -1578,7 +1580,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_SignalsDoneUnderInteractionID(
 		State:           types.InteractionStateWaiting,
 		ResponseMessage: "streamed content",
 	}
-	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).Return(waiting, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).Return(waiting, nil).AnyTimes()
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waiting}, int64(1), nil,
 	).AnyTimes()
@@ -1721,7 +1723,7 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesPriorAgentError() {
 		Error:           "Authentication required",
 		ResponseMessage: "",
 	}
-	s.store.EXPECT().GetInteraction(gomock.Any(), "int-preserve").Return(interaction, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-preserve").Return(interaction, nil).AnyTimes()
 
 	// UpdateInteraction must NOT be called — the prior error is sacrosanct.
 	// gomock strict mode fails if it's invoked without an EXPECT.
@@ -3287,7 +3289,7 @@ func (s *WebSocketSyncSuite) TestStreamingContext_RecordNotFoundFallsBackToLates
 			return history, int64(len(history) + 1), nil
 		},
 	).AnyTimes()
-	s.store.EXPECT().GetInteraction(gomock.Any(), "int_missing").Return(nil, gorm.ErrRecordNotFound)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int_missing").Return(nil, gorm.ErrRecordNotFound).AnyTimes()
 	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), "req_lookup_miss").Return(nil, gorm.ErrRecordNotFound)
 
 	sctx := s.server.getOrCreateStreamingContext(context.Background(), session.ID, "req_lookup_miss")

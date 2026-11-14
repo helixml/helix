@@ -687,29 +687,31 @@ func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation Stor
 	return s.publishStoreEvent(ctx, operation, session)
 }
 
-// backfillSessionAgentConnections records the agent connection on spec-task
-// child sessions created before connections were recorded (2026-09-24), so
-// thread lookups that only accept sessions recorded on the reporting
-// connection still find them after an upgrade.
+// backfillSessionAgentConnections records the agent connection on child
+// sessions whose thread was bound before connections were recorded, so thread
+// lookups that only accept sessions recorded on the reporting connection still
+// find them after an upgrade.
 //
-// A spec task runs one desktop, opened for its planning session, so a task
-// session other than that one that is bound to a Zed thread was carried by
-// the planning session's connection. Scoping to the session's own task keeps
-// the backfill inside one lane: it can never record a session on another
-// task's connection. Child sessions outside a spec task have no recorded
-// connection to recover and are left unchanged. Idempotent: it only fills an
-// empty external_agent_id.
+// The connection is taken only from the session's own parent_session (child
+// sessions created for agent-opened threads carry their connection's session
+// there), and only when that parent belongs to the same spec task. A task's
+// current planning session is NOT used: forks, backlog resets and launch
+// retries replace it, so an older top-level session (possibly another user's)
+// would be recorded on a newer lane's connection. Top-level sessions are never
+// touched. Idempotent: it only fills an empty external_agent_id.
 func (s *PostgresStore) backfillSessionAgentConnections(ctx context.Context) error {
-	if !s.gdb.Migrator().HasTable(&types.Session{}) || !s.gdb.Migrator().HasTable(&types.SpecTask{}) {
+	if !s.gdb.Migrator().HasTable(&types.Session{}) {
 		return nil
 	}
 	err := s.gdb.WithContext(ctx).Exec(`
 		UPDATE sessions s
-		SET config = jsonb_set(s.config::jsonb, '{external_agent_id}', to_jsonb(st.planning_session_id))
-		FROM spec_tasks st
-		WHERE st.id = s.config->>'spec_task_id'
-		  AND COALESCE(st.planning_session_id, '') <> ''
-		  AND st.planning_session_id <> s.id
+		SET config = jsonb_set(s.config::jsonb, '{external_agent_id}', to_jsonb(p.id))
+		FROM sessions p
+		WHERE p.id = s.parent_session
+		  AND COALESCE(s.parent_session, '') <> ''
+		  AND p.id <> s.id
+		  AND COALESCE(s.config->>'spec_task_id', '') <> ''
+		  AND p.config->>'spec_task_id' = s.config->>'spec_task_id'
 		  AND COALESCE(s.config->>'zed_thread_id', '') <> ''
 		  AND COALESCE(s.config->>'external_agent_id', '') = ''
 		  AND s.deleted_at IS NULL

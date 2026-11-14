@@ -1984,6 +1984,7 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			apiServer.requestToInteractionMapping = make(map[string]string)
 		}
 		existing, alreadySeen := apiServer.requestToInteractionMapping[requestID]
+		apiServer.contextMappingsMutex.Unlock()
 		staleRequestID := false
 		switch {
 		case alreadySeen && existing == "":
@@ -1992,22 +1993,32 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			// follow-up message_completed is dropped by the dedup. Streaming
 			// tokens still flow into the current interaction via the most-recent-
 			// Waiting fallback at line 1551-1558, so no content is lost.
-			apiServer.contextMappingsMutex.Unlock()
 			log.Debug().
 				Str("session_id", helixSessionID).
 				Str("request_id", requestID).
 				Str("would_have_bound", newInteractionID).
 				Msg("🛡️ [HELIX] Ignoring stale request_id rebind (mapping previously consumed by completion)")
+		case existing != "" && existing != newInteractionID && apiServer.interactionOfOtherSession(ctx, existing, helixSessionID):
+			// The request id is another session's turn (request ids are
+			// interaction ids, visible to project viewers). Never rebind it to
+			// this lane, and never persist it on this lane's turn.
+			staleRequestID = true
+			log.Warn().
+				Str("session_id", helixSessionID).
+				Str("request_id", requestID).
+				Str("mapped_interaction_id", existing).
+				Msg("🛡️ [HELIX] Refusing to rebind a request_id that belongs to another session")
 		case existing != newInteractionID:
-			apiServer.requestToInteractionMapping[requestID] = newInteractionID
+			apiServer.contextMappingsMutex.Lock()
+			if current := apiServer.requestToInteractionMapping[requestID]; current == existing {
+				apiServer.requestToInteractionMapping[requestID] = newInteractionID
+			}
 			apiServer.contextMappingsMutex.Unlock()
 			log.Info().
 				Str("session_id", helixSessionID).
 				Str("request_id", requestID).
 				Str("interaction_id", newInteractionID).
 				Msg("🗺️ [HELIX] Populated requestToInteractionMapping from streaming context (Zed-initiated message)")
-		default:
-			apiServer.contextMappingsMutex.Unlock()
 		}
 
 		if !staleRequestID && (targetInteraction.ExternalAgentRequestID != requestID || targetInteraction.ExternalAgentDispatchedAt == nil) {
@@ -3103,23 +3114,38 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// Consumed mappings are stored as empty strings — a stale duplicate will find
 	// the consumed entry and be dropped. getOrCreateStreamingContext overwrites
 	// consumed entries when a request_id is reused for a new turn.
-	apiServer.contextMappingsMutex.Lock()
 	var mappingConsumed bool // true if request_id was previously processed (stale duplicate)
 	if messageRequestID != "" {
-		if mappedID, ok := apiServer.requestToInteractionMapping[messageRequestID]; ok {
-			if mappedID == "" {
-				// This request_id was already consumed by a previous message_completed.
-				// This is a stale duplicate (e.g. interrupt race sending two completions
-				// for the same cancelled turn). Skip it.
-				mappingConsumed = true
-			} else {
-				targetInteractionID = mappedID
-				// Mark consumed (keep the key so subsequent duplicates are caught)
+		apiServer.contextMappingsMutex.RLock()
+		mappedID, ok := apiServer.requestToInteractionMapping[messageRequestID]
+		apiServer.contextMappingsMutex.RUnlock()
+		switch {
+		case ok && mappedID == "":
+			// This request_id was already consumed by a previous message_completed.
+			// This is a stale duplicate (e.g. interrupt race sending two completions
+			// for the same cancelled turn). Skip it.
+			mappingConsumed = true
+		case ok && apiServer.interactionOfOtherSession(context.Background(), mappedID, helixSessionID):
+			// Another session's turn: never complete it with this thread's
+			// response. Fall through to this session's own interactions.
+			log.Warn().
+				Str("helix_session_id", helixSessionID).
+				Str("request_id", messageRequestID).
+				Str("mapped_interaction_id", mappedID).
+				Msg("🛡️ [HELIX] message_completed request_id maps to another session's turn — ignoring the mapping")
+		case ok:
+			// Mark consumed (keep the key so subsequent duplicates are caught),
+			// unless another completion consumed it first.
+			apiServer.contextMappingsMutex.Lock()
+			if apiServer.requestToInteractionMapping[messageRequestID] == mappedID {
 				apiServer.requestToInteractionMapping[messageRequestID] = ""
+				targetInteractionID = mappedID
+			} else {
+				mappingConsumed = true
 			}
+			apiServer.contextMappingsMutex.Unlock()
 		}
 	}
-	apiServer.contextMappingsMutex.Unlock()
 
 	if mappingConsumed {
 		log.Warn().

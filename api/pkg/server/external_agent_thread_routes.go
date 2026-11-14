@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"gorm.io/gorm"
 	"net/http"
 	"strings"
 
@@ -122,6 +124,21 @@ func (apiServer *HelixAPIServer) interactionOnConnection(ctx context.Context, co
 		return fmt.Errorf("load session %s of interaction %s: %w", interaction.SessionID, interaction.ID, err)
 	}
 	return apiServer.sessionOnConnection(ctx, connection, session)
+}
+
+// interactionOfOtherSession reports whether interactionID is a turn of a
+// session other than sessionID. An interaction that no longer exists is not
+// (its mapping is stale and may be replaced); any other lookup failure is
+// treated as foreign, so an outage never lets one lane write another's turn.
+func (apiServer *HelixAPIServer) interactionOfOtherSession(ctx context.Context, interactionID, sessionID string) bool {
+	interaction, err := apiServer.Controller.Options.Store.GetInteraction(ctx, interactionID)
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
+		return false
+	}
+	if err != nil || interaction == nil {
+		return true
+	}
+	return interaction.SessionID != sessionID
 }
 
 // authorizeExternalAgentSync lets a caller open the sync WebSocket only for a

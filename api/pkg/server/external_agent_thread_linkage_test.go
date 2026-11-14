@@ -346,3 +346,38 @@ func TestTurnEventsFromAnotherLaneAreRefused(t *testing.T) {
 		})
 	}
 }
+
+// Lane A's agent tagging its stream with lane B's request id (request ids are
+// interaction ids, visible to project viewers) must not rebind that id or
+// write lane A's response into lane B's turn.
+func TestStreamingWithAnotherLanesRequestIDStaysInOwnSession(t *testing.T) {
+	srv, ms := twoLanes(t)
+	ctx := context.Background()
+	_, err := ms.CreateInteraction(ctx, &types.Interaction{ID: "int_lane_a", SessionID: "ses_lane_a", State: types.InteractionStateWaiting})
+	require.NoError(t, err)
+	srv.contextMappings[routeKey("ses_lane_a", "thread-a")] = "ses_lane_a"
+	srv.requestToInteractionMapping["req-b"] = "int_lane_b"
+
+	require.NoError(t, srv.handleMessageAdded("ses_lane_a", &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-a", "message_id": "1", "content": "lane A says hi",
+			"role": "assistant", "request_id": "req-b",
+		},
+	}))
+	require.Equal(t, "int_lane_b", srv.requestToInteractionMapping["req-b"], "the mapping keeps pointing at lane B's turn")
+
+	_ = srv.handleMessageCompleted("ses_lane_a", &types.SyncMessage{
+		EventType: "message_completed",
+		Data:      map[string]interface{}{"acp_thread_id": "thread-a", "message_id": "1", "request_id": "req-b"},
+	})
+
+	b, err := ms.GetInteraction(ctx, "int_lane_b")
+	require.NoError(t, err)
+	require.Equal(t, types.InteractionStateWaiting, b.State, "lane B's turn is not completed by lane A")
+	require.Empty(t, b.ResponseMessage)
+	require.Equal(t, "int_lane_b", srv.requestToInteractionMapping["req-b"], "lane B's mapping is not consumed")
+	a, err := ms.GetInteraction(ctx, "int_lane_a")
+	require.NoError(t, err)
+	require.NotEqual(t, "req-b", a.ExternalAgentRequestID, "lane B's request id is not persisted on lane A's turn")
+}
