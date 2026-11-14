@@ -6,7 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
-import { ArrowLeft, Bot, KanbanSquare } from 'lucide-react'
+import { ArrowLeft, Bot, ExternalLink, KanbanSquare } from 'lucide-react'
 import AgentChat from '../components/session/AgentChat'
 import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard'
@@ -36,7 +36,7 @@ import { initialQueryParams } from '../router'
 type View = 'bot' | 'board'
 
 const EmbedProjectPage: FC = () => {
-  const { route } = useRoute()
+  const { route, router } = useRoute()
   const theme = useTheme()
   const projectId = route.params.projectId as string
   const initialView: View = (initialQueryParams.view || route.params.view) === 'board' ? 'board' : 'bot'
@@ -109,6 +109,28 @@ const EmbedProjectPage: FC = () => {
             sx={{ textTransform: 'none', ml: 1 }}
           >
             Back to board
+          </Button>
+        )}
+        {/* The embed is a slice of Helix for another product's page. The full task
+            page (PR review, every agent setting) is in Helix itself, so link out to
+            it in a new tab rather than navigating the iframe away from /embed/*.
+            The new tab uses the person's own Helix login, not the embed token. */}
+        {view === 'board' && taskId && project?.organization_id && (
+          <Button
+            size="small"
+            component="a"
+            href={router.buildPath('org_project-task-detail', {
+              org_id: project.organization_id,
+              id: projectId,
+              taskId,
+            })}
+            target="_blank"
+            rel="noopener noreferrer"
+            startIcon={<ExternalLink size={16} />}
+            color="inherit"
+            sx={{ textTransform: 'none' }}
+          >
+            Open in Helix
           </Button>
         )}
         <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }} noWrap>
