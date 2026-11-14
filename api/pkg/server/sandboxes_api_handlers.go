@@ -19,7 +19,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/helixml/helix/api/pkg/hydra"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -83,13 +82,22 @@ func (s *HelixAPIServer) listOrgSandboxes(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if _, err := s.authorizeOrgMember(r.Context(), user, orgID); err != nil {
+	if err := denySandboxesToConfinedKey(user); err != nil {
 		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
+	membership, err := s.authorizeOrgMember(r.Context(), user, orgID)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
+	visibility, err := s.sandboxVisibility(r.Context(), user, orgID, membership)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-	projectID := r.URL.Query().Get("project_id")
-	sandboxes, err := s.sandboxController.List(r.Context(), orgID, projectID)
+	sandboxes, err := s.sandboxController.ListVisible(r.Context(), orgID, r.URL.Query().Get("project_id"), visibility)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -122,6 +130,10 @@ func (s *HelixAPIServer) createOrgSandbox(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if err := denySandboxesToConfinedKey(user); err != nil {
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
+	}
 	if _, err := s.authorizeOrgMember(r.Context(), user, orgID); err != nil {
 		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
@@ -130,6 +142,9 @@ func (s *HelixAPIServer) createOrgSandbox(rw http.ResponseWriter, r *http.Reques
 	var req types.CreateSandboxRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		http.Error(rw, jsonDecodeErrorMessage(err), http.StatusBadRequest)
+		return
+	}
+	if !s.authorizeSandboxCreateProject(rw, r, user, orgID, &req) {
 		return
 	}
 
@@ -152,11 +167,10 @@ func (s *HelixAPIServer) createOrgSandbox(rw http.ResponseWriter, r *http.Reques
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id} [get]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) getSandbox(rw http.ResponseWriter, r *http.Request) {
-	sb, err := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionGet)
 	if sb == nil {
 		return
 	}
-	_ = err
 	writeJSON(rw, http.StatusOK, sb)
 }
 
@@ -173,7 +187,7 @@ func (s *HelixAPIServer) getSandbox(rw http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id} [patch]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) updateSandbox(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -200,7 +214,7 @@ func (s *HelixAPIServer) updateSandbox(rw http.ResponseWriter, r *http.Request) 
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id} [delete]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) deleteSandbox(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -224,7 +238,7 @@ func (s *HelixAPIServer) deleteSandbox(rw http.ResponseWriter, r *http.Request) 
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/commands [post]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) runSandboxCommand(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -278,7 +292,7 @@ func (s *HelixAPIServer) runSandboxCommand(rw http.ResponseWriter, r *http.Reque
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/commands [get]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) listSandboxCommands(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -307,7 +321,7 @@ func (s *HelixAPIServer) listSandboxCommands(rw http.ResponseWriter, r *http.Req
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id} [get]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) getSandboxCommand(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -338,7 +352,7 @@ func (s *HelixAPIServer) getSandboxCommand(rw http.ResponseWriter, r *http.Reque
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/logs [get]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) streamSandboxCommandLogs(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -389,7 +403,7 @@ func (s *HelixAPIServer) streamSandboxCommandLogs(rw http.ResponseWriter, r *htt
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/commands/{cmd_id}/kill [post]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) killSandboxCommand(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -420,7 +434,7 @@ func (s *HelixAPIServer) killSandboxCommand(rw http.ResponseWriter, r *http.Requ
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/files [delete]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) sandboxFile(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -489,7 +503,7 @@ func (s *HelixAPIServer) sandboxFile(rw http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/files/list [get]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) listSandboxFiles(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -519,7 +533,7 @@ func (s *HelixAPIServer) listSandboxFiles(rw http.ResponseWriter, r *http.Reques
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/terminal [get]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) sandboxTerminal(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -681,7 +695,7 @@ exec ` + fallbackShell + `
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/screenshot [get]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) sandboxScreenshot(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionGet)
 	if sb == nil {
 		return
 	}
@@ -785,7 +799,7 @@ type SandboxBillingResponse struct {
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/billing [get]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) sandboxBilling(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionGet)
 	if sb == nil {
 		return
 	}
@@ -878,7 +892,7 @@ type SandboxTerminalSessionsResponse struct {
 // @Router /api/v1/organizations/{org_id}/sandboxes/{id}/terminal/sessions [get]
 // @Security ApiKeyAuth
 func (s *HelixAPIServer) sandboxTerminalSessions(rw http.ResponseWriter, r *http.Request) {
-	sb, _ := s.loadAuthorizedSandbox(rw, r)
+	sb := s.loadAuthorizedSandbox(rw, r, types.ActionUpdate)
 	if sb == nil {
 		return
 	}
@@ -995,47 +1009,6 @@ func (s *HelixAPIServer) resolveURLOrgID(rw http.ResponseWriter, r *http.Request
 		return ""
 	}
 	return org.ID
-}
-
-// loadAuthorizedSandbox fetches the sandbox by id, verifies the caller is a
-// member of its organization, and confirms the URL's org_id matches the
-// sandbox's org so cross-org id-guessing is blocked. Writes an HTTP error and
-// returns nil if access is denied.
-func (s *HelixAPIServer) loadAuthorizedSandbox(rw http.ResponseWriter, r *http.Request) (*types.Sandbox, error) {
-	user := getRequestUser(r)
-	vars := mux.Vars(r)
-	id := vars["id"]
-	// Resolve the URL's {org_id} (which may be either an org id OR a slug)
-	// to the canonical id stored on the sandbox row, so the equality check
-	// below works regardless of which form the caller used.
-	urlOrgID := s.resolveURLOrgID(rw, r)
-	if urlOrgID == "" {
-		return nil, errors.New("org not found")
-	}
-	sb, err := s.sandboxController.Get(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			http.Error(rw, "sandbox not found", http.StatusNotFound)
-		} else {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-		}
-		return nil, err
-	}
-	if urlOrgID != sb.OrganizationID {
-		http.Error(rw, "sandbox not found", http.StatusNotFound)
-		return nil, errors.New("org mismatch")
-	}
-	if _, err := s.authorizeOrgMember(r.Context(), user, sb.OrganizationID); err != nil {
-		// Outside the org, a real sandbox answers like an unknown one.
-		if isOutsideTenant(err) {
-			http.Error(rw, "sandbox not found", http.StatusNotFound)
-		} else {
-			log.Error().Err(err).Msg("error checking org membership for sandbox")
-			http.Error(rw, "could not check org membership", http.StatusInternalServerError)
-		}
-		return nil, err
-	}
-	return sb, nil
 }
 
 // writeJSON writes a JSON response with status.

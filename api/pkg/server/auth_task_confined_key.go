@@ -33,6 +33,9 @@ import (
 //   - every task creation route (403);
 //   - every helix-org route under /api/v1/orgs/{org}/ and the org MCP
 //     (403): org Bots act across the organization on their own authority;
+//   - the org Sandboxes API under /api/v1/organizations/{org}/sandboxes
+//     (403): it reaches other tasks' desktops, and the key's own desktop is
+//     reached through the session routes;
 //   - every change to its project other than adding artifacts (403).
 
 var errTaskConfinedKeyNotFound = errors.New("not found")
@@ -102,6 +105,12 @@ func (auth *authMiddleware) taskConfinedKeyCheck(user *types.User, r *http.Reque
 
 	if strings.HasPrefix(path, "/api/v1/orgs/") || path == "/api/v1/mcp/helix-org" || strings.HasPrefix(path, "/api/v1/mcp/helix-org/") {
 		return http.StatusForbidden, errTaskConfinedKeyOrg
+	}
+
+	if rest, ok := strings.CutPrefix(path, "/api/v1/organizations/"); ok {
+		if _, sub, _ := strings.Cut(rest, "/"); sub == "sandboxes" || strings.HasPrefix(sub, "sandboxes/") {
+			return http.StatusForbidden, errTaskConfinedKeySandboxes
+		}
 	}
 
 	if strings.HasPrefix(path, "/api/v1/clone-groups/") {
