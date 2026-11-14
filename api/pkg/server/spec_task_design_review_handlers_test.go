@@ -39,12 +39,12 @@ func TestUpdateDesignReviewDocument(t *testing.T) {
 		RequirementsSpec: "# Requirements: Old title\n",
 		GitCommitHash:    "old-sha",
 	}
-	project := &types.Project{ID: task.ProjectID, DefaultRepoID: "repo_1"}
+	project := &types.Project{ID: task.ProjectID, UserID: task.CreatedBy, DefaultRepoID: "repo_1"}
 	repo := &types.GitRepository{ID: project.DefaultRepoID}
 
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil).Times(2)
 	mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil).Times(2)
-	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
 	mockStore.EXPECT().UpdateSpecTaskDesignReviewDocument(
 		gomock.Any(), review.ID, task.ID, gomock.Any(), gomock.Any(),
 	).DoAndReturn(func(_ context.Context, _, _ string, reviewUpdates, taskUpdates map[string]any) error {
@@ -115,12 +115,12 @@ func TestUpdateDesignReviewDocumentRejectsConcurrentChange(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: "usr_1", DesignDocPath: "task_1"}
 	review := &types.SpecTaskDesignReview{ID: "stdr_1", SpecTaskID: task.ID, Status: types.SpecTaskDesignReviewStatusPending}
-	project := &types.Project{ID: task.ProjectID, DefaultRepoID: "repo_1"}
+	project := &types.Project{ID: task.ProjectID, UserID: task.CreatedBy, DefaultRepoID: "repo_1"}
 	repo := &types.GitRepository{ID: project.DefaultRepoID}
 
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
 	mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil)
-	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
 	gitService := &fakeGitRepoService{
 		getRepositoryFunc: func(_ context.Context, _ string) (*types.GitRepository, error) { return repo, nil },
 		withRepoLockFunc:  func(_ string, fn func() error) error { return fn() },
@@ -174,6 +174,7 @@ func TestUpdateDesignReviewDocumentRejectsReviewFromAnotherTask(t *testing.T) {
 	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: "usr_1"}
 	review := &types.SpecTaskDesignReview{ID: "stdr_1", SpecTaskID: "spt_other", Status: types.SpecTaskDesignReviewStatusInReview}
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, UserID: task.CreatedBy}, nil)
 	mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil)
 
 	original := "original"
@@ -201,6 +202,7 @@ func TestUpdateDesignReviewDocumentRejectsFinalizedReview(t *testing.T) {
 			task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: "usr_1"}
 			review := &types.SpecTaskDesignReview{ID: "stdr_1", SpecTaskID: task.ID, Status: status}
 			mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+			mockStore.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, UserID: task.CreatedBy}, nil)
 			mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil)
 
 			original := "original"
@@ -257,11 +259,11 @@ func TestUpdateDesignReviewDocumentSurfacesExternalPublicationFailure(t *testing
 	mockStore := store.NewMockStore(ctrl)
 	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: "usr_1", DesignDocPath: "task_1"}
 	review := &types.SpecTaskDesignReview{ID: "stdr_1", SpecTaskID: task.ID, Status: types.SpecTaskDesignReviewStatusInReview}
-	project := &types.Project{ID: task.ProjectID, DefaultRepoID: "repo_1"}
+	project := &types.Project{ID: task.ProjectID, UserID: task.CreatedBy, DefaultRepoID: "repo_1"}
 	repo := &types.GitRepository{ID: project.DefaultRepoID, IsExternal: true, ExternalURL: "https://example.invalid/repo.git"}
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
 	mockStore.EXPECT().GetSpecTaskDesignReview(gomock.Any(), review.ID).Return(review, nil)
-	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
 
 	gitService := &fakeGitRepoService{
 		getRepositoryFunc: func(_ context.Context, _ string) (*types.GitRepository, error) { return repo, nil },

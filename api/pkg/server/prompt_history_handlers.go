@@ -86,9 +86,14 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
-	// Same check as the list path: the response now carries every owner's rows
-	// for this task/session, so it needs the same authorization.
-	authorizedSessionID, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, syncReq.SpecTaskID, syncReq.SessionID)
+	// The response carries every owner's rows for this task/session, so it needs
+	// the list path's read access; entries are queued as turns into the scope's
+	// session, which needs the access sending a message does.
+	scopeAction := types.ActionGet
+	if len(syncReq.Entries) > 0 {
+		scopeAction = types.ActionUpdate
+	}
+	authorizedSessionID, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, syncReq.SpecTaskID, syncReq.SessionID, scopeAction)
 	if httpErr != nil {
 		return nil, httpErr
 	}
@@ -408,8 +413,8 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 	}
 }
 
-// authorizeUserToPromptQueue checks that user may read the prompt queue
-// identified by specTaskID (preferred) or sessionID.
+// authorizeUserToPromptQueue checks that user may perform action on the prompt
+// queue identified by specTaskID (preferred) or sessionID.
 //
 // This is load-bearing. The queue read path used to be scoped by user_id, which
 // doubled as its authorization: you could only ever see your own rows. That made
@@ -420,7 +425,7 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 // enough to read someone else's queue.
 // Returns the session that the scope authorizes, which the sync path uses as the
 // default target for entries that carry no session of their own.
-func (apiServer *HelixAPIServer) authorizeUserToPromptQueue(ctx context.Context, user *types.User, specTaskID, sessionID string) (string, *system.HTTPError) {
+func (apiServer *HelixAPIServer) authorizeUserToPromptQueue(ctx context.Context, user *types.User, specTaskID, sessionID string, action types.Action) (string, *system.HTTPError) {
 	if specTaskID != "" {
 		specTask, err := apiServer.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
@@ -433,7 +438,7 @@ func (apiServer *HelixAPIServer) authorizeUserToPromptQueue(ctx context.Context,
 		if err != nil {
 			return "", system.NewHTTPError404("project not found")
 		}
-		if err := apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
+		if err := apiServer.authorizeUserToProject(ctx, user, project, action); err != nil {
 			return "", system.NewHTTPError403(err.Error())
 		}
 		return specTask.PlanningSessionID, nil
@@ -443,7 +448,7 @@ func (apiServer *HelixAPIServer) authorizeUserToPromptQueue(ctx context.Context,
 	if err != nil || session == nil {
 		return "", system.NewHTTPError404("session not found")
 	}
-	if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
+	if err := apiServer.authorizeUserToSession(ctx, user, session, action); err != nil {
 		return "", system.NewHTTPError403(err.Error())
 	}
 	return session.ID, nil
@@ -910,7 +915,7 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
-	if _, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, specTaskID, sessionID); httpErr != nil {
+	if _, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, specTaskID, sessionID, types.ActionGet); httpErr != nil {
 		return nil, httpErr
 	}
 
