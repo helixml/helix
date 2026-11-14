@@ -17,7 +17,11 @@ set -euo pipefail
 #      only with RECREATE_POSTGRES=true and never across a PostgreSQL major:
 #      the major is read from each running database's PG_VERSION, not from
 #      .env (docs/postgres-upgrade.md).
-#   2. runners: pull the released sandbox image and re-run each host's launcher.
+#   2. runners: pull the released sandbox image; then, if the release ships the
+#      same sandbox artifacts as the running one (helix.sandbox.fingerprint),
+#      roll only the desktop image into the running sandbox and leave every
+#      desktop on it running (scripts/lib/deploy-runner-remote.sh). Otherwise
+#      the host's launcher is re-run, which recreates the sandbox.
 #
 # The hosts are reached over plain SSH with one dedicated CD key (the key's
 # public half is authorised on each deployment host).
@@ -39,6 +43,8 @@ set -euo pipefail
 #   RUNNER_UPGRADE_SCRIPT=/opt/HelixML/upgrade-sandbox-app.helix.ml.sh
 #   RUNNER_START_SCRIPT=  launcher with an image= assignment (alternative to upgrade script)
 #   RUNNER_CONTAINER=helix-sandbox-app
+#   RUNNER_FORCE_RECREATE=false  (true: recreate the runner's sandbox even when
+#                                only the desktop image changed)
 #   DEPLOY_CONTROLPLANE=true   (set false to skip the control plane)
 #   DEPLOY_RUNNER=true   (set false to skip the runner upgrade)
 #   COMPOSE_SYNC=false   (true: install this checkout's docker-compose.yaml on drift)
@@ -61,6 +67,7 @@ RUNNER_SSH="${RUNNER_SSH:-root@code.helix.ml}"
 RUNNER_UPGRADE_SCRIPT="${RUNNER_UPGRADE_SCRIPT:-/opt/HelixML/upgrade-sandbox-app.helix.ml.sh}"
 RUNNER_START_SCRIPT="${RUNNER_START_SCRIPT:-}"
 RUNNER_CONTAINER="${RUNNER_CONTAINER:-helix-sandbox-app}"
+RUNNER_FORCE_RECREATE="${RUNNER_FORCE_RECREATE:-false}"
 DEPLOY_CONTROLPLANE="${DEPLOY_CONTROLPLANE:-true}"
 DEPLOY_RUNNER="${DEPLOY_RUNNER:-true}"
 COMPOSE_SYNC="${COMPOSE_SYNC:-false}"
@@ -144,32 +151,25 @@ fi
 # --- 2. runner --------------------------------------------------------------
 if [ "$DEPLOY_RUNNER" = "true" ]; then
   log "Deploying runner ${VERSION} to ${RUNNER_SSH} ..."
+  RUNNER_LAUNCHER="$RUNNER_UPGRADE_SCRIPT"
+  RUNNER_LAUNCHER_KIND=tag
   if [ -n "$RUNNER_START_SCRIPT" ]; then
-    RUNNER_DEPLOY=$(cat <<REMOTE
-set -e
-test -x "$RUNNER_START_SCRIPT"
-grep -q '^image=ghcr.io/helixml/helix-sandbox:' "$RUNNER_START_SCRIPT"
-docker pull "ghcr.io/helixml/helix-sandbox:$VERSION"
-sed -i 's|^image=ghcr.io/helixml/helix-sandbox:.*|image=ghcr.io/helixml/helix-sandbox:$VERSION|' "$RUNNER_START_SCRIPT"
-if docker container inspect "$RUNNER_CONTAINER" >/dev/null 2>&1; then
-  docker stop "$RUNNER_CONTAINER"
-  docker rm "$RUNNER_CONTAINER"
-fi
-"$RUNNER_START_SCRIPT"
-REMOTE
-)
-  else
-    RUNNER_DEPLOY=$(cat <<REMOTE
-set -e
-test -x "$RUNNER_UPGRADE_SCRIPT"
-grep -q '^SANDBOX_TAG=' "$RUNNER_UPGRADE_SCRIPT"
-docker pull "ghcr.io/helixml/helix-sandbox:$VERSION"
-sed -i 's/^SANDBOX_TAG=.*/SANDBOX_TAG="$VERSION"/' "$RUNNER_UPGRADE_SCRIPT"
-"$RUNNER_UPGRADE_SCRIPT"
-REMOTE
-)
+    RUNNER_LAUNCHER="$RUNNER_START_SCRIPT"
+    RUNNER_LAUNCHER_KIND=image
   fi
-  if ! rsh "$RUNNER_SSH" "$RUNNER_DEPLOY"; then
+
+  RUNNER_DEPLOY="$(printf '%s=%q\n' \
+    VERSION "$VERSION" \
+    SANDBOX_IMAGE "ghcr.io/helixml/helix-sandbox:$VERSION" \
+    LAUNCHER "$RUNNER_LAUNCHER" \
+    LAUNCHER_KIND "$RUNNER_LAUNCHER_KIND" \
+    CONTAINER "$RUNNER_CONTAINER" \
+    FORCE_RECREATE "$RUNNER_FORCE_RECREATE")
+$(cat "$REPO_DIR/scripts/lib/deploy-runner-remote.sh")"
+
+  # bash -s like the control plane: the runner script uses bash constructs and
+  # reads the whole script before main() can consume the ssh stdin.
+  if ! rsh "$RUNNER_SSH" 'bash -s' <<<"$RUNNER_DEPLOY"; then
     fail "runner deploy failed on ${RUNNER_SSH}"
   fi
   log "runner ${RUNNER_SSH} on ${VERSION}"

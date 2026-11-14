@@ -44,8 +44,39 @@ a green `main` build. Principles:
 - Database services (by name or PostgreSQL-family image) are never created or recreated
   without `RECREATE_POSTGRES=true`.
 
+### Runner step: desktop-only rollout (`RUNNER_FORCE_RECREATE`)
+A runner deploy recreates `helix-sandbox-app`, which stops every desktop on that host, so
+it now recreates **only when the sandbox image itself changed**. Every sandbox image carries
+`helix.sandbox.fingerprint` (the output of `scripts/sandbox-fingerprint.sh` for its source;
+desktop and Zed inputs are excluded). `scripts/lib/deploy-runner-remote.sh` compares the
+fingerprint of the released image with the one on the running container:
+
+- **Equal** → desktop-only. The release's own `helix-ubuntu` image (read from the release
+  image's baked `/opt/images/helix-ubuntu.{ref,version}`, so the arch tag comes from the
+  release) is pulled into the running sandbox's dockerd, tagged as the sandbox's boot tags
+  it, and `/opt/images/helix-ubuntu.{ref,runtime-ref,version}` are swapped atomically. Hydra
+  re-reads the version file on every desktop create and `sandbox-heartbeat` re-reads it every
+  30 s, so new desktops land on the new image within one heartbeat; **running desktops keep
+  theirs**. Old desktop images are freed with the sandbox's own GC, which keeps any image a
+  desktop container still uses: once before the pull (like the sandbox's boot, so a nearly-full
+  host can still make room for the new image) and once after the swap. The launcher is still
+  re-pointed at the release, so the host's next natural restart boots it.
+- **Anything else** → recreate, exactly as before: unlabelled release image (built before
+  the label existed, or an arm64 image, which the release pipeline does not label), a
+  running sandbox on a pre-label image, a stopped/missing sandbox, or an unreadable desktop
+  pin. The reason is logged as `runner: recreating helix-sandbox-app: …`. The first release
+  after this change therefore still recreates once; later ones only when the sandbox changes.
+- A failed desktop pull fails the deploy **before** the version file is touched; the host
+  keeps its old desktops and old launcher image.
+- `RUNNER_FORCE_RECREATE=true` (`drone build restart --param RUNNER_FORCE_RECREATE=true …`,
+  passed through by the runner steps) forces a recreate, e.g. to test a sandbox change.
+- The runner image retention dry run (`scripts/cleanup-runner-images.sh`) still runs either
+  way. Watch the runner step's log for `runner: recreating …` vs `rolling helix-ubuntu only`.
+
+
 To deploy a tag with an opt-in from CI, restart its build with the param; the
-`prod control plane` step passes only `COMPOSE_SYNC` and `RECREATE_POSTGRES` through:
+`prod control plane` step passes only `COMPOSE_SYNC` and `RECREATE_POSTGRES` through, and the
+two runner steps pass `RUNNER_FORCE_RECREATE` through:
 ```bash
 drone build restart --param COMPOSE_SYNC=true helixml/helix <tag build number>
 ```
@@ -92,7 +123,9 @@ gcloud compute ssh --zone europe-west2-a helix-cloud-london --project helixml --
    sandbox images. Named volumes `sandbox-storage-app:/var/lib/docker`, `sandbox-data-app:/data`,
    `hydra-storage-app:/hydra-data` persist across the swap. **~seconds offline** during the swap
    (and a brief blip for any live sandbox/web-service while its container restarts; `/data`
-   survives).
+   survives). This manual path always recreates: it does not compare fingerprints. Use
+   `scripts/deploy-prod.sh <NEW_VERSION>` from a checkout of the release when you want the
+   desktop-only rollout described above, or accept the desktop interruption this once.
 2. Verify re-registration on london:
    ```bash
    docker exec helix-postgres-1 psql -U postgres -d postgres -x -c \
