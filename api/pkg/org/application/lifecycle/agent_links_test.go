@@ -421,12 +421,15 @@ func TestConcurrentChiefOfStaffDeleteFailurePreservesSuccessfulMarker(t *testing
 	require.NoError(t, st.Nodes.Create(ctx, bot))
 	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-agent", "app-agent", "repo-agent"))
 	runtime := &interleavedDeleteRuntime{store: st, started: make(chan struct{}), resume: make(chan struct{})}
+	// Two Services sharing the store model two API replicas; within one
+	// Service a concurrent Delete is refused with ErrDeleteInProgress.
 	svc := &lifecycle.Service{Store: st, Helix: runtime}
+	replica := &lifecycle.Service{Store: st, Helix: runtime}
 	firstDone := make(chan error, 1)
 	go func() { firstDone <- svc.Delete(ctx, "org-test", bot.ID) }()
 	<-runtime.started
 
-	require.NoError(t, svc.Delete(ctx, "org-test", bot.ID))
+	require.NoError(t, replica.Delete(ctx, "org-test", bot.ID))
 	close(runtime.resume)
 	require.Error(t, <-firstDone)
 	marked, err := svc.ChiefOfStaffDeletionMarked(ctx, "org-test")
@@ -444,11 +447,14 @@ func TestOlderSuccessfulChiefOfStaffDeleteRestoresMarkerAfterNewerFailure(t *tes
 	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-agent", "app-agent", "repo-agent"))
 	runtime := &olderSuccessfulDeleteRuntime{store: st, started: make(chan struct{}), resume: make(chan struct{})}
 	svc := &lifecycle.Service{Store: st, Helix: runtime}
+	replica := &lifecycle.Service{Store: st, Helix: runtime}
 	olderDone := make(chan error, 1)
 	go func() { olderDone <- svc.Delete(ctx, "org-test", bot.ID) }()
 	<-runtime.started
 
-	require.Error(t, svc.Delete(ctx, "org-test", bot.ID))
+	err = replica.Delete(ctx, "org-test", bot.ID)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, lifecycle.ErrDeleteInProgress)
 	close(runtime.resume)
 	require.NoError(t, <-olderDone)
 	marked, err := svc.ChiefOfStaffDeletionMarked(ctx, "org-test")
@@ -519,4 +525,48 @@ func TestCreateRollbackIgnoresCancelledRequestContext(t *testing.T) {
 	if _, err := st.Nodes.Get(context.Background(), "org-test", "b-agent"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("rolled back bot still exists: %v", err)
 	}
+}
+
+type countingAgentCreator struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *countingAgentCreator) CreateAgent(context.Context, string, string, string, lifecycle.AgentConfig) (lifecycle.CreatedAgent, error) {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	return lifecycle.CreatedAgent{LegacyAppID: "app-minted"}, nil
+}
+
+type releaseOnlyInstances struct{ release chan struct{} }
+
+func (r releaseOnlyInstances) DeleteAll(context.Context, string, orgchart.NodeID) error {
+	<-r.release
+	return nil
+}
+
+// TestReconcileAgentLinksSkipsBotBeingDeleted pins that the startup
+// reconcile does not mint a fresh agent app for a bot mid-delete.
+func TestReconcileAgentLinksSkipsBotBeingDeleted(t *testing.T) {
+	st := memory.New()
+	ctx := context.Background()
+	bot, err := orgchart.NewNode("b-leaving", "instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, st.Nodes.Create(ctx, bot))
+
+	creator := &countingAgentCreator{}
+	release := make(chan struct{})
+	svc := &lifecycle.Service{Store: st, Agents: creator, Instances: releaseOnlyInstances{release: release}}
+	require.NoError(t, svc.StartDelete(ctx, "org-test", bot.ID))
+	require.True(t, svc.Deleting("org-test", bot.ID))
+
+	require.NoError(t, svc.ReconcileAgentLinks(ctx, "org-test"))
+	creator.mu.Lock()
+	calls := creator.calls
+	creator.mu.Unlock()
+	require.Zero(t, calls, "reconcile minted an agent app for a bot being deleted")
+
+	close(release)
+	svc.WaitDeletes()
 }

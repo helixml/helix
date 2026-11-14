@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -181,6 +182,11 @@ type Service struct {
 	// Create; Delete does not use them.
 	Now   func() time.Time
 	NewID func() string
+
+	// In-flight background deletes started by StartDelete.
+	deleteMu sync.Mutex
+	deleting map[deleteKey]struct{}
+	deletes  sync.WaitGroup
 }
 
 // CreateParams describes a new Node. ID is optional - when empty the
@@ -413,6 +419,10 @@ func (s *Service) ReconcileAgentLinks(ctx context.Context, orgID string) error {
 		logger = slog.Default()
 	}
 	for _, node := range all {
+		// A bot mid-delete must not get a fresh agent app minted for it.
+		if s.Deleting(orgID, node.ID) {
+			continue
+		}
 		if err := s.reconcileAgentLink(ctx, orgID, node); err != nil {
 			logger.Error("reconcile Org Bot legacy App link", "org_id", orgID, "bot_id", node.ID, "legacy_app_id", node.AgentID, "err", err)
 		}
@@ -499,7 +509,19 @@ func (s *Service) reconcileAgentLink(ctx context.Context, orgID string, node org
 // events themselves are intentionally left behind as an audit trail; only
 // the Topic row is dropped. Repositories and explicitly allowed other
 // projects survive deletion.
-func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) (err error) {
+//
+// Delete holds the same in-flight claim as StartDelete, so the Node is hidden
+// from reads while it runs, and it returns ErrDeleteInProgress when another
+// delete of the Node is already running.
+func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
+	if !s.claimDelete(orgID, id) {
+		return fmt.Errorf("delete %q: %w", id, ErrDeleteInProgress)
+	}
+	defer s.releaseDelete(orgID, id)
+	return s.deleteDetached(ctx, orgID, id)
+}
+
+func (s *Service) deleteDetached(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	// Detached from the caller: a request cancelled mid-teardown would leave a
 	// half-deleted Node whose retry no longer finds the archived project.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deleteTimeout)

@@ -389,3 +389,137 @@ func triggerMembers(t *testing.T, st *store.Store, orgID, id string) []orgchart.
 	}
 	return out
 }
+
+// TestStartDelete_RunsInBackground pins that StartDelete returns while the
+// teardown is still running and that the Node is deleted once it finishes.
+func TestStartDelete_RunsInBackground(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-start-delete"
+	seedBot(t, st, orgID, "w-async")
+
+	release := make(chan struct{})
+	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{release: release}}
+	if err := svc.StartDelete(ctx, orgID, "w-async"); err != nil {
+		t.Fatalf("StartDelete: %v", err)
+	}
+	if !svc.Deleting(orgID, "w-async") {
+		t.Fatal("node should be marked as deleting while teardown runs")
+	}
+	if err := svc.StartDelete(ctx, orgID, "w-async"); err != nil {
+		t.Fatalf("repeat StartDelete: %v", err)
+	}
+	close(release)
+	svc.WaitDeletes()
+	if svc.Deleting(orgID, "w-async") {
+		t.Fatal("deleting marker not cleared")
+	}
+	if _, err := st.Nodes.Get(ctx, orgID, "w-async"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("node after delete: err=%v, want ErrNotFound", err)
+	}
+}
+
+// TestStartDelete_FailureKeepsNodeAndClearsMarker pins that a failed
+// background delete leaves the Node visible and deletable again.
+func TestStartDelete_FailureKeepsNodeAndClearsMarker(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-start-delete-fail"
+	seedBot(t, st, orgID, "w-fail")
+
+	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{err: errors.New("host unreachable")}}
+	if err := svc.StartDelete(ctx, orgID, "w-fail"); err != nil {
+		t.Fatalf("StartDelete: %v", err)
+	}
+	svc.WaitDeletes()
+	if svc.Deleting(orgID, "w-fail") {
+		t.Fatal("deleting marker not cleared after failure")
+	}
+	if _, err := st.Nodes.Get(ctx, orgID, "w-fail"); err != nil {
+		t.Fatalf("node should survive failed delete: %v", err)
+	}
+}
+
+func TestStartDelete_MissingNodeErrors(t *testing.T) {
+	t.Parallel()
+	st := orggorm.GetOrgTestDB(t)
+	svc := &lifecycle.Service{Store: st}
+	if err := svc.StartDelete(context.Background(), "org", "w-missing"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("StartDelete missing: err=%v, want ErrNotFound", err)
+	}
+	if svc.Deleting("org", "w-missing") {
+		t.Fatal("missing node must not be marked deleting")
+	}
+}
+
+type blockingDeleter struct {
+	release chan struct{}
+	err     error
+}
+
+func (b blockingDeleter) DeleteAll(ctx context.Context, _ string, _ orgchart.NodeID) error {
+	if b.release != nil {
+		<-b.release
+	}
+	return b.err
+}
+
+// TestDelete_RefusesWhileAnotherDeleteRuns pins that a synchronous Delete
+// (MCP delete_bot, agent-app delete) does not run a second cascade over a
+// bot whose delete is already in flight in this process.
+func TestDelete_RefusesWhileAnotherDeleteRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-delete-concurrent"
+	seedBot(t, st, orgID, "w-busy")
+
+	release := make(chan struct{})
+	cleaner := &recordingAgentDeliveryCleaner{}
+	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{release: release}, AgentDelivery: cleaner}
+	if err := svc.StartDelete(ctx, orgID, "w-busy"); err != nil {
+		t.Fatalf("StartDelete: %v", err)
+	}
+	if err := svc.Delete(ctx, orgID, "w-busy"); !errors.Is(err, lifecycle.ErrDeleteInProgress) {
+		t.Fatalf("concurrent Delete: err=%v, want ErrDeleteInProgress", err)
+	}
+	if cleaner.restored {
+		t.Fatal("refused Delete restored agent delivery under the running delete")
+	}
+	close(release)
+	svc.WaitDeletes()
+	if _, err := st.Nodes.Get(ctx, orgID, "w-busy"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("node after delete: err=%v, want ErrNotFound", err)
+	}
+}
+
+// TestDelete_HidesNodeWhileRunning pins that a synchronous Delete marks the
+// Node as deleting for its duration, as StartDelete does.
+func TestDelete_HidesNodeWhileRunning(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-delete-sync-marker"
+	seedBot(t, st, orgID, "w-sync")
+
+	release := make(chan struct{})
+	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{release: release}}
+	done := make(chan error, 1)
+	go func() { done <- svc.Delete(ctx, orgID, "w-sync") }()
+	deadline := time.Now().Add(5 * time.Second)
+	for !svc.Deleting(orgID, "w-sync") {
+		if time.Now().After(deadline) {
+			t.Fatal("synchronous Delete never marked the node as deleting")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if svc.Deleting(orgID, "w-sync") {
+		t.Fatal("deleting marker not cleared")
+	}
+}

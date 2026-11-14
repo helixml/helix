@@ -9,6 +9,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -186,7 +187,12 @@ func activationsSvc(deps Deps) (*activations.Activations, error) {
 	return deps.Activations, nil
 }
 
+// ensureBotExists also refuses a bot whose delete is in flight, so nothing
+// provisions a sandbox the delete cascade is tearing down.
 func ensureBotExists(ctx context.Context, deps Deps, orgID string, botID orgchart.NodeID) error {
+	if deps.Lifecycle.Deleting(orgID, botID) {
+		return fmt.Errorf("bot %s: %w", botID, lifecycle.ErrDeleteInProgress)
+	}
 	if deps.Queries == nil {
 		return nil
 	}
