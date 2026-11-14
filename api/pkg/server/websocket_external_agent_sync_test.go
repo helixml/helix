@@ -858,7 +858,10 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 	s.server.requestToSessionMapping[requestID] = "ses_spec"
 	s.server.requestToInteractionMapping[requestID] = preCreatedID
 
-	// No store expectations: CreateInteraction must NOT be called, GetSession must NOT be called
+	// The echo is matched to the pre-created interaction of this session;
+	// CreateInteraction must NOT be called.
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_spec").Return(&types.Session{ID: "ses_spec", Owner: "user-1"}, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), preCreatedID).Return(&types.Interaction{ID: preCreatedID, SessionID: "ses_spec"}, nil)
 
 	syncMsg := &types.SyncMessage{
 		EventType: "message_added",
@@ -2264,7 +2267,7 @@ func (s *WebSocketSyncSuite) connectAs(connection, owner string) {
 
 // expectNoRecordedUserEntry: the user entry under test has no interaction yet.
 func (s *WebSocketSyncSuite) expectNoRecordedUserEntry() {
-	s.store.EXPECT().GetInteractionByExternalAgentUserEntry(gomock.Any(), gomock.Any(), gomock.Any()).
+	s.store.EXPECT().GetInteractionByExternalAgentUserEntry(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, store.ErrNotFound).AnyTimes()
 	s.store.EXPECT().GetInteractionByExternalAgentRequestID(gomock.Any(), gomock.Any()).
 		Return(nil, store.ErrNotFound).AnyTimes()
@@ -3184,9 +3187,11 @@ func (s *WebSocketSyncSuite) TestQuestionResolved_ClearsAndArchivesQuestion() {
 	s.server.requestToInteractionMapping["turn-1"] = interaction.ID
 	s.store.EXPECT().GetInteraction(gomock.Any(), interaction.ID).Return(interaction, nil)
 	s.store.EXPECT().ResolveInteractionPendingQuestion(
-		gomock.Any(), interaction.ID, 2, "question-1", "answered", map[string]string{"framework": "React"},
-		types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
-	).DoAndReturn(func(_ context.Context, _ string, _ int, _ string, _ string, answers map[string]string, _ types.TurnProvenance) (*types.Interaction, bool, error) {
+		gomock.Any(), interaction.ID, 2, "question-1", "answered", map[string]string{"framework": "React"}, gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ int, _ string, _ string, answers map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error) {
+		// An API submission without the nonce echoed back is not credited.
+		pending := types.PendingQuestion{Submission: &types.QuestionSubmission{ID: "s-1", By: types.TurnProvenance{Origin: types.TurnOriginAPI}}}
+		s.Equal(types.TurnOriginExternalAgent, answeredBy(&pending).Origin)
 		updated := *interaction
 		updated.PendingQuestion = nil
 		updated.QuestionHistory = []types.ResolvedQuestion{{Answers: answers, Outcome: "answered"}}
@@ -3218,9 +3223,13 @@ func (s *WebSocketSyncSuite) TestResumeRedeliverySettlesStalePendingQuestion() {
 		Outcome:         "cancelled",
 	}}
 	s.store.EXPECT().ResolveInteractionPendingQuestion(
-		gomock.Any(), interaction.ID, 2, "question-stale", "cancelled", map[string]string(nil),
-		types.SystemTurn(types.SystemTurnQuestionSettled),
-	).Return(&updated, true, nil)
+		gomock.Any(), interaction.ID, 2, "question-stale", "cancelled", map[string]string(nil), gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ int, _ string, _ string, _ map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error) {
+		// Helix settling ignores any API submission still on the question.
+		pending := types.PendingQuestion{Submission: &types.QuestionSubmission{ID: "s-1", Outcome: "cancelled", By: types.TurnProvenance{Origin: types.TurnOriginAPI}}}
+		s.Equal(types.SystemTurn(types.SystemTurnQuestionSettled), answeredBy(&pending))
+		return &updated, true, nil
+	})
 	s.store.EXPECT().GetSession(gomock.Any(), interaction.SessionID).
 		Return(&types.Session{ID: interaction.SessionID, Owner: "user-1"}, nil)
 
@@ -4158,9 +4167,13 @@ func (s *WebSocketSyncSuite) TestTurnCancelledSettlesPendingQuestion() {
 	s.server.requestToInteractionMapping[waiting.ExternalAgentRequestID] = waiting.ID
 	s.store.EXPECT().GetInteraction(gomock.Any(), waiting.ID).Return(waiting, nil)
 	s.store.EXPECT().ResolveInteractionPendingQuestion(
-		gomock.Any(), waiting.ID, waiting.GenerationID, "question-1", "cancelled", map[string]string(nil),
-		types.SystemTurn(types.SystemTurnQuestionSettled),
-	).Return(&settled, true, nil)
+		gomock.Any(), waiting.ID, waiting.GenerationID, "question-1", "cancelled", map[string]string(nil), gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ int, _ string, _ string, _ map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error) {
+		// Helix settling ignores any API submission still on the question.
+		pending := types.PendingQuestion{Submission: &types.QuestionSubmission{ID: "s-1", Outcome: "cancelled", By: types.TurnProvenance{Origin: types.TurnOriginAPI}}}
+		s.Equal(types.SystemTurn(types.SystemTurnQuestionSettled), answeredBy(&pending))
+		return &settled, true, nil
+	})
 	s.store.EXPECT().MarkInteractionInterruptedIfWaiting(
 		gomock.Any(), waiting.ID, waiting.GenerationID,
 	).Return(true, nil)

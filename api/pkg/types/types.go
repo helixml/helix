@@ -84,11 +84,14 @@ type Interaction struct {
 	// caches only; cancellation and restart recovery use this persisted value.
 	ExternalAgentRequestID string `json:"-" gorm:"index"`
 
-	// ExternalAgentUserEntryID is the external agent's id for the user entry
-	// this turn was recorded from (Zed's message_id, the entry's index in its
-	// thread). Empty for turns Helix sent. It lets a re-reported entry be
-	// recognised instead of becoming a second turn.
-	ExternalAgentUserEntryID string `json:"-"`
+	// ExternalAgentUserThreadID and ExternalAgentUserEntryID identify the
+	// external agent's user entry this turn was recorded from: the ACP thread
+	// and Zed's message_id, which is the entry's index in that thread and
+	// restarts at 0 in every new thread. Empty for turns Helix sent. Together
+	// they let a re-reported entry be recognised instead of becoming a second
+	// turn.
+	ExternalAgentUserThreadID string `json:"-"`
+	ExternalAgentUserEntryID  string `json:"-"`
 
 	// ExternalAgentDispatchedAt distinguishes an interaction that only exists in
 	// the durable queue from one that has been handed to the external agent.

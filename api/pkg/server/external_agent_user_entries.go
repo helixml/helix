@@ -9,67 +9,81 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
-// userEntryAlreadyRecorded reports whether a user entry the external agent
-// reported via message_added(role=user) already has an interaction in this
-// session, so it must not become a new turn.
+// userEntry is a user message the external agent reported via
+// message_added(role=user).
+type userEntry struct {
+	threadID  string // ACP thread the entry belongs to
+	entryID   string // Zed's message_id: the entry's index in that thread
+	requestID string
+	content   string
+}
+
+// userEntryAlreadyRecorded reports whether a user entry already has an
+// interaction in this session, so it must not become a new turn.
 //
 // An entry is recorded when either:
-//   - its request_id belongs to a turn Helix knows: in the request map (even
-//     after message_completed consumed it) or durably on an interaction of this
-//     session (the in-memory map is lost on API restart); or
-//   - the session already holds an interaction recorded from the same Zed
-//     entry (message_id) with the same text. Zed gives every native user entry
-//     a fresh request_id, so a re-reported entry is only recognisable by its
-//     entry id. Comparing the text too keeps a genuinely new message that
-//     reuses an index (after an agent restart renumbers entries) from being
-//     dropped.
-func (apiServer *HelixAPIServer) userEntryAlreadyRecorded(ctx context.Context, helixSessionID, requestID, entryID, content string) (bool, error) {
+//   - its request_id belongs to a turn of THIS session: the interaction the
+//     request map points at, or (after message_completed consumed the map
+//     entry, or an API restart lost it) the interaction that persisted it; or
+//   - this session generation already holds an interaction recorded from the
+//     same entry of the same ACP thread, with the same text. Zed gives every
+//     native user entry a fresh request_id, so a re-reported entry is only
+//     recognisable by its position. The index restarts at 0 in every new
+//     thread (thread recovery, agent switch), hence the thread in the key;
+//     comparing the text keeps a renumbered index that carries a genuinely new
+//     message from being dropped.
+func (apiServer *HelixAPIServer) userEntryAlreadyRecorded(ctx context.Context, session *types.Session, entry userEntry) (bool, error) {
 	st := apiServer.Controller.Options.Store
 
-	if requestID != "" {
+	if entry.requestID != "" {
 		apiServer.contextMappingsMutex.RLock()
-		mappedID, known := apiServer.requestToInteractionMapping[requestID]
+		mappedID := apiServer.requestToInteractionMapping[entry.requestID]
 		apiServer.contextMappingsMutex.RUnlock()
-		if known {
-			log.Info().
-				Str("helix_session_id", helixSessionID).
-				Str("request_id", requestID).
-				Str("interaction_id", mappedID).
-				Msg("💬 [HELIX] User entry echoes a known request — reusing its interaction")
-			return true, nil
+		if mappedID != "" {
+			mapped, err := st.GetInteraction(ctx, mappedID)
+			if err != nil && !errors.Is(err, store.ErrNotFound) && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return false, fmt.Errorf("load interaction %s for request %s: %w", mappedID, entry.requestID, err)
+			}
+			if err == nil && mapped.SessionID == session.ID {
+				logRecordedUserEntry(session.ID, entry, mapped.ID, "echo of a request in flight")
+				return true, nil
+			}
 		}
 
-		existing, err := st.GetInteractionByExternalAgentRequestID(ctx, requestID)
+		existing, err := st.GetInteractionByExternalAgentRequestID(ctx, entry.requestID)
 		switch {
-		case err == nil && existing.SessionID == helixSessionID:
-			log.Info().
-				Str("helix_session_id", helixSessionID).
-				Str("request_id", requestID).
-				Str("interaction_id", existing.ID).
-				Msg("💬 [HELIX] User entry echoes a persisted request — reusing its interaction")
+		case err == nil && existing.SessionID == session.ID:
+			logRecordedUserEntry(session.ID, entry, existing.ID, "echo of a persisted request")
 			return true, nil
 		case err != nil && !errors.Is(err, store.ErrNotFound) && !errors.Is(err, gorm.ErrRecordNotFound):
-			return false, fmt.Errorf("look up interaction for request %s: %w", requestID, err)
+			return false, fmt.Errorf("look up interaction for request %s: %w", entry.requestID, err)
 		}
 	}
 
-	existing, err := st.GetInteractionByExternalAgentUserEntry(ctx, helixSessionID, entryID)
+	existing, err := st.GetInteractionByExternalAgentUserEntry(ctx, session.ID, session.GenerationID, entry.threadID, entry.entryID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("look up interaction for user entry %s: %w", entryID, err)
+		return false, fmt.Errorf("look up interaction for user entry %s/%s: %w", entry.threadID, entry.entryID, err)
 	}
-	if existing.PromptMessage != content {
+	if existing.PromptMessage != entry.content {
 		return false, nil
 	}
-	log.Info().
-		Str("helix_session_id", helixSessionID).
-		Str("entry_id", entryID).
-		Str("request_id", requestID).
-		Str("interaction_id", existing.ID).
-		Msg("💬 [HELIX] User entry was already recorded (agent re-reported it) — not creating a turn")
+	logRecordedUserEntry(session.ID, entry, existing.ID, "agent re-reported the entry")
 	return true, nil
+}
+
+func logRecordedUserEntry(sessionID string, entry userEntry, interactionID, why string) {
+	log.Info().
+		Str("helix_session_id", sessionID).
+		Str("acp_thread_id", entry.threadID).
+		Str("entry_id", entry.entryID).
+		Str("request_id", entry.requestID).
+		Str("interaction_id", interactionID).
+		Str("reason", why).
+		Msg("💬 [HELIX] User entry already recorded — not creating a turn")
 }

@@ -3799,24 +3799,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - email
     - gitlab
     - local
-    - github
-    - cron
-    - email
-    - webhook
     - helix_events
     - slack
+    - github
+    - webhook
+    - cron
     type: string
     x-enum-varnames:
+    - KindEmail
     - KindGitLab
     - KindLocal
-    - KindGitHub
-    - KindCron
-    - KindEmail
-    - KindWebhook
     - KindHelixEvents
     - KindSlack
+    - KindGitHub
+    - KindWebhook
+    - KindCron
   transport.ResolvedActivation:
     properties:
       address:
@@ -7192,13 +7192,6 @@ definitions:
       sync_in_progress_since:
         description: Set while an upstream operation is running
         type: string
-      trusted_startup_sha:
-        description: |-
-          TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
-          .helix/startup.sh from. Only a human write moves it (a push with a human
-          credential, or a startup-script save in the UI/API); agent pushes never
-          do. Written only via SetGitRepositoryTrustedStartupSHA.
-        type: string
       updated_at:
         type: string
       username:
@@ -10181,6 +10174,8 @@ definitions:
         type: object
       by:
         $ref: '#/definitions/types.TurnProvenance'
+      id:
+        type: string
       outcome:
         type: string
       submitted_at:
@@ -28744,8 +28739,9 @@ paths:
         in: query
         name: include_external_agents
         type: boolean
-      - description: Only sessions carried by this external agent connection (implies
-          include_external_agents)
+      - description: Only the sessions Helix created for threads opened on this external
+          agent connection (session id the agent connected with). The connection session
+          itself is not included. Implies include_external_agents.
         in: query
         name: external_agent_id
         type: string

@@ -37,10 +37,15 @@ func newEntryServer(t *testing.T) (*HelixAPIServer, *memorystore.MemoryStore) {
 
 func sendUserEntry(t *testing.T, srv *HelixAPIServer, entryID, content, requestID string) {
 	t.Helper()
+	sendUserEntryOnThread(t, srv, entryThreadID, entryID, content, requestID)
+}
+
+func sendUserEntryOnThread(t *testing.T, srv *HelixAPIServer, threadID, entryID, content, requestID string) {
+	t.Helper()
 	require.NoError(t, srv.handleMessageAdded(entrySessionID, &types.SyncMessage{
 		EventType: "message_added",
 		Data: map[string]interface{}{
-			"acp_thread_id": entryThreadID,
+			"acp_thread_id": threadID,
 			"message_id":    entryID,
 			"content":       content,
 			"role":          "user",
@@ -164,4 +169,41 @@ func TestThreadReseed_RecordedAndExposedOnInteractions(t *testing.T) {
 	require.Len(t, r.PreambleSHA256, 64)
 	require.Equal(t, "system", r.Provenance.Origin)
 	require.Equal(t, "thread_reseed", r.Provenance.SystemKind)
+}
+
+// The same Helix session moves to a new Zed thread on thread recovery (a dead
+// ACP thread is replaced) and on an in-place agent switch. Entry indexes
+// restart at 0 there, so "continue" at index 1 in the new thread is a new
+// turn even though the old thread had the same text at the same index.
+func TestUserEntry_SameIndexAndTextInANewThreadIsANewTurn(t *testing.T) {
+	for _, reason := range []string{"thread recovery", "agent switch"} {
+		t.Run(reason, func(t *testing.T) {
+			srv, ms := newEntryServer(t)
+			sendUserEntry(t, srv, "1", "continue", "req-old-thread")
+
+			// The session now runs on a fresh ACP thread.
+			srv.contextMappings[routeKey(entrySessionID, "thread-next")] = entrySessionID
+			sendUserEntryOnThread(t, srv, "thread-next", "1", "continue", "req-new-thread")
+
+			interactions := entryInteractions(t, ms)
+			require.Len(t, interactions, 2)
+
+			// A true replay of the new thread's entry is still one turn.
+			sendUserEntryOnThread(t, srv, "thread-next", "1", "continue", "req-replayed")
+			require.Len(t, entryInteractions(t, ms), 2)
+		})
+	}
+}
+
+// The request map is global; an id mapped to another session's interaction
+// must not suppress a turn in this one.
+func TestUserEntry_RequestMappedToAnotherSessionDoesNotSuppress(t *testing.T) {
+	srv, ms := newEntryServer(t)
+	_, err := ms.CreateInteraction(context.Background(), &types.Interaction{ID: "int_elsewhere", SessionID: "ses_elsewhere"})
+	require.NoError(t, err)
+	srv.requestToInteractionMapping["req-elsewhere"] = "int_elsewhere"
+
+	sendUserEntry(t, srv, "0", "hello", "req-elsewhere")
+
+	require.Len(t, entryInteractions(t, ms), 1)
 }

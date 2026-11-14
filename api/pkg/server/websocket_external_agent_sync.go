@@ -912,6 +912,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		// The agent name is persisted so we use the correct agent for this thread
 		// even if the project's default agent changes later.
 		helixSession.Metadata.ZedThreadID = contextID
+		recordConnection(helixSession, sessionID)
 		if helixSession.Metadata.ZedAgentName == "" {
 			helixSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), helixSession)
 		}
@@ -987,6 +988,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 					Msg("⚠️ [HELIX] Duplicate thread_created for an in-flight turn — rebinding to its session instead of forking a new one")
 
 				boundSession.Metadata.ZedThreadID = contextID
+				recordConnection(boundSession, sessionID)
 				boundSession.Updated = time.Now()
 				if _, err := apiServer.Controller.Options.Store.UpdateSession(context.Background(), *boundSession); err != nil {
 					return fmt.Errorf("failed to rebind session %s to duplicate thread: %w", boundSession.ID, err)
@@ -1245,9 +1247,9 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 
-				connectionSession, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+				connectionSession, err := apiServer.connectionOwnerSession(ctx, sessionID)
 				if err != nil {
-					return fmt.Errorf("failed to load agent session to copy config: %w", err)
+					return fmt.Errorf("no owning session for agent connection %s: %w", sessionID, err)
 				}
 				newSession, err := apiServer.createAgentThreadSession(ctx, sessionID, connectionSession, contextID, "Zed Chat")
 				if err != nil {
@@ -1522,36 +1524,39 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		// sent. A recorded entry must never become a second turn — reusing the
 		// existing interaction also keeps the request_id mapping intact so the
 		// assistant response lands in the right place.
-		recorded, err := apiServer.userEntryAlreadyRecorded(context.Background(), helixSessionID, messageRequestID, messageID, content)
+		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+		if err != nil {
+			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+		}
+		recorded, err := apiServer.userEntryAlreadyRecorded(context.Background(), helixSession, userEntry{
+			threadID: contextID, entryID: messageID, requestID: messageRequestID, content: content,
+		})
 		if err != nil {
 			return err
 		}
 		if !recorded {
-			// No pre-created interaction — this is a genuine user message from Zed.
-			// Create a new interaction and map it so the AI response goes to it.
-			helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
-			if err != nil {
-				return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
-			}
+			// A genuine user message from Zed: create the turn and map it so
+			// the AI response goes to it.
 			configSnapshot, err := apiServer.codeAgentConfigSnapshot(context.Background(), helixSession)
 			if err != nil {
 				return fmt.Errorf("snapshot coding configuration for Zed message: %w", err)
 			}
 
 			interaction := &types.Interaction{
-				ID:                       "", // Will be generated
-				Created:                  time.Now(),
-				Updated:                  time.Now(),
-				SessionID:                helixSessionID,
-				UserID:                   helixSession.Owner,
-				GenerationID:             helixSession.GenerationID, // Must match session's generation for query to find it
-				Mode:                     types.SessionModeInference,
-				PromptMessage:            content,
-				Provenance:               types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
-				State:                    types.InteractionStateWaiting,
-				CodeAgentConfigSnapshot:  configSnapshot,
-				ExternalAgentRequestID:   messageRequestID,
-				ExternalAgentUserEntryID: messageID,
+				ID:                        "", // Will be generated
+				Created:                   time.Now(),
+				Updated:                   time.Now(),
+				SessionID:                 helixSessionID,
+				UserID:                    helixSession.Owner,
+				GenerationID:              helixSession.GenerationID, // Must match session's generation for query to find it
+				Mode:                      types.SessionModeInference,
+				PromptMessage:             content,
+				Provenance:                types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
+				State:                     types.InteractionStateWaiting,
+				CodeAgentConfigSnapshot:   configSnapshot,
+				ExternalAgentRequestID:    messageRequestID,
+				ExternalAgentUserThreadID: contextID,
+				ExternalAgentUserEntryID:  messageID,
 			}
 			now := time.Now()
 			interaction.ExternalAgentDispatchedAt = &now
@@ -5229,9 +5234,9 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	existingSession, err := apiServer.Controller.Options.Store.GetSession(ctx, agentSessionID)
+	existingSession, err := apiServer.connectionOwnerSession(ctx, agentSessionID)
 	if err != nil {
-		return fmt.Errorf("failed to load existing session: %w", err)
+		return fmt.Errorf("no owning session for agent connection %s: %w", agentSessionID, err)
 	}
 
 	// PHANTOM-DRAFT GUARD (belt-and-braces against helixml/zed Fix 1a not being

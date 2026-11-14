@@ -23,6 +23,10 @@ type questionResolvedEvent struct {
 	TurnRequestID string            `json:"turn_request_id"`
 	Outcome       string            `json:"outcome"`
 	Answers       map[string]string `json:"answers"`
+	// SubmissionID echoes the nonce Helix sent with an API answer or cancel.
+	// The Zed build pinned in sandbox-versions.txt does not echo it yet, so
+	// every resolution it reports is attributed to external_agent.
+	SubmissionID string `json:"submission_id"`
 }
 
 func decodeSyncData(data map[string]interface{}, target interface{}) error {
@@ -89,6 +93,12 @@ func validatePendingQuestion(question *types.PendingQuestion) error {
 	return nil
 }
 
+// settledByHelix attributes a question Helix cancels itself, ignoring any
+// API submission still on it: nobody's answer reached the agent.
+func settledByHelix(*types.PendingQuestion) types.TurnProvenance {
+	return types.SystemTurn(types.SystemTurnQuestionSettled)
+}
+
 func (apiServer *HelixAPIServer) settlePendingQuestionAsCancelled(
 	ctx context.Context,
 	interaction *types.Interaction,
@@ -104,7 +114,7 @@ func (apiServer *HelixAPIServer) settlePendingQuestionAsCancelled(
 		requestID,
 		"cancelled",
 		nil,
-		types.SystemTurn(types.SystemTurnQuestionSettled),
+		settledByHelix,
 	)
 	if err != nil {
 		return interaction, false, fmt.Errorf("settle pending question as cancelled: %w", err)
@@ -153,10 +163,19 @@ func (apiServer *HelixAPIServer) handleQuestionRequested(sessionID string, syncM
 	}
 	if !changed {
 		if updated.PendingQuestion != nil && updated.PendingQuestion.RequestID == question.RequestID {
-			// A replay proves the agent is still waiting. Release any action that
-			// was accepted by the API but lost with the previous connection so the
-			// user can submit it again.
+			// A replay proves the agent is still waiting: any action the API
+			// accepted was lost with the previous connection. Drop its
+			// submission, so a later answer in the agent's own UI is not
+			// credited to that caller, and release it so it can be resent.
+			if err := apiServer.Store.ClearInteractionQuestionSubmission(ctx, interaction.ID, interaction.GenerationID, question.RequestID, ""); err != nil {
+				return fmt.Errorf("clear lost question submission: %w", err)
+			}
 			apiServer.finishQuestionAction(interaction.ID, question.RequestID)
+			if updated.PendingQuestion.Submission != nil {
+				cleared := *updated.PendingQuestion
+				cleared.Submission = nil
+				updated.PendingQuestion = &cleared
+			}
 			return apiServer.publishQuestionInteractionUpdate(updated)
 		}
 		for _, resolved := range updated.QuestionHistory {
@@ -190,9 +209,9 @@ func (apiServer *HelixAPIServer) handleQuestionResolved(sessionID string, syncMs
 	}
 	updated, changed, err := apiServer.Store.ResolveInteractionPendingQuestion(
 		ctx, interaction.ID, interaction.GenerationID, event.RequestID, event.Outcome, event.Answers,
-		// Unless it matches what the API submitted, the resolution came
-		// from someone at the agent's own UI.
-		types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
+		func(pending *types.PendingQuestion) types.TurnProvenance {
+			return pending.ResolveAnswerer(event.SubmissionID)
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("resolve pending question: %w", err)

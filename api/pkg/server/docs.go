@@ -18961,7 +18961,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Only sessions carried by this external agent connection (implies include_external_agents)",
+                        "description": "Only the sessions Helix created for threads opened on this external agent connection (session id the agent connected with). The connection session itself is not included. Implies include_external_agents.",
                         "name": "external_agent_id",
                         "in": "query"
                     },
@@ -31103,24 +31103,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
+                "email",
                 "gitlab",
                 "local",
-                "github",
-                "cron",
-                "email",
-                "webhook",
                 "helix_events",
-                "slack"
+                "slack",
+                "github",
+                "webhook",
+                "cron"
             ],
             "x-enum-varnames": [
+                "KindEmail",
                 "KindGitLab",
                 "KindLocal",
-                "KindGitHub",
-                "KindCron",
-                "KindEmail",
-                "KindWebhook",
                 "KindHelixEvents",
-                "KindSlack"
+                "KindSlack",
+                "KindGitHub",
+                "KindWebhook",
+                "KindCron"
             ]
         },
         "transport.ResolvedActivation": {
@@ -35651,10 +35651,6 @@ const docTemplate = `{
                     "description": "Set while an upstream operation is running",
                     "type": "string"
                 },
-                "trusted_startup_sha": {
-                    "description": "TrustedStartupSHA is the helix-specs commit whose tree sandboxes run\n.helix/startup.sh from. Only a human write moves it (a push with a human\ncredential, or a startup-script save in the UI/API); agent pushes never\ndo. Written only via SetGitRepositoryTrustedStartupSHA.",
-                    "type": "string"
-                },
                 "updated_at": {
                     "type": "string"
                 },
@@ -39781,6 +39777,9 @@ const docTemplate = `{
                 },
                 "by": {
                     "$ref": "#/definitions/types.TurnProvenance"
+                },
+                "id": {
+                    "type": "string"
                 },
                 "outcome": {
                     "type": "string"

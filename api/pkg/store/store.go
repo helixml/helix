@@ -354,12 +354,17 @@ type Store interface {
 	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
 	SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error)
 	// ResolveInteractionPendingQuestion moves the pending question into
-	// history, attributing it with PendingQuestion.ResolveAnswerer.
-	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, fallback types.TurnProvenance) (*types.Interaction, bool, error)
+	// history. answeredBy attributes it from the pending question as stored
+	// at resolution time (so it sees any API submission).
+	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error)
 	// RecordInteractionQuestionSubmission stores the API action accepted for
-	// the pending question requestID. False when that question is no longer
-	// pending.
+	// the pending question requestID, compare-and-set: false when that
+	// question is no longer pending or already has a submission in flight.
 	RecordInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error)
+	// ClearInteractionQuestionSubmission drops the submission on the pending
+	// question requestID when its ID is submissionID, or any submission when
+	// submissionID is empty.
+	ClearInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID, submissionID string) error
 	// BindInteractionExternalAgentRequest persists the request ID before an
 	// external-agent turn is dispatched, so queued turns remain identifiable
 	// across API restarts.
@@ -379,10 +384,11 @@ type Store interface {
 	// AppendInteractionThreadReseed adds a reseed record to the interaction
 	// without touching any other column. ErrNotFound when no row matches.
 	AppendInteractionThreadReseed(ctx context.Context, interactionID string, generationID int, reseed types.ThreadReseed) error
-	// GetInteractionByExternalAgentUserEntry returns the session's interaction
-	// recorded for a user entry the external agent reported (Zed's message_id),
-	// newest first. ErrNotFound when none exists.
-	GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID, entryID string) (*types.Interaction, error)
+	// GetInteractionByExternalAgentUserEntry returns the interaction of this
+	// session generation recorded for a user entry the external agent
+	// reported (ACP thread + Zed's message_id), newest first. ErrNotFound when
+	// none exists.
+	GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID string, generationID int, threadID, entryID string) (*types.Interaction, error)
 	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
 	// from Waiting → Complete and sets completed=now. Returns true if the row
 	// was transitioned, false if the row was already in a terminal state (no

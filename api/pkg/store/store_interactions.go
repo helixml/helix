@@ -84,7 +84,7 @@ func (s *PostgresStore) CreateInteraction(ctx context.Context, interaction *type
 	db := s.gdb.WithContext(ctx)
 
 	// Allows overwriting the interaction with the same primary key (ID and generation ID)
-	err := db.Omit("PendingQuestion", "QuestionHistory").Clauses(clause.OnConflict{
+	err := db.Omit("PendingQuestion", "QuestionHistory", "ThreadReseeds").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Create(&interaction).Error
 	if err != nil {
@@ -120,7 +120,7 @@ func (s *PostgresStore) CreateInteractions(ctx context.Context, interactions ...
 	db := s.gdb.WithContext(ctx)
 
 	// Allows overwriting the interaction with the same primary key (ID and generation ID)
-	err := db.Omit("PendingQuestion", "QuestionHistory").Clauses(clause.OnConflict{
+	err := db.Omit("PendingQuestion", "QuestionHistory", "ThreadReseeds").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Create(&interactions).Error
 	if err != nil {
@@ -252,9 +252,10 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 	// PendingQuestion and QuestionHistory are owned by the targeted methods
 	// below. A streaming/terminal caller commonly holds an older interaction
 	// snapshot, so allowing Save to write those columns would erase a question
-	// that arrived concurrently. Provenance is set once at creation and is
-	// never rewritten by an update.
-	result := db.Omit("PendingQuestion", "QuestionHistory", "Provenance").Clauses(clause.OnConflict{
+	// that arrived concurrently. ThreadReseeds is append-only through
+	// AppendInteractionThreadReseed for the same reason. Provenance is set once
+	// at creation and is never rewritten by an update.
+	result := db.Omit("PendingQuestion", "QuestionHistory", "Provenance", "ThreadReseeds").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Save(&interaction)
 
@@ -349,7 +350,7 @@ func (s *PostgresStore) SetInteractionPendingQuestion(ctx context.Context, inter
 	return &interaction, changed, nil
 }
 
-func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, fallback types.TurnProvenance) (*types.Interaction, bool, error) {
+func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error) {
 	if interactionID == "" || requestID == "" || outcome == "" {
 		return nil, false, errors.New("interaction_id, request_id, and outcome are required")
 	}
@@ -364,7 +365,7 @@ func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, i
 		if interaction.PendingQuestion == nil || interaction.PendingQuestion.RequestID != requestID {
 			return nil
 		}
-		resolved := types.NewResolvedQuestion(interaction.PendingQuestion, outcome, answers, fallback)
+		resolved := types.NewResolvedQuestion(interaction.PendingQuestion, outcome, answers, answeredBy(interaction.PendingQuestion))
 		interaction.QuestionHistory = append(interaction.QuestionHistory, resolved)
 		interaction.PendingQuestion = nil
 		interaction.Updated = time.Now()
@@ -405,7 +406,8 @@ func (s *PostgresStore) RecordInteractionQuestionSubmission(ctx context.Context,
 			First(&interaction).Error; err != nil {
 			return err
 		}
-		if interaction.PendingQuestion == nil || interaction.PendingQuestion.RequestID != requestID {
+		if interaction.PendingQuestion == nil || interaction.PendingQuestion.RequestID != requestID ||
+			interaction.PendingQuestion.Submission != nil {
 			return nil
 		}
 		pending := *interaction.PendingQuestion
@@ -429,6 +431,41 @@ func (s *PostgresStore) RecordInteractionQuestionSubmission(ctx context.Context,
 		return false, ErrNotFound
 	}
 	return recorded, err
+}
+
+func (s *PostgresStore) ClearInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID, submissionID string) error {
+	if interactionID == "" || requestID == "" {
+		return errors.New("interaction_id and request_id are required")
+	}
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var interaction types.Interaction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND generation_id = ?", interactionID, generationID).
+			First(&interaction).Error; err != nil {
+			return err
+		}
+		pending := interaction.PendingQuestion
+		if pending == nil || pending.RequestID != requestID || pending.Submission == nil ||
+			(submissionID != "" && pending.Submission.ID != submissionID) {
+			return nil
+		}
+		cleared := *pending
+		cleared.Submission = nil
+		pendingJSON, err := json.Marshal(&cleared)
+		if err != nil {
+			return fmt.Errorf("marshal pending question: %w", err)
+		}
+		return tx.Model(&types.Interaction{}).
+			Where("id = ? AND generation_id = ?", interactionID, generationID).
+			Updates(map[string]interface{}{
+				"pending_question": datatypes.JSON(pendingJSON),
+				"updated":          time.Now(),
+			}).Error
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrNotFound
+	}
+	return err
 }
 
 func (s *PostgresStore) BindInteractionExternalAgentRequest(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error) {
@@ -521,13 +558,14 @@ func (s *PostgresStore) MarkInteractionInterruptedIfWaiting(ctx context.Context,
 	return result.RowsAffected > 0, result.Error
 }
 
-func (s *PostgresStore) GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID, entryID string) (*types.Interaction, error) {
-	if sessionID == "" || entryID == "" {
-		return nil, errors.New("session_id and entry_id are required")
+func (s *PostgresStore) GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID string, generationID int, threadID, entryID string) (*types.Interaction, error) {
+	if sessionID == "" || threadID == "" || entryID == "" {
+		return nil, errors.New("session_id, thread_id and entry_id are required")
 	}
 	var interaction types.Interaction
 	err := s.gdb.WithContext(ctx).
-		Where("session_id = ? AND external_agent_user_entry_id = ?", sessionID, entryID).
+		Where("session_id = ? AND generation_id = ? AND external_agent_user_thread_id = ? AND external_agent_user_entry_id = ?",
+			sessionID, generationID, threadID, entryID).
 		Order("created DESC, id DESC").
 		First(&interaction).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

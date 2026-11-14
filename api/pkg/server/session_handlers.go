@@ -183,7 +183,7 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   sort            query    string  false  "Sort order: created, updated, or last_message"
 // @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
 // @Param   include_external_agents query bool false "Include external agent sessions"
-// @Param   external_agent_id query  string  false  "Only sessions carried by this external agent connection (implies include_external_agents)"
+// @Param   external_agent_id query  string  false  "Only the sessions Helix created for threads opened on this external agent connection (session id the agent connected with). The connection session itself is not included. Implies include_external_agents."
 // @Param   archived        query    bool    false  "Return only archived sessions instead of only unarchived ones"
 // @Param   owner_id        query    string  false  "List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org"
 // @Param   all_members     query    bool    false  "List every member's chats in one project (requires org_id, project_id and project_scope=project)"

@@ -129,7 +129,19 @@ func (s *InteractionQuestionHandlerSuite) TestReturnsConflictWhenAgentDisconnect
 			sessionLoads <- struct{}{}
 			return session, nil
 		}).Times(2)
-	s.store.EXPECT().RecordInteractionQuestionSubmission(gomock.Any(), interaction.ID, 0, "request-1", gomock.Any()).Return(true, nil)
+	var submissionID string
+	s.store.EXPECT().RecordInteractionQuestionSubmission(gomock.Any(), interaction.ID, 0, "request-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ int, _ string, submission types.QuestionSubmission) (bool, error) {
+			submissionID = submission.ID
+			return true, nil
+		})
+	// The undelivered submission is withdrawn by its own nonce, so a later
+	// answer in Zed's UI is not credited to this caller.
+	s.store.EXPECT().ClearInteractionQuestionSubmission(gomock.Any(), interaction.ID, 0, "request-1", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ int, _ string, id string) error {
+			s.Equal(submissionID, id)
+			return nil
+		})
 
 	rr := s.callHandler("respond", types.QuestionRespondRequest{
 		Answers: map[string]string{"deploy": "No"},

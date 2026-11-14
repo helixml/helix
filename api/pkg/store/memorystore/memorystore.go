@@ -356,6 +356,7 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 	if existing, ok := m.interactions[interaction.ID]; ok {
 		cp.PendingQuestion = existing.PendingQuestion
 		cp.QuestionHistory = existing.QuestionHistory
+		cp.ThreadReseeds = existing.ThreadReseeds
 	}
 	m.interactions[interaction.ID] = &cp
 	return &cp, nil
@@ -368,6 +369,7 @@ func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.In
 		cp.PendingQuestion = existing.PendingQuestion
 		cp.QuestionHistory = existing.QuestionHistory
 		cp.Provenance = existing.Provenance
+		cp.ThreadReseeds = existing.ThreadReseeds
 	}
 	m.interactions[interaction.ID] = &cp
 	cb := m.OnInteractionUpdated
@@ -442,7 +444,7 @@ func (m *MemoryStore) SetInteractionPendingQuestion(_ context.Context, interacti
 	return &cp, true, nil
 }
 
-func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, fallback types.TurnProvenance) (*types.Interaction, bool, error) {
+func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error) {
 	m.mu.Lock()
 	existing, ok := m.interactions[interactionID]
 	if !ok || existing.GenerationID != generationID {
@@ -454,7 +456,7 @@ func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, inter
 		m.mu.Unlock()
 		return &cp, false, nil
 	}
-	existing.QuestionHistory = append(existing.QuestionHistory, types.NewResolvedQuestion(existing.PendingQuestion, outcome, answers, fallback))
+	existing.QuestionHistory = append(existing.QuestionHistory, types.NewResolvedQuestion(existing.PendingQuestion, outcome, answers, answeredBy(existing.PendingQuestion)))
 	existing.PendingQuestion = nil
 	existing.Updated = time.Now()
 	cp := *existing
@@ -473,7 +475,8 @@ func (m *MemoryStore) RecordInteractionQuestionSubmission(_ context.Context, int
 	if !ok || existing.GenerationID != generationID {
 		return false, store.ErrNotFound
 	}
-	if existing.PendingQuestion == nil || existing.PendingQuestion.RequestID != requestID {
+	if existing.PendingQuestion == nil || existing.PendingQuestion.RequestID != requestID ||
+		existing.PendingQuestion.Submission != nil {
 		return false, nil
 	}
 	pending := *existing.PendingQuestion
@@ -481,6 +484,25 @@ func (m *MemoryStore) RecordInteractionQuestionSubmission(_ context.Context, int
 	existing.PendingQuestion = &pending
 	existing.Updated = time.Now()
 	return true, nil
+}
+
+func (m *MemoryStore) ClearInteractionQuestionSubmission(_ context.Context, interactionID string, generationID int, requestID, submissionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		return store.ErrNotFound
+	}
+	pending := existing.PendingQuestion
+	if pending == nil || pending.RequestID != requestID || pending.Submission == nil ||
+		(submissionID != "" && pending.Submission.ID != submissionID) {
+		return nil
+	}
+	cleared := *pending
+	cleared.Submission = nil
+	existing.PendingQuestion = &cleared
+	existing.Updated = time.Now()
+	return nil
 }
 
 func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
@@ -557,12 +579,13 @@ func (m *MemoryStore) MarkInteractionInterruptedIfWaiting(_ context.Context, int
 	return true, nil
 }
 
-func (m *MemoryStore) GetInteractionByExternalAgentUserEntry(_ context.Context, sessionID, entryID string) (*types.Interaction, error) {
+func (m *MemoryStore) GetInteractionByExternalAgentUserEntry(_ context.Context, sessionID string, generationID int, threadID, entryID string) (*types.Interaction, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var latest *types.Interaction
 	for _, interaction := range m.interactions {
-		if interaction.SessionID != sessionID || interaction.ExternalAgentUserEntryID != entryID {
+		if interaction.SessionID != sessionID || interaction.GenerationID != generationID ||
+			interaction.ExternalAgentUserThreadID != threadID || interaction.ExternalAgentUserEntryID != entryID {
 			continue
 		}
 		if latest == nil || interaction.Created.After(latest.Created) {

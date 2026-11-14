@@ -1,9 +1,6 @@
 package types
 
-import (
-	"maps"
-	"time"
-)
+import "time"
 
 type UserQuestionOption struct {
 	Label       string `json:"label"`
@@ -32,9 +29,13 @@ type PendingQuestion struct {
 	Submission *QuestionSubmission `json:"submission,omitempty"`
 }
 
-// QuestionSubmission records an answer or cancel submitted through the API,
-// so the resolution the agent reports back can be attributed to its sender.
+// QuestionSubmission records an answer or cancel submitted through the API.
+// ID is a nonce Helix sends with the forwarded command; only a resolution
+// that echoes it back is attributed to By. Content is never compared: in
+// Zed's UI a human approving a permission prompt reports the same
+// "cancelled" with no answers as an API cancel.
 type QuestionSubmission struct {
+	ID          string            `json:"id"`
 	Outcome     string            `json:"outcome"`
 	Answers     map[string]string `json:"answers,omitempty"`
 	By          TurnProvenance    `json:"by"`
@@ -51,9 +52,9 @@ type ResolvedQuestion struct {
 	AnsweredBy TurnProvenance `json:"answered_by"`
 }
 
-// NewResolvedQuestion is the history entry for resolving q. The submission
-// is folded into AnsweredBy rather than kept on the entry.
-func NewResolvedQuestion(q *PendingQuestion, outcome string, answers map[string]string, fallback TurnProvenance) ResolvedQuestion {
+// NewResolvedQuestion is the history entry for resolving q, answered by
+// answeredBy. The submission is not kept on the entry.
+func NewResolvedQuestion(q *PendingQuestion, outcome string, answers map[string]string, answeredBy TurnProvenance) ResolvedQuestion {
 	pending := *q
 	pending.Submission = nil
 	return ResolvedQuestion{
@@ -61,18 +62,18 @@ func NewResolvedQuestion(q *PendingQuestion, outcome string, answers map[string]
 		Outcome:         outcome,
 		Answers:         answers,
 		ResolvedAt:      time.Now(),
-		AnsweredBy:      q.ResolveAnswerer(outcome, answers, fallback),
+		AnsweredBy:      answeredBy,
 	}
 }
 
-// ResolveAnswerer attributes a resolution: to the API submission when the
-// agent reports exactly the outcome and answers that were submitted, and
-// otherwise to fallback (the agent's UI, or Helix settling the question).
-func (q *PendingQuestion) ResolveAnswerer(outcome string, answers map[string]string, fallback TurnProvenance) TurnProvenance {
-	if q.Submission != nil && q.Submission.Outcome == outcome && maps.Equal(q.Submission.Answers, answers) {
+// ResolveAnswerer attributes a resolution the agent reported: to the API
+// submission only when the agent echoed that submission's nonce, otherwise
+// to whoever acted in the agent's own UI.
+func (q *PendingQuestion) ResolveAnswerer(submissionID string) TurnProvenance {
+	if submissionID != "" && q.Submission != nil && q.Submission.ID == submissionID {
 		return q.Submission.By
 	}
-	return fallback
+	return TurnProvenance{Origin: TurnOriginExternalAgent}
 }
 
 type QuestionRespondRequest struct {

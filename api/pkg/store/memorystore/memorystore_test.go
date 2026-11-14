@@ -42,7 +42,7 @@ func TestInteractionQuestionLifecycle(t *testing.T) {
 
 	updated, changed, err = memory.ResolveInteractionPendingQuestion(
 		ctx, interaction.ID, 1, question.RequestID, "answered", map[string]string{"choice": "A"},
-		types.TurnProvenance{Origin: types.TurnOriginExternalAgent},
+		func(p *types.PendingQuestion) types.TurnProvenance { return p.ResolveAnswerer("") },
 	)
 	if err != nil || !changed || updated.PendingQuestion != nil || len(updated.QuestionHistory) != 1 {
 		t.Fatalf("resolve pending question = %#v, changed = %v, err = %v", updated, changed, err)

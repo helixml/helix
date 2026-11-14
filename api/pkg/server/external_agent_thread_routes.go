@@ -43,9 +43,11 @@ func sessionConnection(session *types.Session) string {
 }
 
 // findSessionByZedThreadID is the database fallback when the in-memory route is
-// missing (e.g. after an API restart). Only sessions belonging to the reporting
-// connection are candidates, so a thread ID reused by another sandbox never
-// resolves to another user's session.
+// missing (e.g. after an API restart). Only the connection's own session and
+// the sessions recorded on that connection (ExternalAgentID) are candidates:
+// thread ids are chosen by the harness and can be predictable (Goose numbers
+// them per day), so a thread id alone must never reach another lane's session,
+// even one with the same owner and project.
 func (apiServer *HelixAPIServer) findSessionByZedThreadID(ctx context.Context, connection, zedThreadID string) (*types.Session, error) {
 	connSession, err := apiServer.Controller.Options.Store.GetSession(ctx, connection)
 	if err != nil {
@@ -55,24 +57,31 @@ func (apiServer *HelixAPIServer) findSessionByZedThreadID(ctx context.Context, c
 		return connSession, nil
 	}
 	sessions, _, err := apiServer.Controller.Options.Store.ListSessions(ctx, store.ListSessionsQuery{
-		Owner:   connSession.Owner,
-		PerPage: 100,
+		Owner:                 connSession.Owner,
+		OwnerType:             connSession.OwnerType,
+		AnyOrganization:       true,
+		IncludeExternalAgents: true,
+		ExternalAgentID:       connection,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
 	for _, session := range sessions {
-		if session.Metadata.ZedThreadID != zedThreadID {
-			continue
-		}
-		// Child sessions created before connections were recorded carry no
-		// ExternalAgentID; accept them only within the connection's project.
-		legacyChild := session.Metadata.ExternalAgentID == "" && session.ProjectID == connSession.ProjectID
-		if sessionConnection(session) == connection || legacyChild {
+		if session.Metadata.ZedThreadID == zedThreadID && session.Metadata.ExternalAgentID == connection {
 			return session, nil
 		}
 	}
 	return nil, fmt.Errorf("no session on connection %s with ZedThreadID %s", connection, zedThreadID)
+}
+
+// recordConnection marks a session as carried by this agent connection when
+// Helix binds one of the connection's threads to it, so later thread lookups
+// (findSessionByZedThreadID) can find it. A session already recorded on
+// another connection is left alone.
+func recordConnection(session *types.Session, connection string) {
+	if session.ID != connection && session.Metadata.ExternalAgentID == "" {
+		session.Metadata.ExternalAgentID = connection
+	}
 }
 
 // sameOwnerAsConnection rejects a session named by an agent event unless it

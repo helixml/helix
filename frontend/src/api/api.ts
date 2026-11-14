@@ -2459,14 +2459,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindEmail = "email",
   KindGitLab = "gitlab",
   KindLocal = "local",
-  KindGitHub = "github",
-  KindCron = "cron",
-  KindEmail = "email",
-  KindWebhook = "webhook",
   KindHelixEvents = "helix_events",
   KindSlack = "slack",
+  KindGitHub = "github",
+  KindWebhook = "webhook",
+  KindCron = "cron",
 }
 
 export interface TransportResolvedActivation {
@@ -4623,13 +4623,6 @@ export interface TypesGitRepository {
   status?: TypesGitRepositoryStatus;
   /** Set while an upstream operation is running */
   sync_in_progress_since?: string;
-  /**
-   * TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
-   * .helix/startup.sh from. Only a human write moves it (a push with a human
-   * credential, or a startup-script save in the UI/API); agent pushes never
-   * do. Written only via SetGitRepositoryTrustedStartupSHA.
-   */
-  trusted_startup_sha?: string;
   updated_at?: string;
   /** Authentication fields */
   username?: string;
@@ -6465,6 +6458,7 @@ export interface TypesQuestionRespondRequest {
 export interface TypesQuestionSubmission {
   answers?: Record<string, string>;
   by?: TypesTurnProvenance;
+  id?: string;
   outcome?: string;
   submitted_at?: string;
 }
@@ -19529,7 +19523,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         session_role?: string;
         /** Include external agent sessions */
         include_external_agents?: boolean;
-        /** Only sessions carried by this external agent connection (implies include_external_agents) */
+        /** Only the sessions Helix created for threads opened on this external agent connection (session id the agent connected with). The connection session itself is not included. Implies include_external_agents. */
         external_agent_id?: string;
         /** Return only archived sessions instead of only unarchived ones */
         archived?: boolean;

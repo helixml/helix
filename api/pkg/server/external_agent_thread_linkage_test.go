@@ -142,3 +142,64 @@ func TestAgentThreadSession_ThreadCreatedWithoutOwnerIsRefused(t *testing.T) {
 	require.Len(t, all, 1, "no ownerless session may be created")
 	require.Equal(t, linkageConnectionID, all[0].ID)
 }
+
+// Lane A's connection naming lane B's thread id must not resolve lane B's
+// session, even with the same owner and project. Thread ids are chosen by the
+// harness and can be predictable (Goose: 20261114_1).
+func TestFindSessionByZedThreadID_DoesNotReachAnotherLane(t *testing.T) {
+	ms := memorystore.New()
+	ctx := context.Background()
+	for _, session := range []types.Session{
+		{ID: "ses_lane_a", Owner: confinedOwnerID, ProjectID: confinedProjectID, Metadata: types.SessionMetadata{ZedThreadID: "20261114_1"}},
+		{ID: "ses_lane_b", Owner: confinedOwnerID, ProjectID: confinedProjectID, Metadata: types.SessionMetadata{ZedThreadID: "20261114_2"}},
+		{ID: "ses_lane_a_child", Owner: confinedOwnerID, ProjectID: confinedProjectID, Metadata: types.SessionMetadata{ZedThreadID: "20261114_3", ExternalAgentID: "ses_lane_a"}},
+	} {
+		_, err := ms.CreateSession(ctx, session)
+		require.NoError(t, err)
+	}
+	srv := NewTestServer(ms, pubsub.NewNoop())
+
+	_, err := srv.findSessionByZedThreadID(ctx, "ses_lane_a", "20261114_2")
+	require.Error(t, err, "lane B's thread must not resolve through lane A's connection")
+
+	own, err := srv.findSessionByZedThreadID(ctx, "ses_lane_a", "20261114_1")
+	require.NoError(t, err)
+	require.Equal(t, "ses_lane_a", own.ID)
+	child, err := srv.findSessionByZedThreadID(ctx, "ses_lane_a", "20261114_3")
+	require.NoError(t, err)
+	require.Equal(t, "ses_lane_a_child", child.ID)
+
+	// The routing path that uses it: an assistant event for lane B's thread
+	// arriving on lane A's connection after an API restart finds nothing.
+	err = srv.handleMessageAdded("ses_lane_a", &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "20261114_2", "message_id": "4", "content": "leak", "role": "assistant",
+		},
+	})
+	require.Error(t, err)
+}
+
+// Helix binding one of a connection's threads to another session records the
+// connection on it, so the thread is still found after an API restart.
+func TestThreadCreated_BindingRecordsConnection(t *testing.T) {
+	srv, ms := newLinkageServer(t)
+	ctx := context.Background()
+	_, err := ms.CreateSession(ctx, types.Session{ID: "ses_bound", Owner: confinedOwnerID, ProjectID: confinedProjectID})
+	require.NoError(t, err)
+	srv.requestToSessionMapping["req-bound"] = "ses_bound"
+
+	require.NoError(t, srv.handleThreadCreated(linkageConnectionID, &types.SyncMessage{
+		EventType: "thread_created",
+		Data:      map[string]interface{}{"acp_thread_id": "thread-bound", "request_id": "req-bound"},
+	}))
+
+	bound, err := ms.GetSession(ctx, "ses_bound")
+	require.NoError(t, err)
+	require.Equal(t, linkageConnectionID, bound.Metadata.ExternalAgentID)
+
+	restarted := NewTestServer(ms, pubsub.NewNoop())
+	found, err := restarted.findSessionByZedThreadID(ctx, linkageConnectionID, "thread-bound")
+	require.NoError(t, err)
+	require.Equal(t, "ses_bound", found.ID)
+}
