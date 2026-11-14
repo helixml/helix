@@ -214,6 +214,11 @@ func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweepArchivesOnlyInactiv
 	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
 		SortBy: "last_message",
 	}).Return([]*types.SpecTask{staleTask, doneTask}, nil)
+	// Neither task has an agent row beyond "not found", so both read as idle.
+	s.store.EXPECT().GetSpecTaskExternalAgent(ctx, staleTask.ID).
+		Return(nil, fmt.Errorf("wrapped: %w", store.ErrNotFound))
+	s.store.EXPECT().GetSpecTaskExternalAgent(ctx, doneTask.ID).
+		Return(nil, fmt.Errorf("wrapped: %w", store.ErrNotFound))
 	s.store.EXPECT().GetProject(ctx, staleTask.ProjectID).Return(&types.Project{
 		ID:                       staleTask.ProjectID,
 		ArchiveStaleTasksEnabled: true,
@@ -223,6 +228,53 @@ func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweepArchivesOnlyInactiv
 	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(_ context.Context, updated *types.SpecTask) error {
 			s.Equal(staleTask.ID, updated.ID)
+			s.True(updated.Archived)
+			return nil
+		},
+	)
+
+	s.orchestrator.staleArchiveSweep(ctx)
+}
+
+// An abandoned implementation task (no running agent, no activity) must be
+// archived by the sweep; a live one must not. This is the accumulation the
+// reaper could never clear, because implementation was exempt by status.
+func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweep_ArchivesAbandonedImplementation() {
+	ctx := context.Background()
+	now := time.Now()
+	projectID := "project-impl"
+
+	abandoned := &types.SpecTask{
+		ID:        "task-abandoned",
+		ProjectID: projectID,
+		Status:    types.TaskStatusImplementation,
+		CreatedAt: now.Add(-30 * 24 * time.Hour),
+	}
+	running := &types.SpecTask{
+		ID:        "task-running",
+		ProjectID: projectID,
+		Status:    types.TaskStatusImplementation,
+		CreatedAt: now.Add(-30 * 24 * time.Hour),
+	}
+	latest := *abandoned
+	s.orchestrator.containerExecutor = nil
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		SortBy: "last_message",
+	}).Return([]*types.SpecTask{abandoned, running}, nil)
+	s.store.EXPECT().GetSpecTaskExternalAgent(ctx, abandoned.ID).
+		Return(&types.SpecTaskExternalAgent{Status: "stopped"}, nil)
+	s.store.EXPECT().GetSpecTaskExternalAgent(ctx, running.ID).
+		Return(&types.SpecTaskExternalAgent{Status: "running"}, nil)
+	s.store.EXPECT().GetProject(ctx, projectID).Return(&types.Project{
+		ID:                       projectID,
+		ArchiveStaleTasksEnabled: true,
+		ArchiveStaleTasksDays:    6,
+	}, nil).Times(1)
+	s.store.EXPECT().GetSpecTask(ctx, abandoned.ID).Return(&latest, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(_ context.Context, updated *types.SpecTask) error {
+			s.Equal(abandoned.ID, updated.ID, "only the abandoned task is archived")
 			s.True(updated.Archived)
 			return nil
 		},
@@ -1913,9 +1965,39 @@ func TestShouldArchiveStaleTask(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "active agent work never stale",
+			// A live implementation run is protected by taskIsBusy before this
+			// predicate runs, not by the predicate itself.
+			name: "abandoned implementation task past stale window archives",
 			proj: proj(true, 6),
 			task: &types.SpecTask{Status: types.TaskStatusImplementation, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: true,
+		},
+		{
+			name: "recent implementation task stays",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusImplementation, CreatedAt: now.Add(-2 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "recent message keeps an implementation task",
+			proj: proj(true, 6),
+			task: &types.SpecTask{
+				Status:        types.TaskStatusImplementation,
+				CreatedAt:     now.Add(-30 * 24 * time.Hour),
+				LastMessageAt: ago(24 * time.Hour),
+			},
+			want: false,
+		},
+		{
+			name: "queued implementation is waiting on the orchestrator",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusImplementationQueued, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+			want: false,
+		},
+		{
+			name: "spec generation is waiting on the orchestrator",
+			proj: proj(true, 6),
+			task: &types.SpecTask{Status: types.TaskStatusSpecGeneration, CreatedAt: now.Add(-30 * 24 * time.Hour)},
 			want: false,
 		},
 		{
