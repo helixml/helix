@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
 )
@@ -63,6 +64,17 @@ func (s *SandboxesTestSuite) userClient(prefix string) (*client.HelixClient, str
 	c, err := getAPIClient(apiKey)
 	s.Require().NoError(err)
 	return c, user.ID
+}
+
+func (s *SandboxesTestSuite) newProject(orgID, userID string) string {
+	project, err := s.db.CreateProject(s.ctx, &types.Project{
+		ID:             system.GenerateProjectID(),
+		Name:           "sbx-project-" + uuid.New().String()[:8],
+		UserID:         userID,
+		OrganizationID: orgID,
+	})
+	s.Require().NoError(err)
+	return project.ID
 }
 
 func (s *SandboxesTestSuite) newOrg(c *client.HelixClient) *types.Organization {
@@ -180,14 +192,13 @@ func (s *SandboxesTestSuite) TestCrossOrgAccessRejected() {
 // TestProjectFilter narrows the listing by project_id and checks that the
 // optional project association is honoured by the persistence path.
 func (s *SandboxesTestSuite) TestProjectFilter() {
-	c, _ := s.userClient("sandbox-project")
+	c, userID := s.userClient("sandbox-project")
 	org := s.newOrg(c)
 
-	// Two different "project" buckets — these are arbitrary string ids;
-	// the Sandboxes API doesn't validate them against the projects table
-	// (intentional: project association is informational here).
-	const projectA = "prj_aaaaaaaaaaaaaaaaaaaaaa"
-	const projectB = "prj_bbbbbbbbbbbbbbbbbbbbbb"
+	// The Sandboxes API requires the project to exist in the same org and
+	// the caller to have update access to it.
+	projectA := s.newProject(org.ID, userID)
+	projectB := s.newProject(org.ID, userID)
 
 	a1, err := c.CreateSandbox(s.ctx, org.ID, &types.CreateSandboxRequest{
 		Name: "a-1", Runtime: "headless-ubuntu", TimeoutSeconds: 60,
