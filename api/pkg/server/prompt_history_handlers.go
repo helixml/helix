@@ -86,20 +86,26 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
-	// Same check as the list path: the response now carries every owner's rows
-	// for this task/session, so it needs the same authorization.
-	authorizedSessionID, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, syncReq.SpecTaskID, syncReq.SessionID)
+	// The response carries every owner's rows for this task/session, so it needs
+	// the list path's read access; entries are queued as turns into the scope's
+	// session, which needs the access sending a message does.
+	scopeAction := types.ActionGet
+	if len(syncReq.Entries) > 0 {
+		scopeAction = types.ActionUpdate
+	}
+	scope, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, syncReq.SpecTaskID, syncReq.SessionID, scopeAction)
 	if httpErr != nil {
 		return nil, httpErr
 	}
 	// And the write side: each entry names the session its prompt will be
 	// dispatched to, which the scope check above does not cover.
-	if httpErr := apiServer.authorizeSyncEntryTargets(ctx, user, syncReq.Entries, authorizedSessionID); httpErr != nil {
+	if httpErr := apiServer.authorizeSyncEntryTargets(ctx, user, syncReq.Entries, scope.sessionID); httpErr != nil {
 		return nil, httpErr
 	}
 	// Entries that name no session fall back to the authorized one, so a created
 	// row can never be left with an empty session_id (it would never dispatch).
-	syncReq.SessionID = authorizedSessionID
+	syncReq.SessionID = scope.sessionID
+	syncReq.ProjectID = scope.projectID
 
 	provenance, err := requestTurnProvenance(ctx, user)
 	if err != nil {
@@ -408,8 +414,8 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 	}
 }
 
-// authorizeUserToPromptQueue checks that user may read the prompt queue
-// identified by specTaskID (preferred) or sessionID.
+// authorizeUserToPromptQueue checks that user may perform action on the prompt
+// queue identified by specTaskID (preferred) or sessionID.
 //
 // This is load-bearing. The queue read path used to be scoped by user_id, which
 // doubled as its authorization: you could only ever see your own rows. That made
@@ -418,35 +424,43 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 // The rows are now returned for the whole task/session, so the check that used to
 // be implicit has to be made explicitly here, or knowing a spec_task_id would be
 // enough to read someone else's queue.
-// Returns the session that the scope authorizes, which the sync path uses as the
-// default target for entries that carry no session of their own.
-func (apiServer *HelixAPIServer) authorizeUserToPromptQueue(ctx context.Context, user *types.User, specTaskID, sessionID string) (string, *system.HTTPError) {
+// Returns the authorized scope: its session is the sync path's default target
+// for entries that carry no session of their own.
+func (apiServer *HelixAPIServer) authorizeUserToPromptQueue(ctx context.Context, user *types.User, specTaskID, sessionID string, action types.Action) (promptQueueScope, *system.HTTPError) {
 	if specTaskID != "" {
 		specTask, err := apiServer.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
-			return "", system.NewHTTPError404("spec task not found")
+			return promptQueueScope{}, system.NewHTTPError404("spec task not found")
 		}
 		if err := enforceKeyTaskScope(user, specTask.ID); err != nil {
-			return "", system.NewHTTPError404("spec task not found")
+			return promptQueueScope{}, system.NewHTTPError404("spec task not found")
 		}
 		project, err := apiServer.Store.GetProject(ctx, specTask.ProjectID)
 		if err != nil {
-			return "", system.NewHTTPError404("project not found")
+			return promptQueueScope{}, system.NewHTTPError404("project not found")
 		}
-		if err := apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet); err != nil {
-			return "", system.NewHTTPError403(err.Error())
+		// Same rule as a session of the project, so a caller gets the same answer
+		// whether the queue is named by its task or by its session.
+		if err := apiServer.authorizeUserToProject(ctx, user, project, projectSessionAction(project, action)); err != nil {
+			return promptQueueScope{}, system.NewHTTPError403(err.Error())
 		}
-		return specTask.PlanningSessionID, nil
+		return promptQueueScope{sessionID: specTask.PlanningSessionID, projectID: project.ID}, nil
 	}
 
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil || session == nil {
-		return "", system.NewHTTPError404("session not found")
+		return promptQueueScope{}, system.NewHTTPError404("session not found")
 	}
-	if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
-		return "", system.NewHTTPError403(err.Error())
+	if err := apiServer.authorizeUserToSession(ctx, user, session, action); err != nil {
+		return promptQueueScope{}, system.NewHTTPError403(err.Error())
 	}
-	return session.ID, nil
+	return promptQueueScope{sessionID: session.ID, projectID: session.ProjectID}, nil
+}
+
+// promptQueueScope is what authorizeUserToPromptQueue authorized.
+type promptQueueScope struct {
+	sessionID string
+	projectID string
 }
 
 // authorizeSyncEntryTargets checks that the caller may send to every session the
@@ -910,7 +924,7 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
-	if _, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, specTaskID, sessionID); httpErr != nil {
+	if _, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, specTaskID, sessionID, types.ActionGet); httpErr != nil {
 		return nil, httpErr
 	}
 
@@ -988,6 +1002,10 @@ func (apiServer *HelixAPIServer) deletePromptHistoryEntry(_ http.ResponseWriter,
 	}
 	if prompt == nil {
 		return nil, system.NewHTTPError404("prompt not found")
+	}
+	// The row's own queue, not just its author: lanes share one owner.
+	if _, httpErr := apiServer.authorizeUserToPromptQueue(ctx, user, prompt.SpecTaskID, prompt.SessionID, types.ActionUpdate); httpErr != nil {
+		return nil, httpErr
 	}
 	if prompt.UserID != user.ID {
 		return nil, system.NewHTTPError403("you don't have permission to delete this prompt")
