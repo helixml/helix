@@ -57,9 +57,10 @@ fingerprint of the released image with the one on the running container:
   it, and `/opt/images/helix-ubuntu.{ref,runtime-ref,version}` are swapped atomically. Hydra
   re-reads the version file on every desktop create and `sandbox-heartbeat` re-reads it every
   30 s, so new desktops land on the new image within one heartbeat; **running desktops keep
-  theirs**. Old desktop images are then pruned with the sandbox's own GC policy, which keeps
-  any image a desktop container still uses. The launcher is still re-pointed at the release,
-  so the host's next natural restart boots it.
+  theirs**. Old desktop images are freed with the sandbox's own GC, which keeps any image a
+  desktop container still uses: once before the pull (like the sandbox's boot, so a nearly-full
+  host can still make room for the new image) and once after the swap. The launcher is still
+  re-pointed at the release, so the host's next natural restart boots it.
 - **Anything else** → recreate, exactly as before: unlabelled release image (built before
   the label existed, or an arm64 image, which the release pipeline does not label), a
   running sandbox on a pre-label image, a stopped/missing sandbox, or an unreadable desktop

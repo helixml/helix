@@ -31,6 +31,8 @@ main() {
     "${CONTAINER:?}" "${FORCE_RECREATE:?}"
 
   FINGERPRINT_LABEL=helix.sandbox.fingerprint
+  # Only the production desktop's pins are rolled: experimental desktops
+  # (sway/zorin/xfce/kde) keep the images their own version files name.
   DESKTOP=helix-ubuntu
   IMAGE_DIR=/opt/images
 
@@ -101,6 +103,17 @@ main() {
     ' runner "$1" "$2"
   }
 
+  # The sandbox's own GC (sandbox/desktop-image-gc.sh), used with the same
+  # phases as its boot: it keeps the configured version, one previous version
+  # and every image a desktop container still uses. Best effort - a deploy whose
+  # desktops are already switched must not fail on pruning.
+  desktop_gc() { # desktop_gc <phase>
+    docker exec "$CONTAINER" test -f /usr/local/lib/helix-desktop-image-gc.sh || return 0
+    docker exec "$CONTAINER" bash -c \
+      'source /usr/local/lib/helix-desktop-image-gc.sh && cleanup_desktop_images "$1"' runner "$1" ||
+      warn "desktop image GC ($1) failed on $CONTAINER"
+  }
+
   desktop_only() { # desktop_only <fingerprint>
     local cid pins ref version
     log "sandbox artifacts unchanged (fingerprint $1); rolling $DESKTOP only, running desktops stay up"
@@ -119,6 +132,11 @@ main() {
     fi
     log "$DESKTOP $version from $ref"
 
+    # Free space before pulling, as the sandbox's own boot does (pre-pull GC,
+    # sandbox/04-start-dockerd.sh), so a nearly-full sandbox can still take the
+    # in-place update.
+    desktop_gc pre-pull
+
     # Exactly what the sandbox's boot does (sandbox/04-start-dockerd.sh:
     # load_desktop_image): pull the registry ref, then tag it as the local name
     # hydra resolves. Nothing is swapped unless the image is loaded.
@@ -132,14 +150,8 @@ main() {
     log "$CONTAINER now places new desktops on $DESKTOP:$version (within one 30s heartbeat); desktops already running keep their image"
 
     # Old desktop images would otherwise sit in the sandbox's dockerd until its
-    # next restart. Prune with the sandbox's own policy, which keeps the
-    # configured version and every image a desktop container still uses; a GC
-    # failure must not fail a deploy whose desktops are already switched.
-    if docker exec "$CONTAINER" test -f /usr/local/lib/helix-desktop-image-gc.sh; then
-      docker exec "$CONTAINER" bash -c \
-        'source /usr/local/lib/helix-desktop-image-gc.sh && cleanup_desktop_images deploy' ||
-        warn "desktop image GC failed on $CONTAINER; old desktops stay until its next restart"
-    fi
+    # next restart.
+    desktop_gc post-pull
   }
 
   test -x "$LAUNCHER"

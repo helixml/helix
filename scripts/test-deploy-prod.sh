@@ -758,8 +758,16 @@ grep -q '^exec helix-sandbox-app docker image inspect helix-ubuntu:9.8.7-linux-a
 [ "$(cat "$images/helix-ubuntu.runtime-ref")" = "ghcr.io/helixml/helix-ubuntu:9.8.7-linux-amd64" ] ||
   fail "desktop-only deploy did not swap the desktop runtime-ref"
 [ -z "$(find "$images" -name '*.new' -print)" ] || fail "desktop-only deploy left temp pin files behind"
-grep -q '^exec helix-sandbox-app bash -c .*cleanup_desktop_images deploy' "$work/docker-calls" ||
+# Free space before the pull, prune the old image after the swap: the sandbox's
+# own phases (sandbox/04-start-dockerd.sh).
+grep -q 'cleanup_desktop_images .* runner pre-pull$' "$work/docker-calls" ||
+  fail "desktop-only deploy did not run the pre-pull desktop GC"
+grep -q 'cleanup_desktop_images .* runner post-pull$' "$work/docker-calls" ||
   fail "desktop-only deploy did not prune old desktop images"
+gc_line=$(grep -n 'cleanup_desktop_images .* runner pre-pull$' "$work/docker-calls" | cut -d: -f1)
+pull_line=$(grep -n '^exec helix-sandbox-app docker pull ' "$work/docker-calls" | cut -d: -f1)
+[ -n "$gc_line" ] && [ -n "$pull_line" ] && [ "$gc_line" -lt "$pull_line" ] ||
+  fail "pre-pull desktop GC ran after the pull (a full sandbox cannot make room)"
 grep -q '^SANDBOX_TAG="9.8.7"$' "$legacy" ||
   fail "desktop-only deploy left the launcher on the old image (its next recreate would regress)"
 grep -q 'Runner image retention:' "$work/ssh-scripts" || fail "desktop-only deploy omitted image retention"
@@ -846,8 +854,8 @@ grep -q 'runner deploy failed on root@code.helix.ml' <<<"$deploy_output" || fail
   fail "failed desktop pull swapped the ref"
 grep -q '^SANDBOX_TAG="old"$' "$legacy" || fail "failed desktop pull updated the launcher"
 [ ! -s "$work/run-log" ] || fail "failed desktop pull re-ran the launcher"
-if grep -q 'cleanup_desktop_images' "$work/docker-calls"; then
-  fail "failed desktop pull pruned desktop images"
+if grep -q 'cleanup_desktop_images .* runner post-pull$' "$work/docker-calls"; then
+  fail "failed desktop pull pruned desktop images after the swap"
 fi
 grep -q '^rm -f ctr-release-pins$' "$work/docker-calls" ||
   fail "failed desktop pull left the pin-reading container behind"
@@ -866,5 +874,28 @@ grep -q 'has no readable helix-ubuntu pins' <<<"$deploy_output" || fail "unreada
 [ "$(cat "$work/run-log")" = "9.8.7" ] || fail "unreadable pins did not re-run the launcher"
 grep -q '^rm -f ctr-release-pins$' "$work/docker-calls" ||
   fail "unreadable pins left the pin-reading container behind"
+
+# Readable but empty pins are just as unusable: recreate without touching the
+# sandbox.
+blank="$work/blank-pins"
+mkdir -p "$blank"
+: > "$blank/helix-ubuntu.ref"
+: > "$blank/helix-ubuntu.version"
+write_legacy old
+seed_pins
+reset_calls
+: > "$work/run-log"
+deploy_output=$(run_runner RUNNER_UPGRADE_SCRIPT="$legacy" PINS_DIR="$blank" \
+  RELEASED_FINGERPRINT="$same" RUNNING_FINGERPRINT="$same" 2>&1) ||
+  fail "deploy with empty desktop pins failed: $deploy_output"
+grep -q 'has empty helix-ubuntu pins' <<<"$deploy_output" || fail "empty pins not explained"
+[ "$(cat "$work/run-log")" = "9.8.7" ] || fail "empty pins did not re-run the launcher"
+if grep -q '^exec helix-sandbox-app' "$work/docker-calls"; then
+  fail "empty pins touched the running sandbox"
+fi
+[ "$(cat "$images/helix-ubuntu.version")" = "9.8.6-linux-amd64" ] ||
+  fail "empty pins swapped the desktop version file"
+grep -q '^rm -f ctr-release-pins$' "$work/docker-calls" ||
+  fail "empty pins left the pin-reading container behind"
 
 echo "deploy-prod test passed"
