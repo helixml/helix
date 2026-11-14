@@ -377,17 +377,18 @@ func (s *PostgresStore) RecoverProviderPrompt(ctx context.Context, sessionID, pr
 		}
 		var interaction types.Interaction
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND session_id = ?", state.InteractionID, sessionID).
+			Where("session_id = ? AND prompt_id = ?", sessionID, promptID).
+			Order("created DESC, id DESC").
 			First(&interaction).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		} else if err != nil {
 			return err
 		}
-		if interaction.State != types.InteractionStateError {
+		if interaction.ID != state.InteractionID || interaction.State != types.InteractionStateError {
 			return nil
 		}
 		result := tx.Model(&types.PromptHistoryEntry{}).
-			Where("id = ? AND session_id = ? AND status = 'sent'", promptID, sessionID).
+			Where("id = ? AND session_id = ? AND status = 'sent' AND deleted_at IS NULL", promptID, sessionID).
 			Updates(map[string]any{"status": "pending", "next_retry_at": nil, "error_message": ""})
 		if result.Error != nil {
 			return result.Error
