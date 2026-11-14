@@ -3,6 +3,40 @@
 Issue: https://github.com/helixml/helix/issues/3622. Builds on https://github.com/helixml/helix/pull/3611
 (`confine_agent_key`) and https://github.com/helixml/helix/pull/3613 (turn provenance).
 
+## Status: parked (2026-11-14)
+
+The owner has parked this design. Nothing is implemented, and no further review rounds are planned
+until it is picked up again.
+
+- **Scope.** The seal gates **customer-mode (R2) planner runs only**: the PTaaS verifier and finder
+  lanes. Other spec tasks are unaffected.
+- **Current estimate.** About **41-44 engineer-days**, as of round 10:
+  - slice 1: 25-27 days;
+  - slice 2: 5-6 days;
+  - slice 3: 5 days;
+  - tests: 6 days.
+
+  See §5.
+- **Open items:**
+  - **Owner decisions.** Whether to add break-glass (§4), and whether org owners get a stop for
+    cost control (§3.5, §3.12). Either way, both are recorded distinctly from K's actions (§4).
+  - **Cyber sign-off.** Pending on round 10 (head `fd1306561`). Cyber expected to sign off once the
+    two round-10 blockers (NB5 choke points, N9-1 LLM call logs) were closed; that hasn't been
+    confirmed yet.
+  - **Still to confirm during implementation:**
+    - every completion path of a `just_do_it_mode` sealed task reaches `done` without opening a PR
+      or merging (§3.1);
+    - Kodit, the wiki and semantic search register only shared repos, never a sealed copy
+      (§3.10, §3.11);
+    - the raw-SQL allowlist covers every `Raw` / `Exec` that reads lane-content tables, and no
+      content-carrying aggregate escapes the default scope (§3.10);
+    - git's `receive.autogc` and auto-maintenance honour the refcount-derived `gc.pruneExpire`, and
+      the backup runbook snapshots `sealed/` together with the shared repos (§3.11);
+    - the e2e test server doesn't depend on `POST /external-agents/{sid}/command` before it is
+      deleted (§5);
+    - every † reference is re-read, and all citations are re-pinned against `main` at implementation
+      start.
+
 Status: design only, nothing implemented. PR: https://github.com/helixml/helix/pull/3624.
 
 **Pinned to `origin/main` at `2007b960c`** (round 9). Between `44a97b4f2` and `2007b960c` only
