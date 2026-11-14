@@ -2189,8 +2189,25 @@ steps:
         fi
         COMMIT=$$(echo ${DRONE_COMMIT_SHA} | head -c 7)
         echo "Building sandbox with version: $${VERSION}, commit: $${COMMIT}"
+        # Label the image with scripts/sandbox-fingerprint.sh so a deploy can
+        # tell "only desktops/Zed changed" from "the sandbox itself changed"
+        # and avoid recreating a runner's sandbox (scripts/deploy-prod.sh,
+        # scripts/lib/deploy-runner-remote.sh). The fingerprint must never
+        # block a release: without the label those deploys recreate the
+        # sandbox, exactly as they did before the label existed.
+        apk add --no-cache bash git > /dev/null 2>&1 ||
+          echo "WARNING: could not install bash/git for the sandbox fingerprint"
+        FINGERPRINT=$$(bash scripts/sandbox-fingerprint.sh . || true)
+        if [ -n "$${FINGERPRINT}" ]; then
+          LABEL="--label helix.sandbox.fingerprint=$${FINGERPRINT}"
+          echo "Sandbox fingerprint: $${FINGERPRINT}"
+        else
+          LABEL=""
+          echo "WARNING: sandbox fingerprint unavailable; building an unlabelled sandbox image"
+        fi
         docker build --pull -f Dockerfile.sandbox \
           --build-arg APP_VERSION="$${VERSION}" \
+          $${LABEL} \
           -t helix-sandbox:$${VERSION}-linux-amd64 \
           -t registry.helixml.tech/helix/helix-sandbox:$${COMMIT}-linux-amd64 \
           -t registry.helixml.tech/helix/helix-sandbox:$${VERSION}-linux-amd64 \
@@ -2916,7 +2933,9 @@ steps:
     commands:
       - apt-get update -qq
       - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
-      - DEPLOY_CONTROLPLANE=false RUNNER_SSH=root@code.helix.ml scripts/deploy-prod.sh "$DRONE_TAG"
+      # RUNNER_FORCE_RECREATE=true (build param, see the runbook) forces a
+      # sandbox recreate even when only the desktop image changed.
+      - DEPLOY_CONTROLPLANE=false RUNNER_SSH=root@code.helix.ml RUNNER_FORCE_RECREATE="$${RUNNER_FORCE_RECREATE:-false}" scripts/deploy-prod.sh "$DRONE_TAG"
 
   - name: prod runner dev.code.helix.ml
     image: debian:bookworm-slim
@@ -2930,7 +2949,7 @@ steps:
     commands:
       - apt-get update -qq
       - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
-      - DEPLOY_CONTROLPLANE=false RUNNER_SSH=root@dev.code.helix.ml RUNNER_START_SCRIPT=/opt/HelixML/prod-app-runner/run.sh scripts/deploy-prod.sh "$DRONE_TAG"
+      - DEPLOY_CONTROLPLANE=false RUNNER_SSH=root@dev.code.helix.ml RUNNER_START_SCRIPT=/opt/HelixML/prod-app-runner/run.sh RUNNER_FORCE_RECREATE="$${RUNNER_FORCE_RECREATE:-false}" scripts/deploy-prod.sh "$DRONE_TAG"
 
 ---
 kind: pipeline
