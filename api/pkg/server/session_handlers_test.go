@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -1506,4 +1507,75 @@ func (s *SessionAuthzSuite) TestListSessions_AllMembers_DeniedWithoutProjectAcce
 
 	_, err := s.server.listSessions(httptest.NewRecorder(), req)
 	assertHTTPError(s, err, http.StatusForbidden)
+}
+
+// ?external_agent_id= narrows the caller's own scope to one agent connection
+// and the summaries carry the connection id back.
+func (s *SessionAuthzSuite) TestListSessions_ExternalAgentIDFilter() {
+	s.expectOrgLookupAndMembership(types.OrganizationRoleMember)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:                 s.userID,
+		OrganizationID:        s.orgID,
+		PerPage:               50,
+		IncludeExternalAgents: true,
+		ExternalAgentID:       "ses_conn",
+		ExcludeArchived:       true,
+	}).Return([]*types.Session{{
+		ID: "ses_child", Owner: s.userID, OrganizationID: s.orgID,
+		Metadata: types.SessionMetadata{ExternalAgentID: "ses_conn"},
+	}}, int64(1), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions?org_id="+s.orgID+"&external_agent_id=ses_conn", http.NoBody).WithContext(s.authCtx)
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Sessions, 1)
+	s.Equal("ses_conn", result.Sessions[0].Metadata.ExternalAgentID)
+}
+
+// Tenant B naming tenant A's org to enumerate A's sessions by connection id
+// is refused before the store is queried (no ListSessions expectation).
+func (s *SessionAuthzSuite) TestListSessions_ExternalAgentIDCannotReachAnotherOrg() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org_a"}).
+		Return(&types.Organization{ID: "org_a"}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: "org_a", UserID: s.userID,
+	}).Return(nil, store.ErrNotFound)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions?org_id=org_a&external_agent_id=ses_conn_a", http.NoBody).WithContext(s.authCtx)
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.Nil(result)
+	assertHTTPError(s, err, http.StatusNotFound)
+}
+
+// Without an org the filter still runs inside the caller's personal scope:
+// the owner clause stays, so another user's connection id matches nothing.
+func (s *SessionAuthzSuite) TestListSessions_ExternalAgentIDKeepsOwnerScope() {
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:                 s.userID,
+		PerPage:               50,
+		IncludeExternalAgents: true,
+		ExternalAgentID:       "ses_someone_elses",
+		ExcludeArchived:       true,
+	}).Return([]*types.Session{}, int64(0), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions?external_agent_id=ses_someone_elses", http.NoBody).WithContext(s.authCtx)
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.Require().NoError(err)
+	s.Empty(result.Sessions)
+}
+
+// Session get returns the full session, whose config carries the connection id.
+func TestSessionJSONCarriesExternalAgentID(t *testing.T) {
+	raw, err := json.Marshal(types.Session{ID: "ses_child", Metadata: types.SessionMetadata{ExternalAgentID: "ses_conn"}})
+	require.NoError(t, err)
+	var decoded struct {
+		Config struct {
+			ExternalAgentID string `json:"external_agent_id"`
+		} `json:"config"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	require.Equal(t, "ses_conn", decoded.Config.ExternalAgentID)
 }

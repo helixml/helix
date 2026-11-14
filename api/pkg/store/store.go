@@ -70,6 +70,10 @@ type ListSessionsQuery struct {
 	ProjectIDs         []string `json:"project_ids"`
 	// SpecTaskID limits results to the sessions of one spec task.
 	SpecTaskID string `json:"spec_task_id"`
+	// ExternalAgentID limits results to the sessions carried by one agent
+	// connection (SessionMetadata.ExternalAgentID). It narrows the caller's
+	// existing scope; it never widens it.
+	ExternalAgentID string `json:"external_agent_id"`
 	// AnyOwner drops the owner clause. Only valid together with a project
 	// scope the caller has been authorized for: it is how a project group
 	// shows every member's chats.
@@ -349,7 +353,19 @@ type Store interface {
 	// websocket_external_agent_sync.go.
 	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
 	SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error)
-	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error)
+	// ResolveInteractionPendingQuestion moves the pending question into
+	// history. answeredBy attributes it from the API submission in flight for
+	// that question at resolution time (nil when there is none), and the
+	// submission is dropped.
+	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.QuestionSubmission) types.TurnProvenance) (*types.Interaction, bool, error)
+	// RecordInteractionQuestionSubmission stores the API action accepted for
+	// the pending question requestID, compare-and-set: false when that
+	// question is no longer pending or already has a submission in flight.
+	RecordInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error)
+	// ClearInteractionQuestionSubmission drops the submission for question
+	// requestID only when its nonce is submissionID, so it never removes a
+	// newer submission.
+	ClearInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID, submissionID string) error
 	// BindInteractionExternalAgentRequest persists the request ID before an
 	// external-agent turn is dispatched, so queued turns remain identifiable
 	// across API restarts.
@@ -366,6 +382,14 @@ type Store interface {
 	// without racing streaming or message-completion writes.
 	MarkInteractionInterruptedIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
 	GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error)
+	// AppendInteractionThreadReseed adds a reseed record to the interaction
+	// without touching any other column. ErrNotFound when no row matches.
+	AppendInteractionThreadReseed(ctx context.Context, interactionID string, generationID int, reseed types.ThreadReseed) error
+	// GetInteractionByExternalAgentUserEntry returns the interaction of this
+	// session generation recorded for a user entry the external agent
+	// reported (ACP thread + Zed's message_id), newest first. ErrNotFound when
+	// none exists.
+	GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID string, generationID int, threadID, entryID string) (*types.Interaction, error)
 	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
 	// from Waiting → Complete and sets completed=now. Returns true if the row
 	// was transitioned, false if the row was already in a terminal state (no

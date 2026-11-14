@@ -7586,6 +7586,14 @@ definitions:
         description: System prompt for the interaction (copy of the session's system
           prompt that was used to create this interaction)
         type: string
+      thread_reseeds:
+        description: |-
+          ThreadReseeds records every time Helix prepended a context preamble to
+          this turn's prompt because the agent could not reopen its session, so
+          what the agent was actually sent is auditable. Server-written only.
+        items:
+          $ref: '#/definitions/types.ThreadReseed'
+        type: array
       tool_call_id:
         description: For Role=tool prompts this should be set to the ID given in the
           assistant's prior request to call a tool.
@@ -10493,6 +10501,12 @@ definitions:
     type: object
   types.ResolvedQuestion:
     properties:
+      answered_by:
+        allOf:
+        - $ref: '#/definitions/types.TurnProvenance'
+        description: |-
+          AnsweredBy says who resolved the question. Server-set; entries from
+          before it existed read as origin "unknown".
       answers:
         additionalProperties:
           type: string
@@ -13981,6 +13995,8 @@ definitions:
     - code_review_trigger
     - evaluation_question
     - external_agent_test_harness
+    - thread_reseed
+    - question_settled
     - org_bot_action
     - helix_agent_tool
     - trigger_configuration
@@ -14015,6 +14031,8 @@ definitions:
     - SystemTurnCodeReviewTrigger
     - SystemTurnEvaluationQuestion
     - SystemTurnExternalAgentTestHarness
+    - SystemTurnThreadReseed
+    - SystemTurnQuestionSettled
     - SystemTurnOrgBotAction
     - SystemTurnHelixAgentTool
     - SystemTurnTriggerConfiguration
@@ -14088,6 +14106,36 @@ definitions:
     x-enum-varnames:
     - TextSplitterTypeMarkdown
     - TextSplitterTypeText
+  types.ThreadReseed:
+    properties:
+      agent_name:
+        type: string
+      at:
+        type: string
+      preamble_length:
+        type: integer
+      preamble_sha256:
+        description: PreambleSHA256 is the hex sha256 of the injected preamble text.
+        type: string
+      provenance:
+        allOf:
+        - $ref: '#/definitions/types.TurnProvenance'
+        description: Provenance is always origin=system, system_kind=thread_reseed.
+      reason:
+        allOf:
+        - $ref: '#/definitions/types.ThreadReseedReason'
+        description: Reason is why the agent's session could not be resumed.
+      runtime:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentRuntime'
+        description: Runtime and AgentName identify the coding agent that was reseeded.
+    type: object
+  types.ThreadReseedReason:
+    enum:
+    - agent_cannot_load_session
+    type: string
+    x-enum-varnames:
+    - ThreadReseedAgentCannotLoadSession
   types.TitleHistoryEntry:
     properties:
       changed_at:
@@ -28664,6 +28712,12 @@ paths:
         in: query
         name: include_external_agents
         type: boolean
+      - description: Only the sessions Helix created for threads opened on this external
+          agent connection (session id the agent connected with). The connection session
+          itself is not included. Implies include_external_agents.
+        in: query
+        name: external_agent_id
+        type: string
       - description: Return only archived sessions instead of only unarchived ones
         in: query
         name: archived

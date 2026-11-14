@@ -163,7 +163,6 @@ type HelixAPIServer struct {
 	// so it survives API restart; the in-memory map was deleted in the
 	// 2026-04-30 stuck-queue fix.)
 	externalAgentSessionMapping map[string]string      // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping    map[string]string      // External agent session_id -> user_id mapping
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
 	cancelTurnMutexes           sync.Map               // session_id -> *sync.Mutex; serializes concurrent cancel requests
 	pendingCancelRetries        sync.Map               // interaction_id -> struct{}; dedupes durable cancel retries
@@ -486,7 +485,6 @@ func NewServer(
 		credentialTokens:            make(map[string]map[string]struct{}),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
-		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),

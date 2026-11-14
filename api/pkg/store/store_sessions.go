@@ -54,6 +54,10 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("config->>'spec_task_id' = ?", query.SpecTaskID)
 	}
 
+	if query.ExternalAgentID != "" {
+		q = q.Where("config->>'external_agent_id' = ?", query.ExternalAgentID)
+	}
+
 	switch query.ProjectScope {
 	case "none":
 		q = q.Where("project_id IS NULL OR project_id = ''")
@@ -681,4 +685,39 @@ func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff 
 
 func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {
 	return s.publishStoreEvent(ctx, operation, session)
+}
+
+// backfillSessionAgentConnections records the agent connection on child
+// sessions whose thread was bound before connections were recorded, so thread
+// lookups that only accept sessions recorded on the reporting connection still
+// find them after an upgrade.
+//
+// The connection is taken only from the session's own parent_session (child
+// sessions created for agent-opened threads carry their connection's session
+// there), and only when that parent belongs to the same spec task. A task's
+// current planning session is NOT used: forks, backlog resets and launch
+// retries replace it, so an older top-level session (possibly another user's)
+// would be recorded on a newer lane's connection. Top-level sessions are never
+// touched. Idempotent: it only fills an empty external_agent_id.
+func (s *PostgresStore) backfillSessionAgentConnections(ctx context.Context) error {
+	if !s.gdb.Migrator().HasTable(&types.Session{}) {
+		return nil
+	}
+	err := s.gdb.WithContext(ctx).Exec(`
+		UPDATE sessions s
+		SET config = jsonb_set(s.config::jsonb, '{external_agent_id}', to_jsonb(p.id))
+		FROM sessions p
+		WHERE p.id = s.parent_session
+		  AND COALESCE(s.parent_session, '') <> ''
+		  AND p.id <> s.id
+		  AND COALESCE(s.config->>'spec_task_id', '') <> ''
+		  AND p.config->>'spec_task_id' = s.config->>'spec_task_id'
+		  AND COALESCE(s.config->>'zed_thread_id', '') <> ''
+		  AND COALESCE(s.config->>'external_agent_id', '') = ''
+		  AND s.deleted_at IS NULL
+	`).Error
+	if err != nil {
+		return fmt.Errorf("backfill sessions.config.external_agent_id: %w", err)
+	}
+	return nil
 }
