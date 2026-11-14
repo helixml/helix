@@ -14,6 +14,27 @@ rounds are byte-identical, so their line numbers hold. Re-pin again before imple
 Paths are relative to `api/pkg/server/` unless they say otherwise. A † marks a reference that came
 from a delegated code search and was not re-read line by line.
 
+## Round 10 changes (cyber delta review of `dff8cb86`)
+
+The verdict was two blockers, with everything else signed off. Main is unchanged at `2007b960c`, so
+the round-9 pins hold. Every round-10 citation was taken at `2007b960c`.
+
+| finding | answer | section |
+|---|---|---|
+| **Blocker 1: NB5 partial.** Org delete, admin user delete, org-runtime teardown and project cleanup bypass the four guarded handlers. | The `sealedTaskLive` check moves into the choke points `DeleteRepository` (`services/git_repository_service.go:1084`), `purgeProject` (`project_handlers.go:1075`) and `Store.DeleteProject` (`store/store_projects.go:244`). Bulk callers pre-check before deleting anything. A no-bypass AST test is added. Attach is recorded; detach, move and set-primary return 409. | §3.12 |
+| **Blocker 2: N9-1.** LLM call logs, and the app interactions and step-info routes, expose the lane through query filters. | DENY for sealed sessions on `/apps/{id}/llm-calls`, `/admin/llm_calls`, `/apps/{id}/interactions` and `/apps/{id}/step-info`. The default scope hides `llm_calls`. K's `/usage` strips the bodies. Route-policy rule 7 covers session / interaction / task query filters. | §3.14, §3.3 |
+| **SF3 partial.** `UnifiedSearch`, `ListSessionsByOwner`, `ListPromptHistoryBySpecTask`, `ListSpecTaskGitPushEvents` | A GORM default scope: a create-only `sandbox_sealed` column on every lane-content table, and a query/row/count callback with explicit K and platform opt-ins. A raw-SQL allowlist test covers `Raw` / `Exec`. A callback rather than a view, with the reason given. | §3.10 |
+| **NB2 gap.** The sealed repo row must have no upstream or deploy hook | `getRepoPath` returns a synthetic row: `ExternalURL = ""`, no deploy hook. So the sync (`:703`), the upstream push (`:867`) and `onDefaultBranchPush` (`:795-801`) are skipped by construction. | §3.11 |
+| **S9-1** routing fails closed | 503 on error with no fallback; 403 for a lane key on the shared path; the path taken from `spec_task_sealed_repos.path` only; the K route checks key and row; pending → ready creation with a reconciler. | §3.11 |
+| **S9-2** gc and backup | Refcount-derived `gc.pruneExpire` under the lock; the `MaintainRepo` helper plus an AST ban on direct prune/repack; relative alternates; filesystem-level backups including `sealed/`. | §3.11 |
+| **S9-3** disk exhaustion | `receive.maxInputSize` and a per-task quota; archive as a `base..work` bundle with a TTL; a shared-repo growth alert. | §3.11 |
+| **S9-4** shared-repo branch readers | The six sites are listed and skipped for sealed tasks, with a no-error-loop test. K's git reads are fetch-only; the read API returns not-found by design. | §3.13, §3.5 |
+| **S9-5** network egress | The seal stops API and git exfiltration only; a prompt-injected lane can still use the network. Stated in "What the seal is not". | Goal |
+| **Nit:** repo lock | Keyed by path; the base refresh takes shared then sealed. | §3.11 |
+| **Nit:** sealed route | `/git/sealed/{T}/{R}` registered explicitly; repo id `sealed` reserved. | §3.11 |
+| **Nit:** filestore | A traversal and symlink test. | §3.11, §7 |
+| **Confirmations folded in** | NB4: `isPersonalAPIKey` (`handlers.go:1277`) already excludes the new type. NB1: closed by cyber's experiment. | §3.7, §3.11 |
+
 ## Round 9 changes (cyber delta review of `1fe263bf`)
 
 The verdict was five new blockers. The structural answer to NB1 is a **per-sealed-task bare
@@ -97,6 +118,13 @@ refused until someone classifies it (§3.3).
 host, hydra or `docker exec` access on the sandbox host can always reach the container. The seal
 protects against tenant-side actors and against admins acting through the Helix API. The portal and
 the verifier must not claim more than that.
+
+**Nor does it stop the lane itself from leaking (S9-5).** The lane reads tenant-controlled base
+content: the base branch, the project repos, fetched dependencies. All of that is a prompt-injection
+surface, and the lane's container has outbound network access. The seal stops reads and writes
+**through the Helix API and git server**. It does not stop a prompt-injected lane from sending its
+own work to an arbitrary host over the network. Egress control (an allowlist proxy for the sandbox)
+is a separate control, and the portal must not describe the seal as exfiltration-proof without it.
 
 ---
 
@@ -630,6 +658,8 @@ are:
    gains two env-independent rules: the shared repo refuses `refs/heads/helix-sealed/*` to every
    pusher, and a sealed repo refuses everything unless `HELIX_SEAL_SELF_TASK` matches (§3.11). A
    hook test runs both with an **empty** environment, the way internal pushes run.
+7. **Query filters naming a session, interaction or task (round 10, N9-1).** See §3.14 for the
+   parameter list and the AST rule. A query-filtered read is an id resolver like any other.
 
 The test fails if:
 
@@ -723,13 +753,15 @@ execution-config routes reporting success on no-ops. Refuse-only cannot stop pro
   route, listed by handler; no other method is ever in this grant.
   - task: `GET /spec-tasks/{id}`, `/specs`, `/progress`, `/usage`, `/pr-proposals` (empty for
     sealed lanes), `/design-reviews*` GET, `/attachments` GET and content, `/zed-threads`;
-  - sessions: `GET /sessions/{id}`, `/interactions*`, `/turns/{n}`, `/toc`, `/search`, `/usage`,
+  - sessions: `GET /sessions/{id}`, `/interactions*`, `/turns/{n}`, `/toc`, `/search`, `/usage`
+    (metadata only for sealed sessions: no LLM request or response bodies, §3.14),
     `/step-info`, `/output`, `/workspace-status`, `/sandbox-state`, `/rdp-connection` (URLs only);
   - desktop, read-only: `/external-agents/{sid}/screenshot`, `/file`, the workspace-review and
     workspace-file GET routes, and `/ws/stream` with `X-Helix-Readonly` forced. `/ws/input`,
     clipboard and terminal are **not** in the set.
-  - git: fetch (upload-pack and info-refs) from the lane's sealed repos through
-    `/git/sealed/{T}/{repoID}` (§3.11). The shared repo holds nothing of the lane.
+  - git: **fetch only** (upload-pack and info-refs) from the lane's sealed repos through
+    `/git/sealed/{T}/{repoID}` (§3.11). The shared repo holds nothing of the lane, so the git read
+    API (tree, commits, contents) on `helix-sealed/T/work` returns not-found by design (§3.13).
   - artifacts (gate 4): `GET /artifacts/{id}`, `/versions`, `/download`, `/embed*`, `/document`, for
     the lane's artifacts;
   - listings: the sealed task and its sessions appear in K's own `GET /spec-tasks`,
@@ -1151,15 +1183,51 @@ In the **shared** repository the prefix is reserved for nobody:
     `sealOfArtifact` and admit K and SELF only.
   - The insecure public viewer (`server.go:1649`, `artifact_handlers.go:205`) refuses a sealed
     lane's artifact for everyone.
-- **Listings: sealed rows are excluded by default in the store (SF3).**
-  - `ListSpecTasks`, `ListSessions`, the artifact list, clone-group progress and the batch
-    `/projects/{id}/tasks-progress` / `/tasks-usage` (`server.go:1709-1710`) all exclude rows whose
-    task is sealed, **unless** the caller passes `IncludeSealedForKeyID: <K>` (only `GET /spec-tasks`,
-    `GET /sessions` and the artifact list do, for K), or the context carries `withPlatformCaller`
-    (orchestrator, reapers).
-  - Today there are 33 `ListSpecTasks` / `ListSessions` call sites. Opt-out by default makes every
-    one of them safe without auditing each; the audit becomes a review of the few that opt in.
-  - The org-runtime `List` (`spectasks.go:314`) inherits the default.
+- **Listings: a GORM default scope hides sealed rows on every read (SF3, round 10).** Round 9's
+  per-function filter was not enough. `Store.UnifiedSearch` (`store/store_prompt_history.go:759`,
+  `GET /search?q=`) runs its own owner-scoped ILIKE over task `name` / `original_prompt` and over
+  sessions. `ListSessionsByOwner` (`store/store_sessions.go:589`), `ListPromptHistoryBySpecTask`
+  (`store/store_prompt_history.go:307`) and `ListSpecTaskGitPushEvents`
+  (`store/spec_task_design_review_store.go:242`) were also outside it. So the exclusion moves from
+  functions to **models**:
+  - **Filter column.** `sandbox_sealed bool not null default false`, written **on create only**
+    (GORM `<-:create`, never updated), on every table that holds lane content:
+    - `spec_tasks`, `sessions`, `interactions`, `llm_calls`, `prompt_history_entries`;
+    - `spec_task_git_push_events`, `artifacts`, `spec_task_design_reviews` and their comments;
+    - `spec_task_zed_threads`, `spec_task_work_sessions`.
+
+    The store sets it from the owning task's seal at insert. Sealed sessions are created in the
+    sealed task's own transaction (S7), so the value is right from the first write. The LLM-call
+    logger sets it from the session's seal (cached; `true` is immutable). Each column has a partial
+    index `WHERE sandbox_sealed`.
+  - **Default scope.** A GORM callback is registered on `Query`, `Row` and the `Count` path, before
+    `gorm:query`. For any statement whose schema table is in that list, it appends
+    `<table>.sandbox_sealed = false`, **unless** the context carries one of:
+    - `withSealVisibility(ctx, keyID)`, set only by `sealDecision` when the caller is K or SELF of
+      that task. It widens to `sandbox_sealed = false OR spec_task_id IN (tasks sealed by keyID)`;
+      the lane's own session sees only its task.
+    - `withPlatformCaller(ctx)`: orchestrator, reapers, the provider-recovery readers
+      (`websocket_external_agent_sync.go:4559`, `server/provider_recovery.go:16`), and the gate-3
+      delivery path.
+
+    `UnifiedSearch`, `ListSessionsByOwner`, the 33 `ListSpecTasks` / `ListSessions` call sites, the
+    batch `/projects/{id}/tasks-progress` / `/tasks-usage` (`server.go:1709-1710`), clone-group
+    progress, the org-runtime `List` (`spectasks.go:314`) and every future query are covered without
+    naming them.
+  - **Why a callback rather than a Postgres view.** A view used as the model's table would also
+    carry inserts and updates, so every write path would need a separate base-table model. That
+    reintroduces the per-call-site opt-in the review wants gone. The callback applies only to
+    reads, which is the right side for a filter.
+  - **Raw SQL.** Callbacks do not see `.Raw` / `.Exec`; the store has 36 of them today. A store
+    test lists every `Raw` / `Exec` whose SQL names a listed table. Each must be on an allowlist
+    **and** contain `sandbox_sealed`, or be a write. A new one fails the test.
+  - **Primary-key reads are scoped too.** `First` / `Take` by id are scoped, so a sealed object
+    looked up by id is "not found" unless the context opts in.
+    - `sealOf` and the gate lookups read seal state through an internal, platform-marked context, so
+      they always see the row they are deciding about.
+    - After an `allowed` decision, the gates attach `withSealVisibility` to the request context, so
+      the handler's own reads succeed.
+    - Everyone else gets 404 from the store, which matches §3.3's "outside the tenant" answer.
 
 Gate 4 records go into the same access record with `scope: task` and the route key: `#git:<service>`
 plus the ref, or the artifact id.
@@ -1170,14 +1238,28 @@ plus the ref, or the artifact id.
 primary repo):
 
 ```
-/filestore/git-repositories/sealed/<T>/<R>.git          bare repo, created in T's creation transaction
+/filestore/git-repositories/sealed/<T>/<R>.git          bare repo for T's copy of R
 /filestore/git-repositories/sealed/<T>/<R>.git/objects/info/alternates
-    -> /filestore/git-repositories/<R>/objects            one-way: sealed reads shared, never the reverse
+    -> ../../../../<R>/objects                           RELATIVE path (S9-2); one-way: sealed reads shared
 ```
 
-- **Tracking.** `spec_task_sealed_repos(spec_task_id, repo_id, path, created_at, detached_at)`
-  records the copy. There is **no** `GitRepository` row, so sealed repos never appear in repo
-  listings, `Branches`, status counts, Kodit registration or external sync.
+- **Tracking.**
+  `spec_task_sealed_repos(spec_task_id, repo_id, path, state, created_at, ready_at, detached_at)`,
+  where `state` ∈ `pending | ready | failed | detached`.
+  - There is **no** `GitRepository` row, so sealed repos never appear in repo listings, `Branches`,
+    status counts, Kodit registration or external sync.
+  - `path` is the only source of a sealed repo's location. **It is never built from URL segments**
+    (S9-1).
+- **Creation order (S9-1).** Disk state can't join a database transaction, so creation runs in four
+  steps:
+  1. The seal transaction (§3.1) inserts each `spec_task_sealed_repos` row as `pending`, with
+     `path` computed by the server.
+  2. After commit, `git init --bare`, then write the alternates file and the hook. Then the
+     base-ref fetch.
+  3. Mark the row `ready`.
+  4. **The lane's desktop is not started until every row for T is `ready`.** A reconciler (on start,
+     and every 5 minutes, `withPlatformCaller`) retries `pending` rows. After 3 failures it marks
+     them `failed`, which stops the lane visibly and writes a `kind: lifecycle` record.
 - **Base refs.** At creation, and whenever the platform refreshes the lane's base, the sealed repo
   fetches the shared repo's base branches into `refs/heads/<base>`, read-only for the lane. It runs
   `git fetch <shared> +refs/heads/<base>:refs/heads/<base>` inside the sealed repo, marked
@@ -1189,7 +1271,37 @@ primary repo):
   unset `HELIX_ALLOWED_BRANCHES` means allow-all (`services/gitea_git_helpers.go:442-455`).
 
 **Routing.** `GitHTTPServer.getRepoPath` (`services/git_http_server.go:420`) is the single place a
-git request becomes a filesystem path. It consults `sealedRepoFor(user, repoID)`:
+git request becomes a filesystem path. It consults `sealedRepoFor(user, repoID)`.
+
+**Routing fails closed (S9-1):**
+
+- If `sealedRepoFor` returns an error, or a `ready` row's path is missing on disk, the request
+  gets 503 `sealed_repo_unavailable`. It **never** falls back to the shared repo.
+- A key bound to a sealed task (its session key, or K) that arrives on a shared `/git/{R}` path
+  gets **403** before upload-pack or receive-pack runs.
+- The K route, `/git/sealed/{T}/{R}`, checks `spec_task_seals(T).sealed_by_key_id == APIKeyID(key)`
+  **and** that a `ready` `(T, R)` row exists. A forged `T`, or a `T` that K didn't seal, gets 404.
+  `T` and `R` are only lookup keys; the filesystem path comes from the row.
+- **Explicit registration (nit).** `/git/sealed/{T}/{R}` is registered as its own route in
+  `GitHTTPServer.RegisterRoutes` (`services/git_http_server.go:195`), ahead of `/git/{repo}`. The
+  repo id `sealed` is reserved: repository create and rename refuse it.
+- **Repo-row shape for the sealed branch (NB2 gap).** `getRepoPath` returns the path plus a
+  `*types.GitRepository` that `handleReceivePack` reads. For a sealed path it returns a synthetic
+  row with `ExternalURL = ""`, `DefaultBranch = <T's base>`, no web-service deploy hook and
+  `IsExternal = false`. So all three upstream paths are skipped by construction:
+  - the pre-receive upstream sync (`services/git_http_server.go:703`);
+  - the post-receive upstream push (`:867`);
+  - `onDefaultBranchPush` (`:795-801`).
+
+  A test asserts the upstream mock and the deploy hook see no call for a sealed push.
+- **Lock key (nit).** `GetRepoLock(repoID)` (`services/git_repository_service.go:142`) is keyed by
+  repo id, so a sealed push would serialize with the shared repo's operations. That is safe, but it
+  needlessly couples the lane to shared-repo traffic. Round 10 keys the lock by **path**
+  (`WithRepoLock(path, …)`). The base-ref refresh takes **both** locks in a fixed order (shared,
+  then sealed), so a shared-repo rewind can't interleave with a sealed base fetch.
+- **Filestore (nit).** The `/filestore/*` routes (`server.go:1155-1163`) serve a separate root, but a
+  test asserts that no filestore path, including `..` and symlink tricks, resolves into
+  `git-repositories/sealed/`.
 
 | caller | `/git/{repoID}` resolves to |
 |---|---|
@@ -1213,16 +1325,47 @@ git request becomes a filesystem path. It consults `sealedRepoFor(user, repoID)`
   add-ref race: the lane's refs are created inside its own repo in the creation transaction.
 - **SF2.** `GitRepository.Branches` is filled from the shared repo, so sealed names never get there.
 
-**Garbage collection.**
+**Garbage collection (S9-2).** Cyber verified that `gc --prune=now` on the shared repo after an
+upstream rewind corrupts a sealed copy, and that `gc.pruneExpire=never` prevents it.
 
-- **The risk:** alternates mean the shared repo must not prune objects the sealed repo still
-  references, e.g. a base commit later rewound upstream.
-- **While T is live:** shared repos with a live sealed dependent run with `gc.pruneExpire=never`.
-  That is set on the first sealed copy and restored when the last one detaches. Helix's own gc
-  scheduling must honour it; Helix's gc entry points are an implementation checklist item†.
+- **Real triggers.** Helix never calls gc itself. What actually runs it is `receive.autogc` after
+  pushes and git's auto-maintenance after fetches (`SyncAllBranches`, `PullFromRemote`).
+- **Rule.** A shared repo's `gc.pruneExpire` is **derived from a DB refcount**: the number of
+  `spec_task_sealed_repos` rows for R in `pending` or `ready`.
+  - It is set to `never` when the count goes 0 → 1, and restored when it goes back to 0.
+  - Both changes happen under R's repo lock, in the same code path that inserts or detaches the row.
+  - A startup reconciler rewrites the config from the refcount, so a crash between the two can't
+    leave pruning enabled.
+- **Forbidden on repos with sealed dependents:** `git prune`, and `git repack -a -d` without `-A` or
+  `--cruft`. Helix code that runs maintenance goes through one `MaintainRepo(path)` helper, which
+  checks the refcount. An AST test forbids direct `prune` / `repack` / `gc` invocations elsewhere.
 - **When T is archived:** T's sealed repos run `git repack -a -d` to copy every alternate object
-  locally, then drop the alternates file and record `detached_at`. They stay readable by K from the
-  tombstone (§4).
+  locally (fsck clean, per cyber's experiment). Then they drop the alternates file, record
+  `detached_at` and decrement the refcount. They stay readable by K from the tombstone (§4), subject
+  to the disk rules below.
+- **Backups.** They must be **filesystem-level** (snapshot or rsync of `git-repositories/`
+  **including** `sealed/`, in one consistent snapshot with the shared repos). Clone- or bundle-based
+  backups of a sealed repo silently drop the borrowed objects. A restore of `sealed/` without the
+  matching shared repos is invalid. The backup runbook states both.
+
+**Disk (S9-3).**
+
+- **Push size.** Sealed repos set `receive.maxInputSize` (default 512 MiB per push). A per-task quota
+  (default 5 GiB on-disk, configurable per org) is checked in the Go receive-pack pre-check (SF4). A
+  lane over quota gets its push refused, with a `denied` record (`reason: quota`), and the portal
+  sees it.
+- **Archive form.** Instead of `repack -a -d` of the full base history into every tombstone, the
+  archived lane is reduced to a **bundle of `base..work` (and `base..specs`) plus the base SHA**.
+  The bundle is kept as the tombstone's git evidence, and the sealed repo directory is removed.
+  - K can still verify the lane's commits by unbundling against any repo that has the base SHA.
+  - The full `repack -a -d` path is kept only as a fallback when the base SHA is no longer
+    reachable in the shared repo; that is recorded as `kind: lifecycle`, `reason: base_unreachable`.
+- **Retention.** Tombstone bundles have a TTL, `HELIX_SEAL_TOMBSTONE_TTL`, default 365 days,
+  configurable. The `spec_task_seals` row and the access events are kept indefinitely; they are
+  small.
+- **Shared-repo growth.** While a shared repo has sealed dependents, a metric reports its on-disk
+  size. An alert fires on growth above a threshold (default +20% or 5 GiB since the first seal),
+  because `pruneExpire=never` keeps upstream garbage until the last lane detaches.
 
 **Post-push processing.** The handlers that today read the shared repo after an agent push must
 take the sealed repo path for sealed tasks:
@@ -1258,31 +1401,133 @@ mistake in routing is not by itself a leak:
 - A sealed repo never syncs from upstream at all, so the dry-run probe (`X-Helix-Seal-Probe`)
   returns after the Go check, with no side effect.
 
-### 3.12 Project and repository lifecycle (NB5)
+### 3.12 Project and repository lifecycle (NB5, closed in round 10)
 
-These owner actions act on a sealed lane without passing through any task route:
+Round 9 guarded four handlers. The same destruction is reachable from other callers, so round 10
+moves the guard into the **three choke points** every destructive path goes through, and proves
+with an AST test that nothing bypasses them.
 
-| route | handler | effect on a sealed lane |
+**Choke points:**
+
+| choke point | file:line | callers today (all now guarded) |
 |---|---|---|
-| `DELETE /projects/{id}` | `project_handlers.go:1019` (`server.go:1681`) | stops its sessions, releases its repos |
-| `DELETE /git/repositories/{id}` | `git_repository_handlers.go:397` (`server.go:1815`) | removes the shared repo its alternates point into |
-| `PUT /projects/{id}/repositories/{repo_id}/detach` | `project_handlers.go:1418` (`server.go:1687`) | removes the lane's repo from its project |
-| `POST /projects/{id}/move` | `project_handlers.go:2310` (`server.go:1693`) | moves the lane to another org |
-| `PUT /git/repositories/{id}` | `git_repository_handlers.go:308` (`server.go:1814`) | changes `ExternalURL` and other settings of the shared repo |
+| `GitRepositoryService.DeleteRepository` | `services/git_repository_service.go:1084` | `DELETE /git/repositories/{id}` (`git_repository_handlers.go:397`); `DELETE /organizations/{id}` (`organization_handlers.go:433` → `:469`); admin user delete (`admin_user_delete.go:80`); project delete cleanup (`project_delete_cleanup.go:84`) |
+| `HelixAPIServer.purgeProject` | `project_handlers.go:1075` | `DELETE /projects/{id}` (`project_handlers.go:1019`); `DELETE /organizations/{id}`; admin user delete (`admin_user_delete.go:67`) |
+| `Store.DeleteProject` | `store/store_projects.go:244` (interface `store/store.go:842`) | `purgeProject`; org-runtime teardown (`org/application/lifecycle/lifecycle.go:582` → `server/helix_org_inproc.go:859`); any future caller |
 
-**Rule.** While any non-archived sealed task references the project, or the repo (as primary repo
-or through `spec_task_sealed_repos`), the first four return **409 `sealed_task_live`**. This matches
-the live-sealing-key revoke rule (§3.7). K archives the lane first, or the owner waits for it to
-finish.
+**Rule.** Each choke point first checks `sealedTaskLive(repoID | projectID)`:
 
-- `PUT /git/repositories/{id}` stays allowed: with per-task repos it cannot reach the lane. A change
-  to `ExternalURL` or the default branch is recorded as an `outcome: allowed`, `kind: access` row
-  on every live sealed task that references the repo, so the verifier sees a base-side change.
-- **If the owner adopts org-owner stop:** the project delete becomes stop then delete for the lane.
-  It is recorded as `actor_class: org_owner_stop` and writes `task_deleted_at` on the tombstone.
-- **In every case where a sealed task is deleted** (K's delete, a later project delete, an operator
-  purge), `task_deleted_at` and `task_deleted_by_key_id` are written on the tombstone first. A
-  delete that cannot write the tombstone fails.
+- the check covers any `spec_task_seals` row whose task is not archived and whose project is the
+  target, or whose `spec_task_sealed_repos` / primary repo is the target;
+- it runs inside the same transaction as the delete, so a lane sealed concurrently can't slip in.
+
+If a lane is live:
+
+- **Without an owner-adopted org-owner stop:** return `ErrSealedTaskLive`, surfaced as **409
+  `sealed_task_live`**. Bulk callers (org delete, admin user delete, org-runtime teardown) fail as a
+  whole, before any deletion: they pre-check every repo and project they will touch, then start. So
+  a half-deleted org can't happen. Each refused attempt writes one `outcome: denied`, `kind: lifecycle`
+  record per affected lane, with the caller's `actor_class` and route.
+- **With org-owner stop adopted (owner decision, §4):** the choke point stops the lane, records
+  `actor_class: org_owner_stop`, writes `task_deleted_at` / `task_deleted_by_key_id` on the
+  tombstone, repacks or bundles the sealed repos (§3.11), and only then deletes. Deleting the
+  shared repo first would corrupt the sealed copies that borrow from it, so the order is mandatory.
+
+**AST test (no bypass).** In packages `server`, `services`, `store` and `org/...`:
+
+- `os.RemoveAll` / `os.Remove` on a path derived from the git-repository root;
+- `Store.DeleteProject`;
+- `gitRepositoryService.DeleteRepository`;
+- a GORM `Delete` on `types.Project` or `types.GitRepository`.
+
+These may appear only inside the three choke points, or in a reviewed allowlist (tests, migrations).
+A new caller of the store method is fine, because the check lives inside it. A new **direct**
+deletion is a test failure.
+
+**Repository re-attachment and base changes (all classified):**
+
+| route | handler | decision |
+|---|---|---|
+| `PUT /projects/{id}/repositories/{repo_id}/detach` | `project_handlers.go:1418` (`server.go:1687`) | **409** `sealed_task_live` if the repo is a live lane's repo |
+| `POST /projects/{id}/move` | `project_handlers.go:2310` (`server.go:1693`) | **409** while the project has a live lane |
+| `PUT /projects/{id}/repositories/{repo_id}/attach` | `server.go:1686` → `attachRepositoryToProject` | allowed. A live lane's repo set is fixed at seal time (`spec_task_sealed_repos`), so attaching a new repo doesn't change what the lane sees. Recorded as `outcome: allowed`, `kind: access` on every live lane in the project. |
+| `PUT /projects/{id}/repositories/{repo_id}/primary` | `server.go:1685` → `setProjectPrimaryRepository` | **409** while the project has a live lane. The primary repo determines the lane's base and its workspace setup on any platform restart. |
+| `PUT /git/repositories/{id}` (`ExternalURL`, default branch) | `git_repository_handlers.go:308` (`server.go:1814`) | allowed, and recorded on every live lane referencing the repo (round 9). With per-task repos it can't reach the lane's refs. |
+
+**Tombstone.** Whenever a sealed task is deleted (K's delete, a choke-point delete after org-owner
+stop, an operator purge), `task_deleted_at` and `task_deleted_by_key_id` are written on the
+tombstone first. A delete that cannot write the tombstone fails.
+
+### 3.13 Shared-repo readers of `task.BranchName` (S9-4)
+
+Code that reads the **shared** repo by repo id plus `task.BranchName` fails safe for a sealed task,
+because the branch doesn't exist there. But it must not error-loop. Each one is explicitly **skipped
+for sealed tasks**, checked through `sealOf(task)` at entry, with the reason in a debug log:
+
+| site | function | for a sealed task |
+|---|---|---|
+| `server/spec_task_workflow_handlers.go:220` | `approveImplementation` (fast-forward merge) | not reached: the route is DENY (§3.10). The function also returns early. |
+| `server/spec_task_workflow_handlers.go:895-900` | `mergeInternalRepoBranch` | skip |
+| `services/git_http_server.go:1467` | `tryAutoMergeAfterRebase` | skip (§3.10, no auto-merge) |
+| `services/git_http_server.go:1598` | `tryAutoMergeBotRun` | skip |
+| `services/spec_task_orchestrator.go:1593` | `checkTaskForExternalPRActivity` | skip. A sealed lane has no PR; the orchestrator must not retry. |
+| `server/session_workspace_handlers.go:65` | `resolveExpectedBranch` | returns `helix-sealed/<T>/work`. Only the lane's own workspace calls it, and that resolves to the sealed repo. |
+
+A test drives the orchestrator over a sealed task for N ticks and asserts these functions log one
+skip each and raise no errors.
+
+**K's git reads are fetch-only (S9-4).** K reads the lane's git state by fetching
+`/git/sealed/{T}/{R}`.
+
+- The git read API (tree, commits, contents, file-content, grep) runs against the **shared** repo.
+  For `ref=helix-sealed/T/work` it returns **not-found by design**, for K too.
+- A K-facing read API over sealed repos is deliberately not offered. It would be a second read path
+  to keep sealed.
+
+### 3.14 LLM call logs and app-owner session reads (N9-1, closed in round 10)
+
+**The gap.** The LLM-call log holds the full `Request`, `Response` and `OriginalRequest` of every
+model call. Rows carry the lane's `SessionID` and `AppID`; the proxy logger writes them at
+`openai/logger/openai_logger.go:~411`. They are readable by session filter:
+
+| route | handler | who passes today |
+|---|---|---|
+| `GET /apps/{id}/llm-calls?session=<sid>` | `agent_routes.go:23` → `llm_calls_handlers.go:79` (filter read `:113`) | the agent app's owner, or an admin |
+| `GET /admin/llm_calls?session=<sid>` | `server.go:1548` → `llm_calls_handlers.go:25` (filter `:37`) | any admin |
+| `GET /apps/{id}/interactions?session=<sid>` | `agent_routes.go:24` → `llm_calls_handlers.go:157` (filter `:192`) | the app owner, or an admin: the lane's interactions |
+| `GET /apps/{id}/step-info?interactionId=<iid>` | `agent_routes.go:25` → `llm_calls_handlers.go:250` (`:254`) | the app owner, or an admin |
+
+The agent app's owner is on the tenant side, so under option (a) this is a full read of the lane.
+The route-policy test missed it, because the session id arrives as a **query filter**, not through
+an id resolver.
+
+**The fix:**
+
+- **The default scope covers `llm_calls`, `interactions` and step info** (§3.10). With no seal
+  visibility in the context, `ListLLMCalls` (`store/store_llm_calls.go:38`), the interaction lists
+  and the step-info reads return no rows of a sealed session, whatever the filter. That alone closes
+  the admin and app-owner paths.
+- **The routes are explicitly DENY for sealed sessions.** When the `session` / `interactionId`
+  filter resolves to a sealed session, the handler calls `sealDecision`. It answers
+  `403 sandbox_sealed` (not an empty list) and writes a `denied` record, so the attempt is
+  visible. That applies to K too: K reads the lane through the session routes in its read set,
+  not through app-wide logs. Unfiltered listings simply omit sealed rows.
+- **K's usage read strips the bodies.** `GET /sessions/{id}/usage` (`session_usage_handlers.go:40`)
+  is in K's read set for token and cost totals. For a sealed session it returns the call
+  metadata (model, tokens, cost, timing, status) and **omits** `Request`, `Response` and
+  `OriginalRequest`. K reads the transcript through `/interactions`, which carries provenance.
+- **Platform readers keep working.** `recentProviderFailure`
+  (`websocket_external_agent_sync.go:4559`) and `server/provider_recovery.go:16` run with
+  `withPlatformCaller`.
+- **Route-policy rule 7 (query filters).** Any route that reads a query parameter naming a session,
+  interaction or task must declare `.seal(...)`, and its handler must resolve the parameter through
+  `sealDecision` before the first store read. The parameter names are `session`, `session_id`,
+  `sessionId`, `interaction`, `interaction_id`, `interactionId`, `spec_task_id`, `specTaskId`, `task`
+  and `task_id`.
+  - The AST test finds `r.URL.Query().Get("<name>")` and struct-tag-bound query structs in the
+    handler and everything it reaches.
+  - It also flags any `ListXxxQuery{SessionID: …}` / `{SpecTaskID: …}` / `{InteractionID: …}`
+    literal whose value comes from the request.
 
 ## 4. Break-glass and the access log
 
@@ -1423,7 +1668,7 @@ shipped, and `min_cluster_version_since_seal` must stay ≥ 3 for the whole run.
 for integration testing only.
 
 **Slice 1 (`seal_version` 1): default-deny, per-task git isolation, org tools, key binding, access
-record.** About 19-21 days.
+record, destructive choke points, LLM-log closure.** About 25-27 days.
 
 1. **Model** (1d).
    - Add `spec_task_seals` (no cascade), `SpecTask.SandboxSealed`, `SpecTask.CreatedByKeyID` and
@@ -1447,7 +1692,12 @@ record.** About 19-21 days.
    the share-* vhost (N2); the stream forced read-only; delete `POST /external-agents/{sid}/command`
    and `configure-pending-session`.
 5. **Org-runtime tools** (0.5d, B1). The seal check in `ownedTask` for the 13 per-task tools.
-6. **Per-sealed-task bare repos** (4d, NB1/NB2/SF1/SF2).
+6. **Per-sealed-task bare repos** (5d, NB1/NB2/SF1/SF2, plus round 10 S9-1, the NB2 gap and the
+   nits).
+   - Fail-closed routing; the pending → ready creation order with its reconciler; the explicit
+     `/git/sealed/{T}/{R}` route; the reserved repo id `sealed`; the synthetic repo row with
+     `ExternalURL = ""` and no deploy hook; the repo lock keyed by path; the filestore traversal
+     test.
    - Layout, alternates and creation; `sealedRepoFor` in `getRepoPath`; the `/git/sealed/{T}/{R}`
      fetch URL for K.
    - Base-ref refresh; the sealed-repo hook; post-push handlers taking the sealed path; the specs
@@ -1464,8 +1714,21 @@ record.** About 19-21 days.
      dependent; refuse unreachable SHAs; the v2-by-SHA test.
 8. **PRs** (0.5d, NB3). `propose_pull_request` and `pr-proposals*` DENY for sealed tasks;
    `auto_approve_future` refused; `pr_auto_approve` in the gate-3 deny list.
-9. **Lifecycle guards** (1d, NB5). `409 sealed_task_live` on project delete, repo delete, detach
-   and move; base-side change records; the tombstone written before any sealed-task deletion.
+9. **Lifecycle choke points** (2d, NB5 closed in round 10).
+   - The `sealedTaskLive` check inside `DeleteRepository`, `purgeProject` and `Store.DeleteProject`,
+     with bulk-caller pre-checks (org delete, admin user delete, org-runtime teardown).
+   - The no-bypass AST test.
+   - 409 on detach, move and set-primary; recorded attach.
+   - Tombstone-first deletion.
+9a. **gc, backup and disk** (2d, S9-2, S9-3). Refcount-derived `gc.pruneExpire`; the
+   `MaintainRepo` helper and its AST test; relative alternates; the backup runbook;
+   `receive.maxInputSize` and the per-task quota; bundle-based archive with a TTL; the shared-repo
+   growth alert.
+9b. **LLM call logs and app-owner reads** (1.5d, N9-1). DENY for sealed sessions on
+   `/apps/{id}/llm-calls`, `/admin/llm_calls`, `/apps/{id}/interactions` and `/apps/{id}/step-info`;
+   body-stripped `/sessions/{id}/usage` for K; route-policy rule 7 (query filters).
+9c. **Shared-repo branch readers** (0.5d, S9-4). Skip the six listed sites for sealed tasks, with
+   the orchestrator no-error-loop test.
 10. **Route-policy test and seal-policy** (2d, S2, S3, SF7). `.seal(...)` on every
     `noAuthzHelper` / `handlerAuth` route, every MCP backend and every tool; the extended AST walk;
     `dataCallBeforeHelper` extended to the seal call; the ref/SHA-parameter assertion; hook tests
@@ -1476,11 +1739,16 @@ record.** About 19-21 days.
     `min_cluster_version_since_seal` and `cluster_gap_seen_at`; the `deploy-prod.sh` rollback guard.
 13. **Break-glass** (0.5d), only if the owner adopts it. It is recorded as in §4 either way.
 
-**Slice 2 (`seal_version` 2): portal read option (a), outside git.** About 4-5 days.
+**Slice 2 (`seal_version` 2): portal read option (a), outside git.** About 5-6 days.
 
-14. **Store default exclusion** (2d, SF3). `ListSpecTasks` / `ListSessions` and the artifact list
-    exclude sealed rows unless `IncludeSealedForKeyID` or `withPlatformCaller` is passed. Review the
-    33 call sites for the few that must opt in; batch tasks-progress and tasks-usage are covered.
+14. **GORM default scope** (3d, SF3 closed in round 10).
+    - Add the create-only `sandbox_sealed` column on the listed tables, plus a backfill migration.
+    - Register the query/row/count callback.
+    - Add the `withSealVisibility` / `withPlatformCaller` opt-ins at the gates and at platform entry
+      points.
+    - Add the raw-SQL allowlist test.
+    - Run `UnifiedSearch`, `ListSessionsByOwner`, `ListPromptHistoryBySpecTask` and
+      `ListSpecTaskGitPushEvents` through the scope, with route-level tests.
 15. **Artifact reads** (1d). `sealOfArtifact` on every artifact read path and on the public viewer.
 16. **Kodit service credential** (1-1.5d, NB4). Kodit clones with a service credential, never a
     user key. Sealed repos are never registered with Kodit.
@@ -1499,9 +1767,18 @@ record.** About 19-21 days.
 21. **Provenance for cancel and questions** (0.5-1d). Makes cancel *eligible* for the allow-list
     (§3.6).
 
-**Tests, the probe harness and live verification:** about 5 days, spread across the slices.
+**Tests, the probe harness and live verification:** about 6 days, spread across the slices.
 
-**Total: about 33-36 engineer-days**, up from 24-27.
+**Total: about 41-44 engineer-days**, up from 33-36 in round 9 (slice 1 25-27, slice 2 5-6, slice 3 5, tests 6).
+
+- **The two blockers, about +3 days:** NB5 choke points and AST (+1d over round 9's lifecycle
+  item); LLM logs and the query-filter rule (+1.5d); the S9-4 skip list (+0.5d).
+- **SF3 default scope, about +1 day** over the per-function filter.
+- **S9-1 to S9-3, about +3 days:** routing and creation order (+1d over round 9's bare-repo item),
+  gc/backup/disk (+2d).
+- **Tests:** up from 5 to about 6 days.
+
+Round 9's breakdown follows.
 
 - **Per-sealed-task bare repos: about 4 days.** They also remove round 8's per-task specs ref
   (2 days) and most of its hidden-read work (1.5 days), which are now folded in.
@@ -1757,6 +2034,60 @@ https://github.com/helixml/helix/pull/3625 (merged; in `2007b960c`): prompt-hist
   sealed-lane turn from any of the three composers.
 - **SF7.** The AST assertion fails when a handler with a `ref` / `branch` / `sha` / `commit`
   parameter reaching `GetGitRepository` lacks `sealOfRef`. Verify it by removing one call.
+
+**Round-10 additions:**
+
+- **Blocker 1, NB5 choke points.** With a live sealed task:
+  - `DELETE /organizations/{id}`, admin user delete, the org-runtime teardown and the project-delete
+    cleanup each return `sealed_task_live` / `ErrSealedTaskLive` **before any deletion**. Afterwards
+    the shared repo, project row and sealed repos are untouched, and one `denied` record exists per
+    lane.
+  - The direct choke-point calls (`DeleteRepository`, `purgeProject`, `Store.DeleteProject`) refuse
+    in a unit test.
+  - The no-bypass AST test fails when a new `os.RemoveAll` under the repo root or a direct GORM
+    project delete is added outside the choke points; verify it by adding one.
+  - Detach, move and set-primary return 409. Attach succeeds and is recorded.
+  - After K archives, all of them proceed, and the tombstone has `task_deleted_at`.
+- **Blocker 2, N9-1.**
+  - For a sealed session: `GET /apps/{id}/llm-calls?session=`, `GET /admin/llm_calls?session=`,
+    `GET /apps/{id}/interactions?session=` and `GET /apps/{id}/step-info?interactionId=` return
+    `403 sandbox_sealed` to the app owner and an admin, with a `denied` record.
+  - The same routes without a filter omit the lane's rows.
+  - K's `/sessions/{id}/usage` returns token and cost metadata with no request or response bodies.
+  - The provider-recovery readers still see the rows.
+  - Route-policy rule 7 fails when a handler reading `session` / `interactionId` / `spec_task_id`
+    from the query lacks a seal declaration; verify by removing one.
+- **SF3, default scope.**
+  - With no seal visibility in the context, every store read of the listed tables (Find, First,
+    Count, Row, Pluck, and `UnifiedSearch`'s ILIKE) returns no sealed rows. A table-driven test
+    covers each model.
+  - With `withSealVisibility(K)` they return K's lane only. With `withPlatformCaller` they return
+    everything.
+  - The raw-SQL allowlist test fails on a new `Raw` naming a listed table without
+    `sandbox_sealed`.
+  - `GET /search?q=<sealed task name>` as K's user's browser session finds nothing.
+- **S9-1.**
+  - A `sealedRepoFor` error returns 503, and a missing sealed path returns 503, with **no** fallback.
+  - The lane's own key on `/git/{R}` gets 403 before any git process starts.
+  - A forged `/git/sealed/{T'}/{R}` returns 404 to K.
+  - A crash between `pending` and `ready` is reconciled, and the desktop doesn't start meanwhile.
+- **S9-2.**
+  - The refcount drives `gc.pruneExpire` 0 → 1 → 0 under the lock. The startup reconciler fixes a
+    mismatch.
+  - `MaintainRepo` refuses prune / `repack -a -d` on a repo with a sealed dependent.
+  - Relative alternates resolve.
+  - A filesystem-snapshot restore of `git-repositories/` keeps sealed repos fsck-clean.
+- **S9-3.**
+  - A push over `receive.maxInputSize` or over quota is refused with `reason: quota`.
+  - The archive produces a `base..work` bundle that verifies against the shared repo.
+  - The TTL removes old bundles but keeps the seal row and events.
+  - The growth alert fires on a synthetic shared-repo growth.
+- **S9-4.** The orchestrator over a sealed task for N ticks: the six sites log one skip each and
+  raise no error. The git read API with `ref=helix-sealed/T/work` returns not-found, for K too.
+- **Nits.**
+  - Creating a repo with id `sealed` is refused.
+  - The sealed push lock is independent of the shared repo's.
+  - `/filestore/*` cannot reach `git-repositories/sealed/` (traversal and symlink cases).
 
 **Live, in the inner Helix** (mandatory, because this changes the agent-channel lifecycle):
 
