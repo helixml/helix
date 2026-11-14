@@ -255,6 +255,7 @@ func (s *SessionMessagesHandlerSuite) TestDesignReviewCommentByKeyIsSentInTheKey
 
 	task := &types.SpecTask{ID: "spt_1", ProjectID: "prj_1", CreatedBy: key.ID}
 	s.store.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), task.ProjectID).Return(&types.Project{ID: task.ProjectID, UserID: key.ID}, nil)
 	var stored *types.SpecTaskDesignReviewComment
 	s.store.EXPECT().CreateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
@@ -262,7 +263,8 @@ func (s *SessionMessagesHandlerSuite) TestDesignReviewCommentByKeyIsSentInTheKey
 			stored = c
 			return nil
 		})
-	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "rev_1").Return(nil, store.ErrNotFound)
+	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "rev_1").
+		Return(&types.SpecTaskDesignReview{ID: "rev_1", SpecTaskID: task.ID, Status: types.SpecTaskDesignReviewStatusInReview}, nil)
 
 	body := `{"document_type":"requirements","comment_text":"tighten scope","comment_type":"general",
 		"provenance":{"origin":"system","system_kind":"design_review_comment"}}`
