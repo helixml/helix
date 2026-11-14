@@ -5,13 +5,43 @@ Issue: https://github.com/helixml/helix/issues/3622. Builds on https://github.co
 
 Status: design only, nothing implemented. PR: https://github.com/helixml/helix/pull/3624.
 
-**Pinned to `origin/main` at `44a97b4f2`** (round 8, N4). Every file cited by earlier rounds is
-byte-identical between `d3e922636` and `44a97b4f2`: the only API files that changed are the
-chat-completion error files, and none of them are cited here. So the earlier line numbers hold, and
-every new round-8 citation was taken at `44a97b4f2`. Re-pin again before implementation starts.
+**Pinned to `origin/main` at `2007b960c`** (round 9). Between `44a97b4f2` and `2007b960c` only
+https://github.com/helixml/helix/pull/3625 touched cited files: `authz.go`,
+`prompt_history_handlers.go` and `spec_task_design_review_handlers.go`. Those citations were
+re-pinned, and every round-9 citation was taken at `2007b960c`. All other files cited by earlier
+rounds are byte-identical, so their line numbers hold. Re-pin again before implementation starts.
 
 Paths are relative to `api/pkg/server/` unless they say otherwise. A † marks a reference that came
 from a delegated code search and was not re-read line by line.
+
+## Round 9 changes (cyber delta review of `1fe263bf`)
+
+The verdict was five new blockers. The structural answer to NB1 is a **per-sealed-task bare
+repository with one-way alternates** (§3.11). It also closes NB2, SF1 and SF2. The interim minimum
+stays in slice 1 as defence in depth.
+
+| finding | answer | section |
+|---|---|---|
+| **NB1** protocol v2 serves sealed commits by SHA; the shared object store lets anyone ref a sealed SHA | The sealed lane's objects never enter the shared repo. Each sealed task gets its own bare repo per repo, with `objects/info/alternates` pointing **one way** at the shared repo. `getRepoPath` routes SELF to it, and K to a separate fetch URL. **Interim, kept in slice 1:** force protocol v0 for non-K/non-SELF fetches on repos with a sealed dependent, refuse unreachable SHAs, and a v2-by-SHA test. | §3.11, §3.10, §7 |
+| **NB2** user and platform push/pull paths bypass `sealOfRef`; `ExternalURL` can exfiltrate | Every `/push`, `/pull`, `/push-pull` call and every platform pusher addresses the shared repo by id, so it cannot see sealed refs, and a sealed repo has no upstream. Defence in depth: guards in `PushBranchToRemote`, `PushToOrigin`, `PushToHelixBare`, `PullFromRemote`, `SyncAllBranches`, `CreatePullRequest` and merge; negative fetch refspecs; an env-independent hook. | §3.11, §3.10 |
+| **NB3** the lane opens PRs itself through auto-approved proposals | Sealed create forces `AutoApprovePullRequests = false`. `auto_approve_future` is refused. `propose_pull_request` and `pr-proposals*` are DENY for sealed tasks. `pr_auto_approve` is on the gate-3 deny list. The lane's git key can only reach its sealed repos. | §3.1, §3.10, §1e, §3.3 |
+| **NB4** Kodit clones with the creator's personal key, which can be K | K is a dedicated `APIkeytypeSealing` key, excluded from `isPersonalAPIKey`, from `getOrCreateUserAPIKey` and from the no-`types` `GET /api_keys` branch. Kodit moves to a service credential. Sealed repos are never registered with Kodit, and the Kodit read routes are listed. | §3.7, §3.10 |
+| **NB5** project and repo lifecycle acts on sealed lanes with no record | `409 sealed_task_live` on project delete, repo delete, detach and move. If org-owner stop is adopted, it is recorded as `org_owner_stop`. The tombstone is written before any sealed-task deletion. | §3.12 |
+| **SF1** one reserved prefix | `refs/heads/helix-sealed/<task>/…` for the feature branch and the specs. It is refused in the shared repo for everyone, regardless of env; negative refspecs; `helix-specs-sealed` refused. | §3.10, §3.11 |
+| **SF2** `GitRepository.Branches` leaks sealed names | Structurally gone: the sealed repo has no `GitRepository` row. A defensive prefix filter is added as well. | §3.11, §3.10 |
+| **SF3** the listing filter is opt-in per handler | Sealed rows are excluded by default in the store; `IncludeSealedForKeyID` / `withPlatformCaller` opt in. This covers all 33 call sites, including tasks-progress and tasks-usage. | §3.10 |
+| **SF4** check before the upstream sync | Receive-pack commands are parsed in Go and checked before any `SyncAllBranches`; the hook is the second layer. This also makes the S3 dry run side-effect-free. | §3.11 |
+| **SF5** version during the run | `cluster_min_seal_version`, plus `min_cluster_version_since_seal` and `cluster_gap_seen_at` on the seal row; a deploy-tool rollback guard; the mixed-old-replica limitation stated. | §3.8 |
+| **SF6** three guideline composers | One `guidelinesFor(task)`, with an AST test that guidelines are read nowhere else. | §3.4 |
+| **SF7** ref/SHA parameters | An AST assertion: any `ref` / `branch` / `sha` / `commit` parameter reaching `GetGitRepository` must go through `sealOfRef`. | §3.3 |
+| **Prior: B1 count** | 13 per-task tools, plus `List` and `Create`. | §3.9 |
+| **Prior: S1 hook layer** | Env-independent hook rules, tested with an empty env. | §3.3, §3.11 |
+| **Prior: S3 dry run** | Fixed by SF4. | §3.11 |
+| **Prior: S4 no-types branch** | The sealing key type is excluded. | §3.7 |
+| **Prior: S6 precedence** | Broken-seal recording wins over the unsealed non-read rule. | §4 |
+| **Prior: S8 other composers** | SF6. | §3.4 |
+| **Nit: clone preconditions** | Every create precondition applies to a sealing clone. | §3.7 |
+| **Nit: re-pin** | `2007b960c` (see above). | header |
 
 ## Round 8 changes (cyber review of #3624)
 
@@ -20,7 +50,7 @@ section that answers it.
 
 | finding | answer | section |
 |---|---|---|
-| **B1** The org-runtime spec-task tools (`helix-tasks` MCP, helix-org bots) bypass all three gates | Seal check inside `SpecTasks.ownedTask` (`org/infrastructure/runtime/helix/spectasks.go:188`), which all 12 per-task tools call. Sealed tasks are filtered out of `List` (`:314`). Each refusal is recorded with route `mcp:<server>:<tool>`, listed in seal-policy, and tested per tool. | §3.9, §1e, §7 |
+| **B1** The org-runtime spec-task tools (`helix-tasks` MCP, helix-org bots) bypass all three gates | Seal check inside `SpecTasks.ownedTask` (`org/infrastructure/runtime/helix/spectasks.go:188`), which all 13 per-task tools call (plus `List` and `Create`, 15 in all). Sealed tasks are filtered out of `List` (`:314`). Each refusal is recorded with route `mcp:<server>:<tool>`, listed in seal-policy, and tested per tool. | §3.9, §1e, §7 |
 | **B2** Lane state addressed by repo, PR or artifact is ungated | A fourth gate: `sealOfRef(repo, ref)` and `sealOfArtifact(artifact)`, called from the git pre-receive hook, upload-pack and info-refs, `/contents`, PR merge and PATCH on both APIs, the git read API, and artifact reads and writes. Git write protection moves to slice 1. | §3.10, §5 |
 | **B2 portal decision: option (a)** | Only K and the lane's own agent may read a sealed lane. Sealed tasks and sessions are filtered from listings for everyone but K. Sealed refs are hidden from upload-pack. The lane's specs go to a per-task ref; upstream mirroring and PRs are withheld. K gets an explicit read set. | §3.5, §3.10 |
 | **S1** "No route in ctx" fails open | Platform callers are marked explicitly with `withPlatformCaller(ctx)`. A request with `user != nil` and no route key is denied (`reason: no_route`). | §3.3 step 3 |
@@ -34,7 +64,7 @@ section that answers it.
 | **N1** Clone contradicts default-deny | The sentence is dropped. Cloning a sealed task is denied; the portal creates a fresh sealed task instead. | §3.1 |
 | **N2** The share-* vhost bypasses the helpers | Seal check in `dispatchSandboxPreview` (`vhost_middleware.go:195`). | §3.3 gate 2 |
 | **N3** Hand-written allow-list keys | The keys are generated from the router; the code refers to them by handler, not by template string. | §3.3 |
-| **N4** Re-pin | Done at `44a97b4f2` (see above). | header |
+| **N4** Re-pin | Done at `44a97b4f2`; superseded by the round-9 re-pin to `2007b960c`. | header |
 | **N5** Dedupe | Denied rows and K's rows are never deduplicated. | §4 |
 | **N6** Broken-flag caching | The broken flag is read uncached, and a failed read denies on every replica. | §3.3 step 2, §4 |
 | **Cyber requirement:** owner-stop and break-glass records | If the owner adopts either, they are recorded as `outcome: allowed` with `actor_class` `org_owner_stop` / `admin_break_glass`, which is distinct from `sealing_key`. Break-glass sets `seal_broken_at`. | §4 |
@@ -80,11 +110,11 @@ the verifier must not claim more than that.
    personal key, a key an admin mints for them (`/admin/users/{id}/api-keys`†), and the session's
    own key. The session key is minted with `Owner = session.Owner`
    (`services/spec_driven_task_service.go:2076`), so it authenticates *as* the creator.
-2. **Any org owner** (`authz.go:618`).
+2. **Any org owner** (`authz.go:623`).
 3. **Any platform admin.** `AuthorizeOrgMember` returns a synthetic owner membership for
    `user.Admin` (`store/orgstore/authz.go:101-106`).
 4. **Project members with the requested action.** When the project has `OrgMembersAccess`,
-   `ActionUpdate` is downgraded to project `ActionGet` (`authz.go:631-633`), so **every org member**
+   `ActionUpdate` is downgraded to project `ActionGet` (`authz.go:642-644`), so **every org member**
    passes.
 5. **The unconfined session key of any sandbox in the same project.** `enforceKeySessionScope`
    (`authz.go:204-231`) admits it, so sibling task sandboxes pass. A task-confined key reaches only
@@ -139,12 +169,12 @@ Every refusal and every allowed call on a sealed task writes an access record (�
 
 | route | handler | effect | authz | who passes | provenance? | seal |
 |---|---|---|---|---|---|---|
-| `POST /sessions/{id}/messages` | `session_handlers.go:2717` | Turn through the prompt queue (`enqueueAgentMessage`). | S(U) | S(U) set | **y** (`prompt_history_handlers.go:589`) | DENY (candidate: provenance-recorded turn; owner decision) |
+| `POST /sessions/{id}/messages` | `session_handlers.go:2717` | Turn through the prompt queue (`enqueueAgentMessage`). | S(U) | S(U) set | **y** (`prompt_history_handlers.go:603`) | DENY (candidate: provenance-recorded turn; owner decision) |
 | `POST /sessions/chat` (existing session) | `session_handlers.go:644` (S(U) at `:894`) | Turn through `RunExternalAgent`, **bypassing the queue**. | S(U) | S(U) set | y (`:1416`, `:1470`†) | DENY (candidate: provenance-recorded turn; owner decision) |
-| `POST /prompt-history/sync` | `prompt_history_handlers.go:71` | Durable prompt queue. Rows are delivered and the desktop is woken. | `authorizeUserToPromptQueue` — **ActionGet** for the scope's own session (`:436`, `:446`, `:471`). Fix in progress in a separate PR. | S(G) set | y | DENY (candidate: provenance-recorded turn; owner decision) |
+| `POST /prompt-history/sync` | `prompt_history_handlers.go:71` | Durable prompt queue. Rows are delivered and the desktop is woken. | `authorizeUserToPromptQueue` (`:429`), now `ActionUpdate` whenever entries are queued (`:92-96`). The `ActionGet` gap was fixed in https://github.com/helixml/helix/pull/3625. | S(U) set | y | DENY (candidate: provenance-recorded turn; owner decision) |
 | `POST /interactions/{iid}/questions/{rid}/respond` | `interaction_question_handlers.go:31` | Sends **caller-chosen answers** to the agent. | S(U) `:127` | S(U) set | **n** (`ResolvedQuestion` has no actor, `types/agent_question.go:29`) | DENY |
 | `POST /interactions/{iid}/questions/{rid}/cancel` | `interaction_question_handlers.go:76` | Fixed-form `cancel_question`; no caller content. | S(U) | S(U) set | n | DENY (candidate once the actor is recorded, §3.6) |
-| `POST /sessions/{id}/cancel` | `session_handlers.go:2600` → `prompt_history_handlers.go:702` | Fixed-form cancel of the current turn. | S(U) | S(U) set | n | DENY (candidate once the actor is recorded, §3.6) |
+| `POST /sessions/{id}/cancel` | `session_handlers.go:2600` → `prompt_history_handlers.go:716` | Fixed-form cancel of the current turn. | S(U) | S(U) set | n | DENY (candidate once the actor is recorded, §3.6) |
 | `POST /sessions/{id}/clear` | `session_clear.go:185` | Cancels and closes the Zed thread, losing agent context. | S(U) | S(U) set | n | DENY |
 | `POST /sessions/{id}/restart-agent` | `session_handlers.go:2873` | Restarts the container; may reset the thread. | S(U) | S(U) set | n | DENY |
 | `POST /sessions/{id}/resume`, `/ensure-agent` | `session_handlers.go:2363`, `:3619` | Starts the container. | S(U) | S(U) set | n | DENY (platform internals may still start it) |
@@ -185,12 +215,12 @@ family regardless, because org owners and admins pass any membership check.
 
 | route | handler | effect | authz | provenance? | seal |
 |---|---|---|---|---|---|
-| `POST /spec-tasks/from-prompt`, `/clone`, the helix-org `create_spectask` tool, the PM skill | `spec_driven_task_handlers.go`, `spec_task_clone_handlers.go:33` | Creates the task. | project/task create; `denyTaskCreationToConfinedKey` | y | only from-prompt (and `/clone` of an unsealed source) can set the seal, with a personal or org API key that becomes K (§3.7); `create_spectask` and the PM skill cannot. `/clone` of a **sealed** source is DENY (N1, §3.1). |
+| `POST /spec-tasks/from-prompt`, `/clone`, the helix-org `create_spectask` tool, the PM skill | `spec_driven_task_handlers.go`, `spec_task_clone_handlers.go:33` | Creates the task. | project/task create; `denyTaskCreationToConfinedKey` | y | only from-prompt (and `/clone` of an unsealed source) can set the seal, with a dedicated `sealing` API key that becomes K (§3.7); `create_spectask` and the PM skill cannot. `/clone` of a **sealed** source is DENY (N1, §3.1). |
 | `PUT /spec-tasks/{id}` | `spec_driven_task_handlers.go:1384`† | `status` drives the orchestrator (approve, start implementation), and the resulting prompt is attributed to the old `QueuedBy`†. `backlog` and `keep_alive=false` stop the desktop. **`agent_tools` hot-applies** through the MCP rev (`external-agent/zed_config.go:405-411`†). | T(U) | status path **n** (misattributed) | DENY (every field; `sandbox_sealed` immutable) |
 | `PATCH /spec-tasks/{id}/execution-config`, `/interactive-embed-model` | `spec_task_execution_config_handlers.go:73`†, `spec_task_interactive_embed_model_handlers.go:54`† | Hot-switches agent, model or provider; live resource change. | T(U) | y | **DENY** (§3.4) |
 | `POST /start-planning`, `/approve-specs`, `/approve-implementation`, `/pr-proposals/{p}/decide`, `/completion/decide` | `spec_driven_task_handlers.go:1209`†, `:699`†; `spec_task_workflow_handlers.go:30`†; `spec_task_pr_proposal_handlers.go:56`†, `:154`† | Workflow decisions that send templated system turns. | T(U) / project(U); agent keys refused except on approve-specs (gap noted in §6) | y | DENY (a sealed task must need no human decisions, §3.1) |
-| design reviews: `/submit`, `/comments` POST, `/comments/{c}/resolve` | `spec_task_design_review_handlers.go:511`, `:722`, `:890` | `revision_requested` / `design_review_comment` turns, which interrupt the agent. | "task creator always has access" skips authz (`:539`, `:745`). Fix in progress in a separate PR. | y (`:767`†) | DENY |
-| design review `/document` PUT | `spec_task_design_review_handlers.go:318`† | Commits to helix-specs, **which the agent reads**. No turn. | T(U) | n | DENY |
+| design reviews: `/submit`, `/comments` POST, `/comments/{c}/resolve` | `spec_task_design_review_handlers.go:490`, `:696`, `:866` | `revision_requested` / `design_review_comment` turns, which interrupt the agent. | T(U) at `:517`, `:718`, `:883`. The creator shortcut was removed in https://github.com/helixml/helix/pull/3625. | y (commenter provenance `:728`, `:742`) | DENY |
+| design review `/document` PUT | `spec_task_design_review_handlers.go:310` (T(U) `:333`) | Commits to helix-specs, **which the agent reads**. No turn. | T(U) | n | DENY |
 | `POST /spec-tasks/{id}/attachments` | `spec_task_attachments_handlers.go:324`† | Commits a file into the repo and sends an `attachment_added` turn. | T(U) | y | DENY after creation |
 | `POST /refresh-pull-request` | `spec_task_pull_request_refresh_handler.go:25`† | Forces a PR poll, which can trigger `pr_settled` / `ci_status` turns. | **T(Get)** | partial | DENY (the PR and CI pollers still run as platform internals) |
 | `POST /stop-agent`, `PATCH /archive`, `DELETE` | `spec_task_workflow_handlers.go:951`†; `spec_driven_task_handlers.go:1728`†, `:1648`† | Stop the desktop; delete. | T(U) | n | **K: stop** (`/stop-agent`), **K: archive and delete** (archive is the delete precondition†) |
@@ -200,11 +230,11 @@ family regardless, because org owners and admins pass any membership check.
 
 | path | where | effect | who passes | provenance? | seal |
 |---|---|---|---|---|---|
-| git push to the task branch | `services` `GitHTTPServer` `handleReceivePack` (`git_http_server.go:637`); post-push hook `:1260` | Silently changes the branch the agent works on and pulls. Branch limits apply only to agent keys. | anyone with repo write | n | SELF for the task's branch and its per-task specs ref (gate 4, §3.10) |
+| git push to the task branch | `services` `GitHTTPServer` `handleReceivePack` (`git_http_server.go:637`); post-push hook `:1260` | Silently changes the branch the agent works on and pulls. Branch limits apply only to agent keys. | anyone with repo write | n | SELF, in the lane's own sealed repo; the shared repo refuses `refs/heads/helix-sealed/*` to everyone (§3.11) |
 | `PUT /git/repositories/{id}/contents` | `git_repository_handlers.go:1172`† | Commits through the API. | repo(U) | n | same branch rule |
 | `POST /pulls/{n}/request-rebase` | `git_pull_request_handlers.go:443`† | `rebase_required` turn. Has **no task-scope check** (a confined key can target another lane). | repo(U) | y | DENY (refused at the turn sink, §3.3) |
 | `POST /pulls/{n}/merge`, GitHub review webhook | `:404`†; `spec_task_github_review_webhook.go:178`† | Merge; `pr_settled` / `review_comment` turns. | repo(U) / HMAC | partial (no `triggered_by`) | merge of the sealed task's PR: DENY. Webhook `review_comment` turns are dropped at the turn sink and recorded as `denied`. Poller `pr_settled` / `ci_status` turns: platform |
-| MCP `session` backend agent-only tools: `propose_pull_request`, `mark_task_complete`, `task_completed` | `mcp_backend_session.go:215`, `:339`† | Acts **as the agent**. | `session.Owner == user.ID` plus key scope, so the creator's personal key passes | n | SELF |
+| MCP `session` backend agent-only tools: `propose_pull_request`, `mark_task_complete`, `task_completed` | `mcp_backend_session.go:215`, `:339`†; auto-approved opening `:249-258` | Acts **as the agent**. With auto-approval, `propose_pull_request` pushes upstream and opens a PR (`services/spec_task_pr_proposals.go:552`, `:561`) from a head branch the agent picks. | `session.Owner == user.ID` plus key scope, so the creator's personal key passes | n | `mark_task_complete`, `task_completed`: SELF. `propose_pull_request`: **DENY** for sealed tasks, even for SELF (NB3, §3.10) |
 | **Org-runtime spec-task tools (B1)**: the `helix-tasks` MCP and helix-org bot tools `Get`, `List`, `ListAgentMessages` (reads interactions), `Update`, `StartPlanning`, `SendAgentMessage`, `StartAgent`, `StopAgent`, `Complete`, `RestartAgent`, `ReviewSpec`, `ApproveSpec`, `RequestChanges`, `CreatePullRequests` | `org/infrastructure/runtime/helix/spectasks.go`: `ownedTask` `:188` checks only `task.ProjectID == projectID`; it is called at `:341`, `:353`, `:407`, `:431`, `:459`, `:508`, `:530`, `:545`, `:563`, `:588`, `:609`, `:643`, `:675`. `List` `:314` does not call it. Backend `mcp_backend_spectask.go:58` (refuses confined keys at `:69`); tool catalogue `org/interfaces/mcptools/defaults.go:180`. | Read, steer, stop, restart, complete and approve **another** task in the same project. The one HTTP route `/api/v1/mcp/{server}` (`server.go:1876`) has no object helper. | any **unconfined** session key in the project (sibling lanes), and org bots | `SendAgentMessage` only | **DENY** in `ownedTask`; `List` filters sealed tasks out (§3.9) |
 | **Repo- and PR-addressed lane state (B2)**: `git-receive-pack` / `git-upload-pack` / info-refs; `PUT /git/repositories/{id}/contents`; the git read API (`/tree`, `/contents` GET, `/file-content`, `/files`, `/grep`, `/commits`, `/branches`); PR `PATCH`, `merge` | `services/git_http_server.go:637` (pre-receive env `HELIX_ALLOWED_BRANCHES` set around `:746-751`), `:531`, `:457`; `git_repository_handlers.go:1172`; `server.go:1817-1842`; `git_pull_request_handlers.go:365`, `:404` | Write or read the lane's branch and specs; merge or retarget its PR. | repo readers / writers | n | **sealOfRef** (§3.10): writes SELF-only; reads K and SELF only |
 | **GitHub-compatible API (B2)** at `/api/github/api/v3` (`github_compat.go:36`) | `github_compat.go:42` (create PR), `:44` → `:376` (edit), `:47` → `:452` (merge), `:45` / `:46` (files, comments) | Same as above, through the go-github code path. | repo readers / writers | n | **sealOfRef** (§3.10) |
@@ -320,6 +350,7 @@ a tombstone (§4, S6), and keeping it separate keeps the "omit from updates" rul
 | `sealed_by_key_id`, `sealed_by_user_id`, `sealed_at` | K's non-secret `key_…` id (`types.APIKeyID`, `types/api_key_summary.go:40`) |
 | `sealed_config` jsonb | §3.4 |
 | `seal_version` | the seal contract this task was created under (§3.8) |
+| `min_cluster_version_since_seal`, `cluster_gap_seen_at` | SF5, written by the replica heartbeat (§3.8) |
 | `broken_at`, `broken_by`, `broken_reason` | break-glass only (§4) |
 | `task_deleted_at`, `task_deleted_by_key_id` | written by the delete path; the tombstone |
 
@@ -345,8 +376,13 @@ unsealed control (§3.7).
   the store never updates `spec_task_seals` except for the write-once break and tombstone columns.
 - `sandbox_sealed` implies `confine_agent_key`. The create forces confinement on, and returns 400 if
   the caller explicitly sent `confine_agent_key: false`.
-- **The caller must be an API key**, so that K is one credential. A browser session, a runner
-  token, or a session/project/task-scoped key gets 400.
+- **The caller must be a `sealing` key** (`APIkeytypeSealing`, §3.7), so that K is one credential
+  that never doubles as a personal key. A browser session, a runner token, an ordinary personal or
+  org key, or a session/project/task-scoped key gets 400.
+- **`AutoApprovePullRequests` is forced to `false`** (NB3, §3.10), and `auto_approve_future` is
+  refused for the task's lifetime.
+- **The sealed repos are created in the same transaction** (§3.11), with the lane's refs under
+  `refs/heads/helix-sealed/<task_id>/`.
 - **The task must need no human decision.**
   - The create requires `just_do_it_mode: true` (`types/simple_spec_task.go:467`).
   - Under option (a) the lane may never open a PR or merge (§3.10), so its completion path is
@@ -549,7 +585,7 @@ turn's **provenance** (#3613), which every turn already carries:
 | `system` with a kind Helix composes itself, with no caller text: `planning_prompt`, `implementation_prompt`, `pr_settled`, `push_required`, `completion_sent_back` when auto-approved. Templates that embed guidelines use the **frozen** guidelines from `sealed_config` (S8, §3.4). | allowed |
 | `ci_status` **in its status-only form for sealed lanes**: check names, conclusions, and the URL. CI log text or failure excerpts would be caller-supplied (whoever controls the CI job controls the text), so sealed lanes get the status-only form (S8). | allowed |
 | `ci_status` carrying log or annotation text | denied |
-| `system` with a kind that relays caller-supplied text or decisions (`design_review_comment`, `revision_requested`, `review_comment`, `attachment_added`, `rebase_required`, `pr_proposal_outcome`, `org_bot_*`, `cron_trigger`, chat-channel kinds) | denied |
+| `system` with a kind that relays caller-supplied text or decisions (`design_review_comment`, `revision_requested`, `review_comment`, `attachment_added`, `rebase_required`, `pr_proposal_outcome`, `pr_auto_approve` (NB3), `org_bot_*`, `cron_trigger`, chat-channel kinds) | denied |
 | `user`, or `api` with an `api_key_id` other than the session's own key | denied |
 | `api` with the session's own key | allowed |
 
@@ -585,6 +621,15 @@ are:
    explicit `sealCheck(...)` / `sealOfRef(...)` / `sealOfArtifact(...)` call. The AST test asserts
    it. `dataCallBeforeHelper` (`route_auth_policy_test.go:1008`) is extended to treat the seal call
    as a helper, so no store write, dial or command send may come before it (S3).
+5. **Ref and SHA parameters (SF7).** Any route with a path or query parameter named `ref`, `branch`,
+   `sha`, `commit`, `base`, `head` or `source_branch`, whose handler reaches `GetGitRepository`, must
+   call `sealOfRef` on that parameter before its first git or store data call. The AST test finds
+   the parameter names in the route template and in `r.URL.Query().Get(...)` / `mux.Vars` reads.
+6. **The git hook layer (round-8 S1 follow-up).** The pre-receive hook in
+   `services/gitea_git_helpers.go` (allow-all when `HELIX_ALLOWED_BRANCHES` is unset, `:442-455`)
+   gains two env-independent rules: the shared repo refuses `refs/heads/helix-sealed/*` to every
+   pusher, and a sealed repo refuses everything unless `HELIX_SEAL_SELF_TASK` matches (§3.11). A
+   hook test runs both with an **empty** environment, the way internal pushes run.
 
 The test fails if:
 
@@ -631,12 +676,23 @@ There are two kinds of config a running sealed sandbox can receive.
   - the provider endpoint **base URL and id**. The API key stays by reference so it can rotate.
   - SHA-256 hashes of the project secret set (names and value hashes), `.helix/startup.sh` at the
     base commit, and the skills ref.
-  - **The guidelines text (S8).** Today it is composed live by `services/agent_instruction_service.go`.
-    Org guidelines are read at `:731` (user guidelines `:738`, project guidelines appended at
-    `:742-747`), and an org owner or admin can edit them mid-run. In PTaaS the guidelines carry the
-    rules of engagement. For a sealed task the composer reads the frozen copy from
-    `sealed_config.guidelines`, so every Helix-composed turn (planning, implementation,
-    push-required) carries the RoE that held at creation.
+  - **The guidelines text (S8, SF6).** In PTaaS the guidelines carry the rules of engagement, and
+    an org owner or admin can edit them mid-run. Today they are composed live in **three** places:
+    - `services/agent_instruction_service.go:716` (`getGuidelinesForTask`; org `:731`, user `:738`,
+      project `:742-747`);
+    - `services/spec_driven_task_service.go:505-514`;
+    - `services/spec_driven_task_service.go:871-880`.
+
+    They are rendered by `services/spec_task_prompts.go` (the `Guidelines` field `:16`, template
+    `:55`, set at `:344`; `BuildApprovalInstructionPrompt` takes them as a parameter at `:493`).
+    Round 9 routes all three through one `guidelinesFor(ctx, task)`:
+    - for a sealed task it returns `sealed_config.guidelines`;
+    - otherwise it composes org/user plus project as today.
+
+    An AST test asserts that `Organization.Guidelines`, `Project.Guidelines` and
+    `UserMeta.Guidelines` are read **only** inside `guidelinesFor` in package `services`. So a
+    fourth composer can't appear unnoticed, and every Helix-composed turn on a sealed lane carries
+    the RoE that held at creation.
 - `getZedConfig` (and every container start, which on a sealed task is platform-initiated only) build from `SealedConfig` when the
   task is sealed. Tokens and URLs are still rendered per request, so the session key and OAuth
   tokens rotate normally, but the *set* of MCP servers, their commands and URLs, the model and the
@@ -672,8 +728,8 @@ execution-config routes reporting success on no-ops. Refuse-only cannot stop pro
   - desktop, read-only: `/external-agents/{sid}/screenshot`, `/file`, the workspace-review and
     workspace-file GET routes, and `/ws/stream` with `X-Helix-Readonly` forced. `/ws/input`,
     clipboard and terminal are **not** in the set.
-  - git (gate 4): upload-pack and info-refs including the sealed refs, and the git read API on the
-    sealed refs (§3.10);
+  - git: fetch (upload-pack and info-refs) from the lane's sealed repos through
+    `/git/sealed/{T}/{repoID}` (§3.11). The shared repo holds nothing of the lane.
   - artifacts (gate 4): `GET /artifacts/{id}`, `/versions`, `/download`, `/embed*`, `/document`, for
     the lane's artifacts;
   - listings: the sealed task and its sessions appear in K's own `GET /spec-tasks`,
@@ -731,7 +787,7 @@ chooses. Platform internals (TTL, credit exhaustion, reapers) still stop and des
 content-free, which matches the reviewer's position.
 
 - **Turn cancel** (`POST /sessions/{id}/cancel`, `session_handlers.go:2600` →
-  `cancelActiveTurn` at `prompt_history_handlers.go:702`):
+  `cancelActiveTurn` at `prompt_history_handlers.go:716`):
   - It sends a fixed, server-built cancel for the current request id and carries no caller content.
   - It qualifies once it records `cancelled_by` (a `TurnProvenance`) on the interaction it ended.
   - Cancelling at a strategic moment changes an outcome. An unrecorded cancel cannot be told apart
@@ -757,11 +813,15 @@ K is the API key that created the sealed task. Its non-secret id is stored in
   - The response **echoes** `sandbox_sealed: true`, `sealed_at`, `sealed_by_key_id` (K's own `key_…`
     id, never a secret) and `seal_version`.
   - If the echo is missing, the portal must treat the lane as unsealed and delete it (§3.8).
+- **Clone preconditions (nit).** Cloning an unsealed task with `sandbox_sealed: true` applies
+  **every** create precondition: a `sealing`-key caller, `just_do_it_mode`, atomic `sealed_config`
+  and sealed repos, the cluster gate (§3.8), and forced `AutoApprovePullRequests = false`.
 - **Read back:** `GET /spec-tasks/{taskId}/seal` (new; allow-listed for K) returns:
 
   ```
   {spec_task_id, sandbox_sealed, seal_version, sealed_at, sealed_by_key_id, confine_agent_key,
-   seal_broken_at, seal_broken_by, seal_broken_reason, task_deleted_at, blocked_attempts}
+   seal_broken_at, seal_broken_by, seal_broken_reason, task_deleted_at, blocked_attempts,
+   min_cluster_version_since_seal, cluster_gap_seen_at}
   ```
 
   - On an **unsealed** task the same route answers anyone with normal read authz, with
@@ -783,10 +843,21 @@ any unscoped credential of the owner (`handlers.go:1296`); redaction happens onl
 `redactAPIKeysForScopedCaller` (`handlers.go:1247`). So K's user, by browser, another personal key,
 or an admin-minted key for that user, could read K and act as K. Five rules close that:
 
-1. **A sealing key becomes non-listable.**
-   - The first time a key seals a task, it is marked `api_keys.sealing = true`.
-   - From then on `GET /api_keys` returns only its prefix, for **every** caller, unscoped ones
-     included. It is never shown again; the portal must keep its own copy.
+1. **K is a dedicated key type, minted for sealing (NB4).**
+   - New `APIkeytypeSealing`, minted by `POST /api_keys?type=sealing`. The plaintext is returned
+     **once**, in the mint response. From then on `GET /api_keys` shows only its prefix, to every
+     caller, unscoped ones included.
+   - `isPersonalAPIKey` (`handlers.go:1277`) returns false for it. So the no-`types` branch of
+     `GET /api_keys` (`handlers.go:1311-1320`), which returns the caller's latest personal key,
+     never returns K (S4).
+   - The same holds for `getOrCreateUserAPIKey`, which hands a user's personal key to Kodit at repo
+     create (`git_repository_handlers.go:136`, `:367`) and re-register (`kodit_handlers.go:476`).
+     So K's plaintext can never reach Kodit.
+   - Only a `sealing` key can seal. An ordinary personal or org key gets 400.
+   - **Kodit uses a service credential** instead of a user's personal key, so no user key (K or any
+     other) is ever stored in Kodit. Until that lands, the create path refuses to seal if K's id
+     appears in any Kodit registration. By construction it cannot, because K was minted only for
+     sealing.
 2. **Revoking a live sealing key is refused.** `DELETE /api_keys` (`controller/handlers.go:75`)
    returns 409 `sealing_key_in_use` while any task sealed by that key is not archived or deleted.
    - **Recovery when K is lost anyway** (user deleted, key purged by an operator): the lane is
@@ -862,7 +933,7 @@ plain `json.Decoder` and no `DisallowUnknownFields` (`spec_driven_task_handlers.
 drops `sandbox_sealed` and creates an **unsealed** lane. On that build `GET /seal` returns 404, the
 same as a missing task. During a rolling deploy, old replicas enforce nothing.
 
-**Four rules:**
+**Five rules:**
 
 1. **Capability discovery.** `GET /api/v1/seal-policy` returns `seal_version` (starting at `1`; it
    increments when the allow-list contract changes). **A 404 means the build does not support
@@ -881,6 +952,23 @@ same as a missing task. During a rolling deploy, old replicas enforce nothing.
 4. **Fail closed on unknown seal versions.** A replica that reads a `spec_task_seals` row with a
    `seal_version` higher than it understands denies every non-platform caller on that task, with
    `reason: seal_version_unknown`.
+5. **Version during the run, not just at create (SF5).** `seal_version` ≥ 3 at create time says
+   nothing about a later rollback. A v1 or v2 replica would serve live config and turns, and a
+   pre-seal build ignores the seal entirely.
+   - `GET /api/v1/seal-policy` reports `cluster_min_seal_version`: the minimum over replicas seen in
+     the last 2 minutes.
+   - The heartbeat writer, every 30s, sets `spec_task_seals.min_cluster_version_since_seal =
+     min(current value, cluster_min_seal_version)` on every live sealed task. `GET /seal` returns
+     it. A heartbeat gap longer than 2 minutes sets `cluster_gap_seen_at`.
+   - **Cyber's rule:** any value below 3 during a run, or any `cluster_gap_seen_at`, marks the lane's
+     evidence as tainted.
+   - **Deploy guard.** `scripts/deploy-prod.sh` refuses to roll the API back to a build whose
+     `seal_version` is below the highest `seal_version` of any live sealed task. Rollback past it
+     requires archiving those lanes first, or an explicit operator override that is itself logged
+     on every affected lane as `kind: config_drift`, `reason: cluster_rollback`.
+   - **Limitation, stated plainly.** A pre-seal build writes no heartbeat, so if one serves traffic
+     next to new replicas, the new replicas cannot see it. The deploy guard is the control for that
+     case. The gap detection covers a full rollback, not a mixed one.
 
 **Exact field values per state** (`GET /spec-tasks/{id}/seal`, as K):
 
@@ -930,102 +1018,271 @@ same as a missing task. During a rolling deploy, old replicas enforce nothing.
 - **seal-policy lists every tool** under `mcp:helix-tasks:<tool>` with `grants: deny` and
   `id_in: tool:<arg>`. The route-policy test generates the expected set from `SpecTaskAgentTools`
   (`org/interfaces/mcptools/defaults.go:180`).
-- **Test:** for each of the 14 tools, a sibling unconfined session key and an org bot targeting the
-  sealed task get `sandbox_sealed`, and one `denied` record per call.
+- **Tool count (nit).** There are **13 per-task tools** that go through `ownedTask`: `Get`, `Update`,
+  `StartPlanning`, `SendAgentMessage`, `ListAgentMessages`, `StartAgent`, `StopAgent`, `Complete`,
+  `RestartAgent`, `ReviewSpec`, `ApproveSpec`, `RequestChanges`, `CreatePullRequests`. Then there
+  is `List`, which filters, and `Create`, which can't seal.
+- **Test:** for each of the 13 per-task tools, a sibling unconfined session key and an org bot
+  targeting the sealed task get `sandbox_sealed` and one `denied` record per call. `List` omits the
+  task. `Create` with `sandbox_sealed: true` errors.
 
 ### 3.10 Lane state addressed by repo, ref or artifact (B2), and portal read option (a)
 
 Gates 1 and 2 resolve only session, task and sandbox ids. A lane's work also lives in its git
-refs, its PR and its artifacts. **Gate 4** adds two resolvers that call the same `sealDecision`:
+refs, its PR and its artifacts. **Gate 4** covers those.
+
+**Round 9 makes the git part structural.** A ref-name check (`sealOfRef` alone) cannot keep a
+sealed lane private while its objects sit in the shared object store. Cyber showed on git 2.51
+that protocol v2 serves a hidden commit by SHA even with `uploadpack.hideRefs` and all three
+`allow*SHA1InWant=false` set (NB1). gitnamespaces(7) SECURITY gives the same warning. So:
+
+- **The sealed lane's objects never enter the shared repository.** Each sealed task gets its own
+  bare repository for each repo it works on, with one-way alternates onto the shared repo (§3.11).
+  What is not in the shared repo cannot be fetched from it, by SHA or otherwise, under any protocol
+  version.
+- **`sealOfRef` / `sealOfArtifact` remain as checks**, now mostly defence in depth for git. They
+  are still the primary control for artifacts.
 
 ```go
-// sealOfRef maps (repoID, ref) to the sealed task that owns the ref, if any.
-func (s *HelixAPIServer) sealOfRef(ctx context.Context, repoID, ref string) (taskID string, sealed bool, err error)
+// sealedRepoFor returns the sealed bare repo a caller's git request must use, or "" for the shared one.
+func (s *GitHTTPServer) sealedRepoFor(ctx context.Context, user *types.User, repoID string) (path string, taskID string, err error)
+// sealOfRef rejects the reserved prefix and SHAs not reachable from a non-sealed ref (defence in depth).
+func (s *HelixAPIServer) sealOfRef(ctx context.Context, repoID, refOrSHA string) error
 // sealOfArtifact maps an artifact to its lane via Artifact.SpecTaskID, else ActiveVersion.SourceSpecTaskID.
 func (s *HelixAPIServer) sealOfArtifact(ctx context.Context, a *types.Artifact) (taskID string, sealed bool, err error)
 ```
 
-**Which refs are sealed.**
+**The reserved namespace (SF1).** Every sealed ref lives under `refs/heads/helix-sealed/<task_id>/`,
+inside the sealed repo:
 
-- **The task's feature branch.** Its name is set when the branch is assigned (at creation, or when
-  implementation starts for a new branch). At that moment it is appended to the write-once
-  `spec_task_seals.protected_refs`. `sealOfRef` is an indexed lookup on `(repo_id, ref)`.
-- **A per-task specs ref instead of the shared `helix-specs` branch.** Today every task writes into
-  one shared `helix-specs` branch. Paths inside a branch cannot be hidden from a fetch, so under
-  option (a) that branch would leak the lane.
-  - A sealed task writes its specs and progress to `refs/heads/helix-specs-sealed/<task_id>`.
-  - Every reader of `SpecsBranchName` takes the task's specs ref instead of the constant:
-    `services/git_http_server.go:2038`, `:2044`; `services/task_progress_parser.go:50`, `:90`; the
-    planning and implementation prompts; workspace setup.
-  - The ref is never merged into the shared `helix-specs` branch.
+- the feature branch is `helix-sealed/<task_id>/work` (`task.BranchName` is set to this for sealed
+  tasks);
+- the specs and progress branch is `helix-sealed/<task_id>/specs`;
+- the shared `helix-specs` branch is never written by a sealed lane.
 
-**Writes (SELF only, slice 1):**
+The specs readers take the task's specs ref instead of the constant: `SpecsBranchName` users at
+`services/git_http_server.go:2038`, `:2044` and `services/task_progress_parser.go:50`, `:90`, plus the
+prompts and workspace setup.
 
-- **git receive-pack** (`services/git_http_server.go:637`). The pre-receive hook already enforces
-  `HELIX_ALLOWED_BRANCHES` for agent keys (env set around `:746-751`). Add
-  `HELIX_SEALED_REFS=<every sealed ref in this repo>`:
-  - the hook rejects any update to a listed ref unless the pusher's key is that task's own session
-    key (`HELIX_SEAL_SELF_TASK=<task_id>`, set only for SELF);
-  - receive-pack also runs with `-c receive.hideRefs=<sealed refs>` for non-SELF pushers;
-  - one `denied` record is written per rejected ref.
-- **`PUT /git/repositories/{id}/contents`** (`git_repository_handlers.go:1172`): `sealOfRef` on the
-  target branch.
-- **PR create, edit and merge on both APIs**: native `PATCH` (`git_pull_request_handlers.go:365`)
-  and `merge` (`:404`); compat create (`github_compat.go:42`), edit (`:44` → `:376`) and merge
-  (`:47` → `:452`). Each is denied when the PR's head **or** base is a sealed ref.
-  - The sealed lane itself never opens a PR (§3.1).
-  - Branch create from a sealed ref (`server.go:1818`) is denied.
-- **Platform auto-merge** (`tryAutoMergeAfterRebase`, `tryAutoMergeBotRun`) and `CreatePullRequests`
-  skip sealed tasks.
-- **Upstream mirroring:**
-  - `SyncAllBranches` and the post-push upstream push exclude sealed refs, as they already exclude
-    the local-authoritative `helix-specs` branch.
-  - A sealed lane's work never reaches an external remote, because external readers are outside
-    every gate.
-- **Artifacts:**
+In the **shared** repository the prefix is reserved for nobody:
+
+- the pre-receive hook refuses any update under `refs/heads/helix-sealed/`, **regardless of
+  environment**;
+- every fetch refspec (`SyncAllBranches`, `PullFromRemote`) carries the negative glob
+  `^refs/heads/helix-sealed/*`, so an upstream cannot plant a ref there;
+- a branch named exactly `helix-specs-sealed` or anything under the prefix is refused on create;
+- so nobody can pre-plant or collide with a lane's ref.
+
+**Writes.**
+
+- **The sealed lane** writes only to its sealed repos, through git push. Its session key resolves
+  to them (§3.11).
+  - Every shared-repo write API refuses the lane's own key: `PUT /contents`
+    (`git_repository_handlers.go:1172`), branch create (`server.go:1818`), PR create, and the
+    `/push`, `/pull`, `/push-pull` routes.
+  - So a prompt-injected lane cannot place its work on a readable branch (NB3).
+- **Everyone else** writes only to the shared repo, which holds no sealed refs or objects. The
+  user routes that take an arbitrary branch therefore cannot reach the lane (NB2):
+  - `POST /git/repositories/{id}/push?branch=` (`git_repository_handlers.go:1448`, force push at
+    `:1482`);
+  - `/pull?branch=&force=true` (`:1383` → `PullFromRemote`, `services/git_repository_service_pull.go:372`);
+  - `/push-pull` (`:1514` → `PushToOrigin` / `PushToHelixBare`,
+    `services/git_repository_service_contents.go:45` / `:32`).
+
+  Changing `ExternalURL` (`PUT /git/repositories/{id}`, `:308`) only redirects the shared repo.
+- **Platform pushers** also operate on the shared repo by repo id, so they cannot carry sealed refs:
+  - crash-recovery push (`services/git_repository_service.go:334`);
+  - external sync (`services/git_external_sync.go:109`);
+  - post-push upstream push (`services/git_http_server.go:867`, `:934`, `:1481`);
+  - workflow pushes (`server/spec_task_workflow_handlers.go:293`, `:597`);
+  - PR proposals (`services/spec_task_pr_proposals.go:552`, then `CreatePullRequest` at `:561`);
+  - the branch-PR route (`git_repository_handlers.go:1872`).
+- **Choke-point guards (defence in depth, NB2).** These refuse any ref under the reserved prefix
+  and any sealed repo path, for every caller, the platform included:
+  - `PushBranchToRemote` (`services/git_repository_service_push.go:17`);
+  - `PushToOrigin`, `PushToHelixBare`, `PullFromRemote`, `SyncAllBranches` (`:450`);
+  - `CreatePullRequest` and the merge paths.
+
+  A sealed repo has **no upstream remote configured at all**, so it has nothing to push to.
+- **PRs and merges (NB3).**
+  - A sealed create forces `AutoApprovePullRequests = false` at every `InitAutoApprovePullRequests`
+    call site (`types/spec_task_pr_proposal.go:113`; callers `spectasks.go:291`,
+    `agent/skill/project/spec_task_create_tool.go:241`, `spec_task_clone_handlers.go:254`, and
+    from-prompt).
+  - `auto_approve_future` (`services/spec_task_pr_proposals.go:362`) is refused for sealed tasks.
+  - The session-MCP `propose_pull_request` tool (`mcp_backend_session.go`; auto-approved opening at
+    `:249-258`) moves from SELF to **DENY** for sealed tasks, as does every
+    `/spec-tasks/{id}/pr-proposals*` route.
+  - The gate-3 sink adds `pr_auto_approve` to its deny list.
+  - Native and compat PR create/edit/merge (`git_pull_request_handlers.go:365`, `:404`;
+    `github_compat.go:42`, `:376`, `:452`) refuse a head or base under the reserved prefix. The
+    platform auto-merge paths skip sealed tasks.
+- **Artifacts.**
   - `PUT` / `DELETE /artifacts/{id}` and new versions go through `requireArtifactAccess`
     (`artifact_handlers.go:450`) → `sealOfArtifact`. They are allowed only for SELF, i.e. the lane's
     own confined key, which `enforceKeyArtifactTask` (`:494`) already binds.
   - A sealed lane's artifact can't be set to `visibility: public` (`:118`, `:303`).
 
-**Reads (K and SELF only — option (a)):**
+**Reads (K and SELF only — option (a)).**
 
-- **upload-pack and info-refs** (`services/git_http_server.go:531`, `:457`): for any caller other
-  than K and SELF, git runs with these settings (via `prepareGitCmd`, `:439`):
-  - `-c uploadpack.hideRefs=<each sealed ref>`;
-  - `-c uploadpack.allowTipSHA1InWant=false`, `-c uploadpack.allowReachableSHA1InWant=false`,
-    `-c uploadpack.allowAnySHA1InWant=false`.
-
-  Those three stop a client from fetching hidden commits by SHA. A sealed ref's unique commits are
-  unreachable from shared refs, because the lane never merges.
-- **The git read API** (`server.go:1817-1842`: branches, tree, contents GET, file-content, files,
-  grep, commits) and **PR reads** on both APIs (`server.go:1845-1846`; `github_compat.go:41`,
-  `:43`, `:45`, `:46`):
-  - `sealOfRef` on the ref parameter;
-  - branch and PR listings omit sealed refs for non-K callers.
-- **Artifacts:**
+- **Git.**
+  - The shared repo contains nothing of the lane.
+  - K and SELF fetch the lane through the sealed-repo URL (§3.11), which is allow-listed for them
+    alone.
+  - Branch listings cannot show sealed names: `GitRepository.Branches` (`types/git_repositories.go:52`)
+    is persisted by `SyncAllBranches` from the shared repo only. It is returned by repo GET and
+    list, and counted in `/git/{id}/status`. A defensive filter drops the reserved prefix anyway
+    (SF2).
+- **The git read API with ref/SHA parameters** (`server.go:1817-1842`: branches, tree, contents GET,
+  file-content, files, grep, commits) and **PR reads** on both APIs (`server.go:1845-1846`;
+  `github_compat.go:41`, `:43`, `:45`, `:46`):
+  - they operate on the shared repo;
+  - as defence in depth, `sealOfRef` rejects the reserved prefix, and rejects SHAs not reachable
+    from a non-sealed ref;
+  - an AST assertion makes this mandatory (SF7, §3.3).
+- **Kodit and its read routes (NB4).**
+  - Kodit indexes the shared repo only. Sealed repos are never registered with Kodit.
+  - So `/kodit-commits`, `/search-snippets`, `/semantic-search`, `/keyword-search`, `/wiki*` and
+    `/enrichments` (`server.go:1822-1834`) cannot serve sealed content.
+  - The key Kodit clones with is fixed separately (§3.7): K can never be that key.
+- **Artifacts.**
   - `GET /artifacts/{id}` (`artifact_handlers.go:185`, inline auth `:222-227`), `/versions`
     (`:437`), `/download` (`:1106`), `/embed*` (`:946`) and `/document` (`:1080`) call
     `sealOfArtifact` and admit K and SELF only.
   - The insecure public viewer (`server.go:1649`, `artifact_handlers.go:205`) refuses a sealed
     lane's artifact for everyone.
-- **Listings, filtered in the store query** (CLAUDE.md: scope in the query, not in Go). The query
-  hides sealed rows unless `sealed_by_key_id` matches the caller's key:
-  - `GET /spec-tasks` (`spec_driven_task_handlers.go:441`);
-  - `GET /sessions` (`session_handlers.go:192`);
-  - `/clone-groups/{groupId}/progress` (`spec_task_clone_handlers.go:403`);
-  - `/projects/{id}/artifacts` (`artifact_handlers.go:62`);
-  - the org-runtime `List` (`spectasks.go:314`).
+- **Listings: sealed rows are excluded by default in the store (SF3).**
+  - `ListSpecTasks`, `ListSessions`, the artifact list, clone-group progress and the batch
+    `/projects/{id}/tasks-progress` / `/tasks-usage` (`server.go:1709-1710`) all exclude rows whose
+    task is sealed, **unless** the caller passes `IncludeSealedForKeyID: <K>` (only `GET /spec-tasks`,
+    `GET /sessions` and the artifact list do, for K), or the context carries `withPlatformCaller`
+    (orchestrator, reapers).
+  - Today there are 33 `ListSpecTasks` / `ListSessions` call sites. Opt-out by default makes every
+    one of them safe without auditing each; the audit becomes a review of the few that opt in.
+  - The org-runtime `List` (`spectasks.go:314`) inherits the default.
 
-  Aggregates that carry counts only (board totals, usage sums) may include the lane. Any aggregate
-  that carries content must filter it. Auditing every aggregate is an implementation checklist item.
-- **Indexers:** Kodit, the wiki and semantic search must not index sealed refs. Their branch
-  selection is unverified here†; it is an implementation acceptance item.
+Gate 4 records go into the same access record with `scope: task` and the route key: `#git:<service>`
+plus the ref, or the artifact id.
 
-Gate 4 records go into the same access record with `scope: task` and the route key. For git, that
-is `#git:<service>` plus `ref`.
+### 3.11 Per-sealed-task bare repositories (NB1 structural fix; also NB2, SF1, SF2)
 
----
+**Layout.** For each sealed task T and each repo R in T's project that T works on (at least the
+primary repo):
+
+```
+/filestore/git-repositories/sealed/<T>/<R>.git          bare repo, created in T's creation transaction
+/filestore/git-repositories/sealed/<T>/<R>.git/objects/info/alternates
+    -> /filestore/git-repositories/<R>/objects            one-way: sealed reads shared, never the reverse
+```
+
+- **Tracking.** `spec_task_sealed_repos(spec_task_id, repo_id, path, created_at, detached_at)`
+  records the copy. There is **no** `GitRepository` row, so sealed repos never appear in repo
+  listings, `Branches`, status counts, Kodit registration or external sync.
+- **Base refs.** At creation, and whenever the platform refreshes the lane's base, the sealed repo
+  fetches the shared repo's base branches into `refs/heads/<base>`, read-only for the lane. It runs
+  `git fetch <shared> +refs/heads/<base>:refs/heads/<base>` inside the sealed repo, marked
+  `withPlatformCaller`. This only reads from the shared repo; no command ever runs in the shared
+  repo against the sealed one.
+- **Hook.** The sealed repo's pre-receive hook allows updates only under
+  `refs/heads/helix-sealed/<T>/`, only when `HELIX_SEAL_SELF_TASK=<T>` is set by the server for T's
+  own session key. A missing or wrong value is a denial. This closes the round-8 S1 finding that an
+  unset `HELIX_ALLOWED_BRANCHES` means allow-all (`services/gitea_git_helpers.go:442-455`).
+
+**Routing.** `GitHTTPServer.getRepoPath` (`services/git_http_server.go:420`) is the single place a
+git request becomes a filesystem path. It consults `sealedRepoFor(user, repoID)`:
+
+| caller | `/git/{repoID}` resolves to |
+|---|---|
+| T's own session key (SELF) | T's sealed copy of R. A repo outside T's set is refused. The lane never touches the shared repo through git. |
+| K, via `/git/sealed/{T}/{repoID}` (a separate URL, allow-listed for K and SELF) | T's sealed copy, **fetch only** |
+| anyone else | the shared repo, which contains none of T's objects or refs |
+
+**How this closes each finding:**
+
+- **NB1.** A v0 or v2 fetch from the shared repo cannot return objects the shared repo doesn't
+  have.
+  - A non-SELF push cannot create a shared ref at a sealed SHA, because git would require the
+    object to be uploaded, and only someone who already has it can upload it.
+  - The read API and branch create run against the shared repo, so a sealed SHA argument resolves
+    to "object not found".
+- **NB2.** Every user and platform push or pull path addresses a repo id, and therefore the shared
+  repo. None of them can name, read or overwrite a sealed ref, and the sealed repo has no upstream
+  to exfiltrate to. A changed `ExternalURL` only affects the shared repo.
+- **SF1.** The reserved prefix exists only inside sealed repos; in the shared repo it is refused
+  for everyone. That gives a prefix `hideRefs`-style guarantee without a growing ref list, and no
+  add-ref race: the lane's refs are created inside its own repo in the creation transaction.
+- **SF2.** `GitRepository.Branches` is filled from the shared repo, so sealed names never get there.
+
+**Garbage collection.**
+
+- **The risk:** alternates mean the shared repo must not prune objects the sealed repo still
+  references, e.g. a base commit later rewound upstream.
+- **While T is live:** shared repos with a live sealed dependent run with `gc.pruneExpire=never`.
+  That is set on the first sealed copy and restored when the last one detaches. Helix's own gc
+  scheduling must honour it; Helix's gc entry points are an implementation checklist item†.
+- **When T is archived:** T's sealed repos run `git repack -a -d` to copy every alternate object
+  locally, then drop the alternates file and record `detached_at`. They stay readable by K from the
+  tombstone (§4).
+
+**Post-push processing.** The handlers that today read the shared repo after an agent push must
+take the sealed repo path for sealed tasks:
+
+- `handlePostPushHook` (`services/git_http_server.go:1260`);
+- `handleFeatureBranchPush` (`:1300`);
+- `processDesignDocsForBranch` (`:1861`);
+- `createDesignReviewForPush` (`:2019`);
+- `checkCommentResolution` (`:2134`).
+
+None of them may push upstream for a sealed path.
+
+**Interim minimum (kept in slice 1 as defence in depth).** These stay even with per-task repos, so a
+mistake in routing is not by itself a leak:
+
+1. **Force protocol v0** for fetches by anyone but K and SELF on a repo that has a sealed
+   dependent. The server drops `GIT_PROTOCOL` (today forwarded from `Git-Protocol` at
+   `services/git_http_server.go:742-744`), so `uploadpack.hideRefs` plus `allow*SHA1InWant=false`
+   apply as tested.
+2. **Refuse unreachable SHAs.** Every SHA argument on the read API, branch create, PR create and
+   `/contents` must be reachable from a non-reserved ref of the shared repo (`git for-each-ref
+   --contains <sha> --exclude=refs/heads/helix-sealed/`); otherwise the call is denied.
+3. **Run the v2 test.** A protocol-v2 fetch by SHA of a commit that exists only in a sealed repo must
+   fail against the shared repo URL, and also against a mis-routed URL in a fault-injection test.
+
+**Receive-pack ordering (SF4, and the S3 dry run).**
+
+- Today `handleReceivePack` runs `SyncAllBranches(force=true)` from upstream **before** receive-pack
+  (`services/git_http_server.go:~703`). It also lets the hook be the only ref check.
+- Round 9 parses the pushed ref-update commands in Go first. It applies `sealedRepoFor`, the
+  reserved-prefix rule and the seal decision, and only then runs any sync or receive-pack.
+- The hook stays as a second layer.
+- A sealed repo never syncs from upstream at all, so the dry-run probe (`X-Helix-Seal-Probe`)
+  returns after the Go check, with no side effect.
+
+### 3.12 Project and repository lifecycle (NB5)
+
+These owner actions act on a sealed lane without passing through any task route:
+
+| route | handler | effect on a sealed lane |
+|---|---|---|
+| `DELETE /projects/{id}` | `project_handlers.go:1019` (`server.go:1681`) | stops its sessions, releases its repos |
+| `DELETE /git/repositories/{id}` | `git_repository_handlers.go:397` (`server.go:1815`) | removes the shared repo its alternates point into |
+| `PUT /projects/{id}/repositories/{repo_id}/detach` | `project_handlers.go:1418` (`server.go:1687`) | removes the lane's repo from its project |
+| `POST /projects/{id}/move` | `project_handlers.go:2310` (`server.go:1693`) | moves the lane to another org |
+| `PUT /git/repositories/{id}` | `git_repository_handlers.go:308` (`server.go:1814`) | changes `ExternalURL` and other settings of the shared repo |
+
+**Rule.** While any non-archived sealed task references the project, or the repo (as primary repo
+or through `spec_task_sealed_repos`), the first four return **409 `sealed_task_live`**. This matches
+the live-sealing-key revoke rule (§3.7). K archives the lane first, or the owner waits for it to
+finish.
+
+- `PUT /git/repositories/{id}` stays allowed: with per-task repos it cannot reach the lane. A change
+  to `ExternalURL` or the default branch is recorded as an `outcome: allowed`, `kind: access` row
+  on every live sealed task that references the repo, so the verifier sees a base-side change.
+- **If the owner adopts org-owner stop:** the project delete becomes stop then delete for the lane.
+  It is recorded as `actor_class: org_owner_stop` and writes `task_deleted_at` on the tombstone.
+- **In every case where a sealed task is deleted** (K's delete, a later project delete, an operator
+  purge), `task_deleted_at` and `task_deleted_by_key_id` are written on the tombstone first. A
+  delete that cannot write the tombstone fails.
 
 ## 4. Break-glass and the access log
 
@@ -1094,6 +1351,8 @@ the same table keyed by `spec_task_id`.
   `org_owner_stop`, `admin_break_glass`, `sealing_user_recovery` or `other`, and any
   `kind: lifecycle` / `break_glass` / `config_drift` row. Each of those is one row per event.
 - On unsealed tasks, only non-read operations are written.
+- **Precedence (S6).** A task with a broken seal is still a sealed task. "Record every access after
+  a break" (`reason: seal_broken`, reads included) wins over "unsealed tasks log only non-reads".
 
 - **Written** synchronously by `sealDecision` and the gate-3 sinks. A failed write fails the
   request closed.
@@ -1160,95 +1419,100 @@ decides.
 
 Three slices, each a separate PR. **`seal_version` advances with each slice** (§3.8). The portal
 must not run production verifier lanes until `seal_version` ≥ 3, i.e. until every slice has
-shipped. Earlier versions are for integration testing only.
+shipped, and `min_cluster_version_since_seal` must stay ≥ 3 for the whole run. Earlier versions are
+for integration testing only.
 
-**Slice 1 (`seal_version` 1): default-deny on every id-addressed route, git writes, org tools,
-key binding, access record.** About 10-11 days.
+**Slice 1 (`seal_version` 1): default-deny, per-task git isolation, org tools, key binding, access
+record.** About 19-21 days.
 
 1. **Model** (1d).
-   - Add `spec_task_seals` (no cascade), `SpecTask.SandboxSealed` and `SpecTask.CreatedByKeyID`.
-   - Atomic sealed creation, including `sealed_config`, in one transaction (S7).
-   - Immutability; forced confinement; require a key credential and `just_do_it_mode`; refuse clone
-     of a sealed task (N1); echo the seal in the create response (S5).
+   - Add `spec_task_seals` (no cascade), `SpecTask.SandboxSealed`, `SpecTask.CreatedByKeyID` and
+     `spec_task_sealed_repos`.
+   - One transaction creates the task, the seal row, `sealed_config` and the sealed repos (S7).
+   - Immutability; forced confinement; `just_do_it_mode`; forced `AutoApprovePullRequests = false`
+     (NB3); every create precondition applied on clone (nit); refuse clone of a sealed task (N1);
+     the create echo (S5).
    - OpenAPI (`./stack update_openapi`); the frontend create option and a badge.
-2. **Decision function** (1d).
-   - Route-key stamping, including the `#server`, `#tool` and `#git:<service>` suffixes.
-   - `withPlatformCaller` marking at every platform entry point, and `no_route` denial (S1).
+2. **Sealing key type** (1d, NB4, S4). `APIkeytypeSealing`, shown once and prefix-only afterwards;
+   excluded from `isPersonalAPIKey`, from the no-`types` `GET /api_keys` branch and from
+   `getOrCreateUserAPIKey`; refuse revoking a live sealing key; the recovery path; the Kodit
+   registration check.
+3. **Decision function** (1d).
+   - Route-key stamping (`#server`, `#tool`, `#git:<service>`).
+   - `withPlatformCaller` marking and `no_route` denial (S1).
    - The uncached `broken_at` read (N6).
-   - The handler-keyed allow-list expanded from the router (N3).
-   - `sealDecision` with the synchronous access-record write.
-3. **Gates 1 and 2** (1.5d).
-   - The path guard, and the resolver gate in every helper in §3.3.
-   - That includes `authorizeUserToZedSpecTask`, `loadAuthorizedSandbox`, `requireArtifactAccess`
-     and the share-* vhost dispatch (N2).
-   - Force the stream read-only in all cases (§6 bug 1).
-   - **Delete `POST /external-agents/{sid}/command`** and the no-op `configure-pending-session`.
-     Re-check the e2e test server before deleting `/command`.
-4. **Org-runtime tools** (0.5d, B1). The seal check in `ownedTask`; `ExcludeSealed` in `List`;
-   recording under `mcp:helix-tasks:<tool>`.
-5. **Gate 4, writes** (2d, B2).
-   - `sealOfRef`, the protected-ref bookkeeping, `HELIX_SEALED_REFS` in the pre-receive hook, and
-     `receive.hideRefs`.
-   - `/contents`; PR create, edit and merge on both APIs; branch create; auto-merge and
-     `CreatePullRequests` skipping sealed tasks; upstream-mirror exclusion.
-   - Artifact writes through `sealOfArtifact`; no `public` visibility for a lane's artifacts.
-6. **K binding** (1d, S4).
-   - `api_keys.sealing`, listed by prefix only for every caller.
-   - Refuse revoking a live sealing key; the `sealing_user_recovery` read-only path.
-   - Fingerprint fields on access records.
-   - Session keys: `APIkeytypeSandboxSession`, excluded from `GET /api_keys`; re-mint keeps the type
-     (S7).
-   - `/external-agents/sync` and `/revdial` restricted to SELF; replace the
-     `validateExternalAgentToken` stub.
-7. **Route-policy test and seal-policy** (1.5d, S2, S3).
-   - `.seal(...)` on every `noAuthzHelper` and `handlerAuth` route, and per MCP backend and per
-     tool.
-   - Extend the AST walk to `org/infrastructure/runtime/helix` and `services`; extend
-     `dataCallBeforeHelper` to the seal call.
-   - `GET /api/v1/seal-policy` with `seal_version` and `id_in`.
-   - The `X-Helix-Seal-Probe` dry run.
-8. **Seal read, access record and tombstone** (1d, S6, N5).
-   - `GET /seal` and `/sandbox-access`, both served from the tombstone too.
-   - `actor_class`, the dedup rules, the delete event, and `seal_broken` recording.
-9. **Cluster version gate** (0.5d, S5). The replica heartbeat table; refuse sealed creates while any
-   live replica is behind; fail closed on an unknown `seal_version`.
-10. **Break-glass** (0.5d), only if the owner adopts it. Recorded as in §4 either way.
+   - The handler-keyed allow-list (N3).
+   - `sealDecision` with the synchronous access-record write and fingerprints.
+4. **Gates 1 and 2** (1.5d). The path guard; the resolver gate in every helper in §3.3, including
+   the share-* vhost (N2); the stream forced read-only; delete `POST /external-agents/{sid}/command`
+   and `configure-pending-session`.
+5. **Org-runtime tools** (0.5d, B1). The seal check in `ownedTask` for the 13 per-task tools.
+6. **Per-sealed-task bare repos** (4d, NB1/NB2/SF1/SF2).
+   - Layout, alternates and creation; `sealedRepoFor` in `getRepoPath`; the `/git/sealed/{T}/{R}`
+     fetch URL for K.
+   - Base-ref refresh; the sealed-repo hook; post-push handlers taking the sealed path; the specs
+     ref under `helix-sealed/<T>/specs`.
+   - The gc policy (`gc.pruneExpire=never` while a sealed dependent is live) and
+     repack-and-detach at archive.
+7. **Shared-repo hardening and choke points** (2d, NB1 interim, NB2, SF1, SF4).
+   - The reserved-prefix refusal in the shared hook, independent of env.
+   - Negative fetch refspecs.
+   - Guards in `PushBranchToRemote`, `PushToOrigin`, `PushToHelixBare`, `PullFromRemote`,
+     `SyncAllBranches`, `CreatePullRequest` and merge.
+   - The Go-side receive-pack command check before any upstream sync.
+   - **Interim minimum:** force protocol v0 for non-K/non-SELF fetches on repos with a sealed
+     dependent; refuse unreachable SHAs; the v2-by-SHA test.
+8. **PRs** (0.5d, NB3). `propose_pull_request` and `pr-proposals*` DENY for sealed tasks;
+   `auto_approve_future` refused; `pr_auto_approve` in the gate-3 deny list.
+9. **Lifecycle guards** (1d, NB5). `409 sealed_task_live` on project delete, repo delete, detach
+   and move; base-side change records; the tombstone written before any sealed-task deletion.
+10. **Route-policy test and seal-policy** (2d, S2, S3, SF7). `.seal(...)` on every
+    `noAuthzHelper` / `handlerAuth` route, every MCP backend and every tool; the extended AST walk;
+    `dataCallBeforeHelper` extended to the seal call; the ref/SHA-parameter assertion; hook tests
+    with an empty env; seal-policy with `seal_version`, `cluster_min_seal_version` and `id_in`; the
+    dry-run probe.
+11. **Seal read, access record and tombstone** (1d, S6, N5).
+12. **Cluster version** (1d, S5, SF5). The heartbeat table; the create gate;
+    `min_cluster_version_since_seal` and `cluster_gap_seen_at`; the `deploy-prod.sh` rollback guard.
+13. **Break-glass** (0.5d), only if the owner adopts it. It is recorded as in §4 either way.
 
-**Slice 2 (`seal_version` 2): portal read option (a).** About 5-6 days.
+**Slice 2 (`seal_version` 2): portal read option (a), outside git.** About 4-5 days.
 
-11. **Per-task specs ref** (2d). `helix-specs-sealed/<task_id>` for sealed tasks. Every
-    `SpecsBranchName` reader and the prompts take the task's ref (§3.10).
-12. **Hidden reads** (1.5d). `uploadpack.hideRefs` and the three `allow*SHA1InWant=false` settings
-    for non-K, non-SELF fetches. `sealOfRef` on the git read API and PR reads on both APIs. Branch
-    and PR listings omit sealed refs.
-13. **Artifact reads and listings** (1.5d). `sealOfArtifact` on every artifact read path and on the
-    public viewer. Store-query filtering for `GET /spec-tasks`, `GET /sessions`, clone-group
-    progress, project artifacts and org-runtime `List`. Audit the aggregates that carry content.
-14. **Indexer check** (0.5d). Confirm Kodit, the wiki and semantic search never index sealed refs;
-    fix any that do.
+14. **Store default exclusion** (2d, SF3). `ListSpecTasks` / `ListSessions` and the artifact list
+    exclude sealed rows unless `IncludeSealedForKeyID` or `withPlatformCaller` is passed. Review the
+    33 call sites for the few that must opt in; batch tasks-progress and tasks-usage are covered.
+15. **Artifact reads** (1d). `sealOfArtifact` on every artifact read path and on the public viewer.
+16. **Kodit service credential** (1-1.5d, NB4). Kodit clones with a service credential, never a
+    user key. Sealed repos are never registered with Kodit.
+17. **Defensive filters** (0.5d, SF2). Drop the reserved prefix from `GitRepository.Branches`,
+    repo status counts, and branch and PR listings.
 
-**Slice 3 (`seal_version` 3): turn sink, config freeze, guidelines.** About 4-5 days.
+**Slice 3 (`seal_version` 3): turn sink, config freeze, guidelines.** About 5 days.
 
-15. **Gate 3** (1.5d). Provenance-based refusal at enqueue **and at delivery**
-    (`sendQueuedPromptToSession`, `ReconcileStuckSendingPrompts` at `server.go:850`, and the
-    reconnect resume path; S7). Status-only `ci_status` for sealed lanes (S8).
-16. **Config freeze** (2d). `sealed_config` served by `getZedConfig` and by platform-initiated
-    restarts; fail closed on a null config (S7); drift hashing; drop `config_changed`.
-17. **Frozen guidelines** (0.5d, S8). `agent_instruction_service` composes sealed tasks' turns from
-    `sealed_config.guidelines`.
-18. **Provenance for cancel and questions** (0.5-1d). Makes cancel *eligible* for the allow-list;
-    adding it is an owner decision (§3.6).
+18. **Gate 3** (1.5d). Provenance-based refusal at enqueue and at delivery
+    (`sendQueuedPromptToSession`, `ReconcileStuckSendingPrompts` at `server.go:850`, reconnect
+    resume); status-only `ci_status`; `pr_auto_approve` denied.
+19. **Config freeze** (2d). `sealed_config` served by `getZedConfig` and by platform restarts; fail
+    closed on a null config; drift hashing; drop `config_changed`.
+20. **`guidelinesFor`** (1d, S8, SF6). One composer for all three call sites, frozen for sealed
+    tasks, with the AST assertion.
+21. **Provenance for cancel and questions** (0.5-1d). Makes cancel *eligible* for the allow-list
+    (§3.6).
 
-**Tests, the probe harness and live verification:** about 4 days, spread across the slices.
+**Tests, the probe harness and live verification:** about 5 days, spread across the slices.
 
-**Total: about 24-27 engineer-days**, up from 14-15. The increase comes from B1, B2, the read option
-(a) with its per-task specs ref, and S1-S8.
+**Total: about 33-36 engineer-days**, up from 24-27.
+
+- **Per-sealed-task bare repos: about 4 days.** They also remove round 8's per-task specs ref
+  (2 days) and most of its hidden-read work (1.5 days), which are now folded in.
+- **Other round-9 items: about 8 days net.** The interim git hardening, the NB2 choke points, the
+  sealing key type, NB5, the SF3 store default, SF5 and SF6.
 
 ## 6. Independent bugs this inventory found
 
-These need fixing whether or not a task is sealed. Two are already in progress in a separate PR and
-appear here only as inventory rows: prompt-history sync on `ActionGet`, and the design-review
-"creator always has access" shortcut.
+These need fixing whether or not a task is sealed. Two were fixed in
+https://github.com/helixml/helix/pull/3625 (merged; in `2007b960c`): prompt-history sync on
+`ActionGet`, and the design-review "creator always has access" shortcut.
 
 1. **The stream WebSocket accepts input from any reader.** `/ws/stream` is authorized with
    `ActionGet`, but forwards input unless the caller holds a non-interactive embed key
@@ -1372,13 +1636,13 @@ appear here only as inventory rows: prompt-history sync on `ActionGet`, and the 
 **Round-8 additions:**
 
 - **B1, org tools.**
-  - For each of the 14 `SpecTasks` tools: a sibling **unconfined** session key in the same project,
+  - For each of the 13 per-task `SpecTasks` tools: a sibling **unconfined** session key in the same project,
     and an org bot, target the sealed task. Each gets `sandbox_sealed` and writes one row with
     `scope: task`, `route: mcp:helix-tasks:<tool>`, `outcome: denied`.
   - `List` omits the sealed task.
   - On an unsealed twin, the same calls succeed. That is the control.
 - **B2, writes.** Each of these is rejected and recorded:
-  - a `git push` to the sealed feature branch and to `helix-specs-sealed/<task>`, by K, the owner's
+  - a `git push` to `helix-sealed/<task>/work` and `helix-sealed/<task>/specs`, by K, the owner's
     personal key and an admin-minted key;
   - `PUT /contents` on a sealed ref;
   - PR `PATCH` and `merge` on the native API and on `/api/github/api/v3/.../pulls/{n}/merge`;
@@ -1436,6 +1700,63 @@ appear here only as inventory rows: prompt-history sync on `ActionGet`, and the 
 - **Cyber requirement.** If break-glass or an org-owner stop is built, its row has `actor_class`
   `admin_break_glass` / `org_owner_stop`, distinct from K's `sealing_key`. Break-glass sets
   `seal_broken_at`; an org-owner stop does not.
+
+**Round-9 additions:**
+
+- **NB1, structural.**
+  - A commit pushed by the lane exists only in its sealed repo: `git cat-file -e <sha>` in the
+    shared repo fails.
+  - Protocol v0 and v2 fetches by SHA against the shared repo URL both fail.
+  - A non-SELF push that tries to create a shared ref at the sealed SHA is rejected by git, because
+    the object is missing.
+  - The read API and branch create with the SHA return not-found.
+- **NB1, interim (fault injection).** With `sealedRepoFor` forced to return the shared repo (a
+  simulated routing bug), and the lane's objects copied in:
+  - a v2 fetch by SHA from a non-K caller still fails, because v0 is forced;
+  - the SHA is refused as unreachable on the read API and branch create;
+  - `ls-remote` does not advertise the reserved prefix.
+- **NB2.**
+  - `/push?branch=helix-sealed/<T>/work&force=true`, `/pull?branch=…&force=true` and `/push-pull`
+    by a project writer change nothing in the sealed repo.
+  - `PUT /git/repositories/{id}` with a new `ExternalURL`, followed by every platform pusher
+    (crash recovery, external sync, workflow, PR proposals), sends nothing under the reserved
+    prefix to the new remote.
+  - Each choke-point function refuses a reserved ref or a sealed path when called directly.
+- **SF1.**
+  - In the shared repo, creating `refs/heads/helix-sealed/x` is refused for every caller,
+    including with an empty hook env.
+  - An upstream that has `helix-sealed/*` branches does not sync them in.
+  - A branch named exactly `helix-specs-sealed` is refused.
+- **SF2.** After a lane pushes, the shared repo's `GitRepository.Branches`, repo GET/list and
+  `/git/{id}/status` `branch_count` are unchanged.
+- **SF4 and S3.** A sealed receive-pack is refused by the Go check before `SyncAllBranches` runs:
+  the upstream mock receives no call. The dry-run probe on a git route has no side effect.
+- **NB3.**
+  - A sealed create from a project with auto-approve on still yields
+    `AutoApprovePullRequests = false`.
+  - `propose_pull_request` from the lane's own key returns `sandbox_sealed`, as do `pr-proposals*`
+    and `auto_approve_future`.
+  - No upstream push or PR is opened.
+- **NB4.**
+  - `POST /api_keys?type=sealing` returns the key once; later `GET /api_keys` with and without
+    `types` shows only its prefix.
+  - Creating and re-registering a repo as K's user hands Kodit a non-sealing credential (slice 1)
+    or the service credential (slice 2).
+  - Sealing with any non-`sealing` key returns 400.
+- **NB5.** With a live sealed task, project delete, repo delete, detach and move return
+  `409 sealed_task_live`. After K archives, they proceed, and the tombstone shows
+  `task_deleted_at`.
+- **SF3.** Every one of the 33 `ListSpecTasks` / `ListSessions` call sites, exercised through its
+  route (including `/projects/{id}/tasks-progress` and `/tasks-usage`), omits the sealed task for a
+  non-K caller. The store-level test asserts the default `sealed = false` predicate.
+- **SF5.** Lower one heartbeat replica to `seal_version` 2 during a run:
+  `min_cluster_version_since_seal` drops to 2 and stays there. A heartbeat gap sets
+  `cluster_gap_seen_at`. `deploy-prod.sh` refuses a rollback below a live lane's version.
+- **SF6.** The AST test fails if `Organization.Guidelines`, `Project.Guidelines` or
+  `UserMeta.Guidelines` is read outside `guidelinesFor`. Editing guidelines mid-run changes no
+  sealed-lane turn from any of the three composers.
+- **SF7.** The AST assertion fails when a handler with a `ref` / `branch` / `sha` / `commit`
+  parameter reaching `GetGitRepository` lacks `sealOfRef`. Verify it by removing one call.
 
 **Live, in the inner Helix** (mandatory, because this changes the agent-channel lifecycle):
 
