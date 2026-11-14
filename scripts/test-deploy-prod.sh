@@ -57,13 +57,61 @@ if [ "${1:-} ${2:-}" = "volume inspect" ]; then
   case " ${EXISTING_VOLUMES:-} " in *" $3 "*) exit 0 ;; esac
   exit 1
 fi
-if [ "${1:-}" = "exec" ] && [ "${3:-}" = "sh" ]; then
+if [ "${1:-}" = "exec" ] && [ "${3:-}" = "sh" ] && [ "${2#ctr-}" != "${2:-}" ]; then
   version=$(awk -v s="${2#ctr-}" '$1 == s { print $3 }' "$RUNNING")
   [ -n "$version" ] && [ "$version" != "-" ] || exit 1
   echo "$version"
   exit 0
 fi
 printf '%s\n' "$*" >> "$DOCKER_CALLS"
+# Sandbox fingerprints: the released image and the running container are
+# labelled with helix.sandbox.fingerprint ($RELEASED_FINGERPRINT /
+# $RUNNING_FINGERPRINT). Unset means an image built before the label existed.
+if [ "${1:-} ${2:-} ${3:-}" = "image inspect --format" ]; then
+  case "${4:-}" in
+    *Config.Labels*) printf '%s\n' "${RELEASED_FINGERPRINT:-<no value>}" ;;
+    *) printf '<no value>\n' ;;
+  esac
+  exit 0
+fi
+if [ "${1:-} ${2:-} ${3:-}" = "container inspect --format" ]; then
+  if [ "${CONTAINER_EXISTS:-true}" = "false" ]; then exit 1; fi
+  case "${4:-}" in
+    *State.Status*) printf '%s\n' "${CONTAINER_STATE:-running}" ;;
+    *Config.Labels*) printf '%s\n' "${RUNNING_FINGERPRINT:-<no value>}" ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+# A release sandbox image is created (never started) only to read the desktop
+# pins it bakes at /opt/images.
+if [ "${1:-}" = "create" ]; then
+  printf 'ctr-release-pins\n'
+  exit 0
+fi
+if [ "${1:-}" = "cp" ]; then
+  case "${2#*:}" in
+    */helix-ubuntu.ref) cp "${PINS_DIR:?}/helix-ubuntu.ref" "$3" 2>/dev/null ;;
+    */helix-ubuntu.version) cp "${PINS_DIR:?}/helix-ubuntu.version" "$3" 2>/dev/null ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+# Everything the deploy does inside the running sandbox.
+if [ "${1:-} ${2:-}" = "exec helix-sandbox-app" ]; then
+  case "${3:-}" in
+    docker)
+      if [ "${FAIL_DESKTOP_PULL:-false}" = "true" ] && [ "${4:-}" = "pull" ]; then exit 1; fi
+      ;;
+    test)
+      if [ "${GC_ENABLED:-true}" = "false" ]; then exit 1; fi
+      ;;
+    bash) ;;
+    sh) shift 3; exec bash "$@" ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
 if [ "${1:-} ${2:-}" = "manifest inspect" ]; then
   case " ${UNPULLABLE:-} " in *" $3 "*) exit 1 ;; esac
 fi
@@ -141,7 +189,7 @@ chmod +x "$work/bin/"*
 src="$work/src"
 mkdir -p "$src/scripts/lib"
 cp "$repo/scripts/deploy-prod.sh" "$repo/scripts/cleanup-runner-images.sh" "$src/scripts/"
-cp "$repo/scripts/lib/deploy-controlplane-remote.sh" "$src/scripts/lib/"
+cp "$repo/scripts/lib/deploy-controlplane-remote.sh" "$repo/scripts/lib/deploy-runner-remote.sh" "$src/scripts/lib/"
 cp "$repo/docker-compose.yaml" "$src/"
 git -C "$src" init -q
 git -C "$src" add -A
@@ -155,7 +203,9 @@ run_deploy() {
   env -u HELIX_CD_SSH_KEY -u SLACK_WEBHOOK_URL -u LONDON_SSH \
     -u RUNNER_SSH -u RUNNER_UPGRADE_SCRIPT -u RUNNER_START_SCRIPT \
     -u RUNNER_CONTAINER -u DEPLOY_CONTROLPLANE -u DEPLOY_RUNNER \
-    -u COMPOSE_SYNC -u RECREATE_POSTGRES \
+    -u COMPOSE_SYNC -u RECREATE_POSTGRES -u RUNNER_FORCE_RECREATE -u PINS_DIR \
+    -u RELEASED_FINGERPRINT -u RUNNING_FINGERPRINT -u CONTAINER_STATE \
+    -u FAIL_DESKTOP_PULL -u GC_ENABLED -u HELIX_DESKTOP_IMAGE_DIR \
     PATH="$work/bin:$PATH" HOME="$work/home" TMPDIR="$work" REAL_SED="$real_sed" \
     REAL_DOCKER="$real_docker" SSH_HOSTS="$work/ssh-hosts" SSH_SCRIPTS="$work/ssh-scripts" \
     DOCKER_CALLS="$work/docker-calls" ZFS_CALLS="$work/zfs-calls" RUNNING="$work/running" \
@@ -581,13 +631,20 @@ if run_deploy 'latest' DEPLOY_RUNNER=false >/dev/null 2>&1; then
 fi
 
 # --- runners ----------------------------------------------------------------
+# An upgrade-script launcher (code.helix.ml) and a start-script launcher
+# (dev.code.helix.ml) pinned to <tag>; each records the tag it boots.
 legacy="$work/upgrade.sh"
-cat > "$legacy" <<'EOF'
-#!/bin/bash
-SANDBOX_TAG="old"
-printf '%s\n' "$SANDBOX_TAG" >> "$RUN_LOG"
-EOF
-chmod +x "$legacy"
+write_legacy() {
+  printf '#!/bin/bash\nSANDBOX_TAG="%s"\nprintf "%%s\\n" "$SANDBOX_TAG" >> "$RUN_LOG"\n' "$1" > "$legacy"
+  chmod +x "$legacy"
+}
+start="$work/run.sh"
+write_start() {
+  printf '#!/bin/bash\nimage=ghcr.io/helixml/helix-sandbox:%s\nprintf "%%s\\n" "$image" >> "$RUN_LOG"\n' "$1" > "$start"
+  chmod +x "$start"
+}
+
+write_legacy old
 reset_calls
 : > "$work/run-log"
 deploy_output=$(run_deploy 9.8.7 DEPLOY_CONTROLPLANE=false EXEC_REMOTE=true RUN_LOG="$work/run-log" \
@@ -611,13 +668,7 @@ printf '%s\n' "$cleanup_output" | grep -q 'WARNING: runner image retention dry r
 printf '%s\n' "$cleanup_output" | grep -q 'prod deploy of 9.8.7 complete' ||
   fail "image retention failure hid the successful runner rollout"
 
-start="$work/run.sh"
-cat > "$start" <<'EOF'
-#!/bin/bash
-image=ghcr.io/helixml/helix-sandbox:old
-printf '%s\n' "$image" >> "$RUN_LOG"
-EOF
-chmod +x "$start"
+write_start old
 reset_calls
 : > "$work/run-log"
 run_deploy 9.8.7 DEPLOY_CONTROLPLANE=false EXEC_REMOTE=true RUN_LOG="$work/run-log" \
@@ -628,17 +679,18 @@ grep -q '^stop helix-sandbox-app$' "$work/docker-calls" || fail "dev runner did 
 grep -q '^rm helix-sandbox-app$' "$work/docker-calls" || fail "dev runner did not remove its container"
 [ "$(cat "$work/run-log")" = "ghcr.io/helixml/helix-sandbox:9.8.7" ] || fail "dev runner did not run its launcher"
 
+write_start old
 : > "$work/run-log"
 : > "$work/docker-calls"
 run_deploy 9.8.7 DEPLOY_CONTROLPLANE=false EXEC_REMOTE=true CONTAINER_EXISTS=false \
   RUN_LOG="$work/run-log" RUNNER_SSH=root@dev.code.helix.ml \
   RUNNER_START_SCRIPT="$start" >/dev/null
-if grep -qE '^(stop|rm) ' "$work/docker-calls"; then
+if grep -qE '^(stop|rm) helix-sandbox-app$' "$work/docker-calls"; then
   fail "dev runner tried to remove a missing container"
 fi
 [ -s "$work/run-log" ] || fail "dev runner retry did not run its launcher"
 
-sed -i.bak 's/^image=.*/image=ghcr.io\/helixml\/helix-sandbox:old/' "$start"
+write_start old
 : > "$work/run-log"
 : > "$work/ssh-scripts"
 if run_deploy 9.8.7 DEPLOY_CONTROLPLANE=false EXEC_REMOTE=true FAIL_PULL=true \
@@ -651,5 +703,168 @@ grep -q '^image=ghcr.io/helixml/helix-sandbox:old$' "$start" || fail "runner lau
 if grep -q 'Runner image retention:' "$work/ssh-scripts"; then
   fail "failed runner deploy ran image retention"
 fi
+
+# --- desktop-only rollout ------------------------------------------------------
+# The released sandbox image bakes the release's desktop pins at /opt/images
+# (docker cp reads PINS_DIR); the running sandbox's own /opt/images is IMAGES_DIR.
+pins="$work/release-pins"
+images="$work/images"
+mkdir -p "$pins" "$images"
+printf 'ghcr.io/helixml/helix-ubuntu:9.8.7-linux-amd64\n' > "$pins/helix-ubuntu.ref"
+printf '9.8.7-linux-amd64\n' > "$pins/helix-ubuntu.version"
+seed_pins() {
+  printf 'ghcr.io/helixml/helix-ubuntu:9.8.6-linux-amd64\n' > "$images/helix-ubuntu.ref"
+  printf 'ghcr.io/helixml/helix-ubuntu:9.8.6-linux-amd64\n' > "$images/helix-ubuntu.runtime-ref"
+  printf '9.8.6-linux-amd64\n' > "$images/helix-ubuntu.version"
+}
+same="v1-$(printf '%064d' 1)"
+other="v1-$(printf '%064d' 2)"
+
+run_runner() {
+  run_deploy 9.8.7 DEPLOY_CONTROLPLANE=false EXEC_REMOTE=true RUN_LOG="$work/run-log" \
+    RUNNER_SSH=root@code.helix.ml PINS_DIR="$pins" HELIX_DESKTOP_IMAGE_DIR="$images" "$@"
+}
+
+# Sandbox artifacts unchanged: no recreate, just the desktop image.
+write_legacy old
+seed_pins
+reset_calls
+: > "$work/run-log"
+deploy_output=$(run_runner RUNNER_UPGRADE_SCRIPT="$legacy" \
+  RELEASED_FINGERPRINT="$same" RUNNING_FINGERPRINT="$same" 2>&1) ||
+  fail "desktop-only deploy failed: $deploy_output"
+[ "$(sort -u "$work/ssh-hosts")" = "root@code.helix.ml" ] || fail "desktop-only deploy contacted the wrong host"
+grep -q 'rolling helix-ubuntu only' <<<"$deploy_output" || fail "desktop-only decision not logged"
+[ ! -s "$work/run-log" ] || fail "desktop-only deploy re-ran the launcher"
+if grep -qE '^(stop|rm) helix-sandbox-app$' "$work/docker-calls"; then
+  fail "desktop-only deploy recreated the sandbox"
+fi
+grep -q '^pull ghcr.io/helixml/helix-sandbox:9.8.7$' "$work/docker-calls" ||
+  fail "desktop-only deploy did not pull the released sandbox image"
+grep -q '^create ghcr.io/helixml/helix-sandbox:9.8.7$' "$work/docker-calls" ||
+  fail "desktop-only deploy did not read the release's baked desktop pins"
+grep -q '^rm -f ctr-release-pins$' "$work/docker-calls" ||
+  fail "desktop-only deploy left the pin-reading container behind"
+grep -q '^exec helix-sandbox-app docker pull ghcr.io/helixml/helix-ubuntu:9.8.7-linux-amd64$' "$work/docker-calls" ||
+  fail "desktop-only deploy did not pull the release desktop into the sandbox"
+grep -q '^exec helix-sandbox-app docker tag ghcr.io/helixml/helix-ubuntu:9.8.7-linux-amd64 helix-ubuntu:9.8.7-linux-amd64$' "$work/docker-calls" ||
+  fail "desktop-only deploy did not tag the desktop as the sandbox's boot does"
+grep -q '^exec helix-sandbox-app docker image inspect helix-ubuntu:9.8.7-linux-amd64$' "$work/docker-calls" ||
+  fail "desktop-only deploy did not verify the desktop image is loaded"
+[ "$(cat "$images/helix-ubuntu.version")" = "9.8.7-linux-amd64" ] ||
+  fail "desktop-only deploy did not swap the desktop version file"
+[ "$(cat "$images/helix-ubuntu.ref")" = "ghcr.io/helixml/helix-ubuntu:9.8.7-linux-amd64" ] ||
+  fail "desktop-only deploy did not swap the desktop ref"
+[ "$(cat "$images/helix-ubuntu.runtime-ref")" = "ghcr.io/helixml/helix-ubuntu:9.8.7-linux-amd64" ] ||
+  fail "desktop-only deploy did not swap the desktop runtime-ref"
+[ -z "$(find "$images" -name '*.new' -print)" ] || fail "desktop-only deploy left temp pin files behind"
+grep -q '^exec helix-sandbox-app bash -c .*cleanup_desktop_images deploy' "$work/docker-calls" ||
+  fail "desktop-only deploy did not prune old desktop images"
+grep -q '^SANDBOX_TAG="9.8.7"$' "$legacy" ||
+  fail "desktop-only deploy left the launcher on the old image (its next recreate would regress)"
+grep -q 'Runner image retention:' "$work/ssh-scripts" || fail "desktop-only deploy omitted image retention"
+
+# The same with a start-script launcher (dev.code.helix.ml): no stop/rm, no run.
+write_start old
+seed_pins
+reset_calls
+: > "$work/run-log"
+deploy_output=$(run_runner RUNNER_SSH=root@dev.code.helix.ml RUNNER_START_SCRIPT="$start" \
+  RELEASED_FINGERPRINT="$same" RUNNING_FINGERPRINT="$same" 2>&1) ||
+  fail "desktop-only start-script deploy failed: $deploy_output"
+grep -q '^image=ghcr.io/helixml/helix-sandbox:9.8.7$' "$start" ||
+  fail "desktop-only start-script deploy did not update its launcher"
+[ ! -s "$work/run-log" ] || fail "desktop-only start-script deploy re-ran its launcher"
+if grep -qE '^(stop|rm) helix-sandbox-app$' "$work/docker-calls"; then
+  fail "desktop-only start-script deploy removed the sandbox"
+fi
+[ "$(cat "$images/helix-ubuntu.version")" = "9.8.7-linux-amd64" ] ||
+  fail "desktop-only start-script deploy did not swap the desktop version file"
+
+# Different fingerprints: the sandbox itself changed, so recreate as before.
+write_legacy old
+seed_pins
+reset_calls
+: > "$work/run-log"
+deploy_output=$(run_runner RUNNER_UPGRADE_SCRIPT="$legacy" \
+  RELEASED_FINGERPRINT="$same" RUNNING_FINGERPRINT="$other" 2>&1) ||
+  fail "fingerprint-mismatch deploy failed: $deploy_output"
+grep -q 'the sandbox itself changed' <<<"$deploy_output" || fail "fingerprint mismatch not explained"
+[ "$(cat "$work/run-log")" = "9.8.7" ] || fail "fingerprint mismatch did not re-run the launcher"
+if grep -q '^exec helix-sandbox-app' "$work/docker-calls" || grep -q '^create ' "$work/docker-calls"; then
+  fail "fingerprint mismatch touched the running sandbox"
+fi
+[ "$(cat "$images/helix-ubuntu.version")" = "9.8.6-linux-amd64" ] ||
+  fail "fingerprint mismatch swapped the desktop version file"
+
+# No fingerprints to compare (images built before the label): recreate.
+for scenario in "unlabelled release image:carries no helix.sandbox.fingerprint label" \
+  "running sandbox on a pre-label image:has no helix.sandbox.fingerprint label" \
+  "stopped sandbox:is exited, not running"; do
+  write_legacy old
+  seed_pins
+  reset_calls
+  : > "$work/run-log"
+  extra=()
+  case "${scenario%%:*}" in
+    unlabelled*) extra=(RELEASED_FINGERPRINT= RUNNING_FINGERPRINT="$same") ;;
+    running*) extra=(RELEASED_FINGERPRINT="$same" RUNNING_FINGERPRINT=) ;;
+    *) extra=(RELEASED_FINGERPRINT="$same" RUNNING_FINGERPRINT="$same" CONTAINER_STATE=exited) ;;
+  esac
+  deploy_output=$(run_runner RUNNER_UPGRADE_SCRIPT="$legacy" "${extra[@]}" 2>&1) ||
+    fail "deploy with ${scenario%%:*} failed: $deploy_output"
+  grep -q "${scenario#*:}" <<<"$deploy_output" || fail "${scenario%%:*}: recreate not explained: $deploy_output"
+  [ "$(cat "$work/run-log")" = "9.8.7" ] || fail "${scenario%%:*}: launcher not re-run"
+  [ "$(cat "$images/helix-ubuntu.version")" = "9.8.6-linux-amd64" ] ||
+    fail "${scenario%%:*}: desktop version file changed"
+done
+
+# FORCE_RECREATE=true recreates even when the fingerprints match.
+write_legacy old
+seed_pins
+reset_calls
+: > "$work/run-log"
+deploy_output=$(run_runner RUNNER_UPGRADE_SCRIPT="$legacy" RUNNER_FORCE_RECREATE=true \
+  RELEASED_FINGERPRINT="$same" RUNNING_FINGERPRINT="$same" 2>&1) ||
+  fail "FORCE_RECREATE deploy failed: $deploy_output"
+grep -q 'FORCE_RECREATE=true' <<<"$deploy_output" || fail "FORCE_RECREATE not explained"
+[ "$(cat "$work/run-log")" = "9.8.7" ] || fail "FORCE_RECREATE did not re-run the launcher"
+
+# A failed desktop pull fails the deploy before anything switches over.
+write_legacy old
+seed_pins
+reset_calls
+: > "$work/run-log"
+if deploy_output=$(run_runner RUNNER_UPGRADE_SCRIPT="$legacy" \
+  RELEASED_FINGERPRINT="$same" RUNNING_FINGERPRINT="$same" FAIL_DESKTOP_PULL=true 2>&1); then
+  fail "failed desktop pull did not fail the deploy"
+fi
+grep -q 'runner deploy failed on root@code.helix.ml' <<<"$deploy_output" || fail "failed desktop pull not reported"
+[ "$(cat "$images/helix-ubuntu.version")" = "9.8.6-linux-amd64" ] ||
+  fail "failed desktop pull swapped the version file"
+[ "$(cat "$images/helix-ubuntu.ref")" = "ghcr.io/helixml/helix-ubuntu:9.8.6-linux-amd64" ] ||
+  fail "failed desktop pull swapped the ref"
+grep -q '^SANDBOX_TAG="old"$' "$legacy" || fail "failed desktop pull updated the launcher"
+[ ! -s "$work/run-log" ] || fail "failed desktop pull re-ran the launcher"
+if grep -q 'cleanup_desktop_images' "$work/docker-calls"; then
+  fail "failed desktop pull pruned desktop images"
+fi
+grep -q '^rm -f ctr-release-pins$' "$work/docker-calls" ||
+  fail "failed desktop pull left the pin-reading container behind"
+
+# A release image without readable pins cannot be rolled in place: recreate.
+empty="$work/empty-pins"
+mkdir -p "$empty"
+write_legacy old
+seed_pins
+reset_calls
+: > "$work/run-log"
+deploy_output=$(run_runner RUNNER_UPGRADE_SCRIPT="$legacy" PINS_DIR="$empty" \
+  RELEASED_FINGERPRINT="$same" RUNNING_FINGERPRINT="$same" 2>&1) ||
+  fail "deploy with an unreadable desktop pin failed: $deploy_output"
+grep -q 'has no readable helix-ubuntu pins' <<<"$deploy_output" || fail "unreadable pins not explained"
+[ "$(cat "$work/run-log")" = "9.8.7" ] || fail "unreadable pins did not re-run the launcher"
+grep -q '^rm -f ctr-release-pins$' "$work/docker-calls" ||
+  fail "unreadable pins left the pin-reading container behind"
 
 echo "deploy-prod test passed"
