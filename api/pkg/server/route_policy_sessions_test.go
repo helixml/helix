@@ -45,7 +45,7 @@ func init() {
 		"GET /api/v1/sessions/{id}/search":                                              object("authorizeUserToSession"),
 		"GET /api/v1/prompt-history":                                                    object("authorizeUserToPromptQueue"),
 		"POST /api/v1/prompt-history/sync":                                              object("authorizeSyncEntryTargets", "authorizeUserToPromptQueue"),
-		"DELETE /api/v1/prompt-history/{id}":                                            noAuthzHelper("inline owner check: prompt.UserID == user.ID"),
+		"DELETE /api/v1/prompt-history/{id}":                                            object("authorizeUserToPromptQueue"),
 		"GET /api/v1/sessions/{id}/zed-config":                                          object("authorizeSessionSandboxConfig").alsoRunner(),
 		"POST /api/v1/sessions/{id}/zed-config/user":                                    object("authorizeSessionSandboxConfig").alsoRunner(),
 		"GET /api/v1/sessions/{id}/zed-settings":                                        object("authorizeSessionSandboxConfig"),

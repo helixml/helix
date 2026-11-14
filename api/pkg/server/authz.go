@@ -632,11 +632,17 @@ func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, use
 	if err != nil {
 		return err
 	}
-	if project.Metadata.OrgMembersAccess && action == types.ActionUpdate {
-		return apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet)
-	}
+	return apiServer.authorizeUserToProject(ctx, user, project, projectSessionAction(project, action))
+}
 
-	return apiServer.authorizeUserToProject(ctx, user, project, action)
+// projectSessionAction is the project action that grants action on one of the
+// project's sessions: in a project open to org members (helix-org Bot
+// projects), any member who can read it may also send messages.
+func projectSessionAction(project *types.Project, action types.Action) types.Action {
+	if project.Metadata.OrgMembersAccess && action == types.ActionUpdate {
+		return types.ActionGet
+	}
+	return action
 }
 
 // authorizeUserToResource evaluates the user's team + direct access grants for a

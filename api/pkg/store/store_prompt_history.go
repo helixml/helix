@@ -102,14 +102,6 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, pr
 			}
 			synced++
 		} else {
-			// Now that the queue is readable by every viewer of the task, a client
-			// caches other people's entries too and would push them straight back.
-			// Someone else's prompt is read-only to us: skip it rather than let one
-			// viewer rewrite another's queued content or ordering.
-			if existingEntry.UserID != userID {
-				continue
-			}
-
 			// Entry exists - only update frontend-owned fields
 			// Preserve backend-owned fields: status, retryCount, nextRetryAt
 			updateFields := map[string]interface{}{
@@ -122,13 +114,27 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, pr
 				updateFields["provenance"] = provenance
 			}
 
-			if err := s.gdb.WithContext(ctx).
+			// Only the caller's own row in the authorized queue is updated.
+			// Viewers' clients cache other people's entries and push them back,
+			// and lanes share one owner, so a row named by id alone could belong
+			// to another viewer or to another lane's task: those are skipped.
+			// The handler authorized req's spec task / session and every
+			// entry's own session.
+			owned := s.gdb.WithContext(ctx).
 				Model(&types.PromptHistoryEntry{}).
-				Where("id = ?", entry.ID).
-				Updates(updateFields).Error; err != nil {
-				return nil, err
+				Where("id = ? AND user_id = ?", entry.ID, userID)
+			if req.SpecTaskID != "" {
+				owned = owned.Where("spec_task_id = ?", req.SpecTaskID)
+			} else {
+				owned = owned.Where("session_id IN ?", []string{req.SessionID, entry.SessionID})
 			}
-			updated++
+			result := owned.Updates(updateFields)
+			if result.Error != nil {
+				return nil, result.Error
+			}
+			if result.RowsAffected > 0 {
+				updated++
+			}
 		}
 	}
 
