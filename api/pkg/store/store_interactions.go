@@ -409,6 +409,30 @@ func (s *PostgresStore) BindInteractionExternalAgentRequest(ctx context.Context,
 	return result.RowsAffected > 0, result.Error
 }
 
+func (s *PostgresStore) AppendInteractionThreadReseed(ctx context.Context, interactionID string, generationID int, reseed types.ThreadReseed) error {
+	if interactionID == "" {
+		return errors.New("interaction_id is required")
+	}
+	entry, err := json.Marshal([]types.ThreadReseed{reseed})
+	if err != nil {
+		return fmt.Errorf("marshal thread reseed: %w", err)
+	}
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ?", interactionID, generationID).
+		Updates(map[string]interface{}{
+			"thread_reseeds": gorm.Expr("COALESCE(thread_reseeds, '[]'::jsonb) || ?::jsonb", string(entry)),
+			"updated":        time.Now(),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *PostgresStore) MarkInteractionExternalAgentDispatched(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error) {
 	if interactionID == "" || requestID == "" {
 		return false, errors.New("interaction_id and request_id are required")
@@ -462,6 +486,24 @@ func (s *PostgresStore) MarkInteractionInterruptedIfWaiting(ctx context.Context,
 			"updated":   now,
 		})
 	return result.RowsAffected > 0, result.Error
+}
+
+func (s *PostgresStore) GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID, entryID string) (*types.Interaction, error) {
+	if sessionID == "" || entryID == "" {
+		return nil, errors.New("session_id and entry_id are required")
+	}
+	var interaction types.Interaction
+	err := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND external_agent_user_entry_id = ?", sessionID, entryID).
+		Order("created DESC, id DESC").
+		First(&interaction).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &interaction, nil
 }
 
 func (s *PostgresStore) GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error) {

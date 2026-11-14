@@ -59,6 +59,20 @@ func (mr *MockStoreMockRecorder) AddSpecTaskLabel(ctx, taskID, label any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddSpecTaskLabel", reflect.TypeOf((*MockStore)(nil).AddSpecTaskLabel), ctx, taskID, label)
 }
 
+// AppendInteractionThreadReseed mocks base method.
+func (m *MockStore) AppendInteractionThreadReseed(ctx context.Context, interactionID string, generationID int, reseed types.ThreadReseed) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AppendInteractionThreadReseed", ctx, interactionID, generationID, reseed)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AppendInteractionThreadReseed indicates an expected call of AppendInteractionThreadReseed.
+func (mr *MockStoreMockRecorder) AppendInteractionThreadReseed(ctx, interactionID, generationID, reseed any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendInteractionThreadReseed", reflect.TypeOf((*MockStore)(nil).AppendInteractionThreadReseed), ctx, interactionID, generationID, reseed)
+}
+
 // AttachRepositoryToProject mocks base method.
 func (m *MockStore) AttachRepositoryToProject(ctx context.Context, projectID, repoID string) error {
 	m.ctrl.T.Helper()
@@ -3274,6 +3288,21 @@ func (m *MockStore) GetInteractionByExternalAgentRequestID(ctx context.Context, 
 func (mr *MockStoreMockRecorder) GetInteractionByExternalAgentRequestID(ctx, requestID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionByExternalAgentRequestID", reflect.TypeOf((*MockStore)(nil).GetInteractionByExternalAgentRequestID), ctx, requestID)
+}
+
+// GetInteractionByExternalAgentUserEntry mocks base method.
+func (m *MockStore) GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID, entryID string) (*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInteractionByExternalAgentUserEntry", ctx, sessionID, entryID)
+	ret0, _ := ret[0].(*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInteractionByExternalAgentUserEntry indicates an expected call of GetInteractionByExternalAgentUserEntry.
+func (mr *MockStoreMockRecorder) GetInteractionByExternalAgentUserEntry(ctx, sessionID, entryID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionByExternalAgentUserEntry", reflect.TypeOf((*MockStore)(nil).GetInteractionByExternalAgentUserEntry), ctx, sessionID, entryID)
 }
 
 // GetInteractionsSummary mocks base method.

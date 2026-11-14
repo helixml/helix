@@ -84,6 +84,12 @@ type Interaction struct {
 	// caches only; cancellation and restart recovery use this persisted value.
 	ExternalAgentRequestID string `json:"-" gorm:"index"`
 
+	// ExternalAgentUserEntryID is the external agent's id for the user entry
+	// this turn was recorded from (Zed's message_id, the entry's index in its
+	// thread). Empty for turns Helix sent. It lets a re-reported entry be
+	// recognised instead of becoming a second turn.
+	ExternalAgentUserEntryID string `json:"-"`
+
 	// ExternalAgentDispatchedAt distinguishes an interaction that only exists in
 	// the durable queue from one that has been handed to the external agent.
 	// It is set before the command is enqueued and cleared if enqueueing fails.
@@ -145,7 +151,35 @@ type Interaction struct {
 	// creation and never updated; rows from before it existed read as
 	// origin "unknown".
 	Provenance TurnProvenance `json:"provenance" gorm:"type:jsonb"`
+
+	// ThreadReseeds records every time Helix prepended a context preamble to
+	// this turn's prompt because the agent could not reopen its session, so
+	// what the agent was actually sent is auditable. Server-written only.
+	ThreadReseeds []ThreadReseed `json:"thread_reseeds,omitempty" gorm:"type:jsonb;serializer:json"`
 }
+
+// ThreadReseed is one context preamble Helix injected in front of a replayed
+// turn. The preamble itself is rebuilt from the session's own transcript and
+// task, so only its hash and length are stored rather than a second copy.
+type ThreadReseed struct {
+	At time.Time `json:"at"`
+	// Reason is why the agent's session could not be resumed.
+	Reason ThreadReseedReason `json:"reason"`
+	// Runtime and AgentName identify the coding agent that was reseeded.
+	Runtime   CodeAgentRuntime `json:"runtime,omitempty"`
+	AgentName string           `json:"agent_name,omitempty"`
+	// PreambleSHA256 is the hex sha256 of the injected preamble text.
+	PreambleSHA256 string `json:"preamble_sha256"`
+	PreambleLength int    `json:"preamble_length"`
+	// Provenance is always origin=system, system_kind=thread_reseed.
+	Provenance TurnProvenance `json:"provenance"`
+}
+
+type ThreadReseedReason string
+
+// ThreadReseedAgentCannotLoadSession: the ACP agent declares no loadSession
+// capability, so after a restart its thread can never be reopened.
+const ThreadReseedAgentCannotLoadSession ThreadReseedReason = "agent_cannot_load_session"
 
 type InteractionCodeAgentConfigSnapshot struct {
 	AppID          string                  `json:"app_id,omitempty"`

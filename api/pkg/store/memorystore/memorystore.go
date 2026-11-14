@@ -219,6 +219,9 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 		if query.SpecTaskID != "" && s.Metadata.SpecTaskID != query.SpecTaskID {
 			continue
 		}
+		if query.ExternalAgentID != "" && s.Metadata.ExternalAgentID != query.ExternalAgentID {
+			continue
+		}
 		cp := *s
 		if query.SortBy == "last_message" {
 			for _, interaction := range m.interactions {
@@ -479,6 +482,18 @@ func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, int
 	return true, nil
 }
 
+func (m *MemoryStore) AppendInteractionThreadReseed(_ context.Context, interactionID string, generationID int, reseed types.ThreadReseed) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID {
+		return store.ErrNotFound
+	}
+	existing.ThreadReseeds = append(existing.ThreadReseeds, reseed)
+	existing.Updated = time.Now()
+	return nil
+}
+
 func (m *MemoryStore) MarkInteractionExternalAgentDispatched(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -528,6 +543,25 @@ func (m *MemoryStore) MarkInteractionInterruptedIfWaiting(_ context.Context, int
 	existing.Completed = now
 	existing.Updated = now
 	return true, nil
+}
+
+func (m *MemoryStore) GetInteractionByExternalAgentUserEntry(_ context.Context, sessionID, entryID string) (*types.Interaction, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var latest *types.Interaction
+	for _, interaction := range m.interactions {
+		if interaction.SessionID != sessionID || interaction.ExternalAgentUserEntryID != entryID {
+			continue
+		}
+		if latest == nil || interaction.Created.After(latest.Created) {
+			cp := *interaction
+			latest = &cp
+		}
+	}
+	if latest == nil {
+		return nil, store.ErrNotFound
+	}
+	return latest, nil
 }
 
 func (m *MemoryStore) GetInteractionByExternalAgentRequestID(_ context.Context, requestID string) (*types.Interaction, error) {
@@ -1166,6 +1200,18 @@ func (m *MemoryStore) CreateSpecTaskWorkSession(_ context.Context, workSession *
 	cp := *workSession
 	m.workSessions[workSession.ID] = &cp
 	return nil
+}
+
+func (m *MemoryStore) GetSpecTaskWorkSessionByHelixSession(_ context.Context, helixSessionID string) (*types.SpecTaskWorkSession, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, workSession := range m.workSessions {
+		if workSession.HelixSessionID == helixSessionID {
+			cp := *workSession
+			return &cp, nil
+		}
+	}
+	return nil, store.ErrNotFound
 }
 
 func (m *MemoryStore) ListWorkSessionsBySpecTask(_ context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error) {

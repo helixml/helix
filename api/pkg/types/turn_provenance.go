@@ -62,6 +62,9 @@ const (
 	SystemTurnCodeReviewTrigger        SystemTurnKind = "code_review_trigger"
 	SystemTurnEvaluationQuestion       SystemTurnKind = "evaluation_question"
 	SystemTurnExternalAgentTestHarness SystemTurnKind = "external_agent_test_harness"
+	// SystemTurnThreadReseed: Helix prepended a context preamble to a
+	// replayed turn because the agent could not reopen its session.
+	SystemTurnThreadReseed SystemTurnKind = "thread_reseed"
 )
 
 // Actor kinds appear only inside TriggeredBy, naming a non-human caller.

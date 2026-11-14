@@ -549,3 +549,46 @@ func (suite *PostgresStoreTestSuite) TestListSessionsByOrganizationNeedsAnyOwner
 	suite.Require().NoError(err)
 	suite.Len(all, 2)
 }
+
+// external_agent_id narrows a listing to one agent connection's sessions and
+// never widens the caller's scope: another tenant naming the same connection
+// id sees nothing.
+func (suite *PostgresStoreTestSuite) TestListSessionsByExternalAgentIDStaysInCallerScope() {
+	ctx := context.Background()
+	connection := system.GenerateSessionID()
+	ownerA, ownerB := "user-a-"+system.GenerateUUID(), "user-b-"+system.GenerateUUID()
+	orgA, orgB := "org-a-"+system.GenerateUUID(), "org-b-"+system.GenerateUUID()
+	child := types.Session{
+		ID: system.GenerateSessionID(), Owner: ownerA, OwnerType: types.OwnerTypeUser, OrganizationID: orgA,
+		ModelName: "external_agent", Created: time.Now(), Updated: time.Now(),
+		Metadata: types.SessionMetadata{ExternalAgentID: connection},
+	}
+	other := types.Session{
+		ID: system.GenerateSessionID(), Owner: ownerA, OwnerType: types.OwnerTypeUser, OrganizationID: orgA,
+		ModelName: "external_agent", Created: time.Now(), Updated: time.Now(),
+		Metadata: types.SessionMetadata{ExternalAgentID: system.GenerateSessionID()},
+	}
+	for _, session := range []types.Session{child, other} {
+		_, err := suite.db.CreateSession(ctx, session)
+		suite.Require().NoError(err)
+		id := session.ID
+		suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, id) })
+	}
+
+	own, _, err := suite.db.ListSessions(ctx, ListSessionsQuery{
+		Owner: ownerA, OwnerType: types.OwnerTypeUser, OrganizationID: orgA,
+		IncludeExternalAgents: true, ExternalAgentID: connection,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(own, 1)
+	suite.Equal(child.ID, own[0].ID)
+
+	for _, q := range []ListSessionsQuery{
+		{Owner: ownerB, OwnerType: types.OwnerTypeUser, OrganizationID: orgB, IncludeExternalAgents: true, ExternalAgentID: connection},
+		{Owner: ownerB, OwnerType: types.OwnerTypeUser, OrganizationID: orgA, IncludeExternalAgents: true, ExternalAgentID: connection},
+	} {
+		foreign, _, err := suite.db.ListSessions(ctx, q)
+		suite.Require().NoError(err)
+		suite.Empty(foreign)
+	}
+}

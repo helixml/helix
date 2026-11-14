@@ -70,6 +70,10 @@ type ListSessionsQuery struct {
 	ProjectIDs         []string `json:"project_ids"`
 	// SpecTaskID limits results to the sessions of one spec task.
 	SpecTaskID string `json:"spec_task_id"`
+	// ExternalAgentID limits results to the sessions carried by one agent
+	// connection (SessionMetadata.ExternalAgentID). It narrows the caller's
+	// existing scope; it never widens it.
+	ExternalAgentID string `json:"external_agent_id"`
 	// AnyOwner drops the owner clause. Only valid together with a project
 	// scope the caller has been authorized for: it is how a project group
 	// shows every member's chats.
@@ -366,6 +370,13 @@ type Store interface {
 	// without racing streaming or message-completion writes.
 	MarkInteractionInterruptedIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
 	GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error)
+	// AppendInteractionThreadReseed adds a reseed record to the interaction
+	// without touching any other column. ErrNotFound when no row matches.
+	AppendInteractionThreadReseed(ctx context.Context, interactionID string, generationID int, reseed types.ThreadReseed) error
+	// GetInteractionByExternalAgentUserEntry returns the session's interaction
+	// recorded for a user entry the external agent reported (Zed's message_id),
+	// newest first. ErrNotFound when none exists.
+	GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID, entryID string) (*types.Interaction, error)
 	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
 	// from Waiting → Complete and sets completed=now. Returns true if the row
 	// was transitioned, false if the row was already in a terminal state (no

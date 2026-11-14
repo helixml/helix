@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -111,6 +114,33 @@ func (apiServer *HelixAPIServer) buildThreadReseedPreamble(ctx context.Context, 
 	b.WriteString("\n---\n\nThe user's message follows.\n\n")
 
 	return truncate(b.String(), reseedMaxTotalChars)
+}
+
+// recordThreadReseed persists that a preamble is being injected in front of
+// this turn, before it is sent: the agent's input differs from the stored
+// prompt, and the record is what makes that visible on the interaction.
+func (apiServer *HelixAPIServer) recordThreadReseed(ctx context.Context, session *types.Session, interaction *types.Interaction, agentName, preamble string) error {
+	sum := sha256.Sum256([]byte(preamble))
+	reseed := types.ThreadReseed{
+		At:             time.Now(),
+		Reason:         types.ThreadReseedAgentCannotLoadSession,
+		Runtime:        session.Metadata.CodeAgentRuntime,
+		AgentName:      agentName,
+		PreambleSHA256: hex.EncodeToString(sum[:]),
+		PreambleLength: len(preamble),
+		Provenance:     types.SystemTurn(types.SystemTurnThreadReseed),
+	}
+	if err := apiServer.Controller.Options.Store.AppendInteractionThreadReseed(ctx, interaction.ID, interaction.GenerationID, reseed); err != nil {
+		return fmt.Errorf("record thread reseed on interaction %s: %w", interaction.ID, err)
+	}
+	log.Info().
+		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
+		Str("agent_name", agentName).
+		Int("preamble_length", reseed.PreambleLength).
+		Str("preamble_sha256", reseed.PreambleSHA256).
+		Msg("Recorded thread reseed preamble on interaction")
+	return nil
 }
 
 // recentTranscript renders the tail of the conversation as plain dialogue.

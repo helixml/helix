@@ -3799,24 +3799,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - helix_events
     - email
     - gitlab
-    - local
-    - helix_events
-    - slack
-    - github
-    - webhook
     - cron
+    - github
+    - slack
+    - local
+    - webhook
     type: string
     x-enum-varnames:
+    - KindHelixEvents
     - KindEmail
     - KindGitLab
-    - KindLocal
-    - KindHelixEvents
-    - KindSlack
-    - KindGitHub
-    - KindWebhook
     - KindCron
+    - KindGitHub
+    - KindSlack
+    - KindLocal
+    - KindWebhook
   transport.ResolvedActivation:
     properties:
       address:
@@ -7192,6 +7192,13 @@ definitions:
       sync_in_progress_since:
         description: Set while an upstream operation is running
         type: string
+      trusted_startup_sha:
+        description: |-
+          TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
+          .helix/startup.sh from. Only a human write moves it (a push with a human
+          credential, or a startup-script save in the UI/API); agent pushes never
+          do. Written only via SetGitRepositoryTrustedStartupSHA.
+        type: string
       updated_at:
         type: string
       username:
@@ -7586,6 +7593,14 @@ definitions:
         description: System prompt for the interaction (copy of the session's system
           prompt that was used to create this interaction)
         type: string
+      thread_reseeds:
+        description: |-
+          ThreadReseeds records every time Helix prepended a context preamble to
+          this turn's prompt because the agent could not reopen its session, so
+          what the agent was actually sent is auditable. Server-written only.
+        items:
+          $ref: '#/definitions/types.ThreadReseed'
+        type: array
       tool_call_id:
         description: For Role=tool prompts this should be set to the ID given in the
           assistant's prior request to call a tool.
@@ -13981,6 +13996,7 @@ definitions:
     - code_review_trigger
     - evaluation_question
     - external_agent_test_harness
+    - thread_reseed
     - org_bot_action
     - helix_agent_tool
     - trigger_configuration
@@ -14015,6 +14031,7 @@ definitions:
     - SystemTurnCodeReviewTrigger
     - SystemTurnEvaluationQuestion
     - SystemTurnExternalAgentTestHarness
+    - SystemTurnThreadReseed
     - SystemTurnOrgBotAction
     - SystemTurnHelixAgentTool
     - SystemTurnTriggerConfiguration
@@ -14088,6 +14105,36 @@ definitions:
     x-enum-varnames:
     - TextSplitterTypeMarkdown
     - TextSplitterTypeText
+  types.ThreadReseed:
+    properties:
+      agent_name:
+        type: string
+      at:
+        type: string
+      preamble_length:
+        type: integer
+      preamble_sha256:
+        description: PreambleSHA256 is the hex sha256 of the injected preamble text.
+        type: string
+      provenance:
+        allOf:
+        - $ref: '#/definitions/types.TurnProvenance'
+        description: Provenance is always origin=system, system_kind=thread_reseed.
+      reason:
+        allOf:
+        - $ref: '#/definitions/types.ThreadReseedReason'
+        description: Reason is why the agent's session could not be resumed.
+      runtime:
+        allOf:
+        - $ref: '#/definitions/types.CodeAgentRuntime'
+        description: Runtime and AgentName identify the coding agent that was reseeded.
+    type: object
+  types.ThreadReseedReason:
+    enum:
+    - agent_cannot_load_session
+    type: string
+    x-enum-varnames:
+    - ThreadReseedAgentCannotLoadSession
   types.TitleHistoryEntry:
     properties:
       changed_at:
@@ -28664,6 +28711,11 @@ paths:
         in: query
         name: include_external_agents
         type: boolean
+      - description: Only sessions carried by this external agent connection (implies
+          include_external_agents)
+        in: query
+        name: external_agent_id
+        type: string
       - description: Return only archived sessions instead of only unarchived ones
         in: query
         name: archived

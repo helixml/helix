@@ -22588,6 +22588,14 @@
                         }
                     },
                     {
+                        "description": "Only sessions carried by this external agent connection (implies include_external_agents)",
+                        "name": "external_agent_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "description": "Return only archived sessions instead of only unarchived ones",
                         "name": "archived",
                         "in": "query",
@@ -36194,24 +36202,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
+                    "helix_events",
                     "email",
                     "gitlab",
-                    "local",
-                    "helix_events",
-                    "slack",
+                    "cron",
                     "github",
-                    "webhook",
-                    "cron"
+                    "slack",
+                    "local",
+                    "webhook"
                 ],
                 "x-enum-varnames": [
+                    "KindHelixEvents",
                     "KindEmail",
                     "KindGitLab",
-                    "KindLocal",
-                    "KindHelixEvents",
-                    "KindSlack",
+                    "KindCron",
                     "KindGitHub",
-                    "KindWebhook",
-                    "KindCron"
+                    "KindSlack",
+                    "KindLocal",
+                    "KindWebhook"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -40742,6 +40750,10 @@
                         "description": "Set while an upstream operation is running",
                         "type": "string"
                     },
+                    "trusted_startup_sha": {
+                        "description": "TrustedStartupSHA is the helix-specs commit whose tree sandboxes run\n.helix/startup.sh from. Only a human write moves it (a push with a human\ncredential, or a startup-script save in the UI/API); agent pushes never\ndo. Written only via SetGitRepositoryTrustedStartupSHA.",
+                        "type": "string"
+                    },
                     "updated_at": {
                         "type": "string"
                     },
@@ -41260,6 +41272,13 @@
                     "system_prompt": {
                         "description": "System prompt for the interaction (copy of the session's system prompt that was used to create this interaction)",
                         "type": "string"
+                    },
+                    "thread_reseeds": {
+                        "description": "ThreadReseeds records every time Helix prepended a context preamble to\nthis turn's prompt because the agent could not reopen its session, so\nwhat the agent was actually sent is auditable. Server-written only.",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.ThreadReseed"
+                        }
                     },
                     "tool_call_id": {
                         "description": "For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.",
@@ -49694,6 +49713,7 @@
                     "code_review_trigger",
                     "evaluation_question",
                     "external_agent_test_harness",
+                    "thread_reseed",
                     "org_bot_action",
                     "helix_agent_tool",
                     "trigger_configuration",
@@ -49728,6 +49748,7 @@
                     "SystemTurnCodeReviewTrigger",
                     "SystemTurnEvaluationQuestion",
                     "SystemTurnExternalAgentTestHarness",
+                    "SystemTurnThreadReseed",
                     "SystemTurnOrgBotAction",
                     "SystemTurnHelixAgentTool",
                     "SystemTurnTriggerConfiguration",
@@ -49836,6 +49857,57 @@
                 "x-enum-varnames": [
                     "TextSplitterTypeMarkdown",
                     "TextSplitterTypeText"
+                ]
+            },
+            "types.ThreadReseed": {
+                "type": "object",
+                "properties": {
+                    "agent_name": {
+                        "type": "string"
+                    },
+                    "at": {
+                        "type": "string"
+                    },
+                    "preamble_length": {
+                        "type": "integer"
+                    },
+                    "preamble_sha256": {
+                        "description": "PreambleSHA256 is the hex sha256 of the injected preamble text.",
+                        "type": "string"
+                    },
+                    "provenance": {
+                        "description": "Provenance is always origin=system, system_kind=thread_reseed.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.TurnProvenance"
+                            }
+                        ]
+                    },
+                    "reason": {
+                        "description": "Reason is why the agent's session could not be resumed.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.ThreadReseedReason"
+                            }
+                        ]
+                    },
+                    "runtime": {
+                        "description": "Runtime and AgentName identify the coding agent that was reseeded.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/types.CodeAgentRuntime"
+                            }
+                        ]
+                    }
+                }
+            },
+            "types.ThreadReseedReason": {
+                "type": "string",
+                "enum": [
+                    "agent_cannot_load_session"
+                ],
+                "x-enum-varnames": [
+                    "ThreadReseedAgentCannotLoadSession"
                 ]
             },
             "types.TitleHistoryEntry": {

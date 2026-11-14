@@ -755,3 +755,55 @@ func (suite *PostgresStoreTestSuite) TestExternalAgentInteractionLifecycleSurviv
 	suite.Equal(types.InteractionStateInterrupted, final.State)
 	suite.NotNil(final.ExternalAgentCancelRequestedAt)
 }
+
+func (suite *PostgresStoreTestSuite) TestAppendInteractionThreadReseedKeepsEveryRecord() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-reseed-test", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptMessage: "keep going",
+		ResponseMessage: "partial", State: types.InteractionStateWaiting,
+	})
+	suite.Require().NoError(err)
+
+	for _, length := range []int{10, 20} {
+		suite.Require().NoError(suite.db.AppendInteractionThreadReseed(ctx, interaction.ID, interaction.GenerationID, types.ThreadReseed{
+			At: time.Now(), Reason: types.ThreadReseedAgentCannotLoadSession, AgentName: "dsh",
+			PreambleSHA256: "abc", PreambleLength: length, Provenance: types.SystemTurn(types.SystemTurnThreadReseed),
+		}))
+	}
+
+	got, err := suite.db.GetInteraction(ctx, interaction.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(got.ThreadReseeds, 2)
+	suite.Equal(10, got.ThreadReseeds[0].PreambleLength)
+	suite.Equal(20, got.ThreadReseeds[1].PreambleLength)
+	suite.Equal(types.SystemTurnThreadReseed, got.ThreadReseeds[1].Provenance.SystemKind)
+	suite.Equal("partial", got.ResponseMessage, "the append must not touch other columns")
+
+	suite.ErrorIs(suite.db.AppendInteractionThreadReseed(ctx, "int_missing", 0, types.ThreadReseed{}), ErrNotFound)
+}
+
+func (suite *PostgresStoreTestSuite) TestGetInteractionByExternalAgentUserEntryIsSessionScoped() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-entry-test", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptMessage: "hello",
+		ExternalAgentUserEntryID: "3",
+	})
+	suite.Require().NoError(err)
+
+	got, err := suite.db.GetInteractionByExternalAgentUserEntry(ctx, session.ID, "3")
+	suite.Require().NoError(err)
+	suite.Equal(interaction.ID, got.ID)
+
+	_, err = suite.db.GetInteractionByExternalAgentUserEntry(ctx, "ses_other", "3")
+	suite.ErrorIs(err, ErrNotFound)
+}

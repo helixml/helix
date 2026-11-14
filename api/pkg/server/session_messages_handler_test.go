@@ -60,7 +60,6 @@ func (s *SessionMessagesHandlerSuite) SetupTest() {
 		requestToSessionMapping:     make(map[string]string),
 		requestToInteractionMapping: make(map[string]string),
 		externalAgentSessionMapping: make(map[string]string),
-		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		sessionToCommenterMapping:   make(map[string]string),
