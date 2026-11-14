@@ -393,6 +393,12 @@ func runRoutes(t *testing.T, f *authzFixture, routes []route) {
 	}
 }
 
+// providerReachedMarker is the chat completion answer when Helix tried the
+// matrix's provider (an unresolvable .invalid host): proof that the request
+// passed authorization and provider selection. The provider's address itself
+// is never echoed to the caller.
+const providerReachedMarker = "the request to the model provider failed"
+
 func (f *authzFixture) assertOutcome(t *testing.T, who actor, expected want, r route, path string, resp authzResponse) {
 	t.Helper()
 	ctx := fmt.Sprintf("%s %s as %s: status %d body %q", r.Method, path, who, resp.status, truncate(resp.body, 400))

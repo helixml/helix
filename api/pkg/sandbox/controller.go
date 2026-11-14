@@ -256,9 +256,16 @@ func (c *Controller) Get(ctx context.Context, id string) (*types.Sandbox, error)
 // single project. Empty projectID matches all sandboxes (project-scoped or
 // not).
 func (c *Controller) List(ctx context.Context, orgID, projectID string) ([]*types.Sandbox, error) {
+	return c.ListVisible(ctx, orgID, projectID, nil)
+}
+
+// ListVisible is List narrowed to the rows visibility admits (nil admits
+// all).
+func (c *Controller) ListVisible(ctx context.Context, orgID, projectID string, visibility *store.SandboxVisibility) ([]*types.Sandbox, error) {
 	return c.store.ListSandboxes(ctx, &store.ListSandboxesQuery{
 		OrganizationID: orgID,
 		ProjectID:      projectID,
+		Visibility:     visibility,
 	})
 }
 

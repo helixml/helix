@@ -40,9 +40,10 @@ import (
 // stream refreshes the session's activity time (see InputActivity).
 const desktopInputActivityInterval = time.Minute
 
-// action is the access the caller needs on a session: ActionGet to watch a
-// desktop, ActionUpdate to drive it. Sandboxes have no per-resource grants, so
-// org membership is the check for either.
+// action is the access the caller needs: ActionGet to watch a desktop,
+// ActionUpdate to drive it. A sandbox id is authorized as the org Sandboxes
+// API authorizes it (authorizeUserToSandbox), and a refusal answers as for an
+// unknown id.
 func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req *http.Request, id string, action types.Action) bool {
 	user := getRequestUser(req)
 	if user == nil {
@@ -58,13 +59,11 @@ func (apiServer *HelixAPIServer) authorizeDesktopID(res http.ResponseWriter, req
 		}
 		return true
 	}
-	// Fall back to sandbox lookup. Membership in the sandbox's org is enough
-	// — sandboxes don't have per-resource access grants today, mirroring
-	// loadAuthorizedSandbox.
 	if apiServer.sandboxController != nil {
 		if sb, err := apiServer.sandboxController.Get(req.Context(), id); err == nil {
-			if _, err := apiServer.authorizeOrgMember(req.Context(), user, sb.OrganizationID); err != nil {
-				http.Error(res, "forbidden", http.StatusForbidden)
+			if err := apiServer.authorizeUserToSandbox(req.Context(), user, sb, action); err != nil {
+				log.Warn().Err(err).Str("user_id", user.ID).Str("sandbox_id", sb.ID).Msg("desktop access denied")
+				http.Error(res, "session or sandbox not found", http.StatusNotFound)
 				return false
 			}
 			return true

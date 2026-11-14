@@ -136,7 +136,8 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		}()
 
 		defer m.wg.Done()
-		// Once done, close the writer
+		// Ends the stream if a panic skips the CloseWithError below; a no-op
+		// otherwise, since a pipe keeps the first close error.
 		defer downstreamWriter.Close()
 
 		var resp = openai.ChatCompletionResponse{}
@@ -180,8 +181,10 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 			}
 		}
 
-		// Once the stream is done, close the downstream writer
 		m.logLLMCall(ctx, start, &request, &resp, streamErr, true, time.Since(start).Milliseconds(), firstTokenMs)
+		// Hand a mid-stream failure on to the reader instead of ending the
+		// stream as if it had completed (CloseWithError(nil) is a clean EOF).
+		_ = downstreamWriter.CloseWithError(streamErr)
 	}()
 
 	return downstream, nil
