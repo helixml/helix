@@ -107,6 +107,9 @@ func (auth *authMiddleware) taskConfinedKeyCheck(user *types.User, r *http.Reque
 		return http.StatusForbidden, errTaskConfinedKeyOrg
 	}
 
+	// Defence in depth: the sandbox handlers refuse a confined key themselves
+	// (denySandboxesToConfinedKey); this keeps a handler that forgets to from
+	// being reachable.
 	if rest, ok := strings.CutPrefix(path, "/api/v1/organizations/"); ok {
 		if _, sub, _ := strings.Cut(rest, "/"); sub == "sandboxes" || strings.HasPrefix(sub, "sandboxes/") {
 			return http.StatusForbidden, errTaskConfinedKeySandboxes

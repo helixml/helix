@@ -31,6 +31,7 @@ const (
 	sbxOrgOwner   = "usr_org_owner"
 	sbxMember     = "usr_member"
 	sbxStranger   = "usr_stranger"
+	sbxBothOrgs   = "usr_both_orgs"
 	sbxDeskID     = "sbx_desk_v"
 	sbxDeskSessID = "ses_task_v"
 )
@@ -61,15 +62,19 @@ func newSandboxAuthzServerWithProject(t *testing.T, projectV *types.Project) (*H
 	st := store.NewMockStore(gomock.NewController(t))
 	st.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: sbxOrgA}).
 		Return(&types.Organization{ID: sbxOrgA, Name: "acme"}, nil).AnyTimes()
-	memberships := map[string]types.OrganizationRole{
-		sbxTaskOwner: types.OrganizationRoleMember,
-		sbxMember:    types.OrganizationRoleMember,
-		sbxOrgOwner:  types.OrganizationRoleOwner,
+	memberships := map[string]map[string]types.OrganizationRole{
+		sbxOrgA: {
+			sbxTaskOwner: types.OrganizationRoleMember,
+			sbxMember:    types.OrganizationRoleMember,
+			sbxOrgOwner:  types.OrganizationRoleOwner,
+			sbxBothOrgs:  types.OrganizationRoleMember,
+		},
+		sbxOrgB: {sbxBothOrgs: types.OrganizationRoleMember},
 	}
 	st.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ any, q *store.GetOrganizationMembershipQuery) (*types.OrganizationMembership, error) {
-			role, ok := memberships[q.UserID]
-			if !ok || q.OrganizationID != sbxOrgA {
+			role, ok := memberships[q.OrganizationID][q.UserID]
+			if !ok {
 				return nil, store.ErrNotFound
 			}
 			return &types.OrganizationMembership{OrganizationID: q.OrganizationID, UserID: q.UserID, Role: role}, nil
@@ -92,7 +97,9 @@ type sandboxRoute struct {
 // sandboxRoutes is every /organizations/{org}/sandboxes/{id} route.
 func sandboxRoutes() []sandboxRoute {
 	h := func(f func(*HelixAPIServer, http.ResponseWriter, *http.Request)) func(*HelixAPIServer) http.HandlerFunc {
-		return func(s *HelixAPIServer) http.HandlerFunc { return func(w http.ResponseWriter, r *http.Request) { f(s, w, r) } }
+		return func(s *HelixAPIServer) http.HandlerFunc {
+			return func(w http.ResponseWriter, r *http.Request) { f(s, w, r) }
+		}
 	}
 	cmd := map[string]string{"cmd_id": "sbcmd_1"}
 	return []sandboxRoute{
@@ -214,8 +221,7 @@ func TestOrgSandboxes_RefusesProjectRowsAndOrphansToMembers(t *testing.T) {
 }
 
 // A member with read-only access to a project (OrgMembersAccess) may read a
-// sandbox row in it but not act inside it. (A task desktop in such a project
-// follows authorizeUserToSession, which lets those members drive the session.)
+// sandbox row in it but not act inside it.
 func TestOrgSandboxes_ReadOnlyProjectAccessCannotExec(t *testing.T) {
 	open := sbxProjectVRow()
 	open.Metadata.OrgMembersAccess = true
@@ -366,4 +372,99 @@ func TestOrgSandboxes_ScopedKeysDoNotReachProjectlessSandboxes(t *testing.T) {
 		exec.handler(srv)(rec, sandboxRouteRequest(exec, plain.ID, own))
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code, rec.Body.String())
 	})
+}
+
+// In an OrgMembersAccess project every member may chat with another user's
+// task session, but not act inside its desktop: the session's Update
+// downgrade does not apply to the container.
+func TestOrgSandboxes_OrgMembersAccessDoesNotOpenAnotherUsersDesktop(t *testing.T) {
+	open := sbxProjectVRow()
+	open.Metadata.OrgMembersAccess = true
+	user := &types.User{ID: sbxMember}
+	for _, route := range sandboxRoutes() {
+		if route.name == "screenshot" || route.name == "billing" {
+			continue // reads, which follow the session rule
+		}
+		t.Run(route.name, func(t *testing.T) {
+			srv, st := newSandboxAuthzServerWithProject(t, open)
+			st.EXPECT().GetSandbox(gomock.Any(), sbxDeskID).Return(sbxDesktopRow(), nil).AnyTimes()
+			st.EXPECT().GetSession(gomock.Any(), sbxDeskSessID).Return(sbxTaskSession(), nil).AnyTimes()
+			rec := httptest.NewRecorder()
+			route.handler(srv)(rec, sandboxRouteRequest(route, sbxDeskID, user))
+			if route.name == "get" {
+				// Reading the row follows the session rule.
+				assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				return
+			}
+			assert.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// A session's owner may act in its desktop through the session even without
+// update access to the project the row is in.
+func TestOrgSandboxes_SessionOwnerReachesDesktopWithoutProjectAccess(t *testing.T) {
+	srv, st := newSandboxAuthzServer(t)
+	row := sbxDesktopRow()
+	row.Owner = sbxMember
+	session := sbxTaskSession()
+	session.Owner = sbxMember
+	st.EXPECT().GetSandbox(gomock.Any(), sbxDeskID).Return(row, nil).AnyTimes()
+	st.EXPECT().GetSession(gomock.Any(), sbxDeskSessID).Return(session, nil).AnyTimes()
+
+	exec := sandboxRoutes()[3]
+	rec := httptest.NewRecorder()
+	exec.handler(srv)(rec, sandboxRouteRequest(exec, sbxDeskID, &types.User{ID: sbxMember}))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, rec.Body.String())
+}
+
+// A caller in both organizations cannot reach org B's sandbox through an org
+// A URL.
+func TestOrgSandboxes_URLOrgMustBeTheSandboxOrg(t *testing.T) {
+	srv, st := newSandboxAuthzServer(t)
+	row := &types.Sandbox{ID: "sbx_in_b", OrganizationID: sbxOrgB, Owner: sbxBothOrgs}
+	st.EXPECT().GetSandbox(gomock.Any(), row.ID).Return(row, nil).AnyTimes()
+	exec := sandboxRoutes()[3]
+	rec := httptest.NewRecorder()
+	exec.handler(srv)(rec, sandboxRouteRequest(exec, row.ID, &types.User{ID: sbxBothOrgs}))
+	assert.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+}
+
+// The desktop stream, input and screenshot routes take a sandbox id too, and
+// authorize it as the Sandboxes API does.
+func TestAuthorizeDesktopID_SandboxFollowsSandboxPolicy(t *testing.T) {
+	open := sbxProjectVRow()
+	open.Metadata.OrgMembersAccess = true
+	inV := &types.Sandbox{ID: "sbx_in_v", OrganizationID: sbxOrgA, ProjectID: sbxProjectV, Owner: sbxTaskOwner}
+	cases := []struct {
+		name   string
+		row    *types.Sandbox
+		user   *types.User
+		action types.Action
+		want   bool
+	}{
+		{"member drives another user's task desktop", sbxDesktopRow(), &types.User{ID: sbxMember}, types.ActionUpdate, false},
+		{"member watches another user's task desktop", sbxDesktopRow(), &types.User{ID: sbxMember}, types.ActionGet, true},
+		{"member drives a sandbox in a read-only project", inV, &types.User{ID: sbxMember}, types.ActionUpdate, false},
+		{"other tenant watches", inV, &types.User{ID: sbxStranger}, types.ActionGet, false},
+		{"project key from project M watches", inV, &types.User{ID: sbxTaskOwner, TokenType: types.TokenTypeAPIKey, APIKeyType: types.APIkeytypeAPI,
+			OrganizationID: sbxOrgA, ProjectID: sbxProjectM}, types.ActionGet, false},
+		{"task owner drives their desktop", sbxDesktopRow(), &types.User{ID: sbxTaskOwner}, types.ActionUpdate, true},
+		{"project owner drives a sandbox in it", inV, &types.User{ID: sbxTaskOwner}, types.ActionUpdate, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, st := newSandboxAuthzServerWithProject(t, open)
+			st.EXPECT().GetSession(gomock.Any(), tc.row.ID).Return(nil, store.ErrNotFound)
+			st.EXPECT().GetSandbox(gomock.Any(), tc.row.ID).Return(tc.row, nil)
+			st.EXPECT().GetSession(gomock.Any(), sbxDeskSessID).Return(sbxTaskSession(), nil).AnyTimes()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/external-agents/"+tc.row.ID+"/screenshot", http.NoBody)
+			req = req.WithContext(setRequestUser(req.Context(), *tc.user))
+			rec := httptest.NewRecorder()
+			assert.Equal(t, tc.want, srv.authorizeDesktopID(rec, req, tc.row.ID, tc.action), rec.Body.String())
+			if !tc.want {
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			}
+		})
+	}
 }

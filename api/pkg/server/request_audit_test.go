@@ -571,6 +571,8 @@ func TestRequestAuditMiddlewareDropsSensitiveRouteBodies(t *testing.T) {
 		"/api/v1/apps/app_1",
 		"/api/v1/organizations/org_1/webhook-endpoints",
 		"/api/v1/organizations/org_1/sandboxes",
+		"/api/v1/organizations/org_1/sandboxes/sbx_1/commands",
+		"/api/v1/organizations/org_1/sandboxes/sbx_1/files",
 		"/api/v1/projects/prj_1/secret-intakes",
 		"/connect/intake/submit",
 		"/api/v1/identity/attestations",

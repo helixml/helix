@@ -29,7 +29,9 @@ import (
 //
 // Reading the row, its billing and a screenshot need ActionGet; anything that
 // touches the container's contents or lifecycle (files, commands and their
-// logs, terminal, update, delete) needs ActionUpdate.
+// logs, terminal, input, update, delete) needs ActionUpdate. On a session's
+// desktop ActionUpdate is stricter than the session's own rule
+// (authorizeUserToSessionContainer).
 //
 // A task-confined key gets none of the API: its own desktop is reached through
 // the session routes, and a lane that could reach another lane's desktop
@@ -68,10 +70,14 @@ func enforceKeySandboxScope(user *types.User, sb *types.Sandbox) error {
 	return nil
 }
 
-// authorizeUserToSandbox decides whether user may act on sb. The caller must
-// already have checked org membership of sb's organization.
-func (s *HelixAPIServer) authorizeUserToSandbox(ctx context.Context, user *types.User, membership *types.OrganizationMembership, sb *types.Sandbox, action types.Action) error {
+// authorizeUserToSandbox decides whether user may act on sb: the key scope,
+// membership of sb's organization, then the row's session or project.
+func (s *HelixAPIServer) authorizeUserToSandbox(ctx context.Context, user *types.User, sb *types.Sandbox, action types.Action) error {
 	if err := enforceKeySandboxScope(user, sb); err != nil {
+		return err
+	}
+	membership, err := s.authorizeOrgMember(ctx, user, sb.OrganizationID)
+	if err != nil {
 		return err
 	}
 	if sb.SessionBacked() {
@@ -87,12 +93,41 @@ func (s *HelixAPIServer) authorizeUserToSandbox(ctx context.Context, user *types
 		if err != nil {
 			return fmt.Errorf("get session %s: %w", sb.SessionID, err)
 		}
-		return s.authorizeUserToSession(ctx, user, session, action)
+		if session.OrganizationID != sb.OrganizationID {
+			return fmt.Errorf("%w: session %s is not in the sandbox's organization", store.ErrNotFound, session.ID)
+		}
+		if action == types.ActionGet {
+			return s.authorizeUserToSession(ctx, user, session, action)
+		}
+		return s.authorizeUserToSessionContainer(ctx, user, membership, session)
 	}
 	if sb.ProjectID != "" {
 		return s.authorizeUserToProjectByID(ctx, user, sb.ProjectID, action)
 	}
 	return nil
+}
+
+// errNotSessionContainerUser refuses acting inside a session's desktop to a
+// caller who may otherwise use the session.
+var errNotSessionContainerUser = errors.New("only the session owner, an org owner or a project editor may act inside a session's desktop")
+
+// authorizeUserToSessionContainer authorizes acting inside a session's
+// desktop container: its owner, an org owner, or a caller with update access
+// to its project. It does not take authorizeUserToSession's downgrade for
+// OrgMembersAccess projects, which lets every member chat with the project's
+// agents: a shell, files or input in the container would also hand over the
+// agent's token and the project's credentials, with no transcript.
+func (s *HelixAPIServer) authorizeUserToSessionContainer(ctx context.Context, user *types.User, membership *types.OrganizationMembership, session *types.Session) error {
+	if err := enforceKeySessionScope(user, session); err != nil {
+		return err
+	}
+	if callerOwns(user, session.Owner, session.OrganizationID) || membership.Role == types.OrganizationRoleOwner {
+		return nil
+	}
+	if session.ProjectID == "" {
+		return errNotSessionContainerUser
+	}
+	return s.authorizeUserToProjectByID(ctx, user, session.ProjectID, types.ActionUpdate)
 }
 
 // loadAuthorizedSandbox fetches the sandbox named by the URL and authorizes
@@ -126,17 +161,7 @@ func (s *HelixAPIServer) loadAuthorizedSandbox(rw http.ResponseWriter, r *http.R
 		http.Error(rw, "sandbox not found", http.StatusNotFound)
 		return nil
 	}
-	membership, err := s.authorizeOrgMember(r.Context(), user, sb.OrganizationID)
-	if err != nil {
-		if isOutsideTenant(err) {
-			http.Error(rw, "sandbox not found", http.StatusNotFound)
-		} else {
-			log.Error().Err(err).Msg("error checking org membership for sandbox")
-			http.Error(rw, "could not check org membership", http.StatusInternalServerError)
-		}
-		return nil
-	}
-	if err := s.authorizeUserToSandbox(r.Context(), user, membership, sb, action); err != nil {
+	if err := s.authorizeUserToSandbox(r.Context(), user, sb, action); err != nil {
 		log.Warn().Err(err).
 			Str("user_id", user.ID).
 			Str("sandbox_id", sb.ID).
