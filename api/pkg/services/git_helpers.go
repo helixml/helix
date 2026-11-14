@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -427,9 +428,9 @@ type TreeEntry struct {
 }
 
 // ListTreeEntries lists entries in a tree.
-// Equivalent to: git ls-tree <tree-sha>
+// Equivalent to: git ls-tree -z <tree-sha>
 func ListTreeEntries(ctx context.Context, repoPath, treeSHA string) ([]TreeEntry, error) {
-	stdout, _, err := gitcmd.NewCommand("ls-tree").
+	stdout, _, err := gitcmd.NewCommand("ls-tree", "-z").
 		AddDynamicArguments(treeSHA).
 		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
 	if err != nil {
@@ -437,39 +438,42 @@ func ListTreeEntries(ctx context.Context, repoPath, treeSHA string) ([]TreeEntry
 	}
 
 	var entries []TreeEntry
-	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
-		if line == "" {
+	for _, record := range strings.Split(stdout, "\x00") {
+		if record == "" {
 			continue
 		}
-		// Format: <mode> <type> <sha>\t<name>
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
-			continue
+		// Format: <mode> SP <type> SP <sha> TAB <name>
+		meta, name, ok := strings.Cut(record, "\t")
+		if !ok {
+			return nil, fmt.Errorf("malformed ls-tree record %q", record)
 		}
-		meta := strings.Fields(parts[0])
-		if len(meta) != 3 {
-			continue
+		fields := strings.Fields(meta)
+		if len(fields) != 3 {
+			return nil, fmt.Errorf("malformed ls-tree record %q", record)
 		}
 		entries = append(entries, TreeEntry{
-			Mode: meta[0],
-			Type: meta[1],
-			SHA:  meta[2],
-			Name: parts[1],
+			Mode: fields[0],
+			Type: fields[1],
+			SHA:  fields[2],
+			Name: name,
 		})
 	}
 	return entries, nil
 }
 
 // WriteTree creates a tree object from entries.
-// Equivalent to: git mktree
+// Equivalent to: git mktree -z
 func WriteTree(ctx context.Context, repoPath string, entries []TreeEntry) (string, error) {
 	var input strings.Builder
 	for _, e := range entries {
-		// Format: <mode> <type> <sha>\t<name>
-		fmt.Fprintf(&input, "%s %s %s\t%s\n", e.Mode, e.Type, e.SHA, e.Name)
+		if e.Name == "" || e.Name == "." || e.Name == ".." || strings.ContainsAny(e.Name, "/\x00") {
+			return "", fmt.Errorf("invalid tree entry name %q", e.Name)
+		}
+		// Format: <mode> SP <type> SP <sha> TAB <name> NUL
+		fmt.Fprintf(&input, "%s %s %s\t%s\x00", e.Mode, e.Type, e.SHA, e.Name)
 	}
 
-	stdout, stderr, err := gitcmd.NewCommand("mktree").
+	stdout, stderr, err := gitcmd.NewCommand("mktree", "-z").
 		RunStdBytes(ctx, &gitcmd.RunOpts{
 			Dir:   repoPath,
 			Stdin: strings.NewReader(input.String()),
@@ -525,45 +529,85 @@ func UpdateBranchRefFrom(ctx context.Context, repoPath, branch, commitSHA, oldSH
 	return err
 }
 
-// CommitFileToBareBranch commits a single file to a branch in a bare repo directly.
-// This avoids creating a working copy - much faster for single file updates.
+// ErrRepoPathBlocked is returned when a file write would replace or descend
+// through an existing entry that is not a regular file or directory.
+var ErrRepoPathBlocked = errors.New("path is blocked by an existing symlink, submodule, file or directory")
+
+// ErrBranchMoved is returned when the branch changed between reading its head
+// and updating it.
+var ErrBranchMoved = errors.New("branch was updated concurrently")
+
+const (
+	treeModeFile       = "100644"
+	treeModeExecutable = "100755"
+	treeModeDir        = "040000"
+)
+
+// CommitFileToBareBranch commits a single file to a branch in a bare repo
+// directly, creating the branch when it does not exist. Nothing is checked
+// out, so tree content (symlinks, .git paths) never reaches the filesystem.
 // Returns (commitSHA, changed, error) where changed indicates if a commit was made.
 func CommitFileToBareBranch(ctx context.Context, repoPath, branch, filePath string, content []byte, authorName, authorEmail, message string) (string, bool, error) {
-	// 1. Write the blob
+	parentSHA, err := branchHead(ctx, repoPath, branch)
+	if err != nil {
+		return "", false, err
+	}
+	return commitFileOnParent(ctx, repoPath, branch, parentSHA, filePath, content, authorName, authorEmail, message)
+}
+
+// branchHead returns the commit branch points at, or "" when it does not exist.
+func branchHead(ctx context.Context, repoPath, branch string) (string, error) {
+	repo, err := giteagit.OpenRepository(ctx, repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open repository: %w", err)
+	}
+	defer repo.Close()
+	commitID, err := repo.GetBranchCommitID(branch)
+	if giteagit.IsErrNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to read branch %s: %w", branch, err)
+	}
+	return commitID, nil
+}
+
+// commitFileOnParent writes content at filePath on top of parentSHA ("" for a
+// new branch) and moves branch from parentSHA to the new commit, failing with
+// ErrBranchMoved if the branch no longer points at parentSHA.
+func commitFileOnParent(ctx context.Context, repoPath, branch, parentSHA, filePath string, content []byte, authorName, authorEmail, message string) (string, bool, error) {
 	blobSHA, err := WriteBlob(ctx, repoPath, content)
 	if err != nil {
 		return "", false, fmt.Errorf("failed to write blob: %w", err)
 	}
 
-	// 2. Get current branch state (may not exist)
-	var parentSHA, currentTreeSHA string
-	parentSHA, _ = GetBranchCommitID(ctx, repoPath, branch)
+	var currentTreeSHA string
 	if parentSHA != "" {
-		currentTreeSHA, _ = GetTreeSHA(ctx, repoPath, branch)
+		currentTreeSHA, err = GetTreeSHA(ctx, repoPath, parentSHA)
+		if err != nil {
+			return "", false, fmt.Errorf("failed to read tree of %s: %w", branch, err)
+		}
 	}
 
-	// 3. Build the new tree with the file at the correct path
-	// Split path into components (e.g., ".helix/startup.sh" -> [".helix", "startup.sh"])
-	pathParts := strings.Split(filePath, "/")
-	newRootTreeSHA, err := buildTreeWithFile(ctx, repoPath, currentTreeSHA, pathParts, blobSHA)
+	newRootTreeSHA, err := buildTreeWithFile(ctx, repoPath, currentTreeSHA, strings.Split(filePath, "/"), blobSHA)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to build tree: %w", err)
+		return "", false, fmt.Errorf("failed to build tree for %s: %w", filePath, err)
 	}
 
-	// 4. Check if tree changed (no-op if identical)
 	if newRootTreeSHA == currentTreeSHA {
 		log.Debug().Str("branch", branch).Str("file", filePath).Msg("File unchanged, skipping commit")
 		return parentSHA, false, nil
 	}
 
-	// 5. Create commit
 	commitSHA, err := CreateCommit(ctx, repoPath, newRootTreeSHA, parentSHA, authorName, authorEmail, message)
 	if err != nil {
 		return "", false, fmt.Errorf("failed to create commit: %w", err)
 	}
 
-	// 6. Update branch ref
-	if err := UpdateBranchRef(ctx, repoPath, branch, commitSHA); err != nil {
+	if err := UpdateBranchRefFrom(ctx, repoPath, branch, commitSHA, parentSHA); err != nil {
+		if head, headErr := branchHead(ctx, repoPath, branch); headErr == nil && head != parentSHA {
+			return "", false, fmt.Errorf("%w: %s", ErrBranchMoved, branch)
+		}
 		return "", false, fmt.Errorf("failed to update branch ref: %w", err)
 	}
 
@@ -576,84 +620,68 @@ func CommitFileToBareBranch(ctx context.Context, repoPath, branch, filePath stri
 	return commitSHA, true, nil
 }
 
-// buildTreeWithFile recursively builds a tree with a file at the given path.
-// pathParts is the remaining path components, blobSHA is the file content.
-// Returns the SHA of the new/modified tree.
+// buildTreeWithFile returns a copy of currentTreeSHA ("" for none) with the
+// blob at pathParts. It only replaces regular files and only descends into
+// directories: a symlink, submodule or directory in the way is
+// ErrRepoPathBlocked, and so is a case-variant symlink or submodule.
 func buildTreeWithFile(ctx context.Context, repoPath, currentTreeSHA string, pathParts []string, blobSHA string) (string, error) {
 	if len(pathParts) == 0 {
 		return "", fmt.Errorf("empty path")
 	}
 
-	// Get current entries (if tree exists)
 	var entries []TreeEntry
 	if currentTreeSHA != "" {
 		var err error
 		entries, err = ListTreeEntries(ctx, repoPath, currentTreeSHA)
 		if err != nil {
-			// Tree might not exist yet, start fresh
-			entries = nil
+			return "", fmt.Errorf("failed to list tree %s: %w", currentTreeSHA, err)
 		}
 	}
 
-	targetName := pathParts[0]
-
-	if len(pathParts) == 1 {
-		// This is the file - add/update it
-		found := false
-		for i, e := range entries {
-			if e.Name == targetName {
-				entries[i].SHA = blobSHA
-				entries[i].Mode = "100644"
-				entries[i].Type = "blob"
-				found = true
-				break
-			}
+	name := pathParts[0]
+	isLeaf := len(pathParts) == 1
+	existing := -1
+	for i, e := range entries {
+		if e.Name == name {
+			existing = i
+			continue
 		}
-		if !found {
-			entries = append(entries, TreeEntry{
-				Mode: "100644",
-				Type: "blob",
-				SHA:  blobSHA,
-				Name: targetName,
-			})
+		if strings.EqualFold(e.Name, name) && e.Mode != treeModeFile && e.Mode != treeModeExecutable && e.Mode != treeModeDir {
+			return "", fmt.Errorf("%w: %q (mode %s)", ErrRepoPathBlocked, e.Name, e.Mode)
+		}
+	}
+
+	var entry TreeEntry
+	if isLeaf {
+		entry = TreeEntry{Mode: treeModeFile, Type: "blob", SHA: blobSHA, Name: name}
+		if existing >= 0 {
+			switch entries[existing].Mode {
+			case treeModeFile:
+			case treeModeExecutable:
+				entry.Mode = treeModeExecutable
+			default:
+				return "", fmt.Errorf("%w: %q (mode %s)", ErrRepoPathBlocked, name, entries[existing].Mode)
+			}
 		}
 	} else {
-		// This is a directory - recurse
 		var subtreeSHA string
-		for _, e := range entries {
-			if e.Name == targetName && e.Type == "tree" {
-				subtreeSHA = e.SHA
-				break
+		if existing >= 0 {
+			if entries[existing].Mode != treeModeDir {
+				return "", fmt.Errorf("%w: %q (mode %s)", ErrRepoPathBlocked, name, entries[existing].Mode)
 			}
+			subtreeSHA = entries[existing].SHA
 		}
-
-		// Build the subtree
 		newSubtreeSHA, err := buildTreeWithFile(ctx, repoPath, subtreeSHA, pathParts[1:], blobSHA)
 		if err != nil {
 			return "", err
 		}
-
-		// Update or add directory entry
-		found := false
-		for i, e := range entries {
-			if e.Name == targetName {
-				entries[i].SHA = newSubtreeSHA
-				entries[i].Mode = "040000"
-				entries[i].Type = "tree"
-				found = true
-				break
-			}
-		}
-		if !found {
-			entries = append(entries, TreeEntry{
-				Mode: "040000",
-				Type: "tree",
-				SHA:  newSubtreeSHA,
-				Name: targetName,
-			})
-		}
+		entry = TreeEntry{Mode: treeModeDir, Type: "tree", SHA: newSubtreeSHA, Name: name}
 	}
 
-	// Write the tree
+	if existing >= 0 {
+		entries[existing] = entry
+	} else {
+		entries = append(entries, entry)
+	}
 	return WriteTree(ctx, repoPath, entries)
 }

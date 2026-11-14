@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -248,4 +249,14 @@ func TestBranchIsolation(t *testing.T) {
 	require.Len(t, masterDirectoryEntries, 1)
 	require.NotNil(t, masterDirectoryEntries[0].LastCommitAt)
 	assert.True(t, initialCommitTime.Equal(*masterDirectoryEntries[0].LastCommitAt))
+}
+
+func TestCleanRepoFilePathBoundsLengthAndDepth(t *testing.T) {
+	_, err := CleanRepoFilePath(strings.Repeat("a/", maxRepoFilePathDepth) + "f")
+	require.ErrorIs(t, err, ErrInvalidRepoFilePath)
+	_, err = CleanRepoFilePath(strings.Repeat("a", maxRepoFilePathBytes+1))
+	require.ErrorIs(t, err, ErrInvalidRepoFilePath)
+	got, err := CleanRepoFilePath(strings.Repeat("a/", maxRepoFilePathDepth-1) + "f")
+	require.NoError(t, err)
+	require.True(t, strings.HasSuffix(got, "/f"))
 }
