@@ -178,7 +178,9 @@ func TestRecoverProviderFailedActivationRequiresLatestFailedLLMCall(t *testing.T
 	}, nil)
 	st.EXPECT().GetLatestInteractionByPromptID(gomock.Any(), promptID).Return(&types.Interaction{
 		ID: interactionID, SessionID: session.ID, PromptID: promptID, State: types.InteractionStateError,
-		Error: genericACPAbortMarker,
+		Error: genericACPAbortMarker, CodeAgentConfigSnapshot: &types.InteractionCodeAgentConfigSnapshot{
+			Provider: "helixcyber", Model: "qwen3.8-27b",
+		},
 	}, nil)
 	st.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).Return([]*types.LLMCall{{
 		InteractionID: interactionID,
@@ -187,6 +189,140 @@ func TestRecoverProviderFailedActivationRequiresLatestFailedLLMCall(t *testing.T
 	recovered, err := server.recoverProviderFailedActivationAfterConfigChange(context.Background(), session)
 	require.NoError(t, err)
 	require.False(t, recovered)
+}
+
+func TestProviderFailureForInteractionUsesMatchingUnlinkedCall(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name  string
+		calls []*types.LLMCall
+		want  bool
+	}{
+		{
+			name: "matching failure",
+			calls: []*types.LLMCall{{
+				InteractionID: "n/a", SessionID: "ses_1", Provider: "pe_1", Model: "glm-5.3-flash",
+				Created: now.Add(-20 * time.Second), Updated: now.Add(-5 * time.Second), Error: "http2 GOAWAY",
+			}},
+			want: true,
+		},
+		{
+			name: "long request failing near attempt end",
+			calls: []*types.LLMCall{{
+				InteractionID: "n/a", SessionID: "ses_1", Provider: "pe_1", Model: "glm-5.3-flash",
+				Created: now.Add(-5 * time.Minute), DurationMs: int64((5*time.Minute - 5*time.Second) / time.Millisecond), Error: "http2 GOAWAY",
+			}},
+			want: true,
+		},
+		{
+			name: "different model",
+			calls: []*types.LLMCall{{
+				InteractionID: "n/a", SessionID: "ses_1", Provider: "pe_1", Model: "qwen",
+				Created: now.Add(-20 * time.Second), Error: "http2 GOAWAY",
+			}},
+		},
+		{
+			name: "stale failure",
+			calls: []*types.LLMCall{{
+				InteractionID: "n/a", SessionID: "ses_1", Provider: "pe_1", Model: "glm-5.3-flash",
+				Created: now.Add(-5 * time.Minute), Updated: now.Add(-4 * time.Minute), Error: "http2 GOAWAY",
+			}},
+		},
+		{
+			name: "newer success",
+			calls: []*types.LLMCall{
+				{InteractionID: "n/a", SessionID: "ses_1", Provider: "pe_1", Model: "glm-5.3-flash", Created: now.Add(-5 * time.Second)},
+				{InteractionID: "n/a", SessionID: "ses_1", Provider: "pe_1", Model: "glm-5.3-flash", Created: now.Add(-20 * time.Second), Error: "http2 GOAWAY"},
+			},
+		},
+		{
+			name: "later turn failure",
+			calls: []*types.LLMCall{{
+				InteractionID: "n/a", SessionID: "ses_1", Provider: "pe_1", Model: "glm-5.3-flash",
+				Created: now.Add(time.Second), Error: "http2 GOAWAY",
+			}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			st := store.NewMockStore(ctrl)
+			server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: st}
+			interaction := &types.Interaction{
+				ID: "int_1", SessionID: "ses_1", State: types.InteractionStateError,
+				Created: now.Add(-10 * time.Minute), Updated: now,
+				CodeAgentConfigSnapshot: &types.InteractionCodeAgentConfigSnapshot{
+					Provider: "pe_1", Model: "glm-5.3-flash",
+				},
+			}
+			gomock.InOrder(
+				st.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil),
+				st.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).Return(test.calls, int64(len(test.calls)), nil),
+			)
+
+			failure, err := server.providerFailureForInteraction(context.Background(), interaction)
+			require.NoError(t, err)
+			require.Equal(t, test.want, failure != nil)
+		})
+	}
+}
+
+func TestProviderFailureForInteractionLinkedSuccessSuppressesOlderUnlinkedFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: st}
+	interaction := &types.Interaction{
+		ID: "int_1", SessionID: "ses_1", State: types.InteractionStateError,
+		CodeAgentConfigSnapshot: &types.InteractionCodeAgentConfigSnapshot{Provider: "pe_1", Model: "glm-5.3-flash"},
+	}
+	st.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).Return([]*types.LLMCall{{
+		InteractionID: interaction.ID, Provider: "pe_1", Model: "glm-5.3-flash",
+	}}, int64(1), nil)
+
+	failure, err := server.providerFailureForInteraction(context.Background(), interaction)
+	require.NoError(t, err)
+	require.Nil(t, failure)
+}
+
+func TestClearProviderRecoveryAfterCompletedTurn(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		promptID    string
+		latestID    string
+		state       types.InteractionState
+		error       string
+		clearResult bool
+		wantCleared bool
+	}{
+		{name: "successful replacement attempt", promptID: "prompt_1", latestID: "int_success", state: types.InteractionStateComplete, clearResult: true, wantCleared: true},
+		{name: "unrelated successful prompt", promptID: "prompt_2", state: types.InteractionStateComplete},
+		{name: "stale successful attempt", promptID: "prompt_1", latestID: "int_newer", state: types.InteractionStateComplete},
+		{name: "newer recovery wins compare and clear race", promptID: "prompt_1", latestID: "int_success", state: types.InteractionStateComplete},
+		{name: "interrupted trailing completion", promptID: "prompt_1", state: types.InteractionStateInterrupted},
+		{name: "error state", promptID: "prompt_1", state: types.InteractionStateError, error: "provider unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			st := store.NewMockStore(ctrl)
+			server := &HelixAPIServer{Cfg: &config.ServerConfig{}, Store: st}
+			session := &types.Session{ID: "ses_1", Metadata: types.SessionMetadata{Recovery: &types.ProviderRecovery{
+				PromptID: "prompt_1", InteractionID: "int_failed",
+			}}}
+			interaction := &types.Interaction{
+				ID: "int_success", SessionID: session.ID, PromptID: test.promptID, State: test.state, Error: test.error,
+			}
+			if test.promptID == "prompt_1" && test.state == types.InteractionStateComplete && test.error == "" {
+				st.EXPECT().GetLatestInteractionByPromptID(gomock.Any(), "prompt_1").Return(&types.Interaction{ID: test.latestID}, nil)
+			}
+			if test.latestID == interaction.ID {
+				st.EXPECT().ClearSessionProviderRecovery(gomock.Any(), session.ID, "prompt_1", "int_failed").Return(test.clearResult, nil)
+			}
+
+			cleared, err := server.clearProviderRecoveryAfterCompletedTurn(context.Background(), session, interaction)
+			require.NoError(t, err)
+			require.Equal(t, test.wantCleared, cleared)
+		})
+	}
 }
 
 func TestRecoverProviderFailedActivationDoesNotReplayOlderFailureAfterCancellation(t *testing.T) {
@@ -295,7 +431,6 @@ func TestOpaqueProviderFailureIgnoresMismatchedRecoveryMetadata(t *testing.T) {
 		ID: interactionID, SessionID: session.ID, PromptID: promptID,
 		State: types.InteractionStateError, Error: genericACPAbortMarker,
 	}, nil)
-	st.EXPECT().ListLLMCalls(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
 	st.EXPECT().ClearSessionProviderRecovery(gomock.Any(), session.ID, "prompt_activation_old", "int_old").Return(true, nil)
 
 	recovered, err := server.recoverProviderFailedActivationAfterConfigChange(context.Background(), session)
@@ -332,22 +467,22 @@ func TestConfigChangeClearsStaleRecoveryWithoutReplayingCompletedActivation(t *t
 	require.Nil(t, session.Metadata.Recovery)
 }
 
-func TestProviderFailureMatchesCurrentConfig(t *testing.T) {
-	require.True(t, providerFailureMatchesConfig(
+func TestProviderFailureMatchesInteractionSnapshot(t *testing.T) {
+	require.True(t, providerFailureMatchesSnapshot(
 		&types.LLMCall{Provider: "bunker", Model: "bunker/glm-5.3-flash"},
-		&types.CodeAgentExecutionConfig{ProviderRef: "bunker", Model: "glm-5.3-flash"},
+		&types.InteractionCodeAgentConfigSnapshot{Provider: "bunker", Model: "glm-5.3-flash"},
 	))
-	require.False(t, providerFailureMatchesConfig(
+	require.False(t, providerFailureMatchesSnapshot(
 		&types.LLMCall{Provider: "bunker", Model: "glm-5.3-flash"},
-		&types.CodeAgentExecutionConfig{ProviderRef: "helixcyber", Model: "qwen3.8-27b"},
+		&types.InteractionCodeAgentConfigSnapshot{Provider: "helixcyber", Model: "qwen3.8-27b"},
 	))
-	require.True(t, providerFailureMatchesConfig(
+	require.True(t, providerFailureMatchesSnapshot(
 		&types.LLMCall{Provider: "anthropic", Model: "claude-opus-4-7"},
-		&types.CodeAgentExecutionConfig{ProviderRef: "global/anthropic", Model: "claude-opus-4-7"},
+		&types.InteractionCodeAgentConfigSnapshot{Provider: "global/anthropic", Model: "claude-opus-4-7"},
 	))
-	require.False(t, providerFailureMatchesConfig(
+	require.False(t, providerFailureMatchesSnapshot(
 		&types.LLMCall{Provider: "anthropic", Model: "claude-opus-4-7"},
-		&types.CodeAgentExecutionConfig{ProviderRef: "user/anthropic", Model: "claude-opus-4-7"},
+		&types.InteractionCodeAgentConfigSnapshot{Provider: "user/anthropic", Model: "claude-opus-4-7"},
 	))
 }
 

@@ -3398,11 +3398,9 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 				Msg("♻️ [HELIX] Reset auto-restart budget after successful turn")
 		}
 	}
-	if helixSession.Metadata.Recovery != nil {
-		if err := apiServer.Store.SetSessionProviderRecovery(context.Background(), helixSessionID, nil); err != nil {
-			log.Warn().Err(err).Str("helix_session_id", helixSessionID).
-				Msg("Failed to clear provider recovery after successful turn")
-		}
+	if _, err := apiServer.clearProviderRecoveryAfterCompletedTurn(context.Background(), helixSession, targetInteraction); err != nil {
+		log.Warn().Err(err).Str("helix_session_id", helixSessionID).
+			Msg("Failed to clear provider recovery after successful turn")
 	}
 
 	// Continuous reconciliation: if the queued prompt was never marked sent
