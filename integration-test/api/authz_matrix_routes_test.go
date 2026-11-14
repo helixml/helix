@@ -1200,18 +1200,18 @@ func llmProxyRoutes() []route {
 			// A sandbox has no agent: its key may not run one of its owner's.
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appA}", Body: chat,
 			Expect:        strangers(expect{aOwner: reached, aMember: reached, projKey: deny, sandboxKey: deny}),
-			ReachedMarker: "authz-matrix.invalid",
+			ReachedMarker: providerReachedMarker,
 		},
 		{
 			// orgAgentA is projA's agent, so a projA reader may use it.
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={orgAgentA}", Body: chat,
 			Expect:        strangers(expect{aOwner: reached, projKey: reached, aMember: reached}),
-			ReachedMarker: "authz-matrix.invalid",
+			ReachedMarker: providerReachedMarker,
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/chat/completions?app_id={appPersonal}", Body: chat,
 			Expect:        strangers(expect{aOwner: reached, aMember: deny, sessKey: deny, sandboxKey: deny}),
-			ReachedMarker: "authz-matrix.invalid",
+			ReachedMarker: providerReachedMarker,
 		},
 		{
 			// An app key carries its agent; it cannot be pointed at another.
@@ -1232,7 +1232,7 @@ func llmProxyRoutes() []route {
 			},
 			Expect: expect{aOwnerOrgKey: reached, bOwner: reached, aMember: reached},
 			Custom: func(t *testing.T, f *authzFixture, who actor, resp authzResponse) {
-				usedProvider := strings.Contains(resp.body, "authz-matrix.invalid")
+				usedProvider := resp.status == http.StatusBadGateway && strings.Contains(resp.body, providerReachedMarker)
 				if who == aOwnerOrgKey && !usedProvider {
 					t.Fatalf("org key did not select org A's provider: %d %q", resp.status, truncate(resp.body, 300))
 				}
@@ -1246,7 +1246,7 @@ func llmProxyRoutes() []route {
 			// not name one.
 			Method: http.MethodPost, Path: "/v1/chat/completions?rag_source_id=authz-matrix-missing", Body: chat,
 			Expect:        expect{aOwner: reached, sessKey: deny},
-			ReachedMarker: "failed to load RAG",
+			ReachedMarker: "rag_source_id not found",
 		},
 		{
 			Method: http.MethodPost, Path: "/v1/messages", Body: chat,
