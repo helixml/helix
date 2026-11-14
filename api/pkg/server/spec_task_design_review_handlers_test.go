@@ -188,7 +188,7 @@ func TestUpdateDesignReviewDocumentRejectsReviewFromAnotherTask(t *testing.T) {
 	server := &HelixAPIServer{Store: mockStore}
 	server.updateDesignReviewDocument(response, req)
 
-	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Equal(t, http.StatusNotFound, response.Code)
 }
 
 func TestUpdateDesignReviewDocumentRejectsFinalizedReview(t *testing.T) {

@@ -264,7 +264,7 @@ func (s *SessionMessagesHandlerSuite) TestDesignReviewCommentByKeyIsSentInTheKey
 			return nil
 		})
 	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "rev_1").
-		Return(&types.SpecTaskDesignReview{ID: "rev_1", SpecTaskID: task.ID, Status: types.SpecTaskDesignReviewStatusInReview}, nil)
+		Return(&types.SpecTaskDesignReview{ID: "rev_1", SpecTaskID: task.ID, Status: types.SpecTaskDesignReviewStatusInReview}, nil).Times(2)
 
 	body := `{"document_type":"requirements","comment_text":"tighten scope","comment_type":"general",
 		"provenance":{"origin":"system","system_kind":"design_review_comment"}}`

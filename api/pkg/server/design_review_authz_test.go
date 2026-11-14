@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -173,7 +175,7 @@ func expectReadOnlyOrgMember(mockStore *store.MockStore, project *types.Project,
 func TestDesignReviewRoutes_ReviewMustBelongToAddressedTask(t *testing.T) {
 	taskA := drTask(drTaskA, drProjectA)
 	reviewOfB := &types.SpecTaskDesignReview{ID: drReviewB, SpecTaskID: drTaskB, Status: types.SpecTaskDesignReviewStatusPending}
-	skip := map[string]bool{"list": true, "comment queue status": true}
+	skip := map[string]bool{"list": true}
 	for _, route := range designReviewRoutes(taskA.ID) {
 		if skip[route.name] {
 			continue
@@ -188,7 +190,7 @@ func TestDesignReviewRoutes_ReviewMustBelongToAddressedTask(t *testing.T) {
 
 			rec := serveDesignReviewRoute(t, srv, route, drLaneKey(drProjectA, drTaskA, drSessionAg))
 
-			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 		})
 	}
 }
@@ -209,7 +211,7 @@ func TestResolveDesignReviewComment_RejectsCommentOfAnotherReview(t *testing.T) 
 		handler: func(s *HelixAPIServer) http.HandlerFunc { return s.resolveDesignReviewComment }}
 	rec := serveDesignReviewRoute(t, srv, route, drBrowserCreator())
 
-	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 }
 
 // The creator in the browser and the task's own agent key keep their access.
@@ -293,9 +295,9 @@ func TestSyncPromptHistory_ReadOnlyMemberCannotQueueTurns(t *testing.T) {
 		srv := &HelixAPIServer{Store: mockStore}
 
 		// listPromptHistory's scope check (it also starts a queue dispatcher).
-		sessionID, httpErr := srv.authorizeUserToPromptQueue(context.Background(), member, task.ID, "", types.ActionGet)
+		scope, httpErr := srv.authorizeUserToPromptQueue(context.Background(), member, task.ID, "", types.ActionGet)
 
-		require.Equal(t, task.PlanningSessionID, sessionID)
+		require.Equal(t, task.PlanningSessionID, scope.sessionID)
 		require.Nil(t, httpErr)
 	})
 }
@@ -306,4 +308,137 @@ func promptHistorySyncRequest(t *testing.T, user *types.User, body types.PromptH
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/prompt-history/sync", bytes.NewReader(raw))
 	return req.WithContext(setRequestUser(req.Context(), *user))
+}
+
+// expectQueueDrain allows the background queue drain a spec-task sync starts.
+func expectQueueDrain(mockStore *store.MockStore, task *types.SpecTask) {
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil).AnyTimes()
+	mockStore.EXPECT().ListPromptHistoryBySpecTask(gomock.Any(), task.ID).Return(nil, nil).AnyTimes()
+}
+
+func TestSyncPromptHistory_ReadOnlyMemberMayPullWithoutEntries(t *testing.T) {
+	member := &types.User{ID: "usr_reader", Type: types.OwnerTypeUser, TokenType: types.TokenTypeSession}
+	project := &types.Project{ID: drProjectA, UserID: drOwnerID, OrganizationID: "org_1"}
+	task := &types.SpecTask{ID: drTaskB, ProjectID: drProjectA, CreatedBy: drOwnerID}
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	expectReadOnlyOrgMember(mockStore, project, member.ID)
+	expectQueueDrain(mockStore, task)
+	mockStore.EXPECT().SyncPromptHistory(gomock.Any(), member.ID, gomock.Any(), gomock.Any()).
+		Return(&types.PromptHistorySyncResponse{}, nil)
+	srv := &HelixAPIServer{Store: mockStore}
+
+	_, httpErr := srv.syncPromptHistory(nil, promptHistorySyncRequest(t, member, types.PromptHistorySyncRequest{SpecTaskID: task.ID}))
+
+	require.Nil(t, httpErr)
+}
+
+// The stored project is the authorized one, not the client's.
+func TestSyncPromptHistory_StoresAuthorizedProject(t *testing.T) {
+	laneA := drLaneKey(drProjectA, drTaskA, drSessionAg)
+	taskA := &types.SpecTask{ID: drTaskA, ProjectID: drProjectA, CreatedBy: drOwnerID}
+
+	t.Run("own row is synced under the authorized project", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		ownRow := &types.PromptHistoryEntry{ID: "ph_lane_a", UserID: drOwnerID, SpecTaskID: taskA.ID, Status: "pending"}
+		mockStore.EXPECT().GetSpecTask(gomock.Any(), taskA.ID).Return(taskA, nil)
+		mockStore.EXPECT().GetProject(gomock.Any(), drProjectA).Return(&types.Project{ID: drProjectA, UserID: drOwnerID}, nil)
+		expectQueueDrain(mockStore, taskA)
+		mockStore.EXPECT().SyncPromptHistory(gomock.Any(), drOwnerID, gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ string, _ types.TurnProvenance, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
+				require.Equal(t, drProjectA, req.ProjectID, "the client's project_id is not trusted")
+				return &types.PromptHistorySyncResponse{}, nil
+			})
+		srv := &HelixAPIServer{Store: mockStore}
+
+		_, httpErr := srv.syncPromptHistory(nil, promptHistorySyncRequest(t, laneA, types.PromptHistorySyncRequest{
+			SpecTaskID: taskA.ID, ProjectID: drProjectB,
+			Entries: []types.PromptHistoryEntrySync{{ID: ownRow.ID, Content: "edited", Status: "pending"}},
+		}))
+
+		require.Nil(t, httpErr)
+	})
+}
+
+func TestDeletePromptHistoryEntry_LaneCannotDeleteAnotherLanesPrompt(t *testing.T) {
+	laneA := drLaneKey(drProjectA, drTaskA, drSessionAg)
+	deleteAs := func(srv *HelixAPIServer, id string) *system.HTTPError {
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/prompt-history/"+id, nil)
+		req = mux.SetURLVars(req, map[string]string{"id": id})
+		req = req.WithContext(setRequestUser(req.Context(), *laneA))
+		_, httpErr := srv.deletePromptHistoryEntry(nil, req)
+		return httpErr
+	}
+
+	t.Run("another lane's prompt", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		rowOfB := &types.PromptHistoryEntry{ID: "ph_lane_b", UserID: drOwnerID, SpecTaskID: drTaskB, SessionID: drSessionB, Status: "pending"}
+		mockStore.EXPECT().GetPromptHistoryEntry(gomock.Any(), rowOfB.ID).Return(rowOfB, nil)
+		mockStore.EXPECT().GetSpecTask(gomock.Any(), drTaskB).Return(drTask(drTaskB, drProjectA), nil)
+		srv := &HelixAPIServer{Store: mockStore}
+
+		httpErr := deleteAs(srv, rowOfB.ID)
+
+		require.NotNil(t, httpErr)
+		require.Equal(t, http.StatusNotFound, httpErr.StatusCode)
+	})
+
+	t.Run("own prompt", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		ownRow := &types.PromptHistoryEntry{ID: "ph_lane_a", UserID: drOwnerID, SpecTaskID: drTaskA, SessionID: drSessionAg, Status: "pending"}
+		mockStore.EXPECT().GetPromptHistoryEntry(gomock.Any(), ownRow.ID).Return(ownRow, nil)
+		mockStore.EXPECT().GetSpecTask(gomock.Any(), drTaskA).Return(drTask(drTaskA, drProjectA), nil)
+		mockStore.EXPECT().GetProject(gomock.Any(), drProjectA).Return(&types.Project{ID: drProjectA, UserID: drOwnerID}, nil)
+		mockStore.EXPECT().DeletePromptHistoryEntry(gomock.Any(), ownRow.ID).Return(nil)
+		srv := &HelixAPIServer{Store: mockStore}
+
+		require.Nil(t, deleteAs(srv, ownRow.ID))
+	})
+}
+
+// In a project open to org members (helix-org Bot projects) a member who can
+// read may send; the queue gives the same answer named by task or by session.
+func TestPromptQueueScope_OrgMembersAccessMatchesSessionPath(t *testing.T) {
+	member := &types.User{ID: "usr_reader", Type: types.OwnerTypeUser, TokenType: types.TokenTypeSession}
+	task := drTask(drTaskB, drProjectA)
+	session := &types.Session{ID: drSessionB, Owner: drOwnerID, OrganizationID: "org_1", ProjectID: drProjectA}
+	membership := &types.OrganizationMembership{OrganizationID: "org_1", UserID: member.ID, Role: types.OrganizationRoleMember}
+
+	for _, open := range []bool{true, false} {
+		project := &types.Project{ID: drProjectA, UserID: drOwnerID, OrganizationID: "org_1", Metadata: types.ProjectMetadata{OrgMembersAccess: open}}
+		for _, path := range []string{"task", "session"} {
+			t.Run(fmt.Sprintf("org members access %v via %s", open, path), func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				mockStore := store.NewMockStore(ctrl)
+				specTaskID, sessionID := "", ""
+				if path == "task" {
+					specTaskID = task.ID
+					mockStore.EXPECT().GetSpecTask(gomock.Any(), task.ID).Return(task, nil)
+				} else {
+					sessionID = session.ID
+					mockStore.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+				}
+				if open {
+					mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+					mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(membership, nil).MinTimes(1)
+				} else {
+					expectReadOnlyOrgMember(mockStore, project, member.ID)
+					mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(membership, nil).AnyTimes()
+				}
+				srv := &HelixAPIServer{Store: mockStore}
+
+				_, httpErr := srv.authorizeUserToPromptQueue(context.Background(), member, specTaskID, sessionID, types.ActionUpdate)
+
+				if open {
+					require.Nil(t, httpErr)
+				} else {
+					require.NotNil(t, httpErr)
+					require.Equal(t, http.StatusForbidden, httpErr.StatusCode)
+				}
+			})
+		}
+	}
 }

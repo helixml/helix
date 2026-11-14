@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 )
 
 // CommentTimerNoResponseMessage is the AgentResponse stamped onto a comment
@@ -432,8 +433,9 @@ func (s *HelixAPIServer) updateDesignReviewDocument(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Git writes can take seconds. Re-read both rows, revalidate ownership and
-	// editability, then update only document-owned columns.
+	// Git writes can take seconds. Re-read both rows, recheck that the review
+	// still belongs to the task and is editable, then update only
+	// document-owned columns.
 	task, err = s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -777,12 +779,14 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 			Msg("✅ Comment queued for agent successfully")
 	}
 
-	if review.Status == types.SpecTaskDesignReviewStatusPending {
-		review.Status = types.SpecTaskDesignReviewStatusInReview
-		if review.ReviewerID == "" {
-			review.ReviewerID = user.ID
+	// Re-read: the status may have moved while the comment was being queued.
+	current, err := s.Store.GetSpecTaskDesignReview(ctx, review.ID)
+	if err == nil && current.Status == types.SpecTaskDesignReviewStatusPending {
+		current.Status = types.SpecTaskDesignReviewStatusInReview
+		if current.ReviewerID == "" {
+			current.ReviewerID = user.ID
 		}
-		s.Store.UpdateSpecTaskDesignReview(ctx, review)
+		s.Store.UpdateSpecTaskDesignReview(ctx, current)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -896,7 +900,7 @@ func (s *HelixAPIServer) resolveDesignReviewComment(w http.ResponseWriter, r *ht
 		return
 	}
 	if comment.ReviewID != reviewID {
-		http.Error(w, "comment does not belong to design review", http.StatusBadRequest)
+		http.Error(w, "comment not found", http.StatusNotFound)
 		return
 	}
 
@@ -933,6 +937,7 @@ func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter
 	user := getRequestUser(r)
 	vars := mux.Vars(r)
 	specTaskID := vars["spec_task_id"]
+	reviewID := vars["review_id"]
 
 	specTask, err := s.Store.GetSpecTask(ctx, specTaskID)
 	if err != nil {
@@ -948,6 +953,10 @@ func (s *HelixAPIServer) getDesignReviewCommentQueueStatus(w http.ResponseWriter
 			Str("spec_task_creator", specTask.CreatedBy).
 			Msg("User not authorized to get comment queue status")
 		writeSpecTaskAuthzError(w, err)
+		return
+	}
+
+	if _, ok := s.getTaskDesignReview(ctx, w, specTask, reviewID); !ok {
 		return
 	}
 
@@ -2016,12 +2025,13 @@ func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *
 // the caller was authorized against task, not against the review's own task.
 func (s *HelixAPIServer) getTaskDesignReview(ctx context.Context, w http.ResponseWriter, task *types.SpecTask, reviewID string) (*types.SpecTaskDesignReview, bool) {
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, reviewID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Error().Err(err).Str("review_id", reviewID).Msg("Failed to get design review")
+		http.Error(w, "failed to get design review", http.StatusInternalServerError)
 		return nil, false
 	}
-	if review.SpecTaskID != task.ID {
-		http.Error(w, "design review does not belong to spec task", http.StatusBadRequest)
+	if err != nil || review.SpecTaskID != task.ID {
+		http.Error(w, "design review not found", http.StatusNotFound)
 		return nil, false
 	}
 	return review, true

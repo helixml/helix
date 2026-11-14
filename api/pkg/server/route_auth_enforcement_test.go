@@ -226,7 +226,7 @@ func victimObject(t reflect.Type, asOwner bool) reflect.Value {
 			f.SetString(ownerID)
 		case "OrganizationID", "OrgID":
 			f.SetString(victimOrgID)
-		case "ProjectID": // project-scoped objects (spec tasks) authorize through their project
+		case "ProjectID", "SpecTaskID", "ReviewID": // children name the probed parent, as real rows do
 			f.SetString("obj_route_victim")
 		case "OwnerType":
 			f.SetString(string(types.OwnerTypeUser))
@@ -501,7 +501,7 @@ func TestRouteAuthPolicy_Enforced(t *testing.T) {
 // minConclusiveObjectRoutes is a floor on how many object routes the
 // stranger/owner probe pair can tell apart. Raise it when wiring more of the
 // test server makes more routes conclusive; never lower it to pass.
-const minConclusiveObjectRoutes = 257
+const minConclusiveObjectRoutes = 258
 
 func callsInclude(calls []string, re *regexp.Regexp) bool {
 	for _, c := range calls {
