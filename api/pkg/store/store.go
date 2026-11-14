@@ -354,16 +354,17 @@ type Store interface {
 	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
 	SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error)
 	// ResolveInteractionPendingQuestion moves the pending question into
-	// history. answeredBy attributes it from the pending question as stored
-	// at resolution time (so it sees any API submission).
-	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error)
+	// history. answeredBy attributes it from the API submission in flight for
+	// that question at resolution time (nil when there is none), and the
+	// submission is dropped.
+	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.QuestionSubmission) types.TurnProvenance) (*types.Interaction, bool, error)
 	// RecordInteractionQuestionSubmission stores the API action accepted for
 	// the pending question requestID, compare-and-set: false when that
 	// question is no longer pending or already has a submission in flight.
 	RecordInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error)
-	// ClearInteractionQuestionSubmission drops the submission on the pending
-	// question requestID when its ID is submissionID, or any submission when
-	// submissionID is empty.
+	// ClearInteractionQuestionSubmission drops the submission for question
+	// requestID only when its nonce is submissionID, so it never removes a
+	// newer submission.
 	ClearInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID, submissionID string) error
 	// BindInteractionExternalAgentRequest persists the request ID before an
 	// external-agent turn is dispatched, so queued turns remain identifiable

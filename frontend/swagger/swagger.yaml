@@ -9146,12 +9146,6 @@ definitions:
         type: string
       source:
         type: string
-      submission:
-        allOf:
-        - $ref: '#/definitions/types.QuestionSubmission'
-        description: |-
-          Submission is the action Helix's API accepted for this question and
-          forwarded to the agent. Server-written only; cleared on resolution.
       thread_id:
         type: string
       tool_call_id:
@@ -10166,21 +10160,6 @@ definitions:
           type: string
         type: object
     type: object
-  types.QuestionSubmission:
-    properties:
-      answers:
-        additionalProperties:
-          type: string
-        type: object
-      by:
-        $ref: '#/definitions/types.TurnProvenance'
-      id:
-        type: string
-      outcome:
-        type: string
-      submitted_at:
-        type: string
-    type: object
   types.QuotaResponse:
     properties:
       active_concurrent_desktops:
@@ -10546,12 +10525,6 @@ definitions:
         type: string
       source:
         type: string
-      submission:
-        allOf:
-        - $ref: '#/definitions/types.QuestionSubmission'
-        description: |-
-          Submission is the action Helix's API accepted for this question and
-          forwarded to the agent. Server-written only; cleared on resolution.
       thread_id:
         type: string
       tool_call_id:

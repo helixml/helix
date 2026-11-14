@@ -58,8 +58,8 @@ func (apiServer *HelixAPIServer) createAgentThreadSession(ctx context.Context, c
 	}
 	session = *created
 
-	if specTaskID := session.Metadata.SpecTaskID; specTaskID != "" {
-		apiServer.recordSpecTaskThread(ctx, owner.ID, &session, acpThreadID, title)
+	if session.Metadata.SpecTaskID != "" {
+		apiServer.trackSpecTaskZedThread(ctx, &session, acpThreadID, title)
 	}
 
 	apiServer.contextMappingsMutex.Lock()
@@ -94,46 +94,4 @@ func (apiServer *HelixAPIServer) connectionOwnerSession(ctx context.Context, con
 	}
 	apiServer.contextMappingsMutex.RUnlock()
 	return apiServer.Controller.Options.Store.GetSession(ctx, ownerID)
-}
-
-// recordSpecTaskThread wires a new thread's session into the spec task's
-// multi-session model (work session + Zed thread) so it appears in the task's
-// session list and lifecycle. Failures leave the session itself in place.
-func (apiServer *HelixAPIServer) recordSpecTaskThread(ctx context.Context, ownerSessionID string, session *types.Session, acpThreadID, title string) {
-	st := apiServer.Controller.Options.Store
-	specTaskID := session.Metadata.SpecTaskID
-
-	phase := types.SpecTaskPhaseImplementation
-	if existing, err := st.GetSpecTaskWorkSessionByHelixSession(ctx, ownerSessionID); err == nil && existing != nil {
-		phase = existing.Phase
-	}
-
-	workSession := &types.SpecTaskWorkSession{
-		SpecTaskID:     specTaskID,
-		HelixSessionID: session.ID,
-		Name:           title,
-		Phase:          phase,
-		Status:         types.SpecTaskWorkSessionStatusActive,
-	}
-	if err := st.CreateSpecTaskWorkSession(ctx, workSession); err != nil {
-		log.Warn().Err(err).
-			Str("spec_task_id", specTaskID).
-			Str("helix_session_id", session.ID).
-			Msg("Failed to create work session for agent-created thread (session still created)")
-		return
-	}
-	now := time.Now()
-	zedThread := &types.SpecTaskZedThread{
-		WorkSessionID:  workSession.ID,
-		SpecTaskID:     specTaskID,
-		ZedThreadID:    acpThreadID,
-		Status:         types.SpecTaskZedStatusActive,
-		LastActivityAt: &now,
-	}
-	if err := st.CreateSpecTaskZedThread(ctx, zedThread); err != nil {
-		log.Warn().Err(err).
-			Str("spec_task_id", specTaskID).
-			Str("helix_session_id", session.ID).
-			Msg("Failed to create Zed thread record (work session still created)")
-	}
 }

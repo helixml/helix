@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -204,6 +205,32 @@ func TestUserEntry_RequestMappedToAnotherSessionDoesNotSuppress(t *testing.T) {
 	srv.requestToInteractionMapping["req-elsewhere"] = "int_elsewhere"
 
 	sendUserEntry(t, srv, "0", "hello", "req-elsewhere")
+
+	require.Len(t, entryInteractions(t, ms), 1)
+}
+
+// staleReadStore hides recorded entries from the read-side check, as if a
+// second reader checked before the first reader's insert landed.
+type staleReadStore struct{ *memorystore.MemoryStore }
+
+func (staleReadStore) GetInteractionByExternalAgentUserEntry(context.Context, string, int, string, string) (*types.Interaction, error) {
+	return nil, store.ErrNotFound
+}
+
+// Two readers of a reconnecting agent can both pass the read-side check; the
+// store's uniqueness on the entry turns the second insert into a dedupe hit
+// rather than a second turn or an error.
+func TestUserEntry_ConcurrentInsertIsADedupeHit(t *testing.T) {
+	ms := memorystore.New()
+	_, err := ms.CreateSession(context.Background(), types.Session{
+		ID: entrySessionID, Owner: "usr_entries", OwnerType: types.OwnerTypeUser,
+		Metadata: types.SessionMetadata{ZedThreadID: entryThreadID},
+	})
+	require.NoError(t, err)
+	srv := NewTestServer(staleReadStore{ms}, pubsub.NewNoop())
+
+	sendUserEntry(t, srv, "3", "ship it", "req-reader-1")
+	sendUserEntry(t, srv, "3", "ship it", "req-reader-2")
 
 	require.Len(t, entryInteractions(t, ms), 1)
 }

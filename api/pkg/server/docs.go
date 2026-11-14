@@ -38337,14 +38337,6 @@ const docTemplate = `{
                 "source": {
                     "type": "string"
                 },
-                "submission": {
-                    "description": "Submission is the action Helix's API accepted for this question and\nforwarded to the agent. Server-written only; cleared on resolution.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.QuestionSubmission"
-                        }
-                    ]
-                },
                 "thread_id": {
                     "type": "string"
                 },
@@ -39766,29 +39758,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.QuestionSubmission": {
-            "type": "object",
-            "properties": {
-                "answers": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "by": {
-                    "$ref": "#/definitions/types.TurnProvenance"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "outcome": {
-                    "type": "string"
-                },
-                "submitted_at": {
-                    "type": "string"
-                }
-            }
-        },
         "types.QuotaResponse": {
             "type": "object",
             "properties": {
@@ -40250,14 +40219,6 @@ const docTemplate = `{
                 },
                 "source": {
                     "type": "string"
-                },
-                "submission": {
-                    "description": "Submission is the action Helix's API accepted for this question and\nforwarded to the agent. Server-written only; cleared on resolution.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.QuestionSubmission"
-                        }
-                    ]
                 },
                 "thread_id": {
                     "type": "string"

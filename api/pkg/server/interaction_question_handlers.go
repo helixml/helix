@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,7 +50,7 @@ func (s *HelixAPIServer) respondToInteractionQuestion(w http.ResponseWriter, req
 		return nil, system.NewHTTPError400(err.Error())
 	}
 	return s.forwardQuestionAction(req, interaction, question, "answered", body.Answers,
-		"respond_question", "agent is not available to receive the answer")
+		"agent is not available to receive the answer")
 }
 
 // cancelInteractionQuestion godoc
@@ -68,16 +69,16 @@ func (s *HelixAPIServer) cancelInteractionQuestion(_ http.ResponseWriter, req *h
 		return response, httpErr
 	}
 	return s.forwardQuestionAction(req, interaction, question, "cancelled", nil,
-		"cancel_question", "agent is not available to cancel the question")
+		"agent is not available to cancel the question")
 }
 
 // forwardQuestionAction records who submitted this answer or cancel, then
 // forwards it to the agent with the submission's nonce. Only a resolution
-// that echoes the nonce is attributed to the caller (see
-// PendingQuestion.ResolveAnswerer). The caller is derived from the
-// credential; nothing in the request body can set it. The submission is
-// compare-and-set, so a second action in flight (another replica, or after a
-// restart) is refused, and it is cleared again if forwarding fails so a later
+// that echoes the nonce and the submitted outcome is attributed to the caller
+// (QuestionSubmission.Answerer). The caller is derived from the credential;
+// nothing in the request body can set it. The submission is compare-and-set,
+// so a second action in flight (this replica, another replica, or after a
+// restart) gets 409, and it is withdrawn again if forwarding fails so a later
 // action in the agent's own UI is never credited to this caller.
 func (s *HelixAPIServer) forwardQuestionAction(
 	req *http.Request,
@@ -85,7 +86,7 @@ func (s *HelixAPIServer) forwardQuestionAction(
 	question *types.PendingQuestion,
 	outcome string,
 	answers map[string]string,
-	commandType, unavailable string,
+	unavailable string,
 ) (*types.QuestionActionResponse, *system.HTTPError) {
 	ctx := req.Context()
 	by, err := requestTurnProvenance(ctx, getRequestUser(req))
@@ -93,41 +94,58 @@ func (s *HelixAPIServer) forwardQuestionAction(
 		return nil, system.NewHTTPError403("this credential cannot answer agent questions")
 	}
 	if !s.beginQuestionAction(interaction.ID, question.RequestID) {
-		return &types.QuestionActionResponse{Status: "accepted"}, nil
+		return nil, system.NewHTTPError409(questionActionInFlight)
 	}
 
 	submission := types.QuestionSubmission{
 		ID:          system.GenerateUUID(),
+		RequestID:   question.RequestID,
 		Outcome:     outcome,
 		Answers:     answers,
 		By:          by,
 		SubmittedAt: time.Now(),
 	}
-	recorded, err := s.Store.RecordInteractionQuestionSubmission(ctx, interaction.ID, interaction.GenerationID, question.RequestID, submission)
+	// The submission write and its withdrawal run detached from the request:
+	// a client that disconnects mid-way must not leave a recorded submission
+	// behind that was never delivered (it would credit this caller for what
+	// someone later does in the agent's own UI).
+	storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	recorded, err := s.Store.RecordInteractionQuestionSubmission(storeCtx, interaction.ID, interaction.GenerationID, question.RequestID, submission)
 	if err != nil {
 		s.finishQuestionAction(interaction.ID, question.RequestID)
 		return nil, system.NewHTTPError500("failed to record question response")
 	}
 	if !recorded {
 		s.finishQuestionAction(interaction.ID, question.RequestID)
-		return nil, system.NewHTTPError409("question is no longer pending or already has a response in flight")
+		return nil, system.NewHTTPError409(questionActionInFlight)
 	}
 
-	data := map[string]interface{}{
-		"request_id":    question.RequestID,
-		"submission_id": submission.ID,
-	}
-	if answers != nil {
-		data["answers"] = answers
-	}
-	if err := s.sendCommandToExternalAgent(interaction.SessionID, types.ExternalAgentCommand{Type: commandType, Data: data}); err != nil {
+	if err := s.sendCommandToExternalAgent(interaction.SessionID, questionCommand(&submission)); err != nil {
+		clearErr := s.Store.ClearInteractionQuestionSubmission(storeCtx, interaction.ID, interaction.GenerationID, question.RequestID, submission.ID)
 		s.finishQuestionAction(interaction.ID, question.RequestID)
-		if clearErr := s.Store.ClearInteractionQuestionSubmission(ctx, interaction.ID, interaction.GenerationID, question.RequestID, submission.ID); clearErr != nil {
+		if clearErr != nil {
 			return nil, system.NewHTTPError500("failed to withdraw the undelivered question response")
 		}
 		return nil, system.NewHTTPError409(unavailable)
 	}
 	return &types.QuestionActionResponse{Status: "accepted"}, nil
+}
+
+const questionActionInFlight = "question is no longer pending or already has a response in flight"
+
+// questionCommand is the agent command that delivers an API submission. The
+// question replay path resends the same command, nonce included.
+func questionCommand(submission *types.QuestionSubmission) types.ExternalAgentCommand {
+	data := map[string]interface{}{
+		"request_id":    submission.RequestID,
+		"submission_id": submission.ID,
+	}
+	if submission.Outcome == "cancelled" {
+		return types.ExternalAgentCommand{Type: "cancel_question", Data: data}
+	}
+	data["answers"] = submission.Answers
+	return types.ExternalAgentCommand{Type: "respond_question", Data: data}
 }
 
 func questionActionKey(interactionID, requestID string) string {

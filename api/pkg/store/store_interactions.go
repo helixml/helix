@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/sanitize"
@@ -15,6 +17,12 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+const externalAgentUserEntryIndex = "idx_interactions_external_agent_user_entry"
+
+// ErrDuplicateExternalAgentUserEntry is returned by CreateInteraction when the
+// session generation already has a turn for the same agent thread and entry.
+var ErrDuplicateExternalAgentUserEntry = errors.New("interaction for this external agent user entry already exists")
 
 func (s *PostgresStore) ResetRunningInteractions(ctx context.Context) error {
 	err := s.gdb.WithContext(ctx).Model(&types.Interaction{}).
@@ -84,10 +92,14 @@ func (s *PostgresStore) CreateInteraction(ctx context.Context, interaction *type
 	db := s.gdb.WithContext(ctx)
 
 	// Allows overwriting the interaction with the same primary key (ID and generation ID)
-	err := db.Omit("PendingQuestion", "QuestionHistory", "ThreadReseeds").Clauses(clause.OnConflict{
+	err := db.Omit("PendingQuestion", "QuestionHistory", "QuestionSubmission", "ThreadReseeds").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Create(&interaction).Error
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == externalAgentUserEntryIndex {
+			return nil, ErrDuplicateExternalAgentUserEntry
+		}
 		return nil, err
 	}
 
@@ -120,7 +132,7 @@ func (s *PostgresStore) CreateInteractions(ctx context.Context, interactions ...
 	db := s.gdb.WithContext(ctx)
 
 	// Allows overwriting the interaction with the same primary key (ID and generation ID)
-	err := db.Omit("PendingQuestion", "QuestionHistory", "ThreadReseeds").Clauses(clause.OnConflict{
+	err := db.Omit("PendingQuestion", "QuestionHistory", "QuestionSubmission", "ThreadReseeds").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Create(&interactions).Error
 	if err != nil {
@@ -255,7 +267,7 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 	// that arrived concurrently. ThreadReseeds is append-only through
 	// AppendInteractionThreadReseed for the same reason. Provenance is set once
 	// at creation and is never rewritten by an update.
-	result := db.Omit("PendingQuestion", "QuestionHistory", "Provenance", "ThreadReseeds").Clauses(clause.OnConflict{
+	result := db.Omit("PendingQuestion", "QuestionHistory", "QuestionSubmission", "Provenance", "ThreadReseeds").Clauses(clause.OnConflict{
 		UpdateAll: true,
 	}).Save(&interaction)
 
@@ -350,7 +362,7 @@ func (s *PostgresStore) SetInteractionPendingQuestion(ctx context.Context, inter
 	return &interaction, changed, nil
 }
 
-func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error) {
+func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.QuestionSubmission) types.TurnProvenance) (*types.Interaction, bool, error) {
 	if interactionID == "" || requestID == "" || outcome == "" {
 		return nil, false, errors.New("interaction_id, request_id, and outcome are required")
 	}
@@ -365,9 +377,11 @@ func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, i
 		if interaction.PendingQuestion == nil || interaction.PendingQuestion.RequestID != requestID {
 			return nil
 		}
-		resolved := types.NewResolvedQuestion(interaction.PendingQuestion, outcome, answers, answeredBy(interaction.PendingQuestion))
+		resolved := types.NewResolvedQuestion(interaction.PendingQuestion, outcome, answers,
+			answeredBy(interaction.SubmissionFor(requestID)))
 		interaction.QuestionHistory = append(interaction.QuestionHistory, resolved)
 		interaction.PendingQuestion = nil
+		interaction.QuestionSubmission = nil
 		interaction.Updated = time.Now()
 		historyJSON, err := json.Marshal(interaction.QuestionHistory)
 		if err != nil {
@@ -376,9 +390,10 @@ func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, i
 		if err := tx.Model(&types.Interaction{}).
 			Where("id = ? AND generation_id = ?", interactionID, generationID).
 			Updates(map[string]interface{}{
-				"pending_question": nil,
-				"question_history": datatypes.JSON(historyJSON),
-				"updated":          interaction.Updated,
+				"pending_question":    nil,
+				"question_submission": nil,
+				"question_history":    datatypes.JSON(historyJSON),
+				"updated":             interaction.Updated,
 			}).Error; err != nil {
 			return err
 		}
@@ -395,77 +410,52 @@ func (s *PostgresStore) ResolveInteractionPendingQuestion(ctx context.Context, i
 }
 
 func (s *PostgresStore) RecordInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error) {
-	if interactionID == "" || requestID == "" {
-		return false, errors.New("interaction_id and request_id are required")
+	if interactionID == "" || requestID == "" || submission.ID == "" {
+		return false, errors.New("interaction_id, request_id and submission id are required")
 	}
-	recorded := false
-	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var interaction types.Interaction
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND generation_id = ?", interactionID, generationID).
-			First(&interaction).Error; err != nil {
-			return err
-		}
-		if interaction.PendingQuestion == nil || interaction.PendingQuestion.RequestID != requestID ||
-			interaction.PendingQuestion.Submission != nil {
-			return nil
-		}
-		pending := *interaction.PendingQuestion
-		pending.Submission = &submission
-		pendingJSON, err := json.Marshal(&pending)
-		if err != nil {
-			return fmt.Errorf("marshal pending question: %w", err)
-		}
-		if err := tx.Model(&types.Interaction{}).
-			Where("id = ? AND generation_id = ?", interactionID, generationID).
-			Updates(map[string]interface{}{
-				"pending_question": datatypes.JSON(pendingJSON),
-				"updated":          time.Now(),
-			}).Error; err != nil {
-			return err
-		}
-		recorded = true
-		return nil
-	})
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false, ErrNotFound
+	submission.RequestID = requestID
+	encoded, err := json.Marshal(&submission)
+	if err != nil {
+		return false, fmt.Errorf("marshal question submission: %w", err)
 	}
-	return recorded, err
+	// Compare-and-set in one statement: only while requestID is the pending
+	// question and no other submission is in flight.
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND pending_question->>'request_id' = ? AND (question_submission IS NULL OR question_submission = 'null'::jsonb)",
+			interactionID, generationID, requestID).
+		Updates(map[string]interface{}{
+			"question_submission": datatypes.JSON(encoded),
+			"updated":             time.Now(),
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		var count int64
+		if err := s.gdb.WithContext(ctx).Model(&types.Interaction{}).
+			Where("id = ? AND generation_id = ?", interactionID, generationID).Count(&count).Error; err != nil {
+			return false, err
+		}
+		if count == 0 {
+			return false, ErrNotFound
+		}
+	}
+	return result.RowsAffected > 0, nil
 }
 
 func (s *PostgresStore) ClearInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID, submissionID string) error {
-	if interactionID == "" || requestID == "" {
-		return errors.New("interaction_id and request_id are required")
+	if interactionID == "" || requestID == "" || submissionID == "" {
+		return errors.New("interaction_id, request_id and submission_id are required")
 	}
-	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var interaction types.Interaction
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND generation_id = ?", interactionID, generationID).
-			First(&interaction).Error; err != nil {
-			return err
-		}
-		pending := interaction.PendingQuestion
-		if pending == nil || pending.RequestID != requestID || pending.Submission == nil ||
-			(submissionID != "" && pending.Submission.ID != submissionID) {
-			return nil
-		}
-		cleared := *pending
-		cleared.Submission = nil
-		pendingJSON, err := json.Marshal(&cleared)
-		if err != nil {
-			return fmt.Errorf("marshal pending question: %w", err)
-		}
-		return tx.Model(&types.Interaction{}).
-			Where("id = ? AND generation_id = ?", interactionID, generationID).
-			Updates(map[string]interface{}{
-				"pending_question": datatypes.JSON(pendingJSON),
-				"updated":          time.Now(),
-			}).Error
-	})
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return ErrNotFound
-	}
-	return err
+	return s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND question_submission->>'request_id' = ? AND question_submission->>'id' = ?",
+			interactionID, generationID, requestID, submissionID).
+		Updates(map[string]interface{}{
+			"question_submission": nil,
+			"updated":             time.Now(),
+		}).Error
 }
 
 func (s *PostgresStore) BindInteractionExternalAgentRequest(ctx context.Context, interactionID string, generationID int, requestID string) (bool, error) {
@@ -550,11 +540,11 @@ func (s *PostgresStore) MarkInteractionInterruptedIfWaiting(ctx context.Context,
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Interaction{}).
 		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
-		Updates(map[string]interface{}{
+		Updates(withSettledQuestion(map[string]interface{}{
 			"state":     types.InteractionStateInterrupted,
 			"completed": now,
 			"updated":   now,
-		})
+		}, now))
 	return result.RowsAffected > 0, result.Error
 }
 
@@ -604,11 +594,11 @@ func (s *PostgresStore) MarkInteractionCompleteIfWaiting(ctx context.Context, in
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Interaction{}).
 		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
-		Updates(map[string]interface{}{
+		Updates(withSettledQuestion(map[string]interface{}{
 			"state":     types.InteractionStateComplete,
 			"completed": now,
 			"updated":   now,
-		})
+		}, now))
 	if result.Error != nil {
 		return false, result.Error
 	}
@@ -625,16 +615,40 @@ func (s *PostgresStore) MarkInteractionErrorIfWaiting(ctx context.Context, inter
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Interaction{}).
 		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
-		Updates(map[string]interface{}{
+		Updates(withSettledQuestion(map[string]interface{}{
 			"state":     types.InteractionStateError,
 			"error":     sanitize.ForPostgres(reason),
 			"completed": now,
 			"updated":   now,
-		})
+		}, now))
 	if result.Error != nil {
 		return false, result.Error
 	}
 	return result.RowsAffected > 0, nil
+}
+
+// withSettledQuestion adds to a Waiting→terminal update the settling of any
+// pending question: an ended turn's question can never be answered, so it moves
+// to question_history as cancelled by Helix (system/question_settled), in the
+// same statement as the state change. Any API submission still in flight is
+// dropped, never credited.
+func withSettledQuestion(updates map[string]interface{}, now time.Time) map[string]interface{} {
+	settled, err := json.Marshal(map[string]interface{}{
+		"outcome":     "cancelled",
+		"resolved_at": now,
+		"answered_by": types.SystemTurn(types.SystemTurnQuestionSettled),
+	})
+	if err != nil {
+		panic(fmt.Sprintf("marshal settled question: %v", err)) // static shape; cannot fail
+	}
+	updates["question_history"] = gorm.Expr(`CASE
+		WHEN pending_question IS NULL OR jsonb_typeof(pending_question) <> 'object' THEN question_history
+		ELSE (CASE WHEN jsonb_typeof(question_history) = 'array' THEN question_history ELSE '[]'::jsonb END)
+			|| jsonb_build_array(pending_question || ?::jsonb)
+		END`, string(settled))
+	updates["pending_question"] = nil
+	updates["question_submission"] = nil
+	return updates
 }
 
 // MarkStaleInteractionErrorIfWaiting settles a turn only if no streaming write
@@ -647,13 +661,12 @@ func (s *PostgresStore) MarkStaleInteractionErrorIfWaiting(ctx context.Context, 
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Interaction{}).
 		Where("id = ? AND generation_id = ? AND state = ? AND updated = ?", interactionID, generationID, types.InteractionStateWaiting, observedUpdated).
-		Select("state", "error", "completed", "updated").
-		Updates(&types.Interaction{
-			State:     types.InteractionStateError,
-			Error:     sanitize.ForPostgres(reason),
-			Completed: now,
-			Updated:   now,
-		})
+		Updates(withSettledQuestion(map[string]interface{}{
+			"state":     types.InteractionStateError,
+			"error":     sanitize.ForPostgres(reason),
+			"completed": now,
+			"updated":   now,
+		}, now))
 	if result.Error != nil {
 		return false, result.Error
 	}
@@ -698,9 +711,10 @@ func (s *PostgresStore) ReapWaitingInteractions(ctx context.Context, sessionID s
 		for _, interaction := range candidates {
 			settledHistory := interaction.QuestionHistory
 			updates := map[string]interface{}{
-				"state":     newState,
-				"completed": now,
-				"updated":   now,
+				"state":               newState,
+				"completed":           now,
+				"updated":             now,
+				"question_submission": nil,
 			}
 			if interaction.PendingQuestion != nil {
 				settledHistory = append(settledHistory, types.NewResolvedQuestion(

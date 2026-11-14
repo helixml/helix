@@ -158,7 +158,9 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecy
 
 	updated, changed, err = suite.db.ResolveInteractionPendingQuestion(
 		ctx, interaction.ID, 1, question.RequestID, "answered", map[string]string{"choice": "A"},
-		func(p *types.PendingQuestion) types.TurnProvenance { return p.ResolveAnswerer("") },
+		func(sub *types.QuestionSubmission) types.TurnProvenance {
+			return sub.Answerer("question-1", "", "answered")
+		},
 	)
 	suite.Require().NoError(err)
 	suite.True(changed)
@@ -175,7 +177,9 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_InteractionQuestionLifecy
 
 	_, _, err = suite.db.SetInteractionPendingQuestion(ctx, "missing-interaction", 1, question)
 	suite.ErrorIs(err, ErrNotFound)
-	_, _, err = suite.db.ResolveInteractionPendingQuestion(ctx, "missing-interaction", 1, question.RequestID, "cancelled", nil, func(p *types.PendingQuestion) types.TurnProvenance { return p.ResolveAnswerer("") })
+	_, _, err = suite.db.ResolveInteractionPendingQuestion(ctx, "missing-interaction", 1, question.RequestID, "cancelled", nil, func(sub *types.QuestionSubmission) types.TurnProvenance {
+		return sub.Answerer("question-1", "", "answered")
+	})
 	suite.ErrorIs(err, ErrNotFound)
 }
 
@@ -857,17 +861,20 @@ func (suite *PostgresStoreTestSuite) TestQuestionSubmissionIsCompareAndSetAndAtt
 	suite.Require().NoError(suite.db.ClearInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-1", "s-2"))
 	reloaded, err := suite.db.GetInteraction(ctx, interaction.ID)
 	suite.Require().NoError(err)
-	suite.Require().NotNil(reloaded.PendingQuestion.Submission)
+	suite.Require().NotNil(reloaded.QuestionSubmission)
+	suite.Equal("q-1", reloaded.QuestionSubmission.RequestID)
 	suite.Require().NoError(suite.db.ClearInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-1", "s-1"))
 	reloaded, err = suite.db.GetInteraction(ctx, interaction.ID)
 	suite.Require().NoError(err)
-	suite.Nil(reloaded.PendingQuestion.Submission)
+	suite.Nil(reloaded.QuestionSubmission)
 
 	recorded, err = suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-1", first)
 	suite.Require().NoError(err)
 	suite.True(recorded)
 	updated, changed, err := suite.db.ResolveInteractionPendingQuestion(ctx, interaction.ID, 0, "q-1", "answered",
-		map[string]string{"deploy": "free text"}, func(p *types.PendingQuestion) types.TurnProvenance { return p.ResolveAnswerer("s-1") })
+		map[string]string{"deploy": "free text"}, func(sub *types.QuestionSubmission) types.TurnProvenance {
+			return sub.Answerer("q-1", "s-1", "answered")
+		})
 	suite.Require().NoError(err)
 	suite.Require().True(changed)
 	suite.Equal(by, updated.QuestionHistory[0].AnsweredBy)
@@ -876,7 +883,65 @@ func (suite *PostgresStoreTestSuite) TestQuestionSubmissionIsCompareAndSetAndAtt
 	suite.Require().NoError(err)
 	suite.Require().Len(reloaded.QuestionHistory, 1)
 	suite.Equal(by, reloaded.QuestionHistory[0].AnsweredBy)
-	suite.Nil(reloaded.QuestionHistory[0].Submission)
+	suite.Nil(reloaded.QuestionSubmission, "resolution drops the submission")
+}
+
+// Every Waiting→terminal transition settles an open question in the same
+// statement, so an errored or interrupted turn never keeps an unanswerable
+// question.
+func (suite *PostgresStoreTestSuite) TestTerminalTransitionsSettlePendingQuestion() {
+	ctx := context.Background()
+	session, err := suite.db.CreateSession(ctx, types.Session{
+		ID: system.GenerateSessionID(), Owner: "user-settle", Created: time.Now(), Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+
+	transitions := map[string]func(i *types.Interaction) (bool, error){
+		"error": func(i *types.Interaction) (bool, error) {
+			return suite.db.MarkInteractionErrorIfWaiting(ctx, i.ID, 0, "startup failed")
+		},
+		"stale error": func(i *types.Interaction) (bool, error) {
+			return suite.db.MarkStaleInteractionErrorIfWaiting(ctx, i.ID, 0, i.Updated, "stopped")
+		},
+		"interrupted": func(i *types.Interaction) (bool, error) {
+			return suite.db.MarkInteractionInterruptedIfWaiting(ctx, i.ID, 0)
+		},
+		"complete": func(i *types.Interaction) (bool, error) {
+			return suite.db.MarkInteractionCompleteIfWaiting(ctx, i.ID, 0)
+		},
+	}
+	for name, transition := range transitions {
+		interaction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
+			ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, State: types.InteractionStateWaiting,
+		})
+		suite.Require().NoError(err)
+		_, changed, err := suite.db.SetInteractionPendingQuestion(ctx, interaction.ID, 0, &types.PendingQuestion{
+			RequestID: "q-" + name, ThreadID: "t", TurnRequestID: "r", Source: "permission",
+			Questions: []types.UserQuestion{{ID: "allow", Question: "Allow?"}},
+		})
+		suite.Require().NoError(err)
+		suite.Require().True(changed)
+		_, err = suite.db.RecordInteractionQuestionSubmission(ctx, interaction.ID, 0, "q-"+name, types.QuestionSubmission{
+			ID: "s", Outcome: "cancelled", By: types.TurnProvenance{Origin: types.TurnOriginAPI},
+		})
+		suite.Require().NoError(err)
+		observed, err := suite.db.GetInteraction(ctx, interaction.ID)
+		suite.Require().NoError(err)
+
+		transitioned, err := transition(observed)
+		suite.Require().NoError(err, name)
+		suite.Require().True(transitioned, name)
+
+		got, err := suite.db.GetInteraction(ctx, interaction.ID)
+		suite.Require().NoError(err)
+		suite.Nil(got.PendingQuestion, name)
+		suite.Nil(got.QuestionSubmission, name)
+		suite.Require().Len(got.QuestionHistory, 1, name)
+		suite.Equal("q-"+name, got.QuestionHistory[0].RequestID, name)
+		suite.Equal("cancelled", got.QuestionHistory[0].Outcome, name)
+		suite.Equal(types.SystemTurn(types.SystemTurnQuestionSettled), got.QuestionHistory[0].AnsweredBy, name)
+	}
 }
 
 func (suite *PostgresStoreTestSuite) TestUpdateInteractionKeepsThreadReseeds() {

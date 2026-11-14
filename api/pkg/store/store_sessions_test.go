@@ -592,3 +592,40 @@ func (suite *PostgresStoreTestSuite) TestListSessionsByExternalAgentIDStaysInCal
 		suite.Empty(foreign)
 	}
 }
+
+// Spec-task child sessions bound before connections were recorded get their
+// task's planning session as their connection; nothing outside the session's
+// own task is ever recorded, and a recorded connection is never replaced.
+func (suite *PostgresStoreTestSuite) TestBackfillSessionAgentConnectionsStaysInsideTheTask() {
+	ctx := context.Background()
+	planning, legacyChild, recorded, noTask, other := system.GenerateSessionID(), system.GenerateSessionID(), system.GenerateSessionID(), system.GenerateSessionID(), system.GenerateSessionID()
+	task := &types.SpecTask{ID: "spt_" + system.GenerateUUID(), ProjectID: "prj-backfill", Name: "backfill", PlanningSessionID: planning}
+	suite.Require().NoError(suite.db.CreateSpecTask(ctx, task))
+	suite.T().Cleanup(func() { _ = suite.db.DeleteSpecTask(ctx, task.ID) })
+	for _, session := range []types.Session{
+		{ID: planning, Metadata: types.SessionMetadata{SpecTaskID: task.ID, ZedThreadID: "t-planning"}},
+		{ID: legacyChild, Metadata: types.SessionMetadata{SpecTaskID: task.ID, ZedThreadID: "t-child"}},
+		{ID: recorded, Metadata: types.SessionMetadata{SpecTaskID: task.ID, ZedThreadID: "t-rec", ExternalAgentID: other}},
+		{ID: noTask, Metadata: types.SessionMetadata{ZedThreadID: "t-none"}},
+	} {
+		session.Owner, session.OwnerType, session.Created, session.Updated = "user-backfill", types.OwnerTypeUser, time.Now(), time.Now()
+		_, err := suite.db.CreateSession(ctx, session)
+		suite.Require().NoError(err)
+		id := session.ID
+		suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, id) })
+	}
+
+	for range 2 { // idempotent
+		suite.Require().NoError(suite.db.backfillSessionAgentConnections(ctx))
+	}
+
+	expect := map[string]string{planning: "", legacyChild: planning, recorded: other, noTask: ""}
+	for id, want := range expect {
+		got, err := suite.db.GetSession(ctx, id)
+		suite.Require().NoError(err)
+		suite.Equal(want, got.Metadata.ExternalAgentID, id)
+	}
+	child, err := suite.db.GetSession(ctx, legacyChild)
+	suite.Require().NoError(err)
+	suite.Equal("t-child", child.Metadata.ZedThreadID, "the rest of the config is untouched")
+}

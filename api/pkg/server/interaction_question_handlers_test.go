@@ -207,8 +207,8 @@ func (s *InteractionQuestionHandlerSuite) TestConcurrentAnswerAndCancelSendOneCo
 
 	first := <-results
 	second := <-results
-	s.Equal(http.StatusOK, first.Code)
-	s.Equal(http.StatusOK, second.Code)
+	// One wins; the loser is told it conflicted rather than "accepted".
+	s.ElementsMatch([]int{http.StatusOK, http.StatusConflict}, []int{first.Code, second.Code})
 	s.Len(sendChan, 1)
 }
 

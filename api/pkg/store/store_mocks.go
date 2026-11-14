@@ -6967,7 +6967,7 @@ func (mr *MockStoreMockRecorder) ResetStuckComments(ctx any) *gomock.Call {
 }
 
 // ResolveInteractionPendingQuestion mocks base method.
-func (m *MockStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error) {
+func (m *MockStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.QuestionSubmission) types.TurnProvenance) (*types.Interaction, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ResolveInteractionPendingQuestion", ctx, interactionID, generationID, requestID, outcome, answers, answeredBy)
 	ret0, _ := ret[0].(*types.Interaction)

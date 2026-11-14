@@ -130,7 +130,7 @@ func pendingSubmission(t *testing.T, ms *memorystore.MemoryStore) *types.Questio
 	interaction, err := ms.GetInteraction(context.Background(), "int-answerer")
 	require.NoError(t, err)
 	require.NotNil(t, interaction.PendingQuestion)
-	return interaction.PendingQuestion.Submission
+	return interaction.QuestionSubmission
 }
 
 // answeredBy reads the resolved entry back through its API JSON.
@@ -218,21 +218,52 @@ func TestQuestionAnsweredBy_FailedForwardThenHumanInZed(t *testing.T) {
 	require.Equal(t, "external_agent", answeredBy(t, ms)["origin"])
 }
 
-// A question replay means the agent is still waiting and any accepted action
-// was lost with the old connection: the submission is dropped.
-func TestQuestionAnsweredBy_ReplayDropsLostSubmission(t *testing.T) {
+// A question replay may have been emitted before the recorded action reached
+// the agent. The action is resent with the same nonce — not dropped, which
+// would let a second, different action through — and still credits its
+// sender when the agent echoes it.
+func TestQuestionAnsweredBy_ReplayResendsRecordedSubmission(t *testing.T) {
 	srv, ms, sendChan := newAnswererServer(t)
 	rr := cancelAs(t, srv, laneKey)
 	require.Equal(t, http.StatusOK, rr.Code)
-	staleNonce := forwardedSubmissionID(t, sendChan)
-	require.NotNil(t, pendingSubmission(t, ms))
+	nonce := forwardedSubmissionID(t, sendChan)
 
 	replayQuestion(t, srv)
-	require.Nil(t, pendingSubmission(t, ms))
 
-	// Even a late echo of the lost nonce cannot credit the caller now.
-	agentReportsResolution(t, srv, "cancelled", nil, staleNonce)
+	require.Equal(t, nonce, forwardedSubmissionID(t, sendChan), "the same command is resent")
+	require.Equal(t, nonce, pendingSubmission(t, ms).ID)
+	rr = respondAs(t, srv, browserUser, `{"answers":{"deploy":"prod"}}`)
+	require.Equal(t, http.StatusConflict, rr.Code, "no second answer while the first is in flight")
+	require.Empty(t, sendChan)
+
+	agentReportsResolution(t, srv, "cancelled", nil, nonce)
+	by := answeredBy(t, ms)
+	require.Equal(t, "api", by["origin"])
+	require.Equal(t, answererOwner, by["api_key_owner"])
+}
+
+// The agent echoing the nonce with an outcome other than the one submitted
+// means someone acted in its own UI first; the API sender is not credited.
+func TestQuestionAnsweredBy_EchoedNonceWithOtherOutcomeIsExternalAgent(t *testing.T) {
+	srv, ms, sendChan := newAnswererServer(t)
+	rr := cancelAs(t, srv, laneKey)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	agentReportsResolution(t, srv, "answered", map[string]string{"deploy": "prod"}, forwardedSubmissionID(t, sendChan))
+
 	require.Equal(t, "external_agent", answeredBy(t, ms)["origin"])
+}
+
+// Same replica, concurrent: losing the in-memory claim is a 409, not a silent
+// "accepted" for an action that was never sent.
+func TestQuestionAction_ConcurrentSameReplicaGetsConflict(t *testing.T) {
+	srv, _, sendChan := newAnswererServer(t)
+	require.True(t, srv.beginQuestionAction("int-answerer", answererQuestion)) // the other request's claim
+
+	rr := respondAs(t, srv, browserUser, `{"answers":{"deploy":"staging"}}`)
+
+	require.Equal(t, http.StatusConflict, rr.Code, rr.Body.String())
+	require.Empty(t, sendChan)
 }
 
 // A second action while one is in flight (another replica, or after an API
@@ -280,7 +311,7 @@ func TestQuestionAnsweredBy_BodyCannotSetAnswerer(t *testing.T) {
 	interaction, err := ms.GetInteraction(context.Background(), "int-answerer")
 	require.NoError(t, err)
 	require.NotNil(t, interaction.PendingQuestion)
-	require.Nil(t, interaction.PendingQuestion.Submission, "the forged agent submission and the rejected body both leave no answerer")
+	require.Nil(t, interaction.QuestionSubmission, "the rejected body leaves no answerer")
 }
 
 func TestQuestionAnsweredBy_LegacyEntryReadsUnknown(t *testing.T) {
@@ -289,4 +320,34 @@ func TestQuestionAnsweredBy_LegacyEntryReadsUnknown(t *testing.T) {
 	raw, err := json.Marshal(interaction.QuestionHistory[0])
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `"answered_by":{"origin":"unknown"}`)
+}
+
+// Any Waiting→terminal transition (startup error, stale partial response,
+// failed stuck turn) settles an open question; none keeps it forever. The
+// Postgres store does this in the transition statement itself
+// (TestTerminalTransitionsSettlePendingQuestion); this pins the in-memory
+// mirror the sync e2e server runs on.
+func TestTerminalTransitionSettlesQuestion(t *testing.T) {
+	srv, ms, _ := newAnswererServer(t)
+	rr := cancelAs(t, srv, laneKey)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	// The transition the startup-error handler and failStuckInteraction use.
+	transitioned, err := ms.MarkInteractionErrorIfWaiting(context.Background(), "int-answerer", 0, "agent stopped")
+	require.NoError(t, err)
+	require.True(t, transitioned)
+
+	interaction := mustInteraction(t, ms)
+	require.Equal(t, types.InteractionStateError, interaction.State)
+	require.Nil(t, interaction.QuestionSubmission)
+	by := answeredBy(t, ms)
+	require.Equal(t, "system", by["origin"])
+	require.Equal(t, "question_settled", by["system_kind"])
+}
+
+func mustInteraction(t *testing.T, ms *memorystore.MemoryStore) *types.Interaction {
+	t.Helper()
+	interaction, err := ms.GetInteraction(context.Background(), "int-answerer")
+	require.NoError(t, err)
+	return interaction
 }

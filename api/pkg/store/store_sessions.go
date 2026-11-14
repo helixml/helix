@@ -686,3 +686,36 @@ func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff 
 func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {
 	return s.publishStoreEvent(ctx, operation, session)
 }
+
+// backfillSessionAgentConnections records the agent connection on spec-task
+// child sessions created before connections were recorded (2026-09-24), so
+// thread lookups that only accept sessions recorded on the reporting
+// connection still find them after an upgrade.
+//
+// A spec task runs one desktop, opened for its planning session, so a task
+// session other than that one that is bound to a Zed thread was carried by
+// the planning session's connection. Scoping to the session's own task keeps
+// the backfill inside one lane: it can never record a session on another
+// task's connection. Child sessions outside a spec task have no recorded
+// connection to recover and are left unchanged. Idempotent: it only fills an
+// empty external_agent_id.
+func (s *PostgresStore) backfillSessionAgentConnections(ctx context.Context) error {
+	if !s.gdb.Migrator().HasTable(&types.Session{}) || !s.gdb.Migrator().HasTable(&types.SpecTask{}) {
+		return nil
+	}
+	err := s.gdb.WithContext(ctx).Exec(`
+		UPDATE sessions s
+		SET config = jsonb_set(s.config::jsonb, '{external_agent_id}', to_jsonb(st.planning_session_id))
+		FROM spec_tasks st
+		WHERE st.id = s.config->>'spec_task_id'
+		  AND COALESCE(st.planning_session_id, '') <> ''
+		  AND st.planning_session_id <> s.id
+		  AND COALESCE(s.config->>'zed_thread_id', '') <> ''
+		  AND COALESCE(s.config->>'external_agent_id', '') = ''
+		  AND s.deleted_at IS NULL
+	`).Error
+	if err != nil {
+		return fmt.Errorf("backfill sessions.config.external_agent_id: %w", err)
+	}
+	return nil
+}

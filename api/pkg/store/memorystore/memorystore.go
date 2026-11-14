@@ -352,10 +352,21 @@ func (m *MemoryStore) CreateInteraction(_ context.Context, interaction *types.In
 	if interaction.Updated.IsZero() {
 		interaction.Updated = time.Now()
 	}
+	if interaction.ExternalAgentUserEntryID != "" {
+		for id, other := range m.interactions {
+			if id != interaction.ID && other.SessionID == interaction.SessionID && other.GenerationID == interaction.GenerationID &&
+				other.ExternalAgentUserThreadID == interaction.ExternalAgentUserThreadID &&
+				other.ExternalAgentUserEntryID == interaction.ExternalAgentUserEntryID &&
+				other.PromptMessage == interaction.PromptMessage {
+				return nil, store.ErrDuplicateExternalAgentUserEntry
+			}
+		}
+	}
 	cp := *interaction
 	if existing, ok := m.interactions[interaction.ID]; ok {
 		cp.PendingQuestion = existing.PendingQuestion
 		cp.QuestionHistory = existing.QuestionHistory
+		cp.QuestionSubmission = existing.QuestionSubmission
 		cp.ThreadReseeds = existing.ThreadReseeds
 	}
 	m.interactions[interaction.ID] = &cp
@@ -369,6 +380,7 @@ func (m *MemoryStore) UpdateInteraction(_ context.Context, interaction *types.In
 		cp.PendingQuestion = existing.PendingQuestion
 		cp.QuestionHistory = existing.QuestionHistory
 		cp.Provenance = existing.Provenance
+		cp.QuestionSubmission = existing.QuestionSubmission
 		cp.ThreadReseeds = existing.ThreadReseeds
 	}
 	m.interactions[interaction.ID] = &cp
@@ -444,7 +456,7 @@ func (m *MemoryStore) SetInteractionPendingQuestion(_ context.Context, interacti
 	return &cp, true, nil
 }
 
-func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.PendingQuestion) types.TurnProvenance) (*types.Interaction, bool, error) {
+func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.QuestionSubmission) types.TurnProvenance) (*types.Interaction, bool, error) {
 	m.mu.Lock()
 	existing, ok := m.interactions[interactionID]
 	if !ok || existing.GenerationID != generationID {
@@ -456,8 +468,9 @@ func (m *MemoryStore) ResolveInteractionPendingQuestion(_ context.Context, inter
 		m.mu.Unlock()
 		return &cp, false, nil
 	}
-	existing.QuestionHistory = append(existing.QuestionHistory, types.NewResolvedQuestion(existing.PendingQuestion, outcome, answers, answeredBy(existing.PendingQuestion)))
+	existing.QuestionHistory = append(existing.QuestionHistory, types.NewResolvedQuestion(existing.PendingQuestion, outcome, answers, answeredBy(existing.SubmissionFor(requestID))))
 	existing.PendingQuestion = nil
+	existing.QuestionSubmission = nil
 	existing.Updated = time.Now()
 	cp := *existing
 	cb := m.OnInteractionUpdated
@@ -475,13 +488,11 @@ func (m *MemoryStore) RecordInteractionQuestionSubmission(_ context.Context, int
 	if !ok || existing.GenerationID != generationID {
 		return false, store.ErrNotFound
 	}
-	if existing.PendingQuestion == nil || existing.PendingQuestion.RequestID != requestID ||
-		existing.PendingQuestion.Submission != nil {
+	if existing.PendingQuestion == nil || existing.PendingQuestion.RequestID != requestID || existing.QuestionSubmission != nil {
 		return false, nil
 	}
-	pending := *existing.PendingQuestion
-	pending.Submission = &submission
-	existing.PendingQuestion = &pending
+	submission.RequestID = requestID
+	existing.QuestionSubmission = &submission
 	existing.Updated = time.Now()
 	return true, nil
 }
@@ -493,16 +504,22 @@ func (m *MemoryStore) ClearInteractionQuestionSubmission(_ context.Context, inte
 	if !ok || existing.GenerationID != generationID {
 		return store.ErrNotFound
 	}
-	pending := existing.PendingQuestion
-	if pending == nil || pending.RequestID != requestID || pending.Submission == nil ||
-		(submissionID != "" && pending.Submission.ID != submissionID) {
-		return nil
+	if sub := existing.SubmissionFor(requestID); sub != nil && sub.ID == submissionID {
+		existing.QuestionSubmission = nil
+		existing.Updated = time.Now()
 	}
-	cleared := *pending
-	cleared.Submission = nil
-	existing.PendingQuestion = &cleared
-	existing.Updated = time.Now()
 	return nil
+}
+
+// settlePendingQuestion mirrors the Postgres terminal transitions: an ended
+// turn's open question is recorded as cancelled by Helix. Caller holds m.mu.
+func settlePendingQuestion(existing *types.Interaction) {
+	if existing.PendingQuestion != nil {
+		existing.QuestionHistory = append(existing.QuestionHistory, types.NewResolvedQuestion(
+			existing.PendingQuestion, "cancelled", nil, types.SystemTurn(types.SystemTurnQuestionSettled)))
+		existing.PendingQuestion = nil
+	}
+	existing.QuestionSubmission = nil
 }
 
 func (m *MemoryStore) BindInteractionExternalAgentRequest(_ context.Context, interactionID string, generationID int, requestID string) (bool, error) {
@@ -573,6 +590,7 @@ func (m *MemoryStore) MarkInteractionInterruptedIfWaiting(_ context.Context, int
 		return false, nil
 	}
 	now := time.Now()
+	settlePendingQuestion(existing)
 	existing.State = types.InteractionStateInterrupted
 	existing.Completed = now
 	existing.Updated = now
@@ -632,6 +650,7 @@ func (m *MemoryStore) MarkInteractionCompleteIfWaiting(_ context.Context, intera
 		m.mu.Unlock()
 		return false, nil
 	}
+	settlePendingQuestion(existing)
 	existing.State = types.InteractionStateComplete
 	existing.Completed = time.Now()
 	existing.Updated = time.Now()
@@ -652,6 +671,7 @@ func (m *MemoryStore) MarkInteractionErrorIfWaiting(_ context.Context, interacti
 		m.mu.Unlock()
 		return false, nil
 	}
+	settlePendingQuestion(existing)
 	existing.State = types.InteractionStateError
 	existing.Error = reason
 	existing.Completed = time.Now()
@@ -673,6 +693,7 @@ func (m *MemoryStore) MarkStaleInteractionErrorIfWaiting(_ context.Context, inte
 		m.mu.Unlock()
 		return false, nil
 	}
+	settlePendingQuestion(existing)
 	existing.State = types.InteractionStateError
 	existing.Error = reason
 	existing.Completed = time.Now()

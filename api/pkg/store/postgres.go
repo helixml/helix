@@ -370,10 +370,28 @@ func (s *PostgresStore) runMigrations() error {
 	).Error; err != nil {
 		return fmt.Errorf("failed to create sessions provider recovery index: %w", err)
 	}
+	// One interaction per agent-reported user entry: overlapping readers of a
+	// reconnecting agent can both pass the read-side dedupe in
+	// userEntryAlreadyRecorded, and this index makes the second insert fail
+	// (CreateInteraction reports it as ErrDuplicateExternalAgentUserEntry).
+	// The text is part of the key, matching the read-side rule: an index an
+	// agent restart renumbered can carry a genuinely new message. Partial, so
+	// turns Helix sent (no entry id) are unaffected; CONCURRENTLY for the same
+	// reason as the sessions indexes above.
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS " + externalAgentUserEntryIndex +
+			" ON interactions (session_id, generation_id, external_agent_user_thread_id, external_agent_user_entry_id, md5(prompt_message))" +
+			" WHERE external_agent_user_entry_id <> ''",
+	).Error; err != nil {
+		return fmt.Errorf("failed to create interactions external agent user entry index: %w", err)
+	}
 	if err := s.backfillAgentKinds(context.Background()); err != nil {
 		return err
 	}
 	if err := s.backfillEmailVerified(context.Background()); err != nil {
+		return err
+	}
+	if err := s.backfillSessionAgentConnections(context.Background()); err != nil {
 		return err
 	}
 

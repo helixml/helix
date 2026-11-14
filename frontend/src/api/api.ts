@@ -5793,11 +5793,6 @@ export interface TypesPendingQuestion {
   questions?: TypesUserQuestion[];
   request_id?: string;
   source?: string;
-  /**
-   * Submission is the action Helix's API accepted for this question and
-   * forwarded to the agent. Server-written only; cleared on resolution.
-   */
-  submission?: TypesQuestionSubmission;
   thread_id?: string;
   tool_call_id?: string;
   turn_request_id?: string;
@@ -6455,14 +6450,6 @@ export interface TypesQuestionRespondRequest {
   answers?: Record<string, string>;
 }
 
-export interface TypesQuestionSubmission {
-  answers?: Record<string, string>;
-  by?: TypesTurnProvenance;
-  id?: string;
-  outcome?: string;
-  submitted_at?: string;
-}
-
 export interface TypesQuotaResponse {
   active_concurrent_desktops?: number;
   /**
@@ -6698,11 +6685,6 @@ export interface TypesResolvedQuestion {
   request_id?: string;
   resolved_at?: string;
   source?: string;
-  /**
-   * Submission is the action Helix's API accepted for this question and
-   * forwarded to the agent. Server-written only; cleared on resolution.
-   */
-  submission?: TypesQuestionSubmission;
   thread_id?: string;
   tool_call_id?: string;
   turn_request_id?: string;

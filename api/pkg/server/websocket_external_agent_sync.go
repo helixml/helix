@@ -904,7 +904,7 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		if err != nil {
 			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 		}
-		if err := apiServer.sameOwnerAsConnection(context.Background(), sessionID, helixSession); err != nil {
+		if err := apiServer.sessionOnConnection(context.Background(), sessionID, helixSession); err != nil {
 			return fmt.Errorf("thread_created: %w", err)
 		}
 
@@ -979,6 +979,9 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		apiServer.contextMappingsMutex.RUnlock()
 		if inFlight {
 			if boundSession, err := apiServer.sessionForInteraction(context.Background(), inFlightInteractionID); err == nil && boundSession != nil {
+				if err := apiServer.sessionOnConnection(context.Background(), sessionID, boundSession); err != nil {
+					return fmt.Errorf("thread_created: %w", err)
+				}
 				log.Warn().
 					Str("agent_session_id", sessionID).
 					Str("helix_session_id", boundSession.ID).
@@ -989,6 +992,9 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 
 				boundSession.Metadata.ZedThreadID = contextID
 				recordConnection(boundSession, sessionID)
+				if boundSession.Metadata.ZedAgentName == "" {
+					boundSession.Metadata.ZedAgentName = apiServer.getAgentNameForSession(context.Background(), boundSession)
+				}
 				boundSession.Updated = time.Now()
 				if _, err := apiServer.Controller.Options.Store.UpdateSession(context.Background(), *boundSession); err != nil {
 					return fmt.Errorf("failed to rebind session %s to duplicate thread: %w", boundSession.ID, err)
@@ -1563,6 +1569,14 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 
 			// Create the interaction in the store
 			createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
+			if errors.Is(err, store.ErrDuplicateExternalAgentUserEntry) {
+				// Another reader recorded this entry between our check and
+				// insert (overlapping connections during a reconnect).
+				logRecordedUserEntry(helixSessionID, userEntry{
+					threadID: contextID, entryID: messageID, requestID: messageRequestID, content: content,
+				}, "", "concurrent insert of the same entry")
+				return nil
+			}
 			if err != nil {
 				return fmt.Errorf("failed to create interaction: %w", err)
 			}
@@ -2499,6 +2513,9 @@ func (apiServer *HelixAPIServer) handleTurnCancelled(sessionID string, syncMsg *
 	}
 	if interaction == nil {
 		return fmt.Errorf("resolve interaction for acknowledged cancellation %s: interaction not found", requestID)
+	}
+	if err := apiServer.interactionOnConnection(context.Background(), sessionID, interaction); err != nil {
+		return fmt.Errorf("turn_cancelled %s: %w", requestID, err)
 	}
 	interaction, _, err = apiServer.settlePendingQuestionAsCancelled(context.Background(), interaction)
 	if err != nil {
@@ -4148,6 +4165,23 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 		return true, nil
 	}
 
+	// The replay lands in a brand-new agent session, so whatever the agent knew
+	// about this task died with the old one. Rebuild enough of it to carry on —
+	// otherwise the turn succeeds mechanically and the agent answers a follow-up
+	// with no idea what it was working on. The preamble is recorded before any
+	// state below changes: if recording fails, recovery stops with the thread
+	// and the queued command untouched, so it can be retried.
+	agentName, preamble := "", ""
+	if reseedContext && interaction != nil {
+		preamble = apiServer.buildThreadReseedPreamble(ctx, session, interaction.ID)
+		if preamble != "" {
+			agentName = apiServer.getAgentNameForSession(ctx, session)
+			if err := apiServer.recordThreadReseed(ctx, session, interaction, agentName, preamble); err != nil {
+				return false, err
+			}
+		}
+	}
+
 	session.Metadata.ZedThreadID = ""
 	if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
 		return false, fmt.Errorf("clear stale ACP thread: %w", err)
@@ -4174,19 +4208,9 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 	}
 	apiServer.externalAgentWSManager.readinessMu.Unlock()
 
-	// The replay lands in a brand-new agent session, so whatever the agent knew
-	// about this task died with the old one. Rebuild enough of it to carry on —
-	// otherwise the turn succeeds mechanically and the agent answers a follow-up
-	// with no idea what it was working on.
-	agentName := apiServer.getAgentNameForSession(ctx, session)
-	message := interaction.PromptMessage
-	if reseedContext {
-		if preamble := apiServer.buildThreadReseedPreamble(ctx, session, interaction.ID); preamble != "" {
-			if err := apiServer.recordThreadReseed(ctx, session, interaction, agentName, preamble); err != nil {
-				return false, err
-			}
-			message = preamble + message
-		}
+	message := preamble + interaction.PromptMessage
+	if agentName == "" {
+		agentName = apiServer.getAgentNameForSession(ctx, session)
 	}
 	if interaction.SystemPrompt != "" {
 		message = interaction.SystemPrompt + "\n\n**User Request:**\n" + message
@@ -4585,6 +4609,9 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 
 	interaction := apiServer.interactionForRequest(context.Background(), requestID)
 	if interaction != nil {
+		if err := apiServer.interactionOnConnection(context.Background(), sessionID, interaction); err != nil {
+			return fmt.Errorf("chat_response_error %s: %w", requestID, err)
+		}
 		// applyTurnError, not a direct state write: an error carrying this
 		// request_id may be the rejection of a duplicate delivery rather than the
 		// abort of the turn itself. See external_agent_turn_error.go.
@@ -5412,11 +5439,19 @@ func (apiServer *HelixAPIServer) trackSpecTaskZedThread(ctx context.Context, hel
 		}
 	}
 	if workSession == nil {
+		// A thread the agent opened inside another session's desktop joins
+		// that session's phase (planning threads stay planning).
+		phase := types.SpecTaskPhaseImplementation
+		if helixSession.ParentSession != "" {
+			if parent, parentErr := st.GetSpecTaskWorkSessionByHelixSession(ctx, helixSession.ParentSession); parentErr == nil && parent != nil {
+				phase = parent.Phase
+			}
+		}
 		workSession = &types.SpecTaskWorkSession{
 			SpecTaskID:     specTaskID,
 			HelixSessionID: helixSession.ID,
 			Name:           title,
-			Phase:          types.SpecTaskPhaseImplementation,
+			Phase:          phase,
 			Status:         types.SpecTaskWorkSessionStatusActive,
 		}
 		if createErr := st.CreateSpecTaskWorkSession(ctx, workSession); createErr != nil {

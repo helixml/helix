@@ -113,6 +113,9 @@ type Interaction struct {
 
 	PendingQuestion *PendingQuestion   `json:"pending_question,omitempty" gorm:"type:jsonb;serializer:json"`
 	QuestionHistory []ResolvedQuestion `json:"question_history,omitempty" gorm:"type:jsonb;serializer:json"`
+	// QuestionSubmission is the API answer or cancel in flight for the pending
+	// question. Server-only: never serialized to API responses or publishes.
+	QuestionSubmission *QuestionSubmission `json:"-" gorm:"type:jsonb;serializer:json"`
 
 	// CodeChanges is the immutable before/after workspace checkpoint summary for
 	// this turn. The full patch remains in hidden Git checkpoint refs.
