@@ -949,9 +949,16 @@ func (m *MemoryStore) RecoverProviderPrompt(_ context.Context, sessionID, prompt
 	}
 	prompt := m.prompts[promptID]
 	interaction := m.interactions[state.InteractionID]
+	var latest *types.Interaction
+	for _, candidate := range m.interactions {
+		if candidate.SessionID == sessionID && candidate.PromptID == promptID &&
+			(latest == nil || candidate.Created.After(latest.Created) || (candidate.Created.Equal(latest.Created) && candidate.ID > latest.ID)) {
+			latest = candidate
+		}
+	}
 	if state.PromptID != promptID || state.Attempts >= maxAttempts || state.NextCheckAt.After(now) ||
-		interaction == nil || interaction.SessionID != sessionID || interaction.State != types.InteractionStateError ||
-		prompt == nil || prompt.SessionID != sessionID || prompt.Status != "sent" {
+		interaction == nil || latest != interaction || interaction.State != types.InteractionStateError ||
+		prompt == nil || prompt.SessionID != sessionID || prompt.Status != "sent" || prompt.DeletedAt != nil {
 		return false, nil
 	}
 	state.Attempts++

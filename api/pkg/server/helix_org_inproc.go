@@ -1243,14 +1243,12 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			if interactionCompleted(interaction) {
 				return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interaction.ID, PromptID: promptID, Completed: true}, nil
 			}
-			if interaction != nil && interaction.State == types.InteractionStateError && entry.Status == "sent" &&
-				(isOpaqueProviderAbort(interaction.Error) || isExplicitProviderFailure(interaction.Error)) {
-				failure, failureErr := c.server.failedProviderCallForInteraction(ctx, interaction.ID)
+			if interaction != nil && interaction.State == types.InteractionStateError && entry.Status == "sent" {
+				failure, failureErr := c.server.providerFailureForInteraction(ctx, interaction)
 				if failureErr != nil {
 					return runtimehelix.DeliveryResult{}, fmt.Errorf("load activation provider failure: %w", failureErr)
 				}
-				if providerFailureMatchesConfig(failure, session.Metadata.CodeAgentConfig) &&
-					c.server.recordProviderRecovery(ctx, interaction, failure) {
+				if failure != nil && c.server.recordProviderRecovery(ctx, interaction, failure) {
 					return runtimehelix.DeliveryResult{}, fmt.Errorf("activation is waiting for model provider recovery")
 				}
 			}

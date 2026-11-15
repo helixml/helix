@@ -68,7 +68,7 @@ func TestRecoverProviderPromptClaimsSentPromptOnce(t *testing.T) {
 	if err := memory.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{ID: "prompt-1", SessionID: "session-1", Status: "sent"}); err != nil {
 		t.Fatal(err)
 	}
-	interaction, err := memory.CreateInteraction(ctx, &types.Interaction{ID: "interaction-1", SessionID: "session-1", State: types.InteractionStateError})
+	interaction, err := memory.CreateInteraction(ctx, &types.Interaction{ID: "interaction-1", SessionID: "session-1", PromptID: "prompt-1", State: types.InteractionStateError})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +90,57 @@ func TestRecoverProviderPromptClaimsSentPromptOnce(t *testing.T) {
 	claimed, err = memory.RecoverProviderPrompt(ctx, "session-1", "prompt-1", now.Add(2*time.Minute), now.Add(3*time.Minute), 3)
 	if err != nil || claimed {
 		t.Fatalf("completed interaction recovery: claimed=%v err=%v", claimed, err)
+	}
+}
+
+func TestRecoverProviderPromptDoesNotReviveCancelledOrSupersededAttempt(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		cancelled bool
+		newer     bool
+	}{
+		{name: "cancelled prompt", cancelled: true},
+		{name: "newer attempt", newer: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			memory := New()
+			now := time.Now()
+			_, err := memory.CreateSession(ctx, types.Session{ID: "session-1", Metadata: types.SessionMetadata{
+				Recovery: &types.ProviderRecovery{PromptID: "prompt-1", InteractionID: "interaction-1", NextCheckAt: now.Add(-time.Second)},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var deletedAt *time.Time
+			if test.cancelled {
+				deletedAt = &now
+			}
+			if err := memory.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+				ID: "prompt-1", SessionID: "session-1", Status: "sent", DeletedAt: deletedAt,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			_, err = memory.CreateInteraction(ctx, &types.Interaction{
+				ID: "interaction-1", SessionID: "session-1", PromptID: "prompt-1", Created: now, State: types.InteractionStateError,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.newer {
+				_, err = memory.CreateInteraction(ctx, &types.Interaction{
+					ID: "interaction-2", SessionID: "session-1", PromptID: "prompt-1", Created: now.Add(time.Second), State: types.InteractionStateComplete,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			claimed, err := memory.RecoverProviderPrompt(ctx, "session-1", "prompt-1", now, now.Add(time.Minute), 3)
+			if err != nil || claimed {
+				t.Fatalf("recovery: claimed=%v err=%v", claimed, err)
+			}
+		})
 	}
 }
 
