@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 )
 
 // SpecTask External Agent methods (per-SpecTask agents spanning multiple sessions)
@@ -39,7 +41,10 @@ func (s *PostgresStore) GetSpecTaskExternalAgent(ctx context.Context, specTaskID
 		First(&agent)
 
 	if result.Error != nil {
-		return nil, fmt.Errorf("external agent not found for spec task %s: %w", specTaskID, result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("external agent not found for spec task %s: %w", specTaskID, ErrNotFound)
+		}
+		return nil, fmt.Errorf("get external agent for spec task %s: %w", specTaskID, result.Error)
 	}
 
 	return &agent, nil

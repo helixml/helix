@@ -62,6 +62,40 @@ func TestTaskIsBusy(t *testing.T) {
 		assert.True(t, o.taskIsBusy(ctx, task))
 	})
 
+	for _, status := range []string{"starting", "restarting"} {
+		t.Run(status+" planning session is busy", func(t *testing.T) {
+			o, st := setup(t)
+			task := &types.SpecTask{ID: "spt_boot", PlanningSessionID: "ses_boot"}
+			st.EXPECT().GetSpecTaskExternalAgent(ctx, "spt_boot").
+				Return(nil, fmt.Errorf("wrapped: %w", store.ErrNotFound))
+			st.EXPECT().GetSession(ctx, "ses_boot").
+				Return(&types.Session{Metadata: types.SessionMetadata{ExternalAgentStatus: status}}, nil)
+
+			assert.True(t, o.taskIsBusy(ctx, task),
+				"a desktop that is booting must not have its task archived")
+		})
+	}
+
+	t.Run("creating external agent is busy", func(t *testing.T) {
+		o, st := setup(t)
+		task := &types.SpecTask{ID: "spt_7"}
+		st.EXPECT().GetSpecTaskExternalAgent(ctx, "spt_7").
+			Return(&types.SpecTaskExternalAgent{Status: "creating"}, nil)
+
+		assert.True(t, o.taskIsBusy(ctx, task))
+	})
+
+	t.Run("terminated_idle planning session is idle", func(t *testing.T) {
+		o, st := setup(t)
+		task := &types.SpecTask{ID: "spt_8", PlanningSessionID: "ses_8"}
+		st.EXPECT().GetSpecTaskExternalAgent(ctx, "spt_8").
+			Return(nil, fmt.Errorf("wrapped: %w", store.ErrNotFound))
+		st.EXPECT().GetSession(ctx, "ses_8").
+			Return(&types.Session{Metadata: types.SessionMetadata{ExternalAgentStatus: "terminated_idle"}}, nil)
+
+		assert.False(t, o.taskIsBusy(ctx, task))
+	})
+
 	t.Run("agent lookup error is treated as busy", func(t *testing.T) {
 		o, st := setup(t)
 		task := &types.SpecTask{ID: "spt_5"}

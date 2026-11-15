@@ -2002,10 +2002,10 @@ func taskIdleSince(project *types.Project, task *types.SpecTask, now time.Time) 
 // taskIsBusy reports whether the task has work in flight that must not be
 // archived out from under it, whatever its own timestamps say.
 //
-// "Busy" means a machine is actually working: a running external agent, or a
-// planning session whose external desktop agent is still up. This mirrors the
-// liveness signal the orphan reaper uses for workspaces, so a workspace the
-// reaper treats as live never has its task archived by the same sweep.
+// "Busy" means a machine is working or about to: an external agent or planning
+// session desktop in any state other than a known-idle one. Starting and
+// restarting desktops count as busy so a task resumed just before the sweep is
+// not archived while its agent boots.
 //
 // A lookup failure is treated as busy. Declining to archive is always the safe
 // direction, and the next sweep retries.
@@ -2022,7 +2022,7 @@ func (o *SpecTaskOrchestrator) taskIsBusy(ctx context.Context, task *types.SpecT
 				Msg("Stale-task sweep: cannot determine agent state; treating task as busy")
 			return true
 		}
-	} else if externalAgent != nil && externalAgent.Status == "running" {
+	} else if externalAgent != nil && !agentStatusIdle(externalAgent.Status) {
 		return true
 	}
 
@@ -2045,7 +2045,17 @@ func (o *SpecTaskOrchestrator) taskIsBusy(ctx context.Context, task *types.SpecT
 		return false
 	}
 
-	return session.Metadata.ExternalAgentStatus == "running"
+	return !agentStatusIdle(session.Metadata.ExternalAgentStatus)
+}
+
+// agentStatusIdle reports whether an external agent status means no desktop is
+// running or coming up. Unknown statuses read as not idle.
+func agentStatusIdle(status string) bool {
+	switch status {
+	case "", "stopped", "terminated", "terminated_idle":
+		return true
+	}
+	return false
 }
 
 // stopTaskAgentsBeforeArchive mirrors the manual archive handler: any running
