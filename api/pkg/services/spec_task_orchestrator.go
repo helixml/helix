@@ -1916,8 +1916,8 @@ func (o *SpecTaskOrchestrator) staleArchiveSweep(ctx context.Context) {
 			continue
 		}
 
-		// Reload the task so a concurrent status change or manual archive
-		// between list and write is never clobbered.
+		// Reload the task and re-check it, so a status change, fresh activity
+		// or manual archive between list and write is never clobbered.
 		latest, err := o.store.GetSpecTask(ctx, task.ID)
 		if err != nil {
 			log.Warn().Err(err).
@@ -1925,7 +1925,7 @@ func (o *SpecTaskOrchestrator) staleArchiveSweep(ctx context.Context) {
 				Msg("Failed to reload task during archive sweep")
 			continue
 		}
-		if latest.Archived {
+		if latest.Archived || !shouldArchiveStaleTask(project, latest, now) {
 			continue
 		}
 

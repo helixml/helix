@@ -237,7 +237,7 @@ func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweepArchivesOnlyInactiv
 }
 
 // An abandoned implementation task (no running agent, no activity) must be
-// archived by the sweep; a live one must not. This is the accumulation the
+// archived by the sweep; a live one, or one whose desktop is booting, must not. This is the accumulation the
 // reaper could never clear, because implementation was exempt by status.
 func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweep_ArchivesAbandonedImplementation() {
 	ctx := context.Background()
@@ -256,16 +256,27 @@ func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweep_ArchivesAbandonedI
 		Status:    types.TaskStatusImplementation,
 		CreatedAt: now.Add(-30 * 24 * time.Hour),
 	}
+	booting := &types.SpecTask{
+		ID:                "task-booting",
+		ProjectID:         projectID,
+		Status:            types.TaskStatusImplementation,
+		CreatedAt:         now.Add(-30 * 24 * time.Hour),
+		PlanningSessionID: "ses-booting",
+	}
 	latest := *abandoned
 	s.orchestrator.containerExecutor = nil
 
 	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
 		SortBy: "last_message",
-	}).Return([]*types.SpecTask{abandoned, running}, nil)
+	}).Return([]*types.SpecTask{abandoned, running, booting}, nil)
 	s.store.EXPECT().GetSpecTaskExternalAgent(ctx, abandoned.ID).
 		Return(&types.SpecTaskExternalAgent{Status: "stopped"}, nil)
 	s.store.EXPECT().GetSpecTaskExternalAgent(ctx, running.ID).
 		Return(&types.SpecTaskExternalAgent{Status: "running"}, nil)
+	s.store.EXPECT().GetSpecTaskExternalAgent(ctx, booting.ID).
+		Return(nil, store.ErrNotFound)
+	s.store.EXPECT().GetSession(ctx, booting.PlanningSessionID).
+		Return(&types.Session{Metadata: types.SessionMetadata{ExternalAgentStatus: "starting"}}, nil)
 	s.store.EXPECT().GetProject(ctx, projectID).Return(&types.Project{
 		ID:                       projectID,
 		ArchiveStaleTasksEnabled: true,
@@ -2035,4 +2046,37 @@ func TestShouldArchiveStaleTask(t *testing.T) {
 			assert.Equal(t, tc.want, shouldArchiveStaleTask(tc.proj, tc.task, now))
 		})
 	}
+}
+
+// A task that picked up activity after the sweep listed it must not be
+// archived on the strength of the stale listing.
+func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweep_SkipsTaskActiveSinceListing() {
+	ctx := context.Background()
+	now := time.Now()
+	projectID := "project-race"
+
+	listed := &types.SpecTask{
+		ID:        "task-race",
+		ProjectID: projectID,
+		Status:    types.TaskStatusImplementation,
+		CreatedAt: now.Add(-30 * 24 * time.Hour),
+	}
+	touched := now
+	latest := *listed
+	latest.StatusUpdatedAt = &touched
+	s.orchestrator.containerExecutor = nil
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		SortBy: "last_message",
+	}).Return([]*types.SpecTask{listed}, nil)
+	s.store.EXPECT().GetSpecTaskExternalAgent(ctx, listed.ID).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().GetProject(ctx, projectID).Return(&types.Project{
+		ID:                       projectID,
+		ArchiveStaleTasksEnabled: true,
+		ArchiveStaleTasksDays:    6,
+	}, nil)
+	s.store.EXPECT().GetSpecTask(ctx, listed.ID).Return(&latest, nil)
+	s.store.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).Times(0)
+
+	s.orchestrator.staleArchiveSweep(ctx)
 }
