@@ -1905,12 +1905,19 @@ func (o *SpecTaskOrchestrator) staleArchiveSweep(ctx context.Context) {
 			continue
 		}
 
+		// Busy tasks are protected before the staleness check: an agent that
+		// is still working means the work is not abandoned, whatever the
+		// task's own timestamps say.
+		if o.taskIsBusy(ctx, task) {
+			continue
+		}
+
 		if !shouldArchiveStaleTask(project, task, now) {
 			continue
 		}
 
-		// Reload the task so a concurrent status change or manual archive
-		// between list and write is never clobbered.
+		// Reload the task and re-check it, so a status change, fresh activity
+		// or manual archive between list and write is never clobbered.
 		latest, err := o.store.GetSpecTask(ctx, task.ID)
 		if err != nil {
 			log.Warn().Err(err).
@@ -1918,7 +1925,7 @@ func (o *SpecTaskOrchestrator) staleArchiveSweep(ctx context.Context) {
 				Msg("Failed to reload task during archive sweep")
 			continue
 		}
-		if latest.Archived {
+		if latest.Archived || !shouldArchiveStaleTask(project, latest, now) {
 			continue
 		}
 
@@ -1942,22 +1949,40 @@ func (o *SpecTaskOrchestrator) staleArchiveSweep(ctx context.Context) {
 
 // shouldArchiveStaleTask reports whether an inactive task is old enough to be
 // archived by the hourly stale-task cleanup.
+//
+// Callers must already have established that the task is not busy; that
+// requires store lookups, so it is done by the sweep (see taskIsBusy) and not
+// by this pure predicate.
 func shouldArchiveStaleTask(project *types.Project, task *types.SpecTask, now time.Time) bool {
 	if !project.ArchiveStaleTasksEnabled {
 		return false
 	}
 
-	// Never archive tasks with agent work in flight or an open PR awaiting
-	// merge — those are waiting on agents/CI, not abandoned by people.
+	// These statuses are waiting on a machine step the orchestrator will drive
+	// to completion on its own: a queued spec or implementation run, a PR
+	// awaiting CI/merge, or an already-done task (handled by the event-driven
+	// completed-task automation). Archiving them would pull the rug out from
+	// under that work.
+	//
+	// implementation is deliberately absent. A task left in implementation with
+	// no running agent and no recent activity is abandoned — typically a
+	// spec-task swarm lane whose agent exited without closing the task out —
+	// and no machine step will ever finish it. taskIsBusy protects a live run;
+	// this predicate only ever sees tasks the caller already found idle.
 	switch task.Status {
 	case types.TaskStatusSpecGeneration,
 		types.TaskStatusImplementationQueued,
-		types.TaskStatusImplementation,
 		types.TaskStatusPullRequest,
 		types.TaskStatusDone:
 		return false
 	}
 
+	return taskIdleSince(project, task, now)
+}
+
+// taskIdleSince reports whether the task has had no activity — a message, a
+// status change, or creation — within the project's stale window.
+func taskIdleSince(project *types.Project, task *types.SpecTask, now time.Time) bool {
 	staleDays := project.ArchiveStaleTasksDays
 	if staleDays < 1 {
 		staleDays = defaultArchiveStaleTasksDays
@@ -1971,7 +1996,63 @@ func shouldArchiveStaleTask(project *types.Project, task *types.SpecTask, now ti
 	if task.StatusUpdatedAt != nil && task.StatusUpdatedAt.After(lastActivity) {
 		lastActivity = *task.StatusUpdatedAt
 	}
-	if lastActivity.Before(idleSince) {
+	return lastActivity.Before(idleSince)
+}
+
+// taskIsBusy reports whether the task has work in flight that must not be
+// archived out from under it, whatever its own timestamps say.
+//
+// "Busy" means a machine is working or about to: an external agent or planning
+// session desktop in any state other than a known-idle one. Starting and
+// restarting desktops count as busy so a task resumed just before the sweep is
+// not archived while its agent boots.
+//
+// A lookup failure is treated as busy. Declining to archive is always the safe
+// direction, and the next sweep retries.
+func (o *SpecTaskOrchestrator) taskIsBusy(ctx context.Context, task *types.SpecTask) bool {
+	if o.store == nil {
+		return true
+	}
+
+	externalAgent, err := o.store.GetSpecTaskExternalAgent(ctx, task.ID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Warn().Err(err).
+				Str("task_id", task.ID).
+				Msg("Stale-task sweep: cannot determine agent state; treating task as busy")
+			return true
+		}
+	} else if externalAgent != nil && !agentStatusIdle(externalAgent.Status) {
+		return true
+	}
+
+	if task.PlanningSessionID == "" {
+		return false
+	}
+
+	session, err := o.store.GetSession(ctx, task.PlanningSessionID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("session_id", task.PlanningSessionID).
+				Msg("Stale-task sweep: cannot determine session state; treating task as busy")
+			return true
+		}
+		return false
+	}
+	if session == nil {
+		return false
+	}
+
+	return !agentStatusIdle(session.Metadata.ExternalAgentStatus)
+}
+
+// agentStatusIdle reports whether an external agent status means no desktop is
+// running or coming up. Unknown statuses read as not idle.
+func agentStatusIdle(status string) bool {
+	switch status {
+	case "", "stopped", "terminated", "terminated_idle":
 		return true
 	}
 	return false

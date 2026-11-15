@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -163,4 +164,16 @@ func setupTestStore(t *testing.T) (Store, func()) {
 	// For now, this is a placeholder that would need actual database connection
 	t.Skip("Test database setup not implemented yet")
 	return nil, func() {}
+}
+
+// The stale-task sweep reads a missing row as "no agent"; any other error reads
+// as busy and blocks archiving, so the miss must surface as ErrNotFound.
+func TestSpecTaskExternalAgent_GetMissingIsErrNotFound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database test in short mode")
+	}
+
+	_, err := GetTestDB().GetSpecTaskExternalAgent(context.Background(), "spec_does_not_exist")
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNotFound), "got %v", err)
 }
