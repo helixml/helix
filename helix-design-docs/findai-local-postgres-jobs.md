@@ -112,16 +112,17 @@ The snapshot is a bounded source export, not a continuing sync. Anything created
    - Find Agent search, get, result-card links, and apply through HelixOS, with a deliberate unavailable-local-service check proving there is no Bullhorn fallback;
    - self-serve approve, retry/idempotency, and withdraw/reconciliation using `LocalJobID`.
 
-8. Retain the protected manifest and a Postgres backup. Only after the checks pass should Find AI-specific Bullhorn job routes, credentials, tunnel use, or old sync tasks be removed. Keep the generic HelixOS Bullhorn manager and proxy for unrelated tenants until their dependency audit is complete.
+8. Retain the protected manifest and a Postgres backup. Only after the checks pass should Find AI-specific Bullhorn job routes, the two Find AI Bullhorn credential records, or old sync tasks be removed under a separate approval. Do not remove the shared tunnel, Squid listener, firewall rule, or `BULLHORN_HTTPS_PROXY` at this cutover.
 
-## Post-cutover cleanup
+## Post-cutover Find AI-only cleanup
 
-This is a separate, approved change after the cutover checks, inventory, and backups. It has not been performed.
+This is a separate, approved change after the cutover checks and backups. The live inventory confirmed that the Bullhorn egress path is shared and must remain: the database has 9 active Bullhorn credential records, 2 for `org_findai` and 7 for other orgs across 6 orgs. No global egress cleanup is authorized at the Find AI cutover.
 
-1. Inventory all consumers of `bullhorn-egress-tunnel.service`, `BULLHORN_HTTPS_PROXY`, and node01 Squid port `3128`, including the matching `DOCKER-USER` firewall rule. Confirm that no remaining tenant, scheduled task, MCP tool, or deployment depends on them. The Find AI jobs path must already pass the deliberate no-Bullhorn-fallback check.
-2. Retire the Find AI-specific `bullhorn-egress-tunnel.service` and its deployment references. Remove `BULLHORN_HTTPS_PROXY` from the HelixOS runtime only when the consumer inventory proves it is no longer needed; retain it for any unrelated Bullhorn consumer until that consumer has its own approved replacement.
-3. On node01, remove the Squid listener on port `3128` and the corresponding `DOCKER-USER` rule only after the inventory and backup are recorded. Verify the listener and rule are gone without changing unrelated firewall rules.
-4. Record the before/after service, listener, rule, and deployment-config state. Keep the Postgres backup, local job data, and application history as the rollback source; do not restore the old Find AI Bullhorn path as a way to recover new local writes.
+The confirmed shared targets are `bullhorn-egress-tunnel.service` binding `172.18.0.1:3128`, `/etc/bullhorn-egress` keys, the `/root/helixos/docker-compose.prod.yml` override, node01 container `bullhorn-egress-proxy-1` listening on `127.0.0.1:3128`, `/prod/home/luke/pm/infra/node01/bullhorn-egress/{compose.yaml,squid.conf}`, and the matching `DOCKER-USER` rule. Do not retire or alter these shared targets, and do not remove global `BULLHORN_HTTPS_PROXY`, until every other consumer is retired or has an approved replacement.
+
+1. After the cutover checks and backup, obtain separate approval to retire only the 2 active `org_findai` Bullhorn credential records. Confirm that Find AI job reads, writes, applications, agents, and self-serve flows no longer reference them.
+2. Remove the Find AI-specific job routes and old sync tasks, then remove only those 2 Find AI credential records. Leave the 7 records for the other 6 orgs and all shared egress infrastructure unchanged.
+3. Record the credential inventory and before/after references. Keep the Postgres backup, local job data, and application history as the rollback source; do not restore the old Find AI Bullhorn path as a way to recover new local writes.
 
 ## Rollback and recovery
 
