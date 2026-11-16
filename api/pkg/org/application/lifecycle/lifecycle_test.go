@@ -442,6 +442,35 @@ func TestStartDelete_FailureKeepsNodeAndClearsMarker(t *testing.T) {
 	}
 }
 
+// TestStartDelete_PanicIsContained pins that a panic in the background
+// cascade is recovered: the process survives, the Node stays, and the marker
+// clears so the delete can be retried.
+func TestStartDelete_PanicIsContained(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-start-delete-panic"
+	seedBot(t, st, orgID, "w-panic")
+
+	svc := &lifecycle.Service{Store: st, Instances: panickyDeleter{}}
+	if err := svc.StartDelete(ctx, orgID, "w-panic"); err != nil {
+		t.Fatalf("StartDelete: %v", err)
+	}
+	svc.WaitDeletes()
+	if svc.Deleting(orgID, "w-panic") {
+		t.Fatal("deleting marker not cleared after panic")
+	}
+	if _, err := st.Nodes.Get(ctx, orgID, "w-panic"); err != nil {
+		t.Fatalf("node should survive panicked delete: %v", err)
+	}
+}
+
+type panickyDeleter struct{}
+
+func (panickyDeleter) DeleteAll(context.Context, string, orgchart.NodeID) error {
+	panic("simulated teardown failure")
+}
+
 func TestStartDelete_MissingNodeErrors(t *testing.T) {
 	t.Parallel()
 	st := orggorm.GetOrgTestDB(t)

@@ -43,13 +43,25 @@ func (s *Service) StartDelete(ctx context.Context, orgID string, id orgchart.Nod
 	go func() {
 		defer s.deletes.Done()
 		defer s.releaseDelete(orgID, id)
-		if err := s.deleteDetached(ctx, orgID, id); err != nil {
+		if err := s.recoverDelete(ctx, orgID, id); err != nil {
 			s.logger().Error("background delete failed", "org", orgID, "node", id, "err", err)
 			return
 		}
 		s.logger().Info("background delete finished", "org", orgID, "node", id)
 	}()
 	return nil
+}
+
+// recoverDelete runs deleteDetached and turns a panic into an error. The
+// background goroutine has no net/http recover above it, so an unrecovered
+// panic in the cascade would kill the whole API process.
+func (s *Service) recoverDelete(ctx context.Context, orgID string, id orgchart.NodeID) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("delete %q panicked: %v", id, r)
+		}
+	}()
+	return s.deleteDetached(ctx, orgID, id)
 }
 
 // Deleting reports whether a delete of the Node is in flight. Read paths hide

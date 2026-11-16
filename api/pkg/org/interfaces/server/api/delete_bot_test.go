@@ -32,7 +32,7 @@ func (b blockingInstances) DeleteAll(ctx context.Context, _ string, _ orgchart.N
 
 // TestDeleteBot_ReturnsBeforeTeardownFinishes pins that DELETE /bots/{id}
 // does not block on the teardown, and that while it runs the bot is hidden
-// from reads, refuses edits, activation and chat, and a repeated delete is
+// from reads (including its instances), refuses edits, activation and chat, and a repeated delete is
 // accepted.
 func TestDeleteBot_ReturnsBeforeTeardownFinishes(t *testing.T) {
 	deps, st, _ := newDeps(t)
@@ -48,6 +48,7 @@ func TestDeleteBot_ReturnsBeforeTeardownFinishes(t *testing.T) {
 	disp := &fakeDispatcher{}
 	deps = wireActivate(deps, st, ensurer, disp)
 	deps.ProjectEnsurer = ensurer
+	deps.BotInstances = &fakeInstances{}
 	h := orgapi.Handler(deps)
 
 	if rec := do(t, h, "DELETE", "/bots/b-mgr", nil); rec.Code != http.StatusAccepted {
@@ -61,6 +62,9 @@ func TestDeleteBot_ReturnsBeforeTeardownFinishes(t *testing.T) {
 
 	if rec := do(t, h, "GET", "/bots/b-mgr", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("get deleting bot: got %d, want 404", rec.Code)
+	}
+	if rec := do(t, h, "GET", "/bots/b-mgr/instances", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("list instances of deleting bot: got %d, want 404", rec.Code)
 	}
 	rec := do(t, h, "GET", "/bots", nil)
 	var bots []orgapi.BotDTO
