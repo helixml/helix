@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -88,10 +89,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
 		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
 		MinimumInferenceBalance:                apiServer.Cfg.Stripe.MinimumInferenceBalance,
-		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
-		RudderStackWriteKey:                    apiServer.Cfg.Janitor.RudderStackWriteKey,
-		RudderStackDataPlaneURL:                apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
 		ToolsEnabled:                           apiServer.Cfg.Tools.Enabled,
 		AppsEnabled:                            apiServer.Cfg.Apps.Enabled,
 		DisableLLMCallLogging:                  apiServer.Cfg.DisableLLMCallLogging,
@@ -151,9 +149,7 @@ func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request
 	}
 	// The exact build and the deployment's identity are for signed-in users
 	// (update banner, licence gate, support debug context); an anonymous
-	// caller only needs what renders the login and registration pages. The
-	// Sentry DSN and RudderStack write key stay: they are browser-side
-	// ingestion keys the SPA needs before sign-in.
+	// caller only needs what renders the login and registration pages.
 	if !hasUser(getRequestUser(req)) {
 		config.Version = ""
 		config.LatestVersion = ""
@@ -250,6 +246,9 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, path); err != nil {
+		return nil, err
+	}
 	return apiServer.Controller.FilestoreList(getOwnerContext(req), path)
 }
 
@@ -291,6 +290,9 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, path); err != nil {
+		return filestore.Item{}, err
+	}
 	return apiServer.Controller.FilestoreGet(getOwnerContext(req), path)
 }
 
@@ -337,6 +339,9 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, request.Path); err != nil {
+		return filestore.Item{}, err
+	}
 	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), request.Path)
 }
 
@@ -394,6 +399,11 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 	}
 
 	// Return to the controller which handles path sanitization for user context
+	if !fromAppPath {
+		if err := keyFilestorePathRefusal(req, path, newPath); err != nil {
+			return filestore.Item{}, err
+		}
+	}
 	return apiServer.Controller.FilestoreRename(getOwnerContext(req), path, newPath)
 }
 
@@ -436,6 +446,9 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, path); err != nil {
+		return "", err
+	}
 	err := apiServer.Controller.FilestoreDelete(getOwnerContext(req), path)
 	return path, err
 }
@@ -528,6 +541,9 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		destination, err := filestoreUploadDestination(path, fileHeader.Filename)
 		if err != nil {
 			return false, system.NewHTTPError400("invalid upload path: " + err.Error())
+		}
+		if err := keyFilestorePathRefusal(req, destination); err != nil {
+			return false, err
 		}
 
 		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), destination, file)
@@ -1116,9 +1132,9 @@ func (apiServer *HelixAPIServer) approveWaitlistedUser(ctx context.Context, targ
 
 // createAPIKey godoc
 // @Summary Create a new API key
-// @Description Create a new API key
+// @Description Create a new API key. With project_id (and type "api"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization. Unknown body fields are refused. The legacy name query parameter mints a personal key and cannot be combined with a body.
 // @Tags    api-keys
-// @Param request body map[string]interface{} true "Request body with name and type"
+// @Param request body map[string]interface{} true "Request body with name, type, and app_id (app keys) or project_id (project keys)"
 // @Success 200 {string} string "API key"
 // @Router /api/v1/api_keys [post]
 func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
@@ -1128,16 +1144,21 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 	user := getRequestUser(req)
 	ctx := req.Context()
 
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return "", err
+	}
 	if name != "" {
-		// if we are using the query string route then don't try to deode the body
+		// The query-string form mints a personal key. A body would be
+		// ignored, so a request meant to mint a scoped key would silently
+		// get an unscoped one.
+		if len(bytes.TrimSpace(body)) > 0 {
+			return "", system.NewHTTPError400("the name query parameter cannot be combined with a request body; send name in the body instead")
+		}
 		newAPIKey.Name = name
 		newAPIKey.Type = types.APIkeytypeAPI
 	} else {
 		// For now we need to manually unmarshal the body because of the sql.NullString
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			return "", err
-		}
 		var objmap map[string]json.RawMessage
 		err = json.Unmarshal(body, &objmap)
 		if err != nil {
@@ -1150,6 +1171,13 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		typeStr, httpErr := requiredJSONStringField(objmap, "type")
 		if httpErr != nil {
 			return "", httpErr
+		}
+		if _, ok := objmap["project_id"]; ok {
+			createdKey, err := apiServer.createProjectAPIKey(ctx, user, body)
+			if err != nil {
+				return "", err
+			}
+			return createdKey.Key, nil
 		}
 		apiKeyStr, httpErr := requiredJSONStringField(objmap, "app_id")
 		if httpErr != nil {

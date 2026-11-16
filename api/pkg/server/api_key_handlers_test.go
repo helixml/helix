@@ -201,8 +201,9 @@ func TestCreateAPIKey_AllowedCallers(t *testing.T) {
 		Store:      mockStore,
 		Controller: &controller.Controller{Options: controller.Options{Store: mockStore}},
 	}
-	// The app key's agent belongs to the caller.
-	mockStore.EXPECT().GetApp(gomock.Any(), "app_1").Return(&types.App{ID: "app_1", Owner: "user_1"}, nil)
+	// The app key's agent belongs to the caller, in the scoped key's org.
+	mockStore.EXPECT().GetApp(gomock.Any(), "app_1").Return(&types.App{ID: "app_1", Owner: "user_1", OrganizationID: "org_1"}, nil)
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{OrganizationID: "org_1", UserID: "user_1", Role: types.OrganizationRoleMember}, nil)
 	mockStore.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, key *types.ApiKey) (*types.ApiKey, error) { return key, nil },
 	).Times(3)

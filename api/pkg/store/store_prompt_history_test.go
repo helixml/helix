@@ -71,6 +71,58 @@ func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptClaimsExactFailedI
 	suite.Equal("sent", prompt.Status)
 }
 
+func (suite *PostgresStoreTestSuite) TestRecoverProviderPromptDoesNotReviveCancelledOrSupersededAttempt() {
+	for _, test := range []struct {
+		name      string
+		cancelled bool
+		newer     bool
+	}{
+		{name: "cancelled prompt", cancelled: true},
+		{name: "newer attempt", newer: true},
+	} {
+		suite.Run(test.name, func() {
+			ctx := context.Background()
+			now := time.Now()
+			promptID := "phe_provider_guard_" + system.GenerateUUID()
+			interactionID := "int_provider_guard_" + system.GenerateUUID()
+			session, err := suite.db.CreateSession(ctx, types.Session{
+				ID: system.GenerateSessionID(), Owner: "user_provider_guard", Created: now, Updated: now,
+				Metadata: types.SessionMetadata{Recovery: &types.ProviderRecovery{
+					PromptID: promptID, InteractionID: interactionID, NextCheckAt: now.Add(-time.Second),
+				}},
+			})
+			suite.Require().NoError(err)
+			suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+			var deletedAt *time.Time
+			if test.cancelled {
+				deletedAt = &now
+			}
+			suite.Require().NoError(suite.db.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+				ID: promptID, UserID: session.Owner, SessionID: session.ID, Content: "do not retry", Status: "sent", DeletedAt: deletedAt,
+			}))
+			_, err = suite.db.CreateInteraction(ctx, &types.Interaction{
+				ID: interactionID, SessionID: session.ID, UserID: session.Owner, PromptID: promptID,
+				Created: now, Updated: now, State: types.InteractionStateError,
+			})
+			suite.Require().NoError(err)
+			if test.newer {
+				_, err = suite.db.CreateInteraction(ctx, &types.Interaction{
+					ID: "int_provider_newer_" + system.GenerateUUID(), SessionID: session.ID, UserID: session.Owner, PromptID: promptID,
+					Created: now.Add(time.Second), Updated: now.Add(time.Second), State: types.InteractionStateComplete,
+				})
+				suite.Require().NoError(err)
+			}
+
+			claimed, err := suite.db.RecoverProviderPrompt(ctx, session.ID, promptID, now, now.Add(time.Minute), 3)
+			suite.Require().NoError(err)
+			suite.False(claimed)
+			prompt, err := suite.db.GetPromptHistoryEntry(ctx, promptID)
+			suite.Require().NoError(err)
+			suite.Equal("sent", prompt.Status)
+		})
+	}
+}
+
 func (suite *PostgresStoreTestSuite) TestGetLatestActivationPromptHistoryEntryIncludesCancelled() {
 	ctx := context.Background()
 	now := time.Now()

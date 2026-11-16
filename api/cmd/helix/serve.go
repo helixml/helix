@@ -310,10 +310,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	janitor := janitor.NewJanitor(cfg.Janitor)
-	err = janitor.Initialize()
-	if err != nil {
-		return err
-	}
 
 	// External agent executor not used - following GPTScript pattern with WebSocket + PubSub
 	log.Info().Msg("Using GPTScript-style external agent pattern (WebSocket + PubSub)")

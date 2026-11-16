@@ -42,7 +42,12 @@ func maxPromptQueueRetries() int {
 // For new entries: creates them with all frontend fields
 // For existing entries: updates only frontend-owned fields (interrupt, queuePosition)
 // Backend-owned fields (status, retryCount, nextRetryAt) are preserved
-func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
+// provenance is the authenticated caller's; it is stamped on created entries
+// and on entries whose content this sync changes.
+func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, provenance types.TurnProvenance, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
+	if err := provenance.Validate(); err != nil {
+		return nil, err
+	}
 	synced := 0
 	updated := 0
 
@@ -87,6 +92,7 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 				Status:        entry.Status,
 				Interrupt:     interrupt,
 				QueuePosition: entry.QueuePosition,
+				Provenance:    provenance,
 				CreatedAt:     createdAt,
 				UpdatedAt:     time.Now(),
 			}
@@ -96,14 +102,6 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 			}
 			synced++
 		} else {
-			// Now that the queue is readable by every viewer of the task, a client
-			// caches other people's entries too and would push them straight back.
-			// Someone else's prompt is read-only to us: skip it rather than let one
-			// viewer rewrite another's queued content or ordering.
-			if existingEntry.UserID != userID {
-				continue
-			}
-
 			// Entry exists - only update frontend-owned fields
 			// Preserve backend-owned fields: status, retryCount, nextRetryAt
 			updateFields := map[string]interface{}{
@@ -112,14 +110,31 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 				"content":        entry.Content,
 				"updated_at":     time.Now(),
 			}
-
-			if err := s.gdb.WithContext(ctx).
-				Model(&types.PromptHistoryEntry{}).
-				Where("id = ?", entry.ID).
-				Updates(updateFields).Error; err != nil {
-				return nil, err
+			if entry.Content != existingEntry.Content {
+				updateFields["provenance"] = provenance
 			}
-			updated++
+
+			// Only the caller's own row in the authorized queue is updated.
+			// Viewers' clients cache other people's entries and push them back,
+			// and lanes share one owner, so a row named by id alone could belong
+			// to another viewer or to another lane's task: those are skipped.
+			// The handler authorized req's spec task / session and every
+			// entry's own session.
+			owned := s.gdb.WithContext(ctx).
+				Model(&types.PromptHistoryEntry{}).
+				Where("id = ? AND user_id = ?", entry.ID, userID)
+			if req.SpecTaskID != "" {
+				owned = owned.Where("spec_task_id = ?", req.SpecTaskID)
+			} else {
+				owned = owned.Where("session_id IN ?", []string{req.SessionID, entry.SessionID})
+			}
+			result := owned.Updates(updateFields)
+			if result.Error != nil {
+				return nil, result.Error
+			}
+			if result.RowsAffected > 0 {
+				updated++
+			}
 		}
 	}
 
@@ -362,17 +377,18 @@ func (s *PostgresStore) RecoverProviderPrompt(ctx context.Context, sessionID, pr
 		}
 		var interaction types.Interaction
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND session_id = ?", state.InteractionID, sessionID).
+			Where("session_id = ? AND prompt_id = ?", sessionID, promptID).
+			Order("created DESC, id DESC").
 			First(&interaction).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		} else if err != nil {
 			return err
 		}
-		if interaction.State != types.InteractionStateError {
+		if interaction.ID != state.InteractionID || interaction.State != types.InteractionStateError {
 			return nil
 		}
 		result := tx.Model(&types.PromptHistoryEntry{}).
-			Where("id = ? AND session_id = ? AND status = 'sent'", promptID, sessionID).
+			Where("id = ? AND session_id = ? AND status = 'sent' AND deleted_at IS NULL", promptID, sessionID).
 			Updates(map[string]any{"status": "pending", "next_retry_at": nil, "error_message": ""})
 		if result.Error != nil {
 			return result.Error

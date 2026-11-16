@@ -503,6 +503,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		User:           user,
 		InteractionID:  interactionID,
 		PromptMessage:  types.MessageContent{Parts: []any{promptMessage}},
+		Provenance:     types.TriggerTurn(types.SystemTurnSlackMessage, types.TriggerSource{AppID: app.ID, Owner: app.Owner}),
 		HistoryLimit:   historyLimit,
 	})
 	if err != nil {

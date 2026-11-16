@@ -1,0 +1,4 @@
+-- Irreversible data backfill: the pre-migration state is not recorded, and the
+-- rows this touched are indistinguishable from projects that opted in
+-- themselves. Reverting the gorm tag default is enough for a rollback; do not
+-- flip every project back to false here.

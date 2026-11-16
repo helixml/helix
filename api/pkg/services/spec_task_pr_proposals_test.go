@@ -182,14 +182,15 @@ func (f *fakeProvider) ValidateUserOAuth(context.Context, *types.GitRepository, 
 
 type PRProposalSuite struct {
 	suite.Suite
-	ctx      context.Context
-	store    *proposalStore
-	provider *fakeProvider
-	svc      *PRProposalService
-	messages []string
-	repoPath string
-	base     string
-	user     *types.User
+	ctx         context.Context
+	store       *proposalStore
+	provider    *fakeProvider
+	svc         *PRProposalService
+	messages    []string
+	provenances []types.TurnProvenance
+	repoPath    string
+	base        string
+	user        *types.User
 	// projectMembers maps a project to the users who may approve in it.
 	projectMembers map[string][]string
 }
@@ -224,13 +225,15 @@ func (s *PRProposalSuite) SetupTest() {
 	}
 	s.provider = &fakeProvider{}
 	s.messages = nil
+	s.provenances = nil
 	s.svc = NewPRProposalService(s.store, s.provider, nil, "http://helix.test")
-	s.svc.SetMessageEnqueuer(func(_ context.Context, _ *types.SpecTask, msg string, interrupt bool, _ string) error {
+	s.svc.SetMessageEnqueuer(func(_ context.Context, _ *types.SpecTask, msg string, interrupt bool, _ string, provenance types.TurnProvenance) error {
 		s.False(interrupt, "proposal outcomes must not interrupt the agent")
 		s.messages = append(s.messages, msg)
+		s.provenances = append(s.provenances, provenance)
 		return nil
 	})
-	s.user = &types.User{ID: "usr_reviewer", Email: "reviewer@example.com"}
+	s.user = &types.User{ID: "usr_reviewer", Email: "reviewer@example.com", TokenType: types.TokenTypeOIDC}
 	s.projectMembers = map[string][]string{"prj_1": {"usr_owner", "usr_reviewer"}}
 	s.svc.SetApproverAuthorizer(func(_ context.Context, user *types.User, projectID string) error {
 		for _, id := range s.projectMembers[projectID] {

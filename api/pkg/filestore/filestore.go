@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"path"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,16 @@ type FileStore interface {
 // caller's scope or cannot be resolved. It is the caller's input error, not a
 // storage fault.
 var ErrInvalidPath = errors.New("invalid path")
+
+// ErrNotFound marks a file or folder that does not exist in the store. It also
+// matches fs.ErrNotExist, so errors.Is(err, fs.ErrNotExist) keeps holding.
+var ErrNotFound error = notFoundError{}
+
+type notFoundError struct{}
+
+func (notFoundError) Error() string { return "not found" }
+
+func (notFoundError) Is(target error) bool { return target == fs.ErrNotExist }
 
 // CleanRelativePath normalizes a logical filestore path and rejects paths
 // that would escape the caller's user or app scope when joined to its root.

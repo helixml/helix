@@ -36,8 +36,8 @@ func (s *SpecTaskCloneAuthzSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
 	s.server = &HelixAPIServer{Store: s.store}
-	s.alice = &types.User{ID: "usr_alice"}
-	s.bob = &types.User{ID: "usr_bob"}
+	s.alice = &types.User{ID: "usr_alice", TokenType: types.TokenTypeOIDC}
+	s.bob = &types.User{ID: "usr_bob", TokenType: types.TokenTypeOIDC}
 
 	memberships := map[string]string{"usr_alice": "org_a", "usr_bob": "org_b"}
 	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).

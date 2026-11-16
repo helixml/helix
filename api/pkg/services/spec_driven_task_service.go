@@ -24,6 +24,8 @@ const (
 	SpecsWorktreeRelPath = "design"                // Relative path from repo root
 	SpecsBranchName      = "helix-specs"           // Git branch name for spec-driven development
 	SpecsTaskDirFormat   = "design/tasks/%s_%s_%s" // Format: tasks/DATE_NAME_ID
+	// StartupScriptPath is the helix-specs file sandboxes run at start.
+	StartupScriptPath = ".helix/startup.sh"
 )
 
 var ErrImplementationHandoffAlreadyClaimed = errors.New("implementation handoff is already being started")
@@ -176,9 +178,10 @@ func (s *SpecDrivenTaskService) SetAuditLogWaitGroup(wg *sync.WaitGroup) {
 	}
 }
 
-// CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
-func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
-	return s.createTaskFromPrompt(ctx, req, false)
+// CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation.
+// creator is the caller creating it; the deferred prompts it queues name it.
+func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *types.CreateTaskRequest, creator types.TurnProvenance) (*types.SpecTask, error) {
+	return s.createTaskFromPrompt(ctx, req, creator, false)
 }
 
 // CreateTaskFromPromptPreparingAttachments creates a durable, non-dispatchable task
@@ -186,15 +189,20 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 func (s *SpecDrivenTaskService) CreateTaskFromPromptPreparingAttachments(
 	ctx context.Context,
 	req *types.CreateTaskRequest,
+	creator types.TurnProvenance,
 ) (*types.SpecTask, error) {
-	return s.createTaskFromPrompt(ctx, req, true)
+	return s.createTaskFromPrompt(ctx, req, creator, true)
 }
 
 func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	ctx context.Context,
 	req *types.CreateTaskRequest,
+	creator types.TurnProvenance,
 	preparingAttachments bool,
 ) (*types.SpecTask, error) {
+	if err := creator.Validate(); err != nil {
+		return nil, fmt.Errorf("create spec task: %w", err)
+	}
 	if req.AppID != "" {
 		return nil, fmt.Errorf("app_id is no longer supported; provide code_agent_config")
 	}
@@ -314,6 +322,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 	}
 
 	task := &types.SpecTask{
+		QueuedBy:                 creator,
 		ID:                       generateTaskID(),
 		ProjectID:                req.ProjectID,
 		UserID:                   req.UserID,
@@ -334,6 +343,7 @@ func (s *SpecDrivenTaskService) createTaskFromPrompt(
 		SandboxRuntime:           sandboxRuntime,
 		SandboxDisplay:           req.SandboxDisplay,
 		JustDoItMode:             req.JustDoItMode, // Set Just Do It mode from request
+		ConfineAgentKey:          req.ConfineAgentKey,
 		// Credential-only override: whose Claude subscription authenticates this
 		// task's agent. Enforced at resolution time against the named user's
 		// delegation grant; missing or revoked grants fail closed.
@@ -699,6 +709,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SystemPrompt:  "", // Don't override agent's system prompt
 		PromptMessage: fullMessage,
 		State:         types.InteractionStateWaiting,
+		Provenance:    types.TriggeredBySystemTurn(types.SystemTurnPlanningPrompt, task.QueuedBy),
 	}
 
 	log.Debug().Str("task_id", task.ID).Msg("DEBUG: About to create initial interaction")
@@ -779,8 +790,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		VCPUs:          sandboxVCPUs(task),
 		MemoryMB:       sandboxMemoryMB(task),
 		// RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
-		DesktopType:        desktopType,
-		Env:                envVars,
+		DesktopType: desktopType,
+		Env:         envVars,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
 				OrganizationID: launchOrgID,
@@ -1125,6 +1136,7 @@ Follow these guidelines when making changes:
 		SystemPrompt:  "", // Don't override agent's system prompt
 		PromptMessage: promptWithBranch,
 		State:         types.InteractionStateWaiting,
+		Provenance:    types.TriggeredBySystemTurn(types.SystemTurnImplementationPrompt, task.QueuedBy),
 	}
 
 	_, err = s.store.CreateInteraction(ctx, interaction)
@@ -1628,7 +1640,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				message := BuildRevisionInstructionPrompt(t, comments)
 				// interrupt=true: revision instruction is reviewer-driven feedback delivered via the
 				// task-state machine — same semantic as a comment, should preempt in-flight work.
-				err := s.EnqueueMessageToAgent(context.Background(), t, message, true, "")
+				err := s.EnqueueMessageToAgent(context.Background(), t, message, true, "", types.TriggeredBySystemTurn(types.SystemTurnRevisionRequested, t.QueuedBy))
 				if err != nil {
 					log.Error().
 						Err(err).
@@ -2053,7 +2065,9 @@ type SessionAPIKeyRequest struct {
 // Keys are scoped to the session for lifecycle management (minted on start, revoked on stop).
 // The key capabilities vary based on session type:
 //   - sessions in a project (spec tasks, exploratory desktops): confined to
-//     that project; a spec task's key pushes only to its branch;
+//     that project; a spec task's key pushes only to its branch, and a task
+//     created with confine_agent_key confines its keys to the task itself
+//     (ApiKey.TaskConfined);
 //   - bot instances: the restricted bot instance key type;
 //   - sessions outside any project (a plain chat's desktop): confined by the
 //     API auth middleware to its own session's desktop routes and the LLM
@@ -2083,13 +2097,17 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 	// (its spec tasks and their sessions), so its key is confined to the
 	// project rather than to its single session.
 	projectID, specTaskID := sessionKeyScope(session)
-	if session.Metadata.SpecTaskID != "" {
+	// A task created with confine_agent_key gets keys confined to it, so the
+	// task must be loaded: minting without knowing would hand out a broader
+	// key than the task allows.
+	taskConfined := false
+	if specTaskID != "" {
 		specTask, err := s.store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
-			log.Warn().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to get spec task for API key attribution")
-		} else {
-			projectID = specTask.ProjectID
+			return "", fmt.Errorf("failed to get spec task '%s' for session key scope: %w", specTaskID, err)
 		}
+		projectID = specTask.ProjectID
+		taskConfined = specTask.ConfineAgentKey
 	}
 
 	// Check for existing session-scoped key of that type and scope. Type and
@@ -2109,7 +2127,14 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 	}
 
 	if existing != nil {
-		return existing.Key, nil
+		if existing.TaskConfined == taskConfined {
+			return existing.Key, nil
+		}
+		// GORM ignores a false TaskConfined in the lookup, so a key of the
+		// other confinement can match: replace it rather than hand it out.
+		if err := s.store.DeleteAPIKey(ctx, existing.Key); err != nil {
+			return "", fmt.Errorf("failed to replace session API key with different task confinement: %w", err)
+		}
 	}
 
 	newKey, err := system.GenerateAPIKey()
@@ -2133,6 +2158,7 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		SessionID:      req.SessionID,
 		ProjectID:      projectID,  // For metrics/attribution
 		SpecTaskID:     specTaskID, // For metrics/attribution
+		TaskConfined:   taskConfined,
 	}
 
 	createdKey, err := s.store.CreateAPIKey(ctx, apiKey)
@@ -2146,6 +2172,7 @@ func (s *SpecDrivenTaskService) GetOrCreateSessionAPIKey(ctx context.Context, re
 		Str("project_id", projectID).
 		Str("spec_task_id", specTaskID).
 		Bool("is_spec_task", specTaskID != "").
+		Bool("task_confined", taskConfined).
 		Msg("✅ Created ephemeral session API key")
 
 	return createdKey.Key, nil
@@ -2230,7 +2257,6 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 	// API key creation is deferred to OnBeforeCreate hook (inside StartDesktop's
 	// session lock) to prevent a race where StopDesktop revokes the key between
 	// creation and container start.
-
 
 	desktopType := "ubuntu" // Default
 

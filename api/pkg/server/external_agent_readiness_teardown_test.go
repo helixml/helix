@@ -12,8 +12,8 @@ import (
 func TestCleanupReadinessState_StaleTeardownKeepsSuccessorState(t *testing.T) {
 	manager := NewExternalAgentWSManager()
 
-	old := manager.initReadinessState("ses_A", false, nil)
-	successor := manager.initReadinessState("ses_A", false, nil)
+	old := manager.initReadinessState("ses_A")
+	successor := manager.initReadinessState("ses_A")
 	defer manager.cleanupReadinessState("ses_A", successor)
 
 	if !manager.queueOrSend("ses_A", types.ExternalAgentCommand{Type: "chat_message"}) {
@@ -39,7 +39,7 @@ func TestCleanupReadinessState_StaleTeardownKeepsSuccessorState(t *testing.T) {
 func TestCleanupReadinessState_OwnerRemovesItsState(t *testing.T) {
 	manager := NewExternalAgentWSManager()
 
-	state := manager.initReadinessState("ses_A", false, nil)
+	state := manager.initReadinessState("ses_A")
 	manager.cleanupReadinessState("ses_A", state)
 
 	manager.readinessMu.RLock()

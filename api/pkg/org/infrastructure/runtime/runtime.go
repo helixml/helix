@@ -267,6 +267,10 @@ type CreateSpecTaskInput struct {
 	// the knobs here removes the reason to leave the tool.
 	SandboxVCPUs   int    `json:"sandbox_vcpus,omitempty"`
 	SandboxRuntime string `json:"sandbox_runtime,omitempty"`
+
+	// ConfineAgentKey confines the task's agent key to the task itself
+	// (types.SpecTask.ConfineAgentKey). Fixed at creation.
+	ConfineAgentKey bool `json:"confine_agent_key,omitempty"`
 }
 
 // UpdateSpecTaskInput is the safe metadata-edit surface. Lifecycle state

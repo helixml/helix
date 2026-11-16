@@ -2,6 +2,8 @@ package knowledge
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"reflect"
 	"testing"
 	"time"
@@ -494,4 +496,22 @@ func Test_convertChunksIntoBatches(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (suite *IndexerSuite) TestGetMetadataFromFilestore_MissingFileIsNoMetadata() {
+	suite.filestore.EXPECT().Get(gomock.Any(), "docs/a.pdf.metadata.yaml").
+		Return(filestore.Item{}, fmt.Errorf("stat docs/a.pdf.metadata.yaml: %w", filestore.ErrNotFound))
+
+	metadata, err := suite.reconciler.getMetadataFromFilestore(suite.ctx, "docs/a.pdf.metadata.yaml")
+	suite.Require().NoError(err)
+	suite.Nil(metadata)
+}
+
+func (suite *IndexerSuite) TestGetMetadataFromFilestore_StatFailureIsReported() {
+	suite.filestore.EXPECT().Get(gomock.Any(), "docs/a.pdf.metadata.yaml").
+		Return(filestore.Item{}, fmt.Errorf("stat docs/a.pdf.metadata.yaml: %w", fs.ErrPermission))
+
+	metadata, err := suite.reconciler.getMetadataFromFilestore(suite.ctx, "docs/a.pdf.metadata.yaml")
+	suite.Require().ErrorIs(err, fs.ErrPermission)
+	suite.Nil(metadata)
 }

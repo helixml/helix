@@ -20,7 +20,7 @@ import (
 //
 // (`b-root`, `b-engineer`) can repeat across helix tenants. OrganizationID
 // additionally carries a FK to organizations(id) ON DELETE CASCADE -
-// added out-of-band in OpenWithDB because GORM tag-driven FK creation
+// added out-of-band in Migrate because GORM tag-driven FK creation
 // to a table owned by another package is fragile.
 //
 // A Node is the merge of the former Role and Worker: it carries its own
@@ -259,7 +259,7 @@ func (r *nodesRepo) ClaimLegacyApp(ctx context.Context, orgID string, id orgchar
 // reporting lines that reference this node (as manager or report) are
 // removed by the ON DELETE CASCADE foreign keys on
 // org_worker_attachments and org_reporting_lines (installed in
-// OpenWithDB), so no app code clears them - that's the whole point of
+// Migrate), so no app code clears them - that's the whole point of
 // the association tables.
 func (r *nodesRepo) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

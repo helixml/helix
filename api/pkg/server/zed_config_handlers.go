@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/mux"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/goose"
 	"github.com/helixml/helix/api/pkg/hydra"
 	modelPkg "github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/opencode"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -850,10 +852,19 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	}
 }
 
+// loggedInvalidOpenCodePins records the invalid pins already logged, so a
+// stale setting is reported once per process rather than once per session.
+var loggedInvalidOpenCodePins sync.Map
+
 // applyOpenCodeVersionOverride attaches the admin-pinned opencode release to
 // the config so the container installs it instead of the build baked into the
 // desktop image. A blank setting (the default) leaves OpenCodeBinary nil and
 // the container uses its baked binary with no network access at all.
+//
+// A stored pin that no longer passes opencode.ValidateVersion (written outside
+// the settings API, or overtaken by a newer bundled build) is ignored: an
+// override only ever rolls forward, and older releases are known to break the
+// agent (1.2.3 sent a literal "{env:HELIX_API_KEY}" bearer).
 //
 // Resolution failures are logged and leave OpenCodeBinary nil, which means the
 // session runs the baked build. That is safe here — and only here — because
@@ -870,6 +881,12 @@ func (apiServer *HelixAPIServer) applyOpenCodeVersionOverride(ctx context.Contex
 	}
 	version := strings.TrimSpace(settings.OpenCodeVersion)
 	if version == "" {
+		return
+	}
+	if err := opencode.ValidateVersion(version); err != nil {
+		if _, logged := loggedInvalidOpenCodePins.LoadOrStore(version, struct{}{}); !logged {
+			log.Error().Err(err).Str("opencode_version", version).Msg("applyOpenCodeVersionOverride: ignoring invalid opencode pin; using the bundled build")
+		}
 		return
 	}
 

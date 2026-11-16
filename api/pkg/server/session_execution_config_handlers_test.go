@@ -121,7 +121,7 @@ func TestGetSessionExecutionConfigReportsSessionOverrides(t *testing.T) {
 	}
 	seedParentWithInteractions(t, mem, session, 1)
 
-	rr := callGetSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID)
+	rr := callGetSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID)
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
 	var config types.AgentExecutionConfig
@@ -149,7 +149,7 @@ func TestGetSessionExecutionConfigReportsOwnedConfig(t *testing.T) {
 	}
 	seedParentWithInteractions(t, mem, session, 1)
 
-	rr := callGetSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID)
+	rr := callGetSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID)
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
 	var config types.AgentExecutionConfig
@@ -175,7 +175,7 @@ func TestUpdateSessionExecutionConfigPersistsCompleteConfigAndKeepsAgent(t *test
 		Model:           "claude-sonnet-4-7",
 		ReasoningEffort: "high",
 	}
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
@@ -259,7 +259,7 @@ func TestCodeAgentConfigValidationDiscoversSelectedProviderOnColdCache(t *testin
 			})
 			require.NoError(t, err)
 
-			rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+			rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 				types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
 
 			require.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
@@ -288,7 +288,7 @@ func TestUpdateSessionExecutionConfigRetriesCrashedPrompts(t *testing.T) {
 		ProviderRef:    "anthropic",
 		Model:          "claude-sonnet-4-7",
 	}
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
@@ -326,7 +326,7 @@ func TestUpdateSessionExecutionConfigRetriesProviderFailedActivation(t *testing.
 		ProviderRef:    "anthropic",
 		Model:          "claude-sonnet-4-7",
 	}
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
@@ -357,14 +357,14 @@ func TestUpdateSessionExecutionConfigCanRetryPromptResetWithoutAnotherSwitch(t *
 		ProviderRef:    "anthropic",
 		Model:          "claude-sonnet-4-7",
 	}
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
 	require.Equal(t, http.StatusInternalServerError, rr.Code, rr.Body.String())
 	require.Contains(t, rr.Body.String(), "failed to reset crashed prompts")
 
 	recovery.resetErr = nil
 	recovery.resetCount = 1
-	rr = callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr = callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
@@ -391,7 +391,7 @@ func TestUpdateSessionExecutionConfigRestoresWorkingSessionWhenSwitchFails(t *te
 		ProviderRef:    "anthropic",
 		Model:          "claude-sonnet-4-7",
 	}
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
 	require.Equal(t, http.StatusInternalServerError, rr.Code, rr.Body.String())
 
@@ -424,7 +424,7 @@ func TestGetSessionExecutionConfigPrefersSpecTask(t *testing.T) {
 		CodeAgentConfig:   taskConfig,
 	})
 
-	rr := callGetSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID)
+	rr := callGetSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID)
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
 	var config types.AgentExecutionConfig
@@ -446,7 +446,7 @@ func TestUpdateSessionExecutionConfigPersistsOverridesAndRestartsThread(t *testi
 	seedParentWithInteractions(t, mem, session, 2)
 	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(true)
 
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{
 			CodeAgentOverrides: &types.CodeAgentOverrides{
 				ProviderRef:     "anthropic",
@@ -496,7 +496,7 @@ func TestUpdateSessionExecutionConfigWhileStoppedStaysIdleAndSeedsNextTurn(t *te
 	require.NoError(t, err)
 	executor.EXPECT().HasRunningContainer(gomock.Any(), session.ID).Return(false)
 
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{
 			CodeAgentOverrides: &types.CodeAgentOverrides{
 				ProviderRef: "anthropic",
@@ -570,7 +570,7 @@ func TestUpdateSessionExecutionConfigWritesThroughToSpecTask(t *testing.T) {
 		Model:           "claude-sonnet-4-7",
 		ReasoningEffort: "high",
 	}
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{
 			CodeAgentConfig: updatedConfig,
 		})
@@ -598,7 +598,7 @@ func TestUpdateSessionExecutionConfigRejectsNonCodingSession(t *testing.T) {
 	session.Metadata.AgentType = "helix"
 	seedParentWithInteractions(t, mem, session, 1)
 
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{
 			CodeAgentOverrides: &types.CodeAgentOverrides{Model: "gpt-5"},
 		})
@@ -612,7 +612,7 @@ func TestUpdateSessionExecutionConfigRejectsUnsupportedReasoningEffort(t *testin
 	session := newOrgChatSession("user_a")
 	seedParentWithInteractions(t, mem, session, 1)
 
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{
 			CodeAgentOverrides: &types.CodeAgentOverrides{ReasoningEffort: "turbo"},
 		})
@@ -634,7 +634,7 @@ func TestUpdateSessionExecutionConfigNoOpDoesNotRestartThread(t *testing.T) {
 	}
 	seedParentWithInteractions(t, mem, session, 1)
 
-	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a"}, session.ID,
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
 		types.SessionExecutionConfigUpdateRequest{
 			CodeAgentOverrides: &types.CodeAgentOverrides{
 				ProviderRef: "anthropic",

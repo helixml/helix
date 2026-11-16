@@ -68,6 +68,12 @@ type ListSessionsQuery struct {
 	// caller can access.
 	RestrictToProjects bool     `json:"restrict_to_projects"`
 	ProjectIDs         []string `json:"project_ids"`
+	// SpecTaskID limits results to the sessions of one spec task.
+	SpecTaskID string `json:"spec_task_id"`
+	// ExternalAgentID limits results to the sessions carried by one agent
+	// connection (SessionMetadata.ExternalAgentID). It narrows the caller's
+	// existing scope; it never widens it.
+	ExternalAgentID string `json:"external_agent_id"`
 	// AnyOwner drops the owner clause. Only valid together with a project
 	// scope the caller has been authorized for: it is how a project group
 	// shows every member's chats.
@@ -82,6 +88,10 @@ type ListAPIKeysQuery struct {
 	Type           types.APIKeyType `json:"type"`
 	AppID          string           `json:"app_id"`
 	OrganizationID string           `json:"organization_id"`
+	ProjectID      string           `json:"project_id"`
+	// UserManaged excludes the ephemeral keys minted for a session or spec
+	// task, leaving the keys a person created and revokes.
+	UserManaged bool `json:"user_managed"`
 }
 
 type ListToolsQuery struct {
@@ -343,7 +353,19 @@ type Store interface {
 	// websocket_external_agent_sync.go.
 	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
 	SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error)
-	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error)
+	// ResolveInteractionPendingQuestion moves the pending question into
+	// history. answeredBy attributes it from the API submission in flight for
+	// that question at resolution time (nil when there is none), and the
+	// submission is dropped.
+	ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.QuestionSubmission) types.TurnProvenance) (*types.Interaction, bool, error)
+	// RecordInteractionQuestionSubmission stores the API action accepted for
+	// the pending question requestID, compare-and-set: false when that
+	// question is no longer pending or already has a submission in flight.
+	RecordInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error)
+	// ClearInteractionQuestionSubmission drops the submission for question
+	// requestID only when its nonce is submissionID, so it never removes a
+	// newer submission.
+	ClearInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID, submissionID string) error
 	// BindInteractionExternalAgentRequest persists the request ID before an
 	// external-agent turn is dispatched, so queued turns remain identifiable
 	// across API restarts.
@@ -360,6 +382,14 @@ type Store interface {
 	// without racing streaming or message-completion writes.
 	MarkInteractionInterruptedIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
 	GetInteractionByExternalAgentRequestID(ctx context.Context, requestID string) (*types.Interaction, error)
+	// AppendInteractionThreadReseed adds a reseed record to the interaction
+	// without touching any other column. ErrNotFound when no row matches.
+	AppendInteractionThreadReseed(ctx context.Context, interactionID string, generationID int, reseed types.ThreadReseed) error
+	// GetInteractionByExternalAgentUserEntry returns the interaction of this
+	// session generation recorded for a user entry the external agent
+	// reported (ACP thread + Zed's message_id), newest first. ErrNotFound when
+	// none exists.
+	GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID string, generationID int, threadID, entryID string) (*types.Interaction, error)
 	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
 	// from Waiting → Complete and sets completed=now. Returns true if the row
 	// was transitioned, false if the row was already in a terminal state (no
@@ -769,6 +799,7 @@ type Store interface {
 	GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error)
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	MarkGitRepositorySyncStarted(ctx context.Context, id string, startedAt time.Time) error
+	SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error
 	MarkGitRepositorySyncFinished(ctx context.Context, id string, finishedAt time.Time, syncErr string) error
 	ClearStaleGitRepositorySync(ctx context.Context, id string, staleSince time.Time, syncErr string) error
 	DeleteGitRepository(ctx context.Context, id string) error
@@ -892,6 +923,11 @@ type Store interface {
 	CreateProjectAuditLog(ctx context.Context, log *types.ProjectAuditLog) error
 	ListProjectAuditLogs(ctx context.Context, filters *types.ProjectAuditLogFilters) (*types.ProjectAuditLogResponse, error)
 
+	// RedeemIdentityAttestation records an attestation's jti as verified. It
+	// returns false when the jti was already redeemed. Expired redemptions
+	// are dropped on the way.
+	RedeemIdentityAttestation(ctx context.Context, jti string, expiresAt time.Time) (bool, error)
+
 	// Org Audit Log methods - append-only audit trail for Helix org activity
 	CreateOrgAuditLog(ctx context.Context, log *types.OrgAuditLog) error
 	ListOrgAuditLogs(ctx context.Context, filters *types.OrgAuditLogFilters) (*types.OrgAuditLogResponse, error)
@@ -983,7 +1019,7 @@ type Store interface {
 	// Prompt history methods (for cross-device sync)
 	CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error
 	CreatePromptHistoryEntryIfAbsent(ctx context.Context, entry *types.PromptHistoryEntry) (bool, error)
-	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
+	SyncPromptHistory(ctx context.Context, userID string, provenance types.TurnProvenance, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
 	ListPromptHistory(ctx context.Context, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
 	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
 	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)

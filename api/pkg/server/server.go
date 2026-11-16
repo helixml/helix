@@ -27,6 +27,7 @@ import (
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/anthropic"
+	"github.com/helixml/helix/api/pkg/attestation"
 	"github.com/helixml/helix/api/pkg/auditlog"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -131,7 +132,9 @@ type HelixAPIServer struct {
 	// orgAgentConfigChanged, when wired, is called after an App's
 	// system prompt changes so the helix-org layer can flag any Bot backed
 	// by that App as needing a sandbox restart. nil when helix-org is off.
-	orgAgentConfigChanged       func(ctx context.Context, appID string)
+	orgAgentConfigChanged func(ctx context.Context, appID string)
+	// attestations mints and verifies identity attestations.
+	attestations                *attestation.Signer
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
@@ -160,7 +163,6 @@ type HelixAPIServer struct {
 	// so it survives API restart; the in-memory map was deleted in the
 	// 2026-04-30 stuck-queue fix.)
 	externalAgentSessionMapping map[string]string      // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping    map[string]string      // External agent session_id -> user_id mapping
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
 	cancelTurnMutexes           sync.Map               // session_id -> *sync.Mutex; serializes concurrent cancel requests
 	pendingCancelRetries        sync.Map               // interaction_id -> struct{}; dedupes durable cancel retries
@@ -450,8 +452,20 @@ func NewServer(
 		return nil, fmt.Errorf("HELIX_LOGIN_TRUSTED_PROXIES: %w", err)
 	}
 
+	// The same secret the authenticator resolved in serve; the signer derives
+	// its own key from it.
+	jwtSecret, err := auth.ResolveJWTSecret(context.Background(), store, cfg.Auth.Regular.JWTSecret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve JWT secret for identity attestations: %w", err)
+	}
+	attestations, err := attestation.NewSigner(jwtSecret)
+	if err != nil {
+		return nil, err
+	}
+
 	apiServer := &HelixAPIServer{
 		Cfg:                        cfg,
+		attestations:               attestations,
 		Store:                      store,
 		Stripe:                     stripe,
 		startTime:                  time.Now(),
@@ -471,7 +485,6 @@ func NewServer(
 		credentialTokens:            make(map[string]map[string]struct{}),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
-		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),
@@ -741,13 +754,17 @@ func NewServer(
 	// (spec task, exploratory session, resume) picks up project secrets without
 	// each caller having to remember. Desktop containers are the "dev"
 	// environment, so they only receive dev- and both-scoped secrets.
-	externalAgentExecutor.SetProjectSecretsGetter(func(ctx context.Context, projectID string) ([]string, error) {
+	externalAgentExecutor.SetProjectSecretsGetter(func(ctx context.Context, projectID string) (types.ProjectSecretEnv, error) {
 		return apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
 	})
+	externalAgentExecutor.SetUndecryptableSecretsReporter(apiServer.reportUndecryptableProjectSecrets)
 	// Web service deploys are the "prod" environment, so they receive prod- and
 	// both-scoped secrets, injected into the deployed container's environment.
+	// Undecryptable secrets are logged by GetProjectSecretsAsEnvVars and badged
+	// on the project's secrets list.
 	apiServer.webServiceController.SetProjectSecretsGetter(func(ctx context.Context, projectID string) ([]string, error) {
-		return apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeProd)
+		secrets, err := apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeProd)
+		return secrets.Env, err
 	})
 	// Set the attachment blob reader so the service can pull uploaded files from the filestore.
 	apiServer.specDrivenTaskService.ReadAttachmentBlob = apiServer.readSpecTaskAttachmentBlob
@@ -1040,10 +1057,6 @@ func matchAllRoutes(*http.Request, *mux.RouteMatch) bool {
 
 func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
-	err := apiServer.Janitor.InjectMiddleware(router)
-	if err != nil {
-		return nil, err
-	}
 
 	// The audit trail itself wraps the whole server (see ListenAndServe), outside
 	// the vhost proxy and outside this mux. This only hands the matched route
@@ -1150,6 +1163,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.createAPIKey)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.getAPIKeys)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods(http.MethodDelete)
+
+	// Identity attestations: a desktop's key mints, a verifier redeems once.
+	authRouter.HandleFunc("/identity/attestations", system.Wrapper(apiServer.createIdentityAttestation)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/identity/attestations/verify", apiServer.verifyIdentityAttestation).Methods(http.MethodPost)
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods(http.MethodGet)
 
 	// User search endpoint
@@ -1704,6 +1721,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Project audit log routes
 	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/api_keys", system.Wrapper(apiServer.listProjectAPIKeys)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/api_keys/{key_id}", system.Wrapper(apiServer.deleteProjectAPIKey)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.getArtifact).Methods(http.MethodGet)
 	authRouter.HandleFunc("/artifacts/{artifact_id}/download", apiServer.serveArtifactDownload).Methods(http.MethodGet, http.MethodHead)
 	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.updateArtifact).Methods(http.MethodPut)

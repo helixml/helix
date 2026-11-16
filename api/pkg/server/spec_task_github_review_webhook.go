@@ -342,7 +342,7 @@ func (s *HelixAPIServer) handleGitHubPRReview(ctx context.Context, repoID string
 		// interrupt=true like CI results: a review verdict is worth surfacing
 		// immediately even mid-turn; delivery is queued, so offline agents
 		// still receive it on reconnect.
-		if err := s.enqueueSpecTaskAgentMessage(ctx, task, message, true, ""); err != nil {
+		if err := s.enqueueSpecTaskAgentMessage(ctx, task, message, true, "", types.SystemTurn(types.SystemTurnReviewComment)); err != nil {
 			log.Error().Err(err).
 				Str("spec_task_id", task.ID).
 				Int64("review_id", payload.Review.ID).

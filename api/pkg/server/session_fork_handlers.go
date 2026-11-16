@@ -236,6 +236,10 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 	targetRuntime types.CodeAgentRuntime,
 	targetAppID string,
 ) (*types.Session, *system.HTTPError) {
+	forker, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 	parentInteractions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    parent.ID,
 		GenerationID: parent.GenerationID,
@@ -390,6 +394,7 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 		State:           types.InteractionStateComplete,
 		PromptMessage:   fmt.Sprintf("Session forked from %s at turn %d", parent.ID, completedCount),
 		ResponseMessage: transcript,
+		Provenance:      types.TriggeredBySystemTurn(types.SystemTurnSessionForked, forker),
 	}
 	if _, err := apiServer.Store.CreateInteraction(ctx, seedInteraction); err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create fork_seed interaction: %v", err))
@@ -431,6 +436,7 @@ func (apiServer *HelixAPIServer) forkSessionFromParent(
 		Trigger:       types.InteractionTriggerForkHandoff,
 		State:         types.InteractionStateWaiting,
 		PromptMessage: handoffPrompt,
+		Provenance:    types.TriggeredBySystemTurn(types.SystemTurnForkHandoff, forker),
 	}
 	if _, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction); err != nil {
 		// Best-effort: a failed handoff just degrades to the previous

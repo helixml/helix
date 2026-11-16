@@ -15,6 +15,7 @@ func init() {
 		"DELETE /api/v1/orgs/{org}/settings/{key}":                                                        object("authorizeOrgMember"),
 		"GET /api/v1/orgs/{org}/github/app-installation":                                                  object("authorizeOrgMember"),
 		"POST /api/v1/orgs/{org}/github/app-manifest":                                                     object("authorizeOrgMember"),
+		// The helix-org routes inside this prefix: helixOrgRoutePolicies.
 		"ANY /api/v1/orgs/{org}/":                                                                         object("withHelixOrgIdentity"),
 		"GET /api/v1/wallet":                                                                              object("authorizeOrgMember"),
 		"POST /api/v1/subscription/new":                                                                   object("authorizeOrgOwner"),

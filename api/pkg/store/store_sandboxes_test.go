@@ -217,3 +217,40 @@ func TestNegativeTimeoutLeavesSandboxOutOfTheExpiryReaper(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, expired)
 }
+
+func TestListSandboxesVisibility(t *testing.T) {
+	ctx := context.Background()
+	st := newSandboxTestStore(t)
+	rows := []*types.Sandbox{
+		{ID: "sbx_plain", Owner: "usr_other"},
+		{ID: "sbx_in_v", ProjectID: "prj_v", Owner: "usr_other"},
+		{ID: "sbx_in_m", ProjectID: "prj_m", Owner: "usr_other"},
+		{ID: "sbx_desk_v", ProjectID: "prj_v", SessionID: "ses_v", Owner: "usr_other"},
+		{ID: "sbx_desk_mine", ProjectID: "prj_v", SessionID: "ses_mine", Owner: "usr_me"},
+		{ID: "sbx_chat_other", SessionID: "ses_chat", Owner: "usr_other"},
+		{ID: "sbx_other_org", OrganizationID: "org_2", Owner: "usr_me"},
+	}
+	for _, row := range rows {
+		if row.OrganizationID == "" {
+			row.OrganizationID = "org_1"
+		}
+		row.Runtime = types.SandboxRuntimeHeadlessUbuntu
+		_, err := st.CreateSandbox(ctx, row)
+		require.NoError(t, err)
+	}
+	ids := func(v *SandboxVisibility) []string {
+		got, err := st.ListSandboxes(ctx, &ListSandboxesQuery{OrganizationID: "org_1", Visibility: v})
+		require.NoError(t, err)
+		var out []string
+		for _, sb := range got {
+			out = append(out, sb.ID)
+		}
+		return out
+	}
+
+	require.ElementsMatch(t, []string{"sbx_plain", "sbx_in_v", "sbx_in_m", "sbx_desk_v", "sbx_desk_mine", "sbx_chat_other"}, ids(nil), "no visibility filter")
+	require.ElementsMatch(t, []string{"sbx_plain", "sbx_in_m", "sbx_desk_mine"},
+		ids(&SandboxVisibility{ProjectIDs: []string{"prj_m"}, SessionOwner: "usr_me", IncludeUnscoped: true}), "member of project M only")
+	require.ElementsMatch(t, []string{"sbx_in_m"}, ids(&SandboxVisibility{ProjectIDs: []string{"prj_m"}}), "key scoped to project M")
+	require.Empty(t, ids(&SandboxVisibility{}), "empty visibility matches nothing")
+}

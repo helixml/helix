@@ -304,7 +304,7 @@ func (apiServer *HelixAPIServer) getSessionCodexCredentials(_ http.ResponseWrite
 		return nil, system.NewHTTPError404("session not found")
 	}
 	user := getRequestUser(req)
-	if user == nil || (user.TokenType != types.TokenTypeRunner && session.Owner != user.ID && user.SessionID != session.ID) {
+	if user == nil || (user.TokenType != types.TokenTypeRunner && !ownsSessionInKeyScope(user, session) && user.SessionID != session.ID) {
 		return nil, system.NewHTTPError403("access denied")
 	}
 	sub, err := apiServer.Store.GetEffectiveCodexSubscription(req.Context(), session.Owner, session.OrganizationID)
@@ -349,7 +349,7 @@ func (apiServer *HelixAPIServer) updateSessionCodexCredentials(_ http.ResponseWr
 		return nil, system.NewHTTPError404("session not found")
 	}
 	user := getRequestUser(req)
-	if user == nil || (user.TokenType != types.TokenTypeRunner && session.Owner != user.ID && user.SessionID != session.ID) {
+	if user == nil || (user.TokenType != types.TokenTypeRunner && !ownsSessionInKeyScope(user, session) && user.SessionID != session.ID) {
 		return nil, system.NewHTTPError403("access denied")
 	}
 	credentials, err := decodeCodexCredentials(req.Body)

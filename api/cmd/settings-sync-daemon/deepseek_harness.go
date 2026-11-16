@@ -14,7 +14,7 @@ var (
 	DeepSeekHarnessHome = "/home/retro/.config/helix-dsh"
 	// DeepSeekHarnessSessionsDir holds the JSONL session log and its derived
 	// SQLite query index. Under the workspace so sessions survive a container
-	// restart, matching QWEN_HOME and OpenCodeDataHome.
+	// restart, matching QWEN_HOME and OpenCodeStateRoot.
 	DeepSeekHarnessSessionsDir = "/home/retro/work/.dsh-sessions"
 )
 

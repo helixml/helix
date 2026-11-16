@@ -34,6 +34,9 @@ const (
 	// session cookie, no API key.
 	aOwnerBrowser actor = "a-owner-browser"
 	aMember       actor = "a-member" // personal key of a non-admin member of A
+	// aPeer is another non-admin member of A. Its objects (projP, appP ...)
+	// carry no grant, so aMember probes them member-to-member.
+	aPeer actor = "a-peer"
 	// projKey is a spec-task session key as minted for a sandbox agent: A's
 	// owner, scoped to project projA, session sessA and spec task taskA.
 	projKey actor = "a-project-key"
@@ -59,11 +62,15 @@ const (
 	exploreKey actor = "a-exploratory-key"
 
 	// Everyone else.
-	bOwner     actor = "b-owner"    // owner of organization B
-	outsider   actor = "outsider"   // verified user in no organization
-	waitlisted actor = "waitlisted" // account still waiting for approval
-	admin      actor = "admin"      // deployment administrator
-	anonymous  actor = "anonymous"  // no credential at all
+	bOwner  actor = "b-owner"  // owner of organization B
+	bMember actor = "b-member" // non-admin member of organization B
+	// aOwnerOrgBKey is an org key A's owner minted for organization B, which
+	// they also belong to: their own authority, scoped to another org.
+	aOwnerOrgBKey actor = "a-owner-org-b-key"
+	outsider      actor = "outsider"   // verified user in no organization
+	waitlisted    actor = "waitlisted" // account still waiting for approval
+	admin         actor = "admin"      // deployment administrator
+	anonymous     actor = "anonymous"  // no credential at all
 )
 
 // want is what a row expects an actor to get.
@@ -385,6 +392,12 @@ func runRoutes(t *testing.T, f *authzFixture, routes []route) {
 		})
 	}
 }
+
+// providerReachedMarker is the chat completion answer when Helix tried the
+// matrix's provider (an unresolvable .invalid host): proof that the request
+// passed authorization and provider selection. The provider's address itself
+// is never echoed to the caller.
+const providerReachedMarker = "the request to the model provider failed"
 
 func (f *authzFixture) assertOutcome(t *testing.T, who actor, expected want, r route, path string, resp authzResponse) {
 	t.Helper()

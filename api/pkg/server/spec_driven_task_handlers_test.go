@@ -21,7 +21,7 @@ func TestCreateTaskFromPromptRejectsLegacyAgentFields(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
-	user := types.User{ID: "user1"}
+	user := types.User{ID: "user1", TokenType: types.TokenTypeOIDC}
 	project := &types.Project{ID: "project1", UserID: user.ID}
 	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
 
@@ -82,7 +82,7 @@ func TestCreateTaskFromPromptRejectsInvalidBranchRefs(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockStore := store.NewMockStore(ctrl)
 			server := &HelixAPIServer{Store: mockStore}
-			user := types.User{ID: "user1"}
+			user := types.User{ID: "user1", TokenType: types.TokenTypeOIDC}
 			project := &types.Project{ID: "project1", UserID: user.ID}
 			mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
 
@@ -127,7 +127,7 @@ func TestSpecTaskProviderPreflightHandlers(t *testing.T) {
 				Store:           mockStore,
 				providerManager: mockProviderManager,
 			}
-			user := types.User{ID: "user1"}
+			user := types.User{ID: "user1", TokenType: types.TokenTypeOIDC}
 			task := &types.SpecTask{
 				ID:         "task1",
 				ProjectID:  "project1",
@@ -251,7 +251,7 @@ func TestListTasks_OrganizationWideIsBoundedToVisibleProjects(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
 	orgID := "org_tasks"
-	user := types.User{ID: "user_member"}
+	user := types.User{ID: "user_member", TokenType: types.TokenTypeOIDC}
 
 	expectResolveOrganizationByID(mockStore, orgID)
 	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
@@ -297,7 +297,7 @@ func TestListTasks_RequiresProjectOrOrganization(t *testing.T) {
 	server := &HelixAPIServer{Store: store.NewMockStore(ctrl)}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/spec-tasks", nil)
-	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user1"}))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user1", TokenType: types.TokenTypeOIDC}))
 	response := httptest.NewRecorder()
 
 	server.listTasks(response, req)
@@ -313,7 +313,7 @@ func TestOrgBotForRequestUser(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
 
-	bot, err := server.orgBotForRequestUser(context.Background(), &types.User{ID: "user1"})
+	bot, err := server.orgBotForRequestUser(context.Background(), &types.User{ID: "user1", TokenType: types.TokenTypeOIDC})
 	require.NoError(t, err)
 	require.Empty(t, bot)
 
@@ -321,14 +321,14 @@ func TestOrgBotForRequestUser(t *testing.T) {
 		ID:       "ses_bot",
 		Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"},
 	}, nil)
-	bot, err = server.orgBotForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_bot"})
+	bot, err = server.orgBotForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_bot", TokenType: types.TokenTypeOIDC})
 	require.NoError(t, err)
 	require.Equal(t, "chief-of-staff", bot)
 
 	// A key bound to a session that cannot be loaded is an inconsistency,
 	// not a human to attribute the task to.
 	mockStore.EXPECT().GetSession(gomock.Any(), "ses_gone").Return(nil, store.ErrNotFound)
-	_, err = server.orgBotForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_gone"})
+	_, err = server.orgBotForRequestUser(context.Background(), &types.User{ID: "user1", SessionID: "ses_gone", TokenType: types.TokenTypeOIDC})
 	require.Error(t, err)
 }
 
@@ -336,7 +336,7 @@ func TestListTasks_FiltersByCreatorOrgBot(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
-	user := types.User{ID: "user1"}
+	user := types.User{ID: "user1", TokenType: types.TokenTypeOIDC}
 	mockStore.EXPECT().GetProject(gomock.Any(), "project1").Return(&types.Project{ID: "project1", UserID: user.ID}, nil)
 
 	var captured *types.SpecTaskFilters
@@ -362,7 +362,7 @@ func TestBatchTaskProgressExcludesPreparingTasks(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	server := &HelixAPIServer{Store: mockStore}
-	user := types.User{ID: "user1"}
+	user := types.User{ID: "user1", TokenType: types.TokenTypeOIDC}
 	mockStore.EXPECT().GetProject(gomock.Any(), "project1").Return(&types.Project{ID: "project1", UserID: user.ID}, nil)
 	mockStore.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
@@ -409,7 +409,7 @@ func TestSpecTaskTitlesAreLengthCapped(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockStore := store.NewMockStore(ctrl)
 		server := &HelixAPIServer{Store: mockStore}
-		user := types.User{ID: "user1"}
+		user := types.User{ID: "user1", TokenType: types.TokenTypeOIDC}
 		mockStore.EXPECT().GetProject(gomock.Any(), "project1").Return(&types.Project{ID: "project1", UserID: user.ID}, nil)
 
 		body, err := json.Marshal(map[string]any{"project_id": "project1", "prompt": "x", "name": long})
@@ -433,7 +433,7 @@ func TestSpecTaskTitlesAreLengthCapped(t *testing.T) {
 			require.NoError(t, err)
 			req := httptest.NewRequest(http.MethodPut, "/api/v1/spec-tasks/task1", bytes.NewReader(body))
 			req = mux.SetURLVars(req, map[string]string{"taskId": "task1"})
-			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user1"}))
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user1", TokenType: types.TokenTypeOIDC}))
 			rec := httptest.NewRecorder()
 
 			server.updateSpecTask(rec, req)

@@ -1922,12 +1922,8 @@ func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 // openOrgStore binds the org-graph repos against helix's existing
 // Postgres connection. The helixStore must expose a *gorm.DB
 // accessor (helix's PostgresStore does); there is no dialect
-// fallback — helix-org now shares helix's database.
-//
-// The orgPostgresDB anonymous interface lets us pick up the
-// (*PostgresStore).GormDB() accessor without leaking a hard
-// dependency on the concrete type — a future store impl that
-// exposes the same method works transparently.
+// fallback — helix-org now shares helix's database. The org_* schema
+// is migrated by the PostgresStore's own automigration.
 func openOrgStore(helixStore helixstore.Store) (*helixorgstore.Store, error) {
 	type orgPostgresDB interface {
 		GormDB() *gorm.DB
@@ -1936,22 +1932,7 @@ func openOrgStore(helixStore helixstore.Store) (*helixorgstore.Store, error) {
 	if !ok {
 		return nil, fmt.Errorf("helix-org requires a Postgres-backed helix store; got %T", helixStore)
 	}
-	// Production wiring: install the FK constraint that ties every
-	// org_* table back to organizations(id) ON DELETE CASCADE.
-	//
-	// OpenWithDB only runs an idempotent AutoMigrate — org_* rows
-	// (workers, roles, topics, runtime state, …) survive an API
-	// restart. The composite-PK schema (id, org_id) is the only shape
-	// in production. If a hand-written breaking migration ever becomes
-	// necessary, write an explicit migration script — never drop the
-	// tables on boot.
-	st, err := orggorm.OpenWithDB(accessor.GormDB(), orggorm.Options{
-		InstallOrganizationFK: true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("open helix-org gorm: %w", err)
-	}
-	return st, nil
+	return orggorm.Open(accessor.GormDB()), nil
 }
 
 // publicTriggerWebhookPathPrefixes are the per-Trigger public webhook

@@ -2940,14 +2940,14 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Create a new API key",
+                "description": "Create a new API key. With project_id (and type \"api\"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization. Unknown body fields are refused. The legacy name query parameter mints a personal key and cannot be combined with a body.",
                 "tags": [
                     "api-keys"
                 ],
                 "summary": "Create a new API key",
                 "parameters": [
                     {
-                        "description": "Request body with name and type",
+                        "description": "Request body with name, type, and app_id (app keys) or project_id (project keys)",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -8526,6 +8526,108 @@ const docTemplate = `{
                         "description": "Internal server error",
                         "schema": {
                             "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/identity/attestations": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a short-lived token stating which spec task, session or sandbox the caller's key belongs to, for one audience and nonce. Only the session or sandbox key of a desktop in a project may call it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identity"
+                ],
+                "summary": "Mint an identity attestation",
+                "parameters": [
+                    {
+                        "description": "Audience and nonce",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/identity/attestations/verify": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Redeems an attestation once. The caller must be a user or an org-scoped API key that may read the attested project; session, project and app keys are refused. Every invalid, expired, foreign or replayed token gets the same 404.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identity"
+                ],
+                "summary": "Verify an identity attestation",
+                "parameters": [
+                    {
+                        "description": "Token, audience and nonce",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationVerifyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationClaims"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.IdentityAttestationError"
                         }
                     }
                 }
@@ -14293,6 +14395,102 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/api_keys": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the caller's own API keys scoped to the project. Key secrets are never returned; each key has a non-secret id and key_prefix. Requires a browser session, a personal API key, or an API key of the project's organization.",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "List project API keys",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.APIKeySummary"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/api_keys/{key_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revoke one of the caller's own API keys scoped to the project. The key stops authenticating immediately. To rotate a key, create a new one and revoke the old one.",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Revoke a project API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ID of the API key (the id field from the list)",
+                        "name": "key_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIKeySummary"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/artifacts": {
             "get": {
                 "security": [
@@ -14315,6 +14513,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only artifacts created by this spec task's task-confined key",
+                        "name": "spec_task_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -16053,7 +16257,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.",
+                "description": "One entry per distinct VCS provider present among the project's external repos, with the acting user, the configured repository account, and per-repo access status. Backs the project board connection lozenge.",
                 "consumes": [
                     "application/json"
                 ],
@@ -18753,6 +18957,12 @@ const docTemplate = `{
                         "type": "boolean",
                         "description": "Include external agent sessions",
                         "name": "include_external_agents",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only the sessions Helix created for threads opened on this external agent connection (session id the agent connected with). The connection session itself is not included. Implies include_external_agents.",
+                        "name": "external_agent_id",
                         "in": "query"
                     },
                     {
@@ -30893,24 +31103,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "github",
-                "helix_events",
-                "webhook",
-                "cron",
-                "slack",
-                "gitlab",
                 "email",
-                "local"
+                "gitlab",
+                "local",
+                "helix_events",
+                "slack",
+                "github",
+                "webhook",
+                "cron"
             ],
             "x-enum-varnames": [
-                "KindGitHub",
-                "KindHelixEvents",
-                "KindWebhook",
-                "KindCron",
-                "KindSlack",
-                "KindGitLab",
                 "KindEmail",
-                "KindLocal"
+                "KindGitLab",
+                "KindLocal",
+                "KindHelixEvents",
+                "KindSlack",
+                "KindGitHub",
+                "KindWebhook",
+                "KindCron"
             ]
         },
         "transport.ResolvedActivation": {
@@ -30962,6 +31172,67 @@ const docTemplate = `{
                 },
                 "type": {
                     "type": "string"
+                }
+            }
+        },
+        "types.APIKeyScope": {
+            "type": "string",
+            "enum": [
+                "personal",
+                "org",
+                "project",
+                "spec_task",
+                "session",
+                "sandbox",
+                "app",
+                "embed",
+                "bot_instance"
+            ],
+            "x-enum-varnames": [
+                "APIKeyScopePersonal",
+                "APIKeyScopeOrg",
+                "APIKeyScopeProject",
+                "APIKeyScopeSpecTask",
+                "APIKeyScopeSession",
+                "APIKeyScopeSandbox",
+                "APIKeyScopeApp",
+                "APIKeyScopeEmbed",
+                "APIKeyScopeBotInstance"
+            ]
+        },
+        "types.APIKeySummary": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is a stable, non-secret handle for the key, derived from a hash of\nthe secret. Use it to delete a key you did not create.",
+                    "type": "string"
+                },
+                "key_prefix": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.APIKeyType"
                 }
             }
         },
@@ -31467,6 +31738,10 @@ const docTemplate = `{
                     "description": "Used for isolation and metrics tracking",
                     "type": "string"
                 },
+                "task_confined": {
+                    "description": "TaskConfined confines a session key of a spec task created with\nconfine_agent_key to that task (SpecTask.ConfineAgentKey).",
+                    "type": "boolean"
+                },
                 "type": {
                     "$ref": "#/definitions/types.APIKeyType"
                 }
@@ -31509,6 +31784,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "project_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "description": "SpecTaskID is the spec task whose task-confined key created the\nartifact, set by the server from the key and never from the request.\nSuch a key may change or delete only its own task's artifacts, and a\nreader can tell one lane's artifacts from another's. Empty for\nartifacts created any other way.",
                     "type": "string"
                 },
                 "subdomain_url": {
@@ -32273,7 +32552,8 @@ const docTemplate = `{
                 "completion_request",
                 "org_message",
                 "ci_passed",
-                "ci_failed"
+                "ci_failed",
+                "project_secret_undecryptable"
             ],
             "x-enum-varnames": [
                 "AttentionEventSpecsPushed",
@@ -32285,7 +32565,8 @@ const docTemplate = `{
                 "AttentionEventCompletionRequest",
                 "AttentionEventOrgMessage",
                 "AttentionEventCIPassed",
-                "AttentionEventCIFailed"
+                "AttentionEventCIFailed",
+                "AttentionEventProjectSecretUndecryptable"
             ]
         },
         "types.AttentionEventUpdateRequest": {
@@ -32328,12 +32609,20 @@ const docTemplate = `{
                 "project_created",
                 "project_deleted",
                 "project_settings_updated",
-                "project_guidelines_updated"
+                "project_guidelines_updated",
+                "identity_attestation_minted",
+                "identity_attestation_verified",
+                "api_key_created",
+                "api_key_revoked"
             ],
             "x-enum-comments": {
+                "AuditEventAPIKeyCreated": "A project API key was minted",
+                "AuditEventAPIKeyRevoked": "A project API key was revoked",
                 "AuditEventAgentPrompt": "Prompt sent from Helix UI to agent",
                 "AuditEventAgentStarted": "Agent session started",
                 "AuditEventGitPush": "Git push detected",
+                "AuditEventIdentityAttestationMinted": "A session key obtained an identity attestation",
+                "AuditEventIdentityAttestationVerified": "A verifier redeemed an identity attestation",
                 "AuditEventPRCreated": "Pull request created",
                 "AuditEventPRMerged": "Pull request merged",
                 "AuditEventProjectCreated": "Project was created",
@@ -32367,12 +32656,30 @@ const docTemplate = `{
                 "AuditEventProjectCreated",
                 "AuditEventProjectDeleted",
                 "AuditEventProjectSettingsUpdated",
-                "AuditEventProjectGuidelinesUpdated"
+                "AuditEventProjectGuidelinesUpdated",
+                "AuditEventIdentityAttestationMinted",
+                "AuditEventIdentityAttestationVerified",
+                "AuditEventAPIKeyCreated",
+                "AuditEventAPIKeyRevoked"
             ]
         },
         "types.AuditMetadata": {
             "type": "object",
             "properties": {
+                "api_key_id": {
+                    "description": "API key events: the key's non-secret id and name, never the secret",
+                    "type": "string"
+                },
+                "api_key_name": {
+                    "type": "string"
+                },
+                "attestation_audience": {
+                    "type": "string"
+                },
+                "attestation_jti": {
+                    "description": "Identity attestation tracking",
+                    "type": "string"
+                },
                 "branch_name": {
                     "type": "string"
                 },
@@ -32423,6 +32730,9 @@ const docTemplate = `{
                 },
                 "requirements_spec_hash": {
                     "description": "Hash of requirements spec content",
+                    "type": "string"
+                },
+                "sandbox_id": {
                     "type": "string"
                 },
                 "session_id": {
@@ -33072,6 +33382,10 @@ const docTemplate = `{
             "properties": {
                 "auto_start": {
                     "description": "Auto-start cloned tasks",
+                    "type": "boolean"
+                },
+                "confine_agent_key": {
+                    "description": "ConfineAgentKey confines the clones' agent keys to their own task\n(SpecTask.ConfineAgentKey). A clone of a confined task is always confined.",
                     "type": "boolean"
                 },
                 "create_projects": {
@@ -34005,6 +34319,10 @@ const docTemplate = `{
                 },
                 "code_agent_config": {
                     "$ref": "#/definitions/types.CodeAgentExecutionConfig"
+                },
+                "confine_agent_key": {
+                    "description": "ConfineAgentKey confines the API keys minted for this task's sessions\nto the task itself (see SpecTask.ConfineAgentKey). Fixed at creation.",
+                    "type": "boolean"
                 },
                 "credential_owner_id": {
                     "description": "CredentialOwnerID optionally names the user whose Claude subscription should\nauthenticate this task's agent, for orchestrators dispatching work on a\nhuman's behalf under one service API key. Credential resolution only — the\ntask is still created by, owned by, and attributed to the caller. Resolution\nfails closed unless that user has delegated to this organization.",
@@ -35603,6 +35921,94 @@ const docTemplate = `{
                 }
             }
         },
+        "types.IdentityAttestationClaims": {
+            "type": "object",
+            "properties": {
+                "aud": {
+                    "type": "string"
+                },
+                "exp": {
+                    "type": "string"
+                },
+                "iat": {
+                    "type": "string"
+                },
+                "jti": {
+                    "type": "string"
+                },
+                "key_confined": {
+                    "description": "KeyConfined: the attested key reaches only its own spec task and that\ntask's sessions (a task created with confine_agent_key).",
+                    "type": "boolean"
+                },
+                "nonce": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.IdentityAttestationError": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.IdentityAttestationRequest": {
+            "type": "object",
+            "properties": {
+                "audience": {
+                    "description": "Audience names the verifier the token is for, e.g. \"ptaas.example.com\".",
+                    "type": "string"
+                },
+                "nonce": {
+                    "description": "Nonce is the verifier's challenge (16–128 characters).",
+                    "type": "string"
+                }
+            }
+        },
+        "types.IdentityAttestationResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.IdentityAttestationVerifyRequest": {
+            "type": "object",
+            "properties": {
+                "audience": {
+                    "type": "string"
+                },
+                "nonce": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ImageURLDetail": {
             "type": "string",
             "enum": [
@@ -35694,6 +36100,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "provenance": {
+                    "description": "Provenance records who caused this turn's prompt. Server-set at\ncreation and never updated; rows from before it existed read as\norigin \"unknown\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
                 "question_history": {
                     "type": "array",
                     "items": {
@@ -35755,6 +36169,13 @@ const docTemplate = `{
                 "system_prompt": {
                     "description": "System prompt for the interaction (copy of the session's system prompt that was used to create this interaction)",
                     "type": "string"
+                },
+                "thread_reseeds": {
+                    "description": "ThreadReseeds records every time Helix prepended a context preamble to\nthis turn's prompt because the agent could not reopen its session, so\nwhat the agent was actually sent is auditable. Server-written only.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ThreadReseed"
+                    }
                 },
                 "tool_call_id": {
                     "description": "For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.",
@@ -38854,6 +39275,14 @@ const docTemplate = `{
                     "description": "For reference, but primary grouping is by spec_task",
                     "type": "string"
                 },
+                "provenance": {
+                    "description": "Provenance records who caused this prompt. Server-set at creation and\nnever updated; the interaction created from it copies it.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
                 "queue_position": {
                     "description": "QueuePosition tracks ordering for drag-and-drop reordering\nLower values = earlier in queue. Null for sent messages.",
                     "type": "integer"
@@ -39756,6 +40185,14 @@ const docTemplate = `{
         "types.ResolvedQuestion": {
             "type": "object",
             "properties": {
+                "answered_by": {
+                    "description": "AnsweredBy says who resolved the question. Server-set; entries from\nbefore it existed read as origin \"unknown\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
                 "answers": {
                     "type": "object",
                     "additionalProperties": {
@@ -40603,6 +41040,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "undecryptable": {
+                    "description": "Undecryptable is set by the secrets lists when the stored value cannot\nbe decrypted with the current HELIX_ENCRYPTION_KEY (it was written under\nan earlier key). Such a secret is never injected or substituted; it must\nbe re-entered.",
+                    "type": "boolean"
+                },
                 "updated": {
                     "type": "string"
                 },
@@ -40778,15 +41219,6 @@ const docTemplate = `{
                 "require_active_subscription": {
                     "description": "Require an active subscription before allowing to use the product",
                     "type": "boolean"
-                },
-                "rudderstack_data_plane_url": {
-                    "type": "string"
-                },
-                "rudderstack_write_key": {
-                    "type": "string"
-                },
-                "sentry_dsn_frontend": {
-                    "type": "string"
                 },
                 "server_url": {
                     "description": "ServerURL is the operator-configured public origin for this helix\ninstance (env SERVER_URL → WebServer.URL). Empty when not\nconfigured; the frontend then falls back to\n` + "`" + `window.location.origin` + "`" + `. The github-stream New Stream dialog\nuses this to surface a webhook URL that's actually reachable by\nGitHub — ` + "`" + `window.location.origin` + "`" + ` is wrong whenever the user is\nhitting the app via localhost / a dev port that GitHub can't\nreach.",
@@ -42272,6 +42704,10 @@ const docTemplate = `{
                     "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                     "type": "string"
                 },
+                "confine_agent_key": {
+                    "description": "ConfineAgentKey confines every API key minted for this task's sessions\nto this task: its sessions and the task itself, not the project's other\ntasks and sessions, and it may not create tasks. Project files, git,\nrepositories, artifacts and the LLM proxy stay reachable as for any\nproject-scoped key. Set at creation and never changed, so a key cannot\noutlive the confinement it was minted under.",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -43345,6 +43781,10 @@ const docTemplate = `{
                     "description": "CompletionRequestedAt is set while the agent's request to mark the task\ndone (mark_task_complete) awaits the user's decision.",
                     "type": "string"
                 },
+                "confine_agent_key": {
+                    "description": "ConfineAgentKey confines every API key minted for this task's sessions\nto this task: its sessions and the task itself, not the project's other\ntasks and sessions, and it may not create tasks. Project files, git,\nrepositories, artifacts and the LLM proxy stay reachable as for any\nproject-scoped key. Set at creation and never changed, so a key cannot\noutlive the confinement it was minted under.",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -44095,6 +44535,10 @@ const docTemplate = `{
                     "description": "OpenCodeVersion is the admin override; empty means the bundled build.\nOpenCodeBundledVersion tells the UI what \"bundled\" currently is so it\ncan show the floor without hardcoding it.",
                     "type": "string"
                 },
+                "opencode_version_error": {
+                    "description": "OpenCodeVersionError is set when the stored pin fails validation;\nsessions then ignore it and run the bundled build.",
+                    "type": "string"
+                },
                 "optimus_generation_model": {
                     "type": "string"
                 },
@@ -44142,6 +44586,81 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.SystemTurnKind": {
+            "type": "string",
+            "enum": [
+                "planning_prompt",
+                "implementation_prompt",
+                "revision_requested",
+                "design_review_comment",
+                "attachment_added",
+                "rebase_required",
+                "push_required",
+                "completion_sent_back",
+                "pr_settled",
+                "pr_proposal_outcome",
+                "ci_status",
+                "review_comment",
+                "secret_intake_submitted",
+                "session_forked",
+                "fork_handoff",
+                "agent_switched",
+                "agent_switch_handoff",
+                "org_activation",
+                "org_bot_spec_task_message",
+                "org_bot_instance_message",
+                "cron_trigger",
+                "slack_message",
+                "teams_message",
+                "crisp_message",
+                "azure_devops_event",
+                "code_review_trigger",
+                "evaluation_question",
+                "external_agent_test_harness",
+                "thread_reseed",
+                "question_settled",
+                "org_bot_action",
+                "helix_agent_tool",
+                "trigger_configuration",
+                "pr_auto_approve"
+            ],
+            "x-enum-varnames": [
+                "SystemTurnPlanningPrompt",
+                "SystemTurnImplementationPrompt",
+                "SystemTurnRevisionRequested",
+                "SystemTurnDesignReviewComment",
+                "SystemTurnAttachmentAdded",
+                "SystemTurnRebaseRequired",
+                "SystemTurnPushRequired",
+                "SystemTurnCompletionSentBack",
+                "SystemTurnPRSettled",
+                "SystemTurnPRProposalOutcome",
+                "SystemTurnCIStatus",
+                "SystemTurnReviewComment",
+                "SystemTurnSecretIntakeSubmitted",
+                "SystemTurnSessionForked",
+                "SystemTurnForkHandoff",
+                "SystemTurnAgentSwitched",
+                "SystemTurnAgentSwitchHandoff",
+                "SystemTurnOrgActivation",
+                "SystemTurnOrgBotSpecTaskMessage",
+                "SystemTurnOrgBotInstanceMessage",
+                "SystemTurnCronTrigger",
+                "SystemTurnSlackMessage",
+                "SystemTurnTeamsMessage",
+                "SystemTurnCrispMessage",
+                "SystemTurnAzureDevOpsEvent",
+                "SystemTurnCodeReviewTrigger",
+                "SystemTurnEvaluationQuestion",
+                "SystemTurnExternalAgentTestHarness",
+                "SystemTurnThreadReseed",
+                "SystemTurnQuestionSettled",
+                "SystemTurnOrgBotAction",
+                "SystemTurnHelixAgentTool",
+                "SystemTurnTriggerConfiguration",
+                "SystemTurnPRAutoApprove"
+            ]
         },
         "types.Team": {
             "type": "object",
@@ -44245,6 +44764,57 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "TextSplitterTypeMarkdown",
                 "TextSplitterTypeText"
+            ]
+        },
+        "types.ThreadReseed": {
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "type": "string"
+                },
+                "at": {
+                    "type": "string"
+                },
+                "preamble_length": {
+                    "type": "integer"
+                },
+                "preamble_sha256": {
+                    "description": "PreambleSHA256 is the hex sha256 of the injected preamble text.",
+                    "type": "string"
+                },
+                "provenance": {
+                    "description": "Provenance is always origin=system, system_kind=thread_reseed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
+                "reason": {
+                    "description": "Reason is why the agent's session could not be resumed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ThreadReseedReason"
+                        }
+                    ]
+                },
+                "runtime": {
+                    "description": "Runtime and AgentName identify the coding agent that was reseeded.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CodeAgentRuntime"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.ThreadReseedReason": {
+            "type": "string",
+            "enum": [
+                "agent_cannot_load_session"
+            ],
+            "x-enum-varnames": [
+                "ThreadReseedAgentCannotLoadSession"
             ]
         },
         "types.TitleHistoryEntry": {
@@ -44798,6 +45368,91 @@ const docTemplate = `{
                 "TriggerTypeAzureDevOps",
                 "TriggerTypeCron"
             ]
+        },
+        "types.TurnOrigin": {
+            "type": "string",
+            "enum": [
+                "user",
+                "api",
+                "system",
+                "external_agent",
+                "unknown"
+            ],
+            "x-enum-varnames": [
+                "TurnOriginUser",
+                "TurnOriginAPI",
+                "TurnOriginSystem",
+                "TurnOriginExternalAgent",
+                "TurnOriginUnknown"
+            ]
+        },
+        "types.TurnProvenance": {
+            "type": "object",
+            "properties": {
+                "api_key_id": {
+                    "type": "string"
+                },
+                "api_key_org_id": {
+                    "type": "string"
+                },
+                "api_key_owner": {
+                    "description": "API key fields, for origin=api. APIKeyID is the non-secret key_… id\n(see APIKeyID), never the secret.",
+                    "type": "string"
+                },
+                "api_key_project_id": {
+                    "type": "string"
+                },
+                "api_key_session_id": {
+                    "type": "string"
+                },
+                "api_key_spec_task_id": {
+                    "type": "string"
+                },
+                "api_key_task_confined": {
+                    "description": "APIKeyTaskConfined: the key reaches only APIKeySpecTaskID.",
+                    "type": "boolean"
+                },
+                "api_key_type": {
+                    "$ref": "#/definitions/types.APIKeyScope"
+                },
+                "org_bot_id": {
+                    "description": "OrgBotID is the org bot that caused an org_bot_* system turn.",
+                    "type": "string"
+                },
+                "origin": {
+                    "$ref": "#/definitions/types.TurnOrigin"
+                },
+                "system_kind": {
+                    "description": "SystemKind names the code path, for origin=system.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SystemTurnKind"
+                        }
+                    ]
+                },
+                "trigger_app_id": {
+                    "type": "string"
+                },
+                "trigger_id": {
+                    "description": "Trigger fields, for a trigger_configuration actor: the trigger's id\nwhen it has one, the app it is configured on, and its configuring user.",
+                    "type": "string"
+                },
+                "trigger_owner": {
+                    "type": "string"
+                },
+                "triggered_by": {
+                    "description": "TriggeredBy is the authenticated caller whose request made Helix write\nthis system turn (an operator clicking \"request changes\", say). Nil\nwhen the system turn came from a background event.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.TurnProvenance"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "description": "UserID is the signed-in user for origin=user.",
+                    "type": "string"
+                }
+            }
         },
         "types.UnifiedSearchResponse": {
             "type": "object",
@@ -45389,6 +46044,10 @@ const docTemplate = `{
                 "spec_task_id": {
                     "description": "When running in Helix Code sandbox",
                     "type": "string"
+                },
+                "task_confined": {
+                    "description": "TaskConfined: the key reaches only its spec task (SpecTaskID) and that\ntask's sessions (ApiKey.TaskConfined).",
+                    "type": "boolean"
                 },
                 "token_type": {
                     "description": "none, runner. keycloak, api_key",

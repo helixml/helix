@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -49,8 +52,11 @@ func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]
 		query.OwnerType = types.OwnerTypeOrg
 		query.Owner = org.ID
 	} else {
-		// Personal secrets are outside any project's scope.
+		// Personal secrets are outside any project's or organization's scope.
 		if err := enforceKeyProjectScope(user, ""); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+		if err := orgstore.EnforceKeyOrgScope(user, ""); err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
 		query.OwnerType = types.OwnerTypeUser
@@ -62,13 +68,28 @@ func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// Remove the value from the secrets
-	for idx, secret := range secrets {
-		secret.Value = nil
-		secrets[idx] = secret
+	if err := s.redactSecrets(secrets); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
 	}
-
 	return secrets, nil
+}
+
+// redactSecrets clears every value before a list response, first flagging
+// the ones the current encryption key cannot decrypt so the UI can ask for
+// them to be re-entered. Secrets are stored encrypted (legacy plaintext rows
+// are encrypted at startup), so a decryption failure means the key changed
+// since the value was written.
+func (s *HelixAPIServer) redactSecrets(secrets []*types.Secret) error {
+	encryptionKey, err := s.getEncryptionKey()
+	if err != nil {
+		return fmt.Errorf("failed to get encryption key: %w", err)
+	}
+	for _, secret := range secrets {
+		_, decryptErr := crypto.DecryptAES256GCM(string(secret.Value), encryptionKey)
+		secret.Undecryptable = decryptErr != nil
+		secret.Value = nil
+	}
+	return nil
 }
 
 // createSecret godoc
@@ -177,7 +198,7 @@ func (s *HelixAPIServer) updateSecret(_ http.ResponseWriter, r *http.Request) (*
 	// a project they can no longer update.
 	// A project-scoped key never reaches a personal secret: enforceKeyProjectScope
 	// refuses it, as it refuses every resource outside the key's project.
-	authorized := existing.Owner == user.ID && existing.ProjectID == "" && enforceKeyProjectScope(user, "") == nil
+	authorized := callerOwns(user, existing.Owner, "") && existing.ProjectID == "" && enforceKeyProjectScope(user, "") == nil
 	if existing.ProjectID != "" {
 		project, projectErr := s.Store.GetProject(ctx, existing.ProjectID)
 		if projectErr != nil {
@@ -287,7 +308,7 @@ func (s *HelixAPIServer) deleteSecret(_ http.ResponseWriter, r *http.Request) (*
 		if err := s.authorizeUserToProjectByID(ctx, user, existing.ProjectID, types.ActionDelete); err == nil {
 			authorized = true
 		}
-	} else if existing.Owner == user.ID && enforceKeyProjectScope(user, "") == nil {
+	} else if callerOwns(user, existing.Owner, "") && enforceKeyProjectScope(user, "") == nil {
 		authorized = true
 	}
 	if !authorized {
@@ -365,13 +386,9 @@ func (s *HelixAPIServer) listProjectSecrets(_ http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
-
-	// Remove the values from the secrets (don't expose encrypted data)
-	for idx, secret := range secrets {
-		secret.Value = nil
-		secrets[idx] = secret
+	if err := s.redactSecrets(secrets); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
 	}
-
 	return secrets, nil
 }
 
@@ -472,9 +489,14 @@ func projectSecretNotFound(projectKey string, resolutionErr error) *system.HTTPE
 // strings. A secret is included when its scope matches the target or is "both".
 // The dev path (desktop containers) passes types.SecretScopeDev; the prod path
 // (web service deploys) passes types.SecretScopeProd.
-func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, projectID string, target types.SecretScope) ([]string, error) {
+//
+// A secret that cannot be decrypted with the current key (written under an
+// earlier HELIX_ENCRYPTION_KEY) is skipped and named in Undecryptable, so
+// callers can tell "undecryptable" from "not set" and surface it.
+func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, projectID string, target types.SecretScope) (types.ProjectSecretEnv, error) {
+	var result types.ProjectSecretEnv
 	if projectID == "" {
-		return nil, nil
+		return result, nil
 	}
 
 	if target == "" {
@@ -483,19 +505,18 @@ func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, project
 
 	secrets, err := s.Store.ListProjectSecrets(ctx, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list project secrets: %w", err)
+		return result, fmt.Errorf("failed to list project secrets: %w", err)
 	}
 
 	if len(secrets) == 0 {
-		return nil, nil
+		return result, nil
 	}
 
 	encryptionKey, err := s.getEncryptionKey()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get encryption key: %w", err)
+		return result, fmt.Errorf("failed to get encryption key: %w", err)
 	}
 
-	var envVars []string
 	for _, secret := range secrets {
 		// Skip secrets that don't apply to the requested environment.
 		// An empty stored scope is treated as the default ("dev").
@@ -507,17 +528,42 @@ func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, project
 			continue
 		}
 
-		// Decrypt the secret value
 		decrypted, err := crypto.DecryptAES256GCM(string(secret.Value), encryptionKey)
 		if err != nil {
-			log.Warn().Err(err).Str("secret_name", secret.Name).Msg("Failed to decrypt project secret, skipping")
+			log.Error().Err(err).
+				Str("secret_name", secret.Name).
+				Str("project_id", projectID).
+				Msg("Project secret cannot be decrypted with the current encryption key; it must be re-entered")
+			result.Undecryptable = append(result.Undecryptable, secret.Name)
 			continue
 		}
 
-		// Use the secret name as the env var name (uppercase, replace - with _)
-		envVars = append(envVars, fmt.Sprintf("%s=%s", secret.Name, string(decrypted)))
+		result.Env = append(result.Env, fmt.Sprintf("%s=%s", secret.Name, string(decrypted)))
 		log.Debug().Str("name", secret.Name).Str("project_id", projectID).Str("scope", string(scope)).Str("target", string(target)).Msg("Injecting project secret as env var")
 	}
 
-	return envVars, nil
+	return result, nil
+}
+
+// reportUndecryptableProjectSecrets raises an attention event on the spec task
+// whose desktop just started without the named secrets. Desktops with no spec
+// task have no attention queue; the executor's log and the agent's
+// HELIX_UNDECRYPTABLE_PROJECT_SECRETS env var still name the secrets. A failed
+// notification is logged rather than failing the desktop start, which has
+// already chosen to continue without the secrets.
+func (s *HelixAPIServer) reportUndecryptableProjectSecrets(ctx context.Context, agent *types.DesktopAgent, names []string) {
+	if agent.SpecTaskID == "" || s.attentionService == nil {
+		return
+	}
+	task, err := s.Store.GetSpecTask(ctx, agent.SpecTaskID)
+	if err != nil {
+		log.Error().Err(err).Str("spec_task_id", agent.SpecTaskID).Msg("Failed to load spec task to report undecryptable project secrets")
+		return
+	}
+	sorted := slices.Clone(names)
+	slices.Sort(sorted)
+	if _, err := s.attentionService.EmitEvent(ctx, types.AttentionEventProjectSecretUndecryptable, task,
+		strings.Join(sorted, ","), map[string]interface{}{"secret_names": sorted}); err != nil {
+		log.Error().Err(err).Str("spec_task_id", agent.SpecTaskID).Msg("Failed to report undecryptable project secrets")
+	}
 }

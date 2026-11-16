@@ -325,6 +325,10 @@ func (s *HelixAPIServer) applySpecTaskExecutionConfig(
 	config *types.CodeAgentExecutionConfig,
 	handoffReason string,
 ) (changed bool, restarted bool, httpErr *system.HTTPError) {
+	actor, actorErr := requestTurnProvenance(ctx, user)
+	if actorErr != nil {
+		return false, false, system.NewHTTPError403(actorErr.Error())
+	}
 	if err := s.validateCodeAgentExecutionConfig(ctx, config, user.ID, task.UserID, task.OrganizationID); err != nil {
 		return false, false, system.NewHTTPError400(err.Error())
 	}
@@ -398,6 +402,7 @@ func (s *HelixAPIServer) applySpecTaskExecutionConfig(
 		return true, false, nil
 	}
 	if switchErr := s.switchAgentInPlaceForNextTurn(ctx, session, config.Runtime, "", agentSwitchOptions{
+		actor:          actor,
 		createHandoff:  live,
 		handoffReason:  handoffReason,
 		deliverLive:    live,
@@ -416,6 +421,10 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 	config *types.CodeAgentExecutionConfig,
 	handoffReason string,
 ) (changed bool, restarted bool, httpErr *system.HTTPError) {
+	actor, actorErr := requestTurnProvenance(ctx, user)
+	if actorErr != nil {
+		return false, false, system.NewHTTPError403(actorErr.Error())
+	}
 	if err := s.validateCodeAgentExecutionConfig(
 		ctx, config, user.ID, session.Owner, session.OrganizationID,
 	); err != nil {
@@ -471,6 +480,7 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 
 	if switchErr := s.switchAgentInPlaceForNextTurn(
 		ctx, session, config.Runtime, session.ParentApp, agentSwitchOptions{
+			actor:         actor,
 			createHandoff: live,
 			handoffReason: handoffReason,
 			deliverLive:   live,
@@ -592,6 +602,10 @@ func (s *HelixAPIServer) applyCodeAgentExecutionConfig(
 	target codeAgentConfigTarget,
 	req types.SessionExecutionConfigUpdateRequest,
 ) (changed bool, restarted bool, httpErr *system.HTTPError) {
+	actor, actorErr := requestTurnProvenance(ctx, user)
+	if actorErr != nil {
+		return false, false, system.NewHTTPError403(actorErr.Error())
+	}
 	targetAgentID := target.agentID
 	// Only a genuine change of Agent is re-checked: re-sending the surface's
 	// current agent id alongside a model edit is not an agent switch, and must
@@ -655,6 +669,7 @@ func (s *HelixAPIServer) applyCodeAgentExecutionConfig(
 	}
 	if switchErr := s.switchAgentInPlaceForNextTurn(
 		ctx, target.session, runtime, targetAgentID, agentSwitchOptions{
+			actor:         actor,
 			createHandoff: live,
 			handoffReason: target.handoffReason,
 			deliverLive:   live,

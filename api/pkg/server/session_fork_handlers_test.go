@@ -166,7 +166,7 @@ func TestForkSessionFromParent_SnapshotsTranscriptAndPausesParent(t *testing.T) 
 	parent := newTestParentSession("user_a")
 	parent.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeClaudeCode
 	parentInteractions := seedParentWithInteractions(t, mem, parent, 3)
-	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser}
+	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	ctx := context.Background()
 
 	child, httpErr := srv.forkSessionFromParent(ctx, user, parent, types.CodeAgentRuntimeQwenCode, "")
@@ -211,6 +211,10 @@ func TestForkSessionFromParent_SnapshotsTranscriptAndPausesParent(t *testing.T) 
 	// maybePrependTranscript to seed the agent on first message).
 	assert.Contains(t, seed.ResponseMessage, "user turn 0")
 	assert.Contains(t, seed.ResponseMessage, "agent reply 2")
+	forker := types.TurnProvenance{Origin: types.TurnOriginUser, UserID: parent.Owner}
+	assert.Equal(t, types.TriggeredBySystemTurn(types.SystemTurnSessionForked, forker), seed.Provenance)
+	assert.Equal(t, types.TriggeredBySystemTurn(types.SystemTurnForkHandoff, forker), childInteractions[4].Provenance)
+	assert.Equal(t, parentInteractions[0].Provenance, childInteractions[0].Provenance, "inherited turns keep their original provenance")
 
 	handoff := childInteractions[4]
 	assert.Equal(t, types.InteractionTriggerForkHandoff, handoff.Trigger,
@@ -244,7 +248,7 @@ func TestForkSessionFromParent_OverridesParentAppWhenTargetGiven(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	parent := newTestParentSession("user_a")
 	seedParentWithInteractions(t, mem, parent, 1)
-	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser}
+	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 
 	child, httpErr := srv.forkSessionFromParent(context.Background(), user, parent, types.CodeAgentRuntimeQwenCode, "app_new")
 	require.Nil(t, httpErr)
@@ -257,7 +261,7 @@ func TestForkSessionFromParent_EmptyParentTranscript(t *testing.T) {
 	// No interactions at all (e.g. user forks the moment the session opens).
 	_, err := mem.CreateSession(context.Background(), *parent)
 	require.NoError(t, err)
-	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser}
+	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 
 	child, httpErr := srv.forkSessionFromParent(context.Background(), user, parent, types.CodeAgentRuntimeQwenCode, "")
 	require.Nil(t, httpErr)
@@ -305,7 +309,7 @@ func TestForkSessionFromParent_SkipsForkSeedFromParentTranscript(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	user := &types.User{ID: b.Owner, Type: types.OwnerTypeUser}
+	user := &types.User{ID: b.Owner, Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	c, httpErr := srv.forkSessionFromParent(context.Background(), user, b, types.CodeAgentRuntimeQwenCode, "")
 	require.Nil(t, httpErr)
 
@@ -344,7 +348,7 @@ func TestForkSessionFromParent_ChainDepth2PreservesFullAncestry(t *testing.T) {
 	a.ID = "ses_A"
 	a.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeClaudeCode
 	seedParentWithInteractions(t, mem, a, 2) // creates "user turn 0/1", "agent reply 0/1"
-	user := &types.User{ID: a.Owner, Type: types.OwnerTypeUser}
+	user := &types.User{ID: a.Owner, Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 
 	// Fork A → B.
 	b, httpErr := srv.forkSessionFromParent(ctx, user, a, types.CodeAgentRuntimeQwenCode, "")
