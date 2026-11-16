@@ -145,6 +145,20 @@ func (suite *PostgresStoreTestSuite) TestDelegatedClaudeSubscriptionResolution()
 
 	sub, err = suite.db.GetSessionClaudeSubscription(suite.ctx, &types.Session{
 		Owner: owner.OwnerID, OrganizationID: orgID,
+		Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"},
+	})
+	suite.Require().NoError(err)
+	suite.Equal(delegated.ID, sub.ID)
+
+	sub, err = suite.db.GetSessionClaudeSubscription(suite.ctx, &types.Session{
+		Owner: owner.OwnerID, OrganizationID: orgID,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(owner.ID, sub.ID)
+
+	sub, err = suite.db.GetSessionClaudeSubscription(suite.ctx, &types.Session{
+		Owner: owner.OwnerID, OrganizationID: "org_without_delegation_" + suffix,
+		Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"},
 	})
 	suite.Require().NoError(err)
 	suite.Equal(owner.ID, sub.ID)

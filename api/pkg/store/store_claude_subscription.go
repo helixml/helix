@@ -258,7 +258,7 @@ func (s *PostgresStore) GetSessionClaudeSubscription(ctx context.Context, sessio
 		}
 		return nil, ErrNotFound
 	}
-	if session.Metadata.SpecTaskID != "" {
+	if session.Metadata.SpecTaskID != "" || session.Metadata.OrgWorkerID != "" {
 		sub, err := s.GetDelegatedClaudeSubscriptionForOrg(ctx, session.OrganizationID)
 		if err == nil {
 			return sub, nil
