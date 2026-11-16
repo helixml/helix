@@ -353,7 +353,7 @@ sec "AGENTS.md (head)"; head -c 600 ~/work/AGENTS.md 2>/dev/null; echo
 sec "skills"; ls ~/.agents/skills 2>/dev/null; env | grep -E '^HELIX_SKILLS='
 sec "setup log"; tail -n $n ~/.helix-setup.log 2>/dev/null
 sec "Zed.log errors"; grep -iE 'error|failed|panic|denied|timeout' ~/.local/share/zed/logs/Zed.log 2>/dev/null | tail -n $n | cut -c1-300
-sec "opencode log"; tail -n $n ~/work/.opencode-state/opencode/log/*.log 2>/dev/null | cut -c1-300
+sec "opencode log"; tail -n $n ~/work/.opencode-state/*/opencode/log/*.log 2>/dev/null | cut -c1-300
 sec "chrome"; tail -n $n /tmp/helix-chrome.log 2>/dev/null | cut -c1-300
 `
 

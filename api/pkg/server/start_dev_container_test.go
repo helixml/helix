@@ -223,24 +223,28 @@ func (s *StartDevContainerForSessionSuite) TestReadinessWaitWakesStoppedExplorat
 		},
 	)
 
+	// The wait ends only when the test cancels it, after the desktop has
+	// started; its own timeout and the deadlines below are hang guards, so a
+	// slow scheduler cannot decide the outcome.
+	const hangGuard = 30 * time.Second
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- s.server.waitForExternalAgentReady(ctx, session.ID, time.Second)
+		errCh <- s.server.waitForExternalAgentReady(ctx, session.ID, hangGuard)
 	}()
 
 	select {
 	case <-started:
 		cancel()
-	case <-time.After(time.Second):
-		s.FailNow("desktop was not started before readiness wait")
+	case <-time.After(hangGuard):
+		s.FailNow("desktop was not started by the readiness wait")
 	}
 	s.ErrorContains(<-errCh, "timeout waiting for external agent to be ready")
 
 	select {
 	case <-autoStartDone:
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangGuard):
 		s.FailNow("auto-start did not finish persisting the session")
 	}
 }

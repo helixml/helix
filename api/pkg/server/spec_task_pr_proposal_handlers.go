@@ -111,6 +111,10 @@ func (s *HelixAPIServer) authorizedSpecTaskForProposals(w http.ResponseWriter, r
 		writeErrResponse(w, fmt.Errorf("spec task not found"), http.StatusNotFound)
 		return nil, false
 	}
+	if err := enforceKeyTaskScope(getRequestUser(r), task.ID); err != nil {
+		writeErrResponse(w, fmt.Errorf("spec task not found"), http.StatusNotFound)
+		return nil, false
+	}
 	project, err := s.Store.GetProject(ctx, task.ProjectID)
 	if err != nil {
 		writeErrResponse(w, fmt.Errorf("failed to get project: %w", err), http.StatusInternalServerError)

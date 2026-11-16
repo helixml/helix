@@ -20,8 +20,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestMain stands in for the version marker the desktop image writes, which
+// every opencode session needs to choose its state directory, and keeps state
+// migration away from a real ~/work when tests run inside a desktop.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "opencode-version-")
+	if err != nil {
+		panic(err)
+	}
+	OpenCodeStateRoot = filepath.Join(dir, "state")
+	OpenCodeBakedVersionFile = filepath.Join(dir, "opencode.version")
+	if err := os.WriteFile(OpenCodeBakedVersionFile, []byte("1.18.18\n"), 0o644); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 func openCodeDaemon() *SettingsDaemon {
 	return &SettingsDaemon{
+		httpClient: http.DefaultClient,
 		codeAgentConfig: &CodeAgentConfig{
 			Runtime:         "opencode",
 			BaseURL:         "http://outer-api:8080/v1",
@@ -315,14 +334,14 @@ func TestOpenCodeInstallsPinnedVersion(t *testing.T) {
 		},
 	}
 
-	command, err := d.resolveOpenCodeCommand()
+	resolved, err := d.resolveOpenCodeRuntime()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(cacheDir, "1.19.0", "opencode"), command)
+	assert.Equal(t, filepath.Join(cacheDir, "1.19.0", "opencode"), resolved.command)
 
-	info, err := os.Stat(command)
+	info, err := os.Stat(resolved.command)
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode()&0111, "installed binary must be executable")
-	body, err := os.ReadFile(command)
+	body, err := os.ReadFile(resolved.command)
 	require.NoError(t, err)
 	assert.Equal(t, "#!/bin/sh\necho pinned\n", string(body))
 }
@@ -353,7 +372,7 @@ func TestOpenCodeRejectsDigestMismatch(t *testing.T) {
 		},
 	}
 
-	_, err := d.resolveOpenCodeCommand()
+	_, err := d.resolveOpenCodeRuntime()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "digest mismatch")
 
@@ -448,9 +467,9 @@ func TestOpenCodePinMatchingBakedVersionSkipsDownload(t *testing.T) {
 		},
 	}
 
-	command, err := d.resolveOpenCodeCommand()
+	resolved, err := d.resolveOpenCodeRuntime()
 	require.NoError(t, err)
-	assert.Equal(t, OpenCodeBakedBinary, command)
+	assert.Equal(t, OpenCodeBakedBinary, resolved.command)
 }
 
 // A cached copy from an earlier session (or another container sharing the host
@@ -478,7 +497,150 @@ func TestOpenCodeReusesCachedBinary(t *testing.T) {
 		},
 	}
 
-	command, err := d.resolveOpenCodeCommand()
+	resolved, err := d.resolveOpenCodeRuntime()
 	require.NoError(t, err)
-	assert.Equal(t, cached, command)
+	assert.Equal(t, cached, resolved.command)
+}
+
+func openCodeDataHome(t *testing.T, cfg map[string]interface{}) string {
+	t.Helper()
+	entry, ok := cfg["opencode"].(map[string]interface{})
+	require.True(t, ok)
+	env, ok := entry["env"].(map[string]interface{})
+	require.True(t, ok)
+	dataHome, ok := env["XDG_DATA_HOME"].(string)
+	require.True(t, ok)
+	return dataHome
+}
+
+// opencode migrates its SQLite schema in place; a database touched by one
+// release made another exit with "no such column". Each release must get its
+// own state directory.
+func TestOpenCodeStateIsKeyedByVersion(t *testing.T) {
+	cacheDir := t.TempDir()
+	originalCache := OpenCodeCacheDir
+	OpenCodeCacheDir = cacheDir
+	defer func() { OpenCodeCacheDir = originalCache }()
+
+	cached := filepath.Join(cacheDir, "1.19.0", "opencode")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cached), 0755))
+	require.NoError(t, os.WriteFile(cached, []byte("cached"), 0755))
+
+	bundled := openCodeDaemon()
+	assert.Equal(t, filepath.Join(OpenCodeStateRoot, "1.18.18"), openCodeDataHome(t, bundled.generateAgentServerConfig()))
+
+	pinned := openCodeDaemon()
+	pinned.codeAgentConfig.OpenCodeBinary = &CodeAgentBinary{
+		Version: "1.19.0",
+		Artifacts: map[string]CodeAgentBinaryArtifact{
+			runtime.GOARCH: {URL: "http://127.0.0.1:1/unreachable", SHA256: "abc"},
+		},
+	}
+	assert.Equal(t, filepath.Join(OpenCodeStateRoot, "1.19.0"), openCodeDataHome(t, pinned.generateAgentServerConfig()))
+}
+
+func TestOpenCodeMissingVersionMarkerEmitsNoAgentServer(t *testing.T) {
+	originalVersionFile := OpenCodeBakedVersionFile
+	OpenCodeBakedVersionFile = filepath.Join(t.TempDir(), "missing")
+	defer func() { OpenCodeBakedVersionFile = originalVersionFile }()
+
+	_, err := openCodeDaemon().resolveOpenCodeRuntime()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read bundled opencode version")
+}
+
+// A pin that cannot be installed must fail the session's waiting turn with the
+// reason, once per install attempt, rather than leave it hanging on an agent
+// that will never register.
+func TestOpenCodeFailedInstallIsReportedToSession(t *testing.T) {
+	download := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer download.Close()
+
+	var reports []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v1/sessions/ses_test/agent-startup-error", r.URL.Path)
+		var body struct {
+			Error string `json:"error"`
+		}
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		reports = append(reports, body.Error)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer api.Close()
+
+	originalCache := OpenCodeCacheDir
+	OpenCodeCacheDir = t.TempDir()
+	defer func() { OpenCodeCacheDir = originalCache }()
+
+	d := openCodeDaemon()
+	d.apiURL = api.URL
+	d.sessionID = "ses_test"
+	d.codeAgentConfig.OpenCodeBinary = &CodeAgentBinary{
+		Version: "1.19.0",
+		Artifacts: map[string]CodeAgentBinaryArtifact{
+			runtime.GOARCH: {URL: download.URL, SHA256: "abc"},
+		},
+	}
+
+	assert.Nil(t, d.generateAgentServerConfig())
+	assert.Nil(t, d.generateAgentServerConfig())
+	require.Len(t, reports, 1, "a backed-off retry must not report the same failure again")
+	assert.Contains(t, reports[0], "opencode agent unavailable: install opencode 1.19.0")
+}
+
+func withOpenCodeStateRoot(t *testing.T) string {
+	t.Helper()
+	original := OpenCodeStateRoot
+	OpenCodeStateRoot = t.TempDir()
+	t.Cleanup(func() { OpenCodeStateRoot = original })
+	return OpenCodeStateRoot
+}
+
+// A desktop image rollout during a long opencode thread must not orphan it:
+// state from before version keying moves under the running version.
+func TestOpenCodeMigratesLegacyStateToRunningVersion(t *testing.T) {
+	root := withOpenCodeStateRoot(t)
+	legacyDB := filepath.Join(root, "opencode", "opencode.db")
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacyDB), 0o755))
+	require.NoError(t, os.WriteFile(legacyDB, []byte("legacy"), 0o644))
+
+	cfg := openCodeDaemon().generateAgentServerConfig()
+
+	dataHome := openCodeDataHome(t, cfg)
+	assert.Equal(t, filepath.Join(root, "1.18.18"), dataHome)
+	body, err := os.ReadFile(filepath.Join(dataHome, "opencode", "opencode.db"))
+	require.NoError(t, err)
+	assert.Equal(t, "legacy", string(body))
+	_, err = os.Stat(filepath.Join(root, "opencode"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestOpenCodeLeavesLegacyStateWhenVersionedStateExists(t *testing.T) {
+	root := withOpenCodeStateRoot(t)
+	legacyDB := filepath.Join(root, "opencode", "opencode.db")
+	currentDB := filepath.Join(root, "1.18.18", "opencode", "opencode.db")
+	for path, body := range map[string]string{legacyDB: "legacy", currentDB: "current"} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+	}
+
+	require.NotNil(t, openCodeDaemon().generateAgentServerConfig())
+
+	for path, want := range map[string]string{legacyDB: "legacy", currentDB: "current"} {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, want, string(body))
+	}
+}
+
+func TestOpenCodeMigrationWithoutLegacyStateDoesNothing(t *testing.T) {
+	root := withOpenCodeStateRoot(t)
+
+	require.NotNil(t, openCodeDaemon().generateAgentServerConfig())
+
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
 }

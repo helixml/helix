@@ -369,6 +369,7 @@ func newCreateCommand() *cobra.Command {
 	var justDoIt bool
 	var autoStart bool
 	var quiet bool
+	var confineAgentKey bool
 
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -418,6 +419,7 @@ Examples:
 				AutoStart:      autoStart,
 				SandboxRuntime: types.SandboxRuntime(runtime),
 			}
+			request.ConfineAgentKey = confineAgentKey
 
 			var task types.SpecTask
 			if err := taskRequest(http.MethodPost, "/api/v1/spec-tasks/from-prompt", request, &task); err != nil {
@@ -453,6 +455,7 @@ Examples:
 	cmd.Flags().StringVar(&taskType, "type", "", "Task type, e.g. feature, bug, refactor")
 	cmd.Flags().StringVar(&runtime, "runtime", "", "Sandbox environment: ubuntu-desktop or headless-ubuntu. Empty = project default.")
 	cmd.Flags().BoolVar(&justDoIt, "just-do-it", false, "Skip spec planning and go straight to implementation")
+	cmd.Flags().BoolVar(&confineAgentKey, "confine-agent-key", false, "Confine the task's agent key to the task: no access to the project's other tasks or sessions, no task creation. Immutable once the task exists.")
 	cmd.Flags().BoolVar(&autoStart, "auto-start", false, "Let the orchestrator start the task as soon as there is capacity")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output the task ID")
 	return cmd

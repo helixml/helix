@@ -121,7 +121,7 @@ func (s *StartExternalAgentPausedSuite) TestContainerMetadataSurvivesStartDeskto
 		}},
 	}
 
-	got, err := s.server.StartExternalAgentSession(ctx, req, userID)
+	got, err := s.server.StartExternalAgentSession(ctx, req, userID, types.SystemTurn(types.SystemTurnCronTrigger))
 	s.Require().NoError(err)
 	s.Require().NotNil(got)
 

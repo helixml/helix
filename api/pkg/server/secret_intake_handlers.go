@@ -393,7 +393,7 @@ func (s *HelixAPIServer) notifySecretIntakeSubmitted(ctx context.Context, item *
 		return
 	}
 	message := fmt.Sprintf("[helix connect] The customer just submitted the credentials you requested (intake %s, status: submitted). Continue with your sign-in step now — do not ask them to confirm again.", item.ID)
-	if _, err := s.enqueueAgentMessage(ctx, session.ID, message, false, "", ""); err != nil {
+	if _, err := s.enqueueAgentMessage(ctx, session.ID, message, false, "", "", types.SystemTurn(types.SystemTurnSecretIntakeSubmitted)); err != nil {
 		log.Warn().Err(err).Str("session_id", session.ID).Str("intake_id", item.ID).Msg("intake submitted: wake dispatch failed")
 	}
 }

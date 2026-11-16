@@ -141,7 +141,9 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 			Select("status").Where("id = ?", task.ID).Take(&previous).Error; err != nil {
 			return err
 		}
-		result := tx.Omit("DependsOn").Save(task)
+		// ConfineAgentKey is fixed at creation: the keys minted for the
+		// task's sessions carry it, so no update may change it.
+		result := tx.Omit("DependsOn", "ConfineAgentKey").Save(task)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -601,6 +603,9 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 
 	if filters.WithDependsOn {
 		db = db.Preload("DependsOn")
+	}
+	if filters.ID != "" {
+		db = db.Where("id = ?", filters.ID)
 	}
 	if filters.ProjectID != "" {
 		db = db.Where("project_id = ?", filters.ProjectID)

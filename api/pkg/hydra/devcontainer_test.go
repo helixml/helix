@@ -3,6 +3,7 @@ package hydra
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -329,6 +330,66 @@ func TestPrepareMountSourcesAdoptsFreshAndEmptyRootOwnedData(t *testing.T) {
 			require.Equal(t, wantMode, info.Mode().Perm())
 		})
 	}
+}
+
+func TestPrepareMountSourcesMakesAgentCacheWritableByDesktopUser(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing=%v", existing), func(t *testing.T) {
+			path := rootlessMountTestPath(t, "data", "agent-cache")
+			if existing {
+				// What Docker's bind-mount auto-create leaves behind (as root).
+				require.NoError(t, os.MkdirAll(path, 0o700))
+			}
+
+			oldUmask := unix.Umask(0o077)
+			err := prepareMountSources(&CreateDevContainerRequest{
+				Mounts: []MountConfig{{Source: path, Destination: instanceAgentCacheDir}},
+			})
+			unix.Umask(oldUmask)
+			require.NoError(t, err)
+
+			uid, gid := fileOwnership(t, path)
+			require.Equal(t, uint32(instanceUID), uid)
+			require.Equal(t, uint32(instanceUID), gid)
+			info, err := os.Lstat(path)
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+		})
+	}
+
+	t.Run("mountpoint with another owner is refused", func(t *testing.T) {
+		// /dev/shm is its own tmpfs on Linux hosts and containers, owned by
+		// root with mode 1777.
+		const mountpoint = "/dev/shm"
+		var leaf, parent unix.Stat_t
+		if unix.Stat(mountpoint, &leaf) != nil || unix.Stat(filepath.Dir(mountpoint), &parent) != nil || leaf.Dev == parent.Dev {
+			t.Skip("/dev/shm is not a mountpoint here")
+		}
+
+		err := prepareMountSources(&CreateDevContainerRequest{
+			Mounts: []MountConfig{{Source: mountpoint, Destination: instanceAgentCacheDir}},
+		})
+		require.ErrorContains(t, err, "is a mountpoint")
+		var after unix.Stat_t
+		require.NoError(t, unix.Stat(mountpoint, &after))
+		require.Equal(t, leaf.Uid, after.Uid)
+		require.Equal(t, leaf.Mode, after.Mode)
+	})
+
+	t.Run("symlinked source is refused", func(t *testing.T) {
+		target := rootlessMountTestPath(t, "target")
+		require.NoError(t, os.Mkdir(target, 0o700))
+		link := rootlessMountTestPath(t, "link")
+		require.NoError(t, os.Symlink(target, link))
+
+		err := prepareMountSources(&CreateDevContainerRequest{
+			Mounts: []MountConfig{{Source: link, Destination: instanceAgentCacheDir}},
+		})
+		require.Error(t, err)
+		info, err := os.Lstat(target)
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	})
 }
 
 func TestPrepareMountSourcesLeavesOtherMountsUnchanged(t *testing.T) {

@@ -25474,15 +25474,6 @@ const docTemplate = `{
                     "description": "Require an active subscription before allowing to use the product",
                     "type": "boolean"
                 },
-                "rudderstack_data_plane_url": {
-                    "type": "string"
-                },
-                "rudderstack_write_key": {
-                    "type": "string"
-                },
-                "sentry_dsn_frontend": {
-                    "type": "string"
-                },
                 "stripe_enabled": {
                     "description": "Stripe top-ups enabled",
                     "type": "boolean"

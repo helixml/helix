@@ -6,7 +6,9 @@
 # The startup script is now run by helix-workspace-setup.sh in the same terminal.
 # This file is kept for manual re-runs if needed.
 #
-# This script runs the user's .helix/startup.sh from the helix-specs worktree.
+# This script runs the project's .helix/startup.sh from the trusted helix-specs
+# commit (HELIX_TRUSTED_STARTUP_SHA; see helix-trusted-startup.sh), never from
+# the live helix-specs worktree.
 #
 # The startup script is typically used for:
 # - Installing dependencies (npm install, pip install, etc.)
@@ -23,15 +25,24 @@ echo ""
 WORK_DIR="$HOME/work"
 cd "$WORK_DIR"
 
-# Find the startup script in helix-specs worktree
-HELIX_SPECS_DIR="$WORK_DIR/helix-specs"
-STARTUP_SCRIPT_PATH=""
-
-if [ -d "$HELIX_SPECS_DIR" ]; then
-    STARTUP_SCRIPT_PATH="$HELIX_SPECS_DIR/.helix/startup.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/helix-trusted-startup.sh" ]; then
+    source "$SCRIPT_DIR/helix-trusted-startup.sh"
+else
+    source /usr/local/bin/helix-trusted-startup.sh
 fi
 
-if [ -n "$STARTUP_SCRIPT_PATH" ] && [ -f "$STARTUP_SCRIPT_PATH" ]; then
+HELIX_SPECS_DIR="$WORK_DIR/helix-specs"
+STARTUP_SCRIPT_PATH=""
+STARTUP_STATUS=1
+if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
+    STARTUP_SCRIPT_PATH=$(helix_trusted_startup_script "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" "$HELIX_SPECS_DIR")
+    STARTUP_STATUS=$?
+fi
+
+if [ "$STARTUP_STATUS" -gt 1 ]; then
+    echo ""
+elif [ "$STARTUP_STATUS" -eq 0 ]; then
     echo "Script: $STARTUP_SCRIPT_PATH"
     echo ""
 
@@ -65,7 +76,7 @@ if [ -n "$STARTUP_SCRIPT_PATH" ] && [ -f "$STARTUP_SCRIPT_PATH" ]; then
     echo ""
 else
     if [ -d "$HELIX_SPECS_DIR" ]; then
-        echo "No startup script found at .helix/startup.sh in helix-specs"
+        echo "No startup script in the trusted helix-specs commit"
         echo "Add a startup script in Project Settings to run setup commands"
     elif [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
         echo "No helix-specs worktree found"

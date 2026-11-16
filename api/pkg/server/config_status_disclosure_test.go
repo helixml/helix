@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,8 +25,6 @@ func configTestServer(t *testing.T) (*HelixAPIServer, *store.MockStore) {
 	m.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	cfg := &config.ServerConfig{}
 	cfg.FileStore.LocalFSPath = t.TempDir()
-	cfg.Janitor.SentryDsnFrontend = "https://public@sentry.example/1"
-	cfg.Janitor.RudderStackWriteKey = "rs-write-key"
 	return &HelixAPIServer{
 		Cfg:            cfg,
 		Store:          m,
@@ -34,7 +33,7 @@ func configTestServer(t *testing.T) (*HelixAPIServer, *store.MockStore) {
 	}, m
 }
 
-func getConfigThroughRoute(t *testing.T, srv *HelixAPIServer, token string) types.ServerConfigForFrontend {
+func getConfigBodyThroughRoute(t *testing.T, srv *HelixAPIServer, token string) []byte {
 	handler := srv.authMiddleware.optionalUser(system.DefaultWrapperWithConfig(srv.config, system.WrapperConfig{SilenceErrors: true}))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
 	if token != "" {
@@ -43,14 +42,17 @@ func getConfigThroughRoute(t *testing.T, srv *HelixAPIServer, token string) type
 	rr := httptest.NewRecorder()
 	handler(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	return rr.Body.Bytes()
+}
+
+func getConfigThroughRoute(t *testing.T, srv *HelixAPIServer, token string) types.ServerConfigForFrontend {
 	var cfg types.ServerConfigForFrontend
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &cfg))
+	require.NoError(t, json.Unmarshal(getConfigBodyThroughRoute(t, srv, token), &cfg))
 	return cfg
 }
 
-// Anonymous GET /config no longer fingerprints the deployment (exact build,
-// deployment id); it keeps what the SPA needs before sign-in, including the
-// browser-side Sentry and RudderStack ingestion keys.
+// Anonymous GET /config does not fingerprint the deployment (exact build,
+// deployment id).
 func TestConfig_AnonymousOmitsBuildAndDeploymentIdentity(t *testing.T) {
 	srv, _ := configTestServer(t)
 	cfg := getConfigThroughRoute(t, srv, "")
@@ -58,8 +60,19 @@ func TestConfig_AnonymousOmitsBuildAndDeploymentIdentity(t *testing.T) {
 	require.Empty(t, cfg.Version)
 	require.Empty(t, cfg.LatestVersion)
 	require.Empty(t, cfg.DeploymentID)
-	require.Equal(t, "https://public@sentry.example/1", cfg.SentryDSNFrontend)
-	require.Equal(t, "rs-write-key", cfg.RudderStackWriteKey)
+}
+
+// /config carries no third-party telemetry ingestion keys: the integrations
+// were removed, so the fields must not come back under any name.
+func TestConfig_CarriesNoTelemetryIngestKeys(t *testing.T) {
+	srv, _ := configTestServer(t)
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal(getConfigBodyThroughRoute(t, srv, ""), &fields))
+	for name := range fields {
+		lower := strings.ToLower(name)
+		require.NotContains(t, lower, "sentry", name)
+		require.NotContains(t, lower, "rudderstack", name)
+	}
 }
 
 // A bad or unknown token is served anonymously: /config must keep working for

@@ -172,7 +172,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	}
 
 	if !hasEnoughBalance {
-		return nil, nil, errors.New(types.ErrorInsufficientBalance)
+		return nil, nil, ErrInsufficientBalance
 	}
 
 	// Evaluate and add OAuth tokens
@@ -372,7 +372,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	}
 
 	if !hasEnoughBalance {
-		return nil, nil, errors.New(types.ErrorInsufficientBalance)
+		return nil, nil, ErrInsufficientBalance
 	}
 
 	// Evaluate and add OAuth tokens
@@ -533,7 +533,7 @@ func (c *Controller) preflightHelixAgentModels(ctx context.Context, user *types.
 	}
 
 	if !hasEnoughBalance {
-		return errors.New(types.ErrorInsufficientBalance)
+		return ErrInsufficientBalance
 	}
 
 	return nil
@@ -592,6 +592,26 @@ func (c *Controller) getClient(ctx context.Context, organizationID, userID, prov
 	}
 
 	return client, nil
+}
+
+// ErrRAGSourceNotFound refuses a rag_source_id that does not exist or that
+// the caller does not own.
+var ErrRAGSourceNotFound = errors.New("rag source not found")
+
+// ErrInsufficientBalance refuses an inference request because the paying
+// wallet cannot cover it.
+var ErrInsufficientBalance = errors.New(types.ErrorInsufficientBalance)
+
+// InferenceQuotaExceededError refuses an inference request because the
+// user's plan has used its monthly token allowance.
+type InferenceQuotaExceededError struct {
+	Tier  string
+	Used  int
+	Limit int
+}
+
+func (e *InferenceQuotaExceededError) Error() string {
+	return fmt.Sprintf("monthly token limit exceeded for %s tier (%d/%d tokens used). Please upgrade your plan or wait until next month to continue", e.Tier, e.Used, e.Limit)
 }
 
 // ErrModelNotConfigured marks a request that named no provider for a model the
@@ -1133,10 +1153,16 @@ func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app 
 		return app, nil
 	}
 
-	// Decrypt secrets before using them
-	decryptedSecrets, err := decryptSecrets(filteredSecrets)
+	decryptedSecrets, undecryptable, err := decryptSecrets(filteredSecrets)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt secrets: %w", err)
+	}
+	if len(undecryptable) > 0 {
+		log.Error().
+			Strs("secret_names", undecryptable).
+			Str("app_id", app.ID).
+			Str("owner", app.Owner).
+			Msg("Secrets cannot be decrypted with the current encryption key and were not substituted; they must be re-entered")
 	}
 
 	return enrichAppWithSecrets(app, decryptedSecrets)
@@ -1168,34 +1194,30 @@ func enrichAppWithSecrets(app *types.App, secrets []*types.Secret) (*types.App, 
 	return &enrichedApp, nil
 }
 
-// decryptSecrets decrypts all secret values using the encryption key
-func decryptSecrets(secrets []*types.Secret) ([]*types.Secret, error) {
+// decryptSecrets decrypts secret values with the current encryption key. A
+// secret that does not decrypt (written under an earlier HELIX_ENCRYPTION_KEY)
+// is left out and named in undecryptable, so its stored ciphertext is never
+// substituted into the app config.
+func decryptSecrets(secrets []*types.Secret) (decrypted []*types.Secret, undecryptable []string, err error) {
 	encryptionKey, err := crypto.GetEncryptionKey()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get encryption key: %w", err)
+		return nil, nil, fmt.Errorf("failed to get encryption key: %w", err)
 	}
 
-	decrypted := make([]*types.Secret, len(secrets))
-	for i, secret := range secrets {
-		// Create a copy to avoid modifying the original
+	for _, secret := range secrets {
 		decryptedSecret := *secret
-
-		// The value is stored as encrypted base64 string in the []byte field
 		if len(secret.Value) > 0 {
-			decryptedValue, err := crypto.DecryptAES256GCM(string(secret.Value), encryptionKey)
+			value, err := crypto.DecryptAES256GCM(string(secret.Value), encryptionKey)
 			if err != nil {
-				log.Warn().Err(err).Str("secret_name", secret.Name).Msg("Failed to decrypt secret, using raw value")
-				// If decryption fails, use the raw value (for backwards compatibility during migration)
-				decryptedSecret.Value = secret.Value
-			} else {
-				decryptedSecret.Value = decryptedValue
+				undecryptable = append(undecryptable, secret.Name)
+				continue
 			}
+			decryptedSecret.Value = value
 		}
-
-		decrypted[i] = &decryptedSecret
+		decrypted = append(decrypted, &decryptedSecret)
 	}
 
-	return decrypted, nil
+	return decrypted, undecryptable, nil
 }
 
 func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) error {
@@ -1227,12 +1249,17 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 	}
 
 	entity, err := c.Options.Store.GetDataEntity(ctx, opts.RAGSourceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, ErrRAGSourceNotFound
+	}
 	if err != nil {
 		return nil, fmt.Errorf("error getting data entity: %w", err)
 	}
 
+	// Another user's source is answered like a missing one, so its existence
+	// is not disclosed.
 	if entity.Owner != user.ID {
-		return nil, fmt.Errorf("you do not have access to the data entity with the id: %s", entity.ID)
+		return nil, ErrRAGSourceNotFound
 	}
 
 	prompt := getLastMessage(req)

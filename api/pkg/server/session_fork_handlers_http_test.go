@@ -77,7 +77,7 @@ func seedRunningParent(t *testing.T, srv *HelixAPIServer, user *types.User, runt
 
 func TestForkSessionHTTP_HappyPath(t *testing.T) {
 	srv, _ := newForkTestServer(t)
-	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 2)
 
 	rr := callForkHTTP(t, srv, user, parent.ID, ForkSessionRequest{
@@ -99,7 +99,7 @@ func TestForkSessionHTTP_HappyPath(t *testing.T) {
 
 func TestForkSessionHTTP_RejectsForkFromPaused(t *testing.T) {
 	srv, _ := newForkTestServer(t)
-	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 1)
 	parent.Metadata.Paused = true
 	parent.Metadata.PausedReason = "forked_to:ses_alreadyforked"
@@ -116,7 +116,7 @@ func TestForkSessionHTTP_RejectsForkFromPaused(t *testing.T) {
 
 func TestForkSessionHTTP_RejectsSameRuntime(t *testing.T) {
 	srv, _ := newForkTestServer(t)
-	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 1)
 
 	rr := callForkHTTP(t, srv, user, parent.ID, ForkSessionRequest{
@@ -129,7 +129,7 @@ func TestForkSessionHTTP_RejectsSameRuntime(t *testing.T) {
 
 func TestForkSessionHTTPRejectsAppOverrideForSpecTask(t *testing.T) {
 	srv, mem := newForkTestServer(t)
-	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 1)
 
 	// Spec task that's tracking the parent as its planning session.
@@ -178,7 +178,7 @@ func TestForkSessionHTTPRejectsAppOverrideForSpecTask(t *testing.T) {
 // claude_code" 400 when switching between Opus and Sonnet variants.
 func TestForkSessionHTTP_AllowsSameRuntimeDifferentApp(t *testing.T) {
 	srv, mem := newForkTestServer(t)
-	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 1)
 	// Parent is already bound to "app_test" via seedRunningParent. Seed a
 	// SECOND app with the same runtime to fork to.
@@ -213,7 +213,7 @@ func TestForkSessionHTTP_AllowsSameRuntimeDifferentApp(t *testing.T) {
 
 func TestForkSessionHTTP_RejectsNonZedExternalSource(t *testing.T) {
 	srv, _ := newForkTestServer(t)
-	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 1)
 	parent.Metadata.AgentType = "helix"
 	_, err := srv.Store.UpdateSession(context.Background(), *parent)
@@ -229,7 +229,7 @@ func TestForkSessionHTTP_RejectsNonZedExternalSource(t *testing.T) {
 
 func TestForkSessionHTTP_NotFound(t *testing.T) {
 	srv, _ := newForkTestServer(t)
-	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 
 	rr := callForkHTTP(t, srv, user, "ses_does_not_exist", ForkSessionRequest{
 		CodeAgentRuntime: types.CodeAgentRuntimeQwenCode,
@@ -240,8 +240,8 @@ func TestForkSessionHTTP_NotFound(t *testing.T) {
 
 func TestForkSessionHTTP_ForbiddenForNonOwner(t *testing.T) {
 	srv, _ := newForkTestServer(t)
-	owner := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
-	other := &types.User{ID: "user_someone_else", Type: types.OwnerTypeUser}
+	owner := &types.User{ID: "user_owner", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
+	other := &types.User{ID: "user_someone_else", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	parent := seedRunningParent(t, srv, owner, types.CodeAgentRuntimeClaudeCode, 1)
 
 	rr := callForkHTTP(t, srv, other, parent.ID, ForkSessionRequest{
@@ -253,7 +253,7 @@ func TestForkSessionHTTP_ForbiddenForNonOwner(t *testing.T) {
 
 func TestSendSessionMessageHTTP_RejectsPaused(t *testing.T) {
 	srv, _ := newForkTestServer(t)
-	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser}
+	user := &types.User{ID: "user_owner", Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	parent := seedRunningParent(t, srv, user, types.CodeAgentRuntimeClaudeCode, 1)
 	parent.Metadata.Paused = true
 	parent.Metadata.PausedReason = "forked_to:ses_child"

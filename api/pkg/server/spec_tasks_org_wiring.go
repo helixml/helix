@@ -32,13 +32,13 @@ func (w specTaskWorkflow) EnsurePullRequests(ctx context.Context, task *types.Sp
 // "request_changes" branch uses (BuildRevisionInstructionPrompt +
 // enqueueSpecTaskAgentMessage, interrupt=true). The status transition itself
 // is already persisted by the runtime impl; this only carries the comment.
-func (w specTaskWorkflow) RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string) error {
+func (w specTaskWorkflow) RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string, provenance types.TurnProvenance) error {
 	message := services.BuildRevisionInstructionPrompt(task, comment)
-	return w.apiServer.enqueueSpecTaskAgentMessage(ctx, task, message, true, userID)
+	return w.apiServer.enqueueSpecTaskAgentMessage(ctx, task, message, true, userID, provenance)
 }
 
-func (w specTaskWorkflow) SendAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, userID string) (string, error) {
-	return w.apiServer.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, userID, task.ID)
+func (w specTaskWorkflow) SendAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, userID string, provenance types.TurnProvenance) (string, error) {
+	return w.apiServer.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, userID, task.ID, provenance)
 }
 
 func (w specTaskWorkflow) CompleteTask(ctx context.Context, task *types.SpecTask) error {

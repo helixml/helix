@@ -43,7 +43,7 @@ func TestFromPromptInlineAttachmentReachesJDIWorkspaceAndInteraction(t *testing.
 		DefaultBranch: "main",
 		Status:        types.GitRepositoryStatusActive,
 	}
-	user := types.User{ID: "test-user", Email: "test@example.com"}
+	user := types.User{ID: "test-user", Email: "test@example.com", TokenType: types.TokenTypeOIDC}
 	project := &types.Project{
 		ID:            "project-inline-jdi",
 		UserID:        user.ID,

@@ -53,6 +53,7 @@ func (s *PostgresStore) ListAPIKeys(ctx context.Context, q *ListAPIKeysQuery) ([
 		Owner:          q.Owner,
 		OwnerType:      q.OwnerType,
 		OrganizationID: q.OrganizationID,
+		ProjectID:      q.ProjectID,
 	}
 
 	if q.Type != "" {
@@ -63,8 +64,11 @@ func (s *PostgresStore) ListAPIKeys(ctx context.Context, q *ListAPIKeysQuery) ([
 		queryAPIKey.AppID = &sql.NullString{String: q.AppID, Valid: true}
 	}
 
-	err := s.gdb.WithContext(ctx).Where(queryAPIKey).Find(&apiKeys).Error
-	if err != nil {
+	db := s.gdb.WithContext(ctx).Where(queryAPIKey)
+	if q.UserManaged {
+		db = db.Where("COALESCE(session_id, '') = '' AND COALESCE(spec_task_id, '') = ''")
+	}
+	if err := db.Find(&apiKeys).Error; err != nil {
 		return nil, err
 	}
 	return apiKeys, nil

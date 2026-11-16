@@ -97,7 +97,7 @@ func filestoreHTTPError(err error) error {
 	switch {
 	case errors.As(err, &httpErr):
 		return err
-	case errors.Is(err, fs.ErrNotExist), errors.Is(err, storage.ErrObjectNotExist):
+	case errors.Is(err, filestore.ErrNotFound), errors.Is(err, fs.ErrNotExist), errors.Is(err, storage.ErrObjectNotExist):
 		return system.NewHTTPError404("file not found")
 	case errors.Is(err, filestore.ErrInvalidPath):
 		return system.NewHTTPError400("invalid path")

@@ -275,7 +275,7 @@ You can use the ` + "`chrome-devtools`" + ` MCP server to search the web via Duc
 
 - "Start a container" → docker-compose.yaml, NOT a Python wrapper
 - "Create sample data" → write files directly, NOT a generator script
-- "Run X at startup" → /home/retro/work/helix-specs/.helix/startup.sh (idempotent), NOT a service framework
+- "Run X at startup" → /home/retro/work/helix-specs/.helix/startup.sh (idempotent; runs once a person pushes helix-specs or saves it in Project Settings), NOT a service framework
 - If it can be a one-liner, use a one-liner
 
 ## Update Design Docs As You Go (CRITICAL)
@@ -691,7 +691,7 @@ func (s *AgentInstructionService) SendApprovalInstructionMessage(
 	// kickoff begins a new phase and should respect the queue (defer until idle).
 	// userID is carried as notifyUserID so the response streams to the same user
 	// as before.
-	if err := s.enqueuer(ctx, task, message, false, userID); err != nil {
+	if err := s.enqueuer(ctx, task, message, false, userID, types.TriggeredBySystemTurn(types.SystemTurnImplementationPrompt, task.QueuedBy)); err != nil {
 		return fmt.Errorf("failed to enqueue approval instruction to agent: %w", err)
 	}
 

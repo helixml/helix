@@ -116,8 +116,15 @@ func (apiServer *HelixAPIServer) commitTurnError(ctx context.Context, interactio
 	// Still generic? Then the cause was not a subscription problem. The most
 	// common remaining cause is the model provider itself failing, which Helix
 	// recorded in llm_calls even though Zed could not tell us about it.
-	var providerFailure *types.LLMCall
-	errorMsg, providerFailure = apiServer.maybeExplainProviderFailure(ctx, interaction.SessionID, errorMsg)
+	providerFailure, failureErr := apiServer.providerFailureForInteraction(ctx, interaction)
+	if failureErr != nil {
+		log.Warn().Err(failureErr).
+			Str("interaction_id", interaction.ID).
+			Msg("[TURN] Failed to inspect model provider evidence")
+	}
+	if isOpaqueProviderAbort(errorMsg) && providerFailure != nil {
+		errorMsg = "The AI model was temporarily unavailable, so this task did not run."
+	}
 	if providerFailure != nil {
 		if apiServer.recordProviderRecovery(ctx, interaction, providerFailure) {
 			errorMsg += " The bot will try again automatically when the model is available."

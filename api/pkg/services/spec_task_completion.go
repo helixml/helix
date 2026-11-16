@@ -107,9 +107,13 @@ func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.Us
 	default:
 		return nil, invalidCompletion("decision must be %q or %q", types.CompletionDecisionApprove, types.CompletionDecisionReject)
 	}
+	sentBack, err := types.SystemTurnTriggeredBy(types.SystemTurnCompletionSentBack, user)
+	if err != nil {
+		return nil, err
+	}
 	var task *types.SpecTask
 	var key string
-	err := s.git.WithRepoLock("task:"+taskID, func() error {
+	err = s.git.WithRepoLock("task:"+taskID, func() error {
 		var err error
 		if task, err = s.store.GetSpecTask(ctx, taskID); err != nil {
 			return err
@@ -130,7 +134,7 @@ func (s *PRProposalService) DecideCompletion(ctx context.Context, user *types.Us
 		log.Warn().Err(err).Str("task_id", task.ID).Msg("completion: failed to dismiss request")
 	}
 	if s.enqueue != nil {
-		if err := s.enqueue(ctx, task, BuildCompletionSentBackPrompt(user, req.Comment), false, ""); err != nil {
+		if err := s.enqueue(ctx, task, BuildCompletionSentBackPrompt(user, req.Comment), false, "", sentBack); err != nil {
 			log.Error().Err(err).Str("task_id", task.ID).Msg("completion: failed to notify agent")
 		}
 	}
@@ -175,7 +179,7 @@ func (s *PRProposalService) NotifyPRSettled(ctx context.Context, task *types.Spe
 	if s.enqueue == nil {
 		return
 	}
-	if err := s.enqueue(ctx, task, BuildPRSettledPrompt(task, pr), false, ""); err != nil {
+	if err := s.enqueue(ctx, task, BuildPRSettledPrompt(task, pr), false, "", types.SystemTurn(types.SystemTurnPRSettled)); err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("pr_id", pr.PRID).Msg("completion: failed to tell agent about settled PR")
 	}
 }

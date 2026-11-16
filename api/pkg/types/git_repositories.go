@@ -87,6 +87,12 @@ type GitRepository struct {
 
 	// Upstream sync health (external repos). Written only via MarkGitRepositorySync{Started,Finished}.
 	GitRepositorySyncState
+
+	// TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
+	// .helix/startup.sh from. Only a human write moves it (a push with a human
+	// credential, or a startup-script save in the UI/API); agent pushes never
+	// do. Written only via SetGitRepositoryTrustedStartupSHA.
+	TrustedStartupSHA string `json:"trusted_startup_sha"`
 }
 
 // GitRepositorySyncState reports the health of upstream fetches and pushes.

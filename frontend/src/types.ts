@@ -999,6 +999,7 @@ export interface ISecret {
   name: string,
   created: string,
   updated: string,
+  undecryptable?: boolean,
 }
 
 export type IProviderEndpointType = 'global' | 'user'

@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/cli/artifact"
 	"github.com/helixml/helix/api/pkg/cli/chat"
 	"github.com/helixml/helix/api/pkg/cli/fs"
+	"github.com/helixml/helix/api/pkg/cli/identity"
 	"github.com/helixml/helix/api/pkg/cli/knowledge"
 	"github.com/helixml/helix/api/pkg/cli/mcp"
 	"github.com/helixml/helix/api/pkg/cli/member"
@@ -70,6 +71,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(user.New())
 	RootCmd.AddCommand(runner.New())
 	RootCmd.AddCommand(websearch.New())
+	RootCmd.AddCommand(identity.New())
 
 	// Commands available on all platforms
 	RootCmd.AddCommand(NewServeCmd())

@@ -95,7 +95,7 @@ func callerOwnsProviderEndpoint(user *types.User, orgID string, endpoint *types.
 	}
 	switch endpoint.OwnerType {
 	case types.OwnerTypeUser:
-		return endpoint.Owner == user.ID
+		return callerOwns(user, endpoint.Owner, "")
 	case types.OwnerTypeOrg:
 		return orgID != "" && endpoint.Owner == orgID
 	default:
@@ -1712,7 +1712,7 @@ func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, 
 	}
 
 	// Otherwise, check if it's the user's provider
-	if providerEndpoint.Owner == user.ID {
+	if callerOwns(user, providerEndpoint.Owner, "") {
 		return true, nil
 	}
 
@@ -1853,7 +1853,7 @@ func authorizePersonalProviderEndpoint(user *types.User, endpoint *types.Provide
 	if user.Admin {
 		return nil
 	}
-	if endpoint.Owner != user.ID {
+	if !callerOwns(user, endpoint.Owner, "") {
 		return errors.New("not authorized to change this provider endpoint")
 	}
 	return nil

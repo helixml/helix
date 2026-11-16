@@ -108,6 +108,17 @@ func TestPreReceiveHookRestrictsNonBranchRefs(t *testing.T) {
 	}
 }
 
+// The allow-list is comma-separated, so a branch holding commas could match a
+// run of allowed entries ("helix-specs,feature/x") without being any of them.
+func TestPreReceiveHookRefusesBranchSpanningAllowList(t *testing.T) {
+	allowed := "helix-specs,feature/002667-x"
+	for _, branch := range []string{allowed, "helix-specs,", ",feature/002667-x"} {
+		if _, ok := runHook(t, allowed, zeroRev+" "+someRev+" refs/heads/"+branch); ok {
+			t.Errorf("push to %q should be refused", branch)
+		}
+	}
+}
+
 // The installer no-ops when the on-disk hook already contains the current version
 // string, so a change to the script that forgets to bump the version silently
 // never reaches existing repositories.

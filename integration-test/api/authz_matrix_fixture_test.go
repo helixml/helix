@@ -83,7 +83,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	}
 	run := uuid.NewString()[:8]
 
-	for _, who := range []actor{aOwner, aMember, bOwner, outsider, waitlisted, admin} {
+	for _, who := range []actor{aOwner, aMember, aPeer, bOwner, bMember, outsider, waitlisted, admin} {
 		email := fmt.Sprintf("authz-%s-%s@example.com", who, uuid.NewString())
 		user, key, err := createUser(t, db, authenticator, email)
 		if err != nil {
@@ -106,6 +106,8 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	f.vars["aOwnerID"] = f.users[aOwner].ID
 	f.vars["aMemberID"] = f.users[aMember].ID
 	f.vars["bOwnerID"] = f.users[bOwner].ID
+	f.vars["aPeerID"] = f.users[aPeer].ID
+	f.vars["bMemberID"] = f.users[bMember].ID
 
 	f.owner = f.clientFor(t, aOwner)
 	bClient := f.clientFor(t, bOwner)
@@ -126,12 +128,13 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	f.vars["orgAName"] = orgA.Name
 	f.vars["orgB"] = orgB.ID
 
-	if _, err := f.owner.AddOrganizationMember(f.setupCtx(t), orgA.ID, &types.AddOrganizationMemberRequest{
-		UserReference: f.users[aMember].ID,
-		Role:          types.OrganizationRoleMember,
-	}); err != nil {
-		t.Fatalf("add member: %v", err)
-	}
+	f.addMember(t, f.owner, orgA.ID, aMember)
+	f.addMember(t, f.owner, orgA.ID, aPeer)
+	f.addMember(t, bClient, orgB.ID, bMember)
+	// A's owner also belongs to B: aOwnerOrgBKey is their key for B, the
+	// strongest credential scoped to another organization.
+	f.addMember(t, bClient, orgB.ID, aOwner)
+	f.keys[aOwnerOrgBKey] = f.createOrgKey(t, aOwner, orgB.ID)
 
 	// Provider endpoints first: the agents run on them. Their base URLs do not
 	// resolve, so an LLM proxy row that reaches an agent fails fast instead
@@ -163,7 +166,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	f.vars["sessOther"] = f.createSession(t, "sessOther", "", "", "")
 
 	// Scoped credentials.
-	f.keys[aOwnerOrgKey] = f.createOrgKey(t)
+	f.keys[aOwnerOrgKey] = f.createOrgKey(t, aOwner, orgA.ID)
 	f.keys[projKey] = f.createScopedKey(t, &types.ApiKey{
 		Name:           "Session key - authz matrix (task)",
 		OrganizationID: orgA.ID,
@@ -225,7 +228,54 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	f.vars["artifactA2"] = f.createArtifact(t, "artifactA2", f.vars["projA2"])
 	f.uploadAppFile(t, f.vars["appA"])
 
+	f.createPeerResources(t, orgA.ID)
+	f.vars["projPersonal"] = f.createPersonalProject(t)
+
 	return f
+}
+
+// createPeerResources gives aPeer, a plain member of A, objects of their own
+// that no grant shares: aMember must reach none of them.
+func (f *authzFixture) createPeerResources(t *testing.T, orgID string) {
+	t.Helper()
+	f.vars["providerPeer"] = f.createProvider(t, "providerPeer", types.OwnerTypeUser, f.users[aPeer].ID)
+	f.vars["appP"] = f.createAppAs(t, aPeer, "appP", orgID, types.AgentKindHelix)
+	f.vars["repoP"] = f.createRepoAs(t, aPeer, "repoP", orgID)
+	f.vars["orgAgentP"] = f.createAppAs(t, aPeer, "orgAgentP", orgID, types.AgentKindOrg)
+	f.vars["projP"] = f.createProjectAs(t, aPeer, "projP", f.vars["repoP"], f.vars["orgAgentP"])
+	f.vars["taskP"] = f.createSpecTaskAs(t, aPeer, "taskP", f.vars["projP"])
+	f.setTaskStatus(t, f.vars["taskP"], types.TaskStatusSpecReview)
+	f.vars["sessP"] = f.createSessionAs(t, aPeer, "sessP", orgID, f.vars["projP"], f.vars["taskP"])
+	f.vars["secretP"] = f.createSecretAs(t, aPeer, "secretP", f.vars["projP"])
+	f.vars["secretPeerPersonal"] = f.createSecretAs(t, aPeer, "secretPeerPersonal", "")
+	f.vars["artifactP"] = f.createArtifactAs(t, aPeer, "artifactP", f.vars["projP"])
+	f.vars["knowledgeP"] = f.createKnowledgeAs(t, aPeer, "knowledgeP", orgID, f.vars["appP"])
+}
+
+// createPersonalProject seeds a project of aOwner's outside any organization
+// (the API creates projects in an organization; older ones are personal).
+func (f *authzFixture) createPersonalProject(t *testing.T) string {
+	t.Helper()
+	project, err := f.db.CreateProject(f.ctx, &types.Project{
+		ID:          system.GenerateProjectID(),
+		Name:        f.mark("projPersonal-" + uuid.NewString()[:8]),
+		Description: "authz matrix personal project",
+		UserID:      f.users[aOwner].ID,
+	})
+	if err != nil {
+		t.Fatalf("create personal project: %v", err)
+	}
+	return project.ID
+}
+
+func (f *authzFixture) addMember(t *testing.T, by *client.HelixClient, orgID string, who actor) {
+	t.Helper()
+	if _, err := by.AddOrganizationMember(f.setupCtx(t), orgID, &types.AddOrganizationMemberRequest{
+		UserReference: f.users[who].ID,
+		Role:          types.OrganizationRoleMember,
+	}); err != nil {
+		t.Fatalf("add %s to %s: %v", who, orgID, err)
+	}
 }
 
 func (f *authzFixture) clientFor(t *testing.T, who actor) *client.HelixClient {
@@ -270,7 +320,12 @@ func (f *authzFixture) api(t *testing.T, who actor, method, path string, body an
 
 func (f *authzFixture) createApp(t *testing.T, name, orgID, kind string) string {
 	t.Helper()
-	app, err := f.owner.CreateApp(f.setupCtx(t), &types.App{
+	return f.createAppAs(t, aOwner, name, orgID, kind)
+}
+
+func (f *authzFixture) createAppAs(t *testing.T, who actor, name, orgID, kind string) string {
+	t.Helper()
+	app, err := f.clientFor(t, who).CreateApp(f.setupCtx(t), &types.App{
 		OrganizationID: orgID,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
@@ -301,12 +356,17 @@ func (f *authzFixture) createApp(t *testing.T, name, orgID, kind string) string 
 
 func (f *authzFixture) createRepo(t *testing.T, name, orgID string) string {
 	t.Helper()
+	return f.createRepoAs(t, aOwner, name, orgID)
+}
+
+func (f *authzFixture) createRepoAs(t *testing.T, who actor, name, orgID string) string {
+	t.Helper()
 	var repo types.GitRepository
-	f.api(t, aOwner, http.MethodPost, "/api/v1/git/repositories", &types.GitRepositoryCreateRequest{
+	f.api(t, who, http.MethodPost, "/api/v1/git/repositories", &types.GitRepositoryCreateRequest{
 		Name:           strings.ToLower(name) + "-" + uuid.NewString()[:8],
 		Description:    f.mark(name),
 		RepoType:       types.GitRepositoryTypeCode,
-		OwnerID:        f.users[aOwner].ID,
+		OwnerID:        f.users[who].ID,
 		OrganizationID: orgID,
 		DefaultBranch:  "main",
 		InitialFiles:   map[string]string{"README.md": "# " + f.markers[name] + "\n"},
@@ -317,23 +377,33 @@ func (f *authzFixture) createRepo(t *testing.T, name, orgID string) string {
 
 func (f *authzFixture) createProject(t *testing.T, name, repoID string) string {
 	t.Helper()
+	return f.createProjectAs(t, aOwner, name, repoID, f.vars["orgAgentA"])
+}
+
+func (f *authzFixture) createProjectAs(t *testing.T, who actor, name, repoID, appID string) string {
+	t.Helper()
 	var project types.Project
-	f.api(t, aOwner, http.MethodPost, "/api/v1/projects", &types.ProjectCreateRequest{
+	f.api(t, who, http.MethodPost, "/api/v1/projects", &types.ProjectCreateRequest{
 		OrganizationID:    f.vars["orgA"],
 		Name:              f.mark(name),
 		Description:       "authz matrix project",
 		DefaultRepoID:     repoID,
-		DefaultHelixAppID: f.vars["orgAgentA"],
+		DefaultHelixAppID: appID,
 	}, &project)
 	return project.ID
 }
 
 func (f *authzFixture) createSpecTask(t *testing.T, name, projectID string) string {
 	t.Helper()
+	return f.createSpecTaskAs(t, aOwner, name, projectID)
+}
+
+func (f *authzFixture) createSpecTaskAs(t *testing.T, who actor, name, projectID string) string {
+	t.Helper()
 	task := &types.SpecTask{
 		ID:             system.GenerateSpecTaskID(),
 		ProjectID:      projectID,
-		UserID:         f.users[aOwner].ID,
+		UserID:         f.users[who].ID,
 		OrganizationID: f.vars["orgA"],
 		Name:           f.mark(name),
 		Description:    "authz matrix task",
@@ -353,10 +423,15 @@ func (f *authzFixture) createSpecTask(t *testing.T, name, projectID string) stri
 
 func (f *authzFixture) createSession(t *testing.T, name, orgID, projectID, taskID string) string {
 	t.Helper()
+	return f.createSessionAs(t, aOwner, name, orgID, projectID, taskID)
+}
+
+func (f *authzFixture) createSessionAs(t *testing.T, who actor, name, orgID, projectID, taskID string) string {
+	t.Helper()
 	session, err := f.db.CreateSession(f.ctx, types.Session{
 		ID:             system.GenerateSessionID(),
 		Name:           f.mark(name),
-		Owner:          f.users[aOwner].ID,
+		Owner:          f.users[who].ID,
 		OwnerType:      types.OwnerTypeUser,
 		OrganizationID: orgID,
 		ProjectID:      projectID,
@@ -409,10 +484,10 @@ func (f *authzFixture) mintSessionKey(t *testing.T, orgID, sessionID string) str
 	return key
 }
 
-func (f *authzFixture) createOrgKey(t *testing.T) string {
+func (f *authzFixture) createOrgKey(t *testing.T, who actor, orgID string) string {
 	t.Helper()
 	var key types.ApiKey
-	f.api(t, aOwner, http.MethodPost, "/api/v1/organizations/"+f.vars["orgA"]+"/api_keys",
+	f.api(t, who, http.MethodPost, "/api/v1/organizations/"+orgID+"/api_keys",
 		map[string]string{"name": "authz matrix org key"}, &key)
 	if key.Key == "" {
 		t.Fatalf("org key response carried no key")
@@ -441,8 +516,13 @@ func (f *authzFixture) createGrant(t *testing.T, path string) string {
 
 func (f *authzFixture) createSecret(t *testing.T, name, projectID string) string {
 	t.Helper()
+	return f.createSecretAs(t, aOwner, name, projectID)
+}
+
+func (f *authzFixture) createSecretAs(t *testing.T, who actor, name, projectID string) string {
+	t.Helper()
 	var secret types.Secret
-	f.api(t, aOwner, http.MethodPost, "/api/v1/secrets", &types.CreateSecretRequest{
+	f.api(t, who, http.MethodPost, "/api/v1/secrets", &types.CreateSecretRequest{
 		Name:      strings.ToUpper(strings.ReplaceAll(f.mark(name), "-", "_")),
 		Value:     "authz-matrix-secret-value-" + uuid.NewString(),
 		ProjectID: projectID,
@@ -454,11 +534,16 @@ func (f *authzFixture) createSecret(t *testing.T, name, projectID string) string
 
 func (f *authzFixture) createKnowledge(t *testing.T, name, orgID, appID string) string {
 	t.Helper()
+	return f.createKnowledgeAs(t, aOwner, name, orgID, appID)
+}
+
+func (f *authzFixture) createKnowledgeAs(t *testing.T, who actor, name, orgID, appID string) string {
+	t.Helper()
 	knowledgeText := "authz matrix knowledge"
 	knowledge, err := f.db.CreateKnowledge(f.ctx, &types.Knowledge{
 		ID:             system.GenerateKnowledgeID(),
 		Name:           f.mark(name),
-		Owner:          f.users[aOwner].ID,
+		Owner:          f.users[who].ID,
 		OwnerType:      types.OwnerTypeUser,
 		OrganizationID: orgID,
 		AppID:          appID,
@@ -512,9 +597,14 @@ func (f *authzFixture) createProvider(t *testing.T, name string, ownerType types
 
 func (f *authzFixture) createArtifact(t *testing.T, name, projectID string) string {
 	t.Helper()
+	return f.createArtifactAs(t, aOwner, name, projectID)
+}
+
+func (f *authzFixture) createArtifactAs(t *testing.T, who actor, name, projectID string) string {
+	t.Helper()
 	marker := f.mark(name)
 	visibility := types.ArtifactVisibilityProject
-	artifact, err := f.owner.CreateArtifact(f.setupCtx(t), projectID, &client.ArtifactUploadRequest{
+	artifact, err := f.clientFor(t, who).CreateArtifact(f.setupCtx(t), projectID, &client.ArtifactUploadRequest{
 		Name:       &marker,
 		Visibility: &visibility,
 		Content: &client.ArtifactContent{

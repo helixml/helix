@@ -47,7 +47,7 @@ const (
 	AttentionEventPrefix       = "atev_"
 	EvaluationSuitePrefix      = "evs_"
 	EvaluationRunPrefix        = "evr_"
-	SandboxPrefix              = "sbx_"
+	SandboxPrefix              = types.SandboxIDPrefix
 	SandboxCommandPrefix       = "sbcmd_"
 	RunnerProfilePrefix        = "rprof_"
 	RunnerTokenIDPrefix        = "rtok_"

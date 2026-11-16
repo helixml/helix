@@ -130,7 +130,12 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to clear queued turns before switching: %v", err))
 		}
 	}
+	actor, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 	if switchErr := apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, agentSwitchOptions{
+		actor:         actor,
 		createHandoff: live,
 		deliverLive:   live,
 	}); switchErr != nil {
@@ -258,7 +263,8 @@ func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
 		// Same thread, same agent, same container. interrupt=false defers
 		// behind an in-flight planning turn instead of interleaving two
 		// prompts on one ACP thread.
-		return apiServer.enqueueSpecTaskAgentMessage(ctx, task, prompt, false, "")
+		return apiServer.enqueueSpecTaskAgentMessage(ctx, task, prompt, false, "",
+			types.TriggeredBySystemTurn(types.SystemTurnImplementationPrompt, task.QueuedBy))
 	}
 
 	live := apiServer.hasRunningAgentContainer(ctx, session.ID)
@@ -272,6 +278,7 @@ func (apiServer *HelixAPIServer) transitionSpecTaskToImplementation(
 
 	session.Metadata.Phase = string(types.SpecTaskPhaseImplementation)
 	if switchErr := apiServer.switchAgentInPlaceForNextTurn(ctx, session, config.Runtime, "", agentSwitchOptions{
+		actor:              task.QueuedBy,
 		createHandoff:      true,
 		requireHandoff:     true,
 		handoffPrompt:      prompt + phaseHandoffTranscriptNote,
@@ -300,14 +307,20 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 	session *types.Session,
 	targetRuntime types.CodeAgentRuntime,
 	targetAppID string,
+	actor types.TurnProvenance,
 ) *system.HTTPError {
 	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, agentSwitchOptions{
+		actor:         actor,
 		createHandoff: true,
 		deliverLive:   true,
 	})
 }
 
 type agentSwitchOptions struct {
+	// actor is the caller who asked for the switch; the seed and handoff
+	// turns are triggered_by it. Every caller sets it (the source scan in
+	// pkg/types enforces this).
+	actor           types.TurnProvenance
 	createHandoff   bool
 	requireHandoff  bool
 	handoffReason   string
@@ -378,7 +391,8 @@ func (apiServer *HelixAPIServer) hasImplementationInstruction(ctx context.Contex
 // while a durable org-bot or spec-task session is offline. Reconciliation runs
 // before the next user turn, so that turn itself becomes the first message on
 // the replacement thread; no synthetic handoff turn is needed.
-func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Context, session *types.Session) *system.HTTPError {
+// actor is the caller whose turn found the binding stale.
+func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Context, session *types.Session, actor types.TurnProvenance) *system.HTTPError {
 	if session == nil || session.Metadata.AgentType != string(types.AgentTypeZedExternal) || session.ParentApp == "" {
 		return nil
 	}
@@ -409,6 +423,7 @@ func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Contex
 		Msg("reconciling stale session agent binding before next turn")
 
 	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, session.ParentApp, agentSwitchOptions{
+		actor:       actor,
 		deliverLive: true,
 	})
 }
@@ -511,6 +526,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 		State:           types.InteractionStateComplete,
 		PromptMessage:   transitionLabel,
 		ResponseMessage: transcript,
+		Provenance:      types.TriggeredBySystemTurn(types.SystemTurnAgentSwitched, options.actor),
 	}
 	seedInteraction, err = apiServer.Store.CreateInteraction(ctx, seedInteraction)
 	if err != nil {
@@ -565,6 +581,7 @@ func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
 			State:                   types.InteractionStateWaiting,
 			PromptMessage:           handoffPrompt,
 			CodeAgentConfigSnapshot: configSnapshot,
+			Provenance:              types.TriggeredBySystemTurn(types.SystemTurnAgentSwitchHandoff, options.actor),
 		}
 		createdHandoff, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction)
 		if err != nil {

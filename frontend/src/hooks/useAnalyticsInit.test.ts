@@ -1,24 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 
-vi.mock('@sentry/react', () => ({
-  init: vi.fn(),
-  setUser: vi.fn(),
-  captureException: vi.fn(),
-  showReportDialog: vi.fn(),
-  BrowserTracing: vi.fn(),
-  Replay: vi.fn(),
-}))
-
-vi.mock('@rudderstack/analytics-js', () => ({
-  RudderAnalytics: vi.fn().mockImplementation(() => ({
-    load: vi.fn(),
-    identify: vi.fn(),
-    page: vi.fn(),
-    track: vi.fn(),
-  })),
-}))
-
 let mockConfigData: any = undefined
 
 vi.mock('../services/userService', () => ({
@@ -30,76 +12,44 @@ vi.mock('../services/userService', () => ({
 }))
 
 import useAnalyticsInit from './useAnalyticsInit'
-import * as Sentry from '@sentry/react'
-import { RudderAnalytics } from '@rudderstack/analytics-js'
 
 describe('useAnalyticsInit', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
     mockConfigData = undefined
     const win = window as any
     win.setUserFunctions = []
     win.viewPageFunctions = []
     win.emitErrorFunctions = []
     win.emitEventFunctions = []
-    document.head.querySelectorAll('script[src*="gtag"]').forEach(s => s.remove())
+    document.head.querySelectorAll('script').forEach(s => s.remove())
     win.dataLayer = undefined
   })
 
   it('does nothing when config is undefined', () => {
-    mockConfigData = undefined
     renderHook(() => useAnalyticsInit())
-
-    expect(Sentry.init).not.toHaveBeenCalled()
-    expect(document.head.querySelector('script[src*="gtag"]')).toBeNull()
+    expect(document.head.querySelector('script')).toBeNull()
   })
 
   it('does nothing when config has no analytics values', () => {
     mockConfigData = { filestore_prefix: '', tools_enabled: true }
     renderHook(() => useAnalyticsInit())
-
-    expect(Sentry.init).not.toHaveBeenCalled()
-    expect(document.head.querySelector('script[src*="gtag"]')).toBeNull()
+    expect(document.head.querySelector('script')).toBeNull()
   })
 
-  describe('Sentry', () => {
-    it('shows the report dialog only for exception events', () => {
-      mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
-      renderHook(() => useAnalyticsInit())
+  it('ignores legacy telemetry keys from an older server', () => {
+    mockConfigData = {
+      sentry_dsn_frontend: 'https://abc@sentry.io/123',
+      rudderstack_write_key: 'write-key',
+      rudderstack_data_plane_url: 'https://data.plane.url',
+    }
+    renderHook(() => useAnalyticsInit())
 
-      const options = (Sentry.init as any).mock.calls[0][0]
-      const errorEvent = { event_id: 'error-event', exception: { values: [{ type: 'Error', value: 'boom' }] } }
-      const messageEvent = { event_id: 'message-event', message: 'handled API error' }
-
-      expect(options.ignoreErrors).toEqual([/runtime\.sendMessage.*Tab not found/i])
-      expect(options.beforeSend(errorEvent)).toBe(errorEvent)
-      expect(Sentry.showReportDialog).toHaveBeenCalledWith({ eventId: 'error-event' })
-
-      vi.mocked(Sentry.showReportDialog).mockClear()
-      expect(options.beforeSend(messageEvent)).toBe(messageEvent)
-      expect(Sentry.showReportDialog).not.toHaveBeenCalled()
-    })
-
-    it('registers setUser callback for Sentry', () => {
-      mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
-      renderHook(() => useAnalyticsInit())
-
-      const win = window as any
-      expect(win.setUserFunctions.length).toBe(1)
-      win.setUserFunctions[0]({ email: 'test@example.com', name: 'Test' })
-      expect(Sentry.setUser).toHaveBeenCalledWith({ email: 'test@example.com', name: 'Test' })
-    })
-
-    it('registers emitError callback for Sentry', () => {
-      mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
-      renderHook(() => useAnalyticsInit())
-
-      const win = window as any
-      expect(win.emitErrorFunctions.length).toBe(1)
-      const err = new Error('test')
-      win.emitErrorFunctions[0](err)
-      expect(Sentry.captureException).toHaveBeenCalledWith(err)
-    })
+    const win = window as any
+    expect(document.head.querySelector('script')).toBeNull()
+    expect(win.setUserFunctions).toHaveLength(0)
+    expect(win.viewPageFunctions).toHaveLength(0)
+    expect(win.emitErrorFunctions).toHaveLength(0)
+    expect(win.emitEventFunctions).toHaveLength(0)
   })
 
   describe('Google Analytics', () => {
@@ -121,64 +71,14 @@ describe('useAnalyticsInit', () => {
       expect(win.dataLayer).toBeDefined()
       expect(win.dataLayer.length).toBe(2) // 'js' + 'config'
     })
-  })
 
-  describe('RudderStack', () => {
-    it('initializes RudderStack when both keys are set', () => {
-      mockConfigData = {
-        rudderstack_write_key: 'write-key',
-        rudderstack_data_plane_url: 'https://data.plane.url',
-      }
-      renderHook(() => useAnalyticsInit())
-
-      const instance = (RudderAnalytics as any).mock.results[0].value
-      expect(instance.load).toHaveBeenCalledWith('write-key', 'https://data.plane.url', {
-        polyfillIfRequired: false,
-      })
-    })
-
-    it('does not initialize RudderStack when only write_key is set', () => {
-      mockConfigData = { rudderstack_write_key: 'write-key' }
-      renderHook(() => useAnalyticsInit())
-
-      expect(RudderAnalytics).not.toHaveBeenCalled()
-    })
-
-    it('registers user/page/event callbacks', () => {
-      mockConfigData = {
-        rudderstack_write_key: 'write-key',
-        rudderstack_data_plane_url: 'https://data.plane.url',
-      }
-      renderHook(() => useAnalyticsInit())
-
-      const win = window as any
-      const instance = (RudderAnalytics as any).mock.results[0].value
-
-      // setUser — strips token
-      win.setUserFunctions[0]({ email: 'a@b.com', name: 'A', token: 'secret' })
-      expect(instance.identify).toHaveBeenCalledWith('a@b.com', { email: 'a@b.com', name: 'A' })
-
-      // viewPage
-      win.viewPageFunctions[0]({ route: { name: 'home', path: '/' } })
-      expect(instance.page).toHaveBeenCalledWith('home', '/', { name: 'home', path: '/' })
-
-      // emitEvent
-      win.emitEventFunctions[0]({ name: 'click', data: 1 })
-      expect(instance.track).toHaveBeenCalledWith('click', { name: 'click', data: 1 })
-    })
-  })
-
-  describe('initialization guard', () => {
     it('only initializes once even if config reference changes', () => {
-      mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
+      mockConfigData = { google_analytics_frontend: 'G-TEST12345' }
       const { rerender } = renderHook(() => useAnalyticsInit())
-
-      expect(Sentry.init).toHaveBeenCalledTimes(1)
-
-      mockConfigData = { sentry_dsn_frontend: 'https://abc@sentry.io/123' }
+      mockConfigData = { google_analytics_frontend: 'G-TEST12345' }
       rerender()
 
-      expect(Sentry.init).toHaveBeenCalledTimes(1)
+      expect(document.head.querySelectorAll('script[src*="gtag"]')).toHaveLength(1)
     })
   })
 })

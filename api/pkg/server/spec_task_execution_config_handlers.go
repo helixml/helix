@@ -37,8 +37,8 @@ func (s *HelixAPIServer) getSpecTaskExecutionConfig(w http.ResponseWriter, r *ht
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -108,8 +108,8 @@ func (s *HelixAPIServer) updateSpecTaskExecutionConfig(w http.ResponseWriter, r 
 		http.Error(w, "SpecTask not found", http.StatusNotFound)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {

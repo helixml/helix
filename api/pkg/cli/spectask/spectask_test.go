@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func TestSpecTaskLifecycleCommandsDoNotExposeAgentFlag(t *testing.T) {
@@ -73,7 +75,10 @@ func TestCreateSpecTaskPayloadContainsNoAppIdentity(t *testing.T) {
 	}))
 	defer server.Close()
 
-	task, err := createSpecTask(server.URL, "test-token", "test", "prompt", "prj_test", "headless-ubuntu", true)
+	task, err := createSpecTask(server.URL, "test-token", types.CreateTaskRequest{
+		Name: "test", Prompt: "prompt", ProjectID: "prj_test",
+		SandboxRuntime: types.SandboxRuntimeHeadlessUbuntu, JustDoItMode: true, ConfineAgentKey: true,
+	})
 	if err != nil {
 		t.Fatalf("createSpecTask returned an error: %v", err)
 	}
@@ -92,6 +97,9 @@ func TestCreateSpecTaskPayloadContainsNoAppIdentity(t *testing.T) {
 	}
 	if payload["just_do_it_mode"] != true {
 		t.Fatalf("just_do_it_mode missing from payload: %#v", payload)
+	}
+	if payload["confine_agent_key"] != true {
+		t.Fatalf("confine_agent_key missing from payload: %#v", payload)
 	}
 }
 

@@ -66,7 +66,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     // Log to sessionStorage for post-crash recovery
     logErrorToSession(error.message, error.stack)
 
-    // Forward to Sentry/analytics via existing global hook
+    // Forward to registered error hooks
     try {
       const win = window as any
       if (typeof win.emitError === 'function') {

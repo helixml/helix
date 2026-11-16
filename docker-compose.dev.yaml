@@ -64,8 +64,6 @@ services:
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - EVAL_USER_ID=${EVAL_USER_ID:-}
       - FILESTORE_LOCALFS_PATH=/filestore
-      - SENTRY_DSN_API=${SENTRY_DSN_API:-}
-      - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}
       - GOOGLE_ANALYTICS_FRONTEND=${GOOGLE_ANALYTICS_FRONTEND:-}
       # Tools configuration
       - TOOLS_ENABLED=true

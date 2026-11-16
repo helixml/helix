@@ -36,8 +36,8 @@ func (s *HelixAPIServer) refreshSpecTaskPullRequest(w http.ResponseWriter, r *ht
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {

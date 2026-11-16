@@ -2459,14 +2459,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitHub = "github",
+  KindEmail = "email",
+  KindGitLab = "gitlab",
+  KindLocal = "local",
   KindHelixEvents = "helix_events",
+  KindSlack = "slack",
+  KindGitHub = "github",
   KindWebhook = "webhook",
   KindCron = "cron",
-  KindSlack = "slack",
-  KindGitLab = "gitlab",
-  KindEmail = "email",
-  KindLocal = "local",
 }
 
 export interface TransportResolvedActivation {
@@ -2489,6 +2489,35 @@ export interface TypesAPIError {
   message?: string;
   param?: string;
   type?: string;
+}
+
+export enum TypesAPIKeyScope {
+  APIKeyScopePersonal = "personal",
+  APIKeyScopeOrg = "org",
+  APIKeyScopeProject = "project",
+  APIKeyScopeSpecTask = "spec_task",
+  APIKeyScopeSession = "session",
+  APIKeyScopeSandbox = "sandbox",
+  APIKeyScopeApp = "app",
+  APIKeyScopeEmbed = "embed",
+  APIKeyScopeBotInstance = "bot_instance",
+}
+
+export interface TypesAPIKeySummary {
+  app_id?: string;
+  created?: string;
+  /**
+   * ID is a stable, non-secret handle for the key, derived from a hash of
+   * the secret. Use it to delete a key you did not create.
+   */
+  id?: string;
+  key_prefix?: string;
+  name?: string;
+  organization_id?: string;
+  owner?: string;
+  owner_type?: TypesOwnerType;
+  project_id?: string;
+  type?: TypesAPIKeyType;
 }
 
 export enum TypesAPIKeyType {
@@ -2703,6 +2732,11 @@ export interface TypesApiKey {
   session_id?: string;
   /** Used for isolation and metrics tracking */
   spec_task_id?: string;
+  /**
+   * TaskConfined confines a session key of a spec task created with
+   * confine_agent_key to that task (SpecTask.ConfineAgentKey).
+   */
+  task_confined?: boolean;
   type?: TypesAPIKeyType;
 }
 
@@ -2719,6 +2753,14 @@ export interface TypesArtifact {
   name?: string;
   organization_id?: string;
   project_id?: string;
+  /**
+   * SpecTaskID is the spec task whose task-confined key created the
+   * artifact, set by the server from the key and never from the request.
+   * Such a key may change or delete only its own task's artifacts, and a
+   * reader can tell one lane's artifacts from another's. Empty for
+   * artifacts created any other way.
+   */
+  spec_task_id?: string;
   subdomain_url?: string;
   updated_at?: string;
   updated_by?: string;
@@ -3087,6 +3129,7 @@ export enum TypesAttentionEventType {
   AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
+  AttentionEventProjectSecretUndecryptable = "project_secret_undecryptable",
 }
 
 export interface TypesAttentionEventUpdateRequest {
@@ -3121,9 +3164,19 @@ export enum TypesAuditEventType {
   AuditEventProjectDeleted = "project_deleted",
   AuditEventProjectSettingsUpdated = "project_settings_updated",
   AuditEventProjectGuidelinesUpdated = "project_guidelines_updated",
+  AuditEventIdentityAttestationMinted = "identity_attestation_minted",
+  AuditEventIdentityAttestationVerified = "identity_attestation_verified",
+  AuditEventAPIKeyCreated = "api_key_created",
+  AuditEventAPIKeyRevoked = "api_key_revoked",
 }
 
 export interface TypesAuditMetadata {
+  /** API key events: the key's non-secret id and name, never the secret */
+  api_key_id?: string;
+  api_key_name?: string;
+  attestation_audience?: string;
+  /** Identity attestation tracking */
+  attestation_jti?: string;
   branch_name?: string;
   /** Group ID linking related cloned tasks */
   clone_group_id?: string;
@@ -3147,6 +3200,7 @@ export interface TypesAuditMetadata {
   pull_requests?: TypesRepoPR[];
   /** Hash of requirements spec content */
   requirements_spec_hash?: string;
+  sandbox_id?: string;
   /** Helix session/interaction linking */
   session_id?: string;
   /** Spec versioning - capture spec state at time of event */
@@ -3469,6 +3523,11 @@ export interface TypesCloneTaskError {
 export interface TypesCloneTaskRequest {
   /** Auto-start cloned tasks */
   auto_start?: boolean;
+  /**
+   * ConfineAgentKey confines the clones' agent keys to their own task
+   * (SpecTask.ConfineAgentKey). A clone of a confined task is always confined.
+   */
+  confine_agent_key?: boolean;
   /** Create new projects for repos */
   create_projects?: TypesCloneTaskCreateProjectSpec[];
   target_project_ids?: string[];
@@ -3947,6 +4006,11 @@ export interface TypesCreateTaskRequest {
   /** For new mode: user-specified prefix (task# appended) */
   branch_prefix?: string;
   code_agent_config?: TypesCodeAgentExecutionConfig;
+  /**
+   * ConfineAgentKey confines the API keys minted for this task's sessions
+   * to the task itself (see SpecTask.ConfineAgentKey). Fixed at creation.
+   */
+  confine_agent_key?: boolean;
   /**
    * CredentialOwnerID optionally names the user whose Claude subscription should
    * authenticate this task's agent, for orchestrators dispatching work on a
@@ -4668,6 +4732,47 @@ export interface TypesGuidelinesHistory {
   version?: number;
 }
 
+export interface TypesIdentityAttestationClaims {
+  aud?: string;
+  exp?: string;
+  iat?: string;
+  jti?: string;
+  /**
+   * KeyConfined: the attested key reaches only its own spec task and that
+   * task's sessions (a task created with confine_agent_key).
+   */
+  key_confined?: boolean;
+  nonce?: string;
+  organization_id?: string;
+  owner?: string;
+  project_id?: string;
+  sandbox_id?: string;
+  session_id?: string;
+  spec_task_id?: string;
+}
+
+export interface TypesIdentityAttestationError {
+  error?: string;
+}
+
+export interface TypesIdentityAttestationRequest {
+  /** Audience names the verifier the token is for, e.g. "ptaas.example.com". */
+  audience?: string;
+  /** Nonce is the verifier's challenge (16–128 characters). */
+  nonce?: string;
+}
+
+export interface TypesIdentityAttestationResponse {
+  expires_at?: string;
+  token?: string;
+}
+
+export interface TypesIdentityAttestationVerifyRequest {
+  audience?: string;
+  nonce?: string;
+  token?: string;
+}
+
 export enum TypesImageURLDetail {
   ImageURLDetailHigh = "high",
   ImageURLDetailLow = "low",
@@ -4732,6 +4837,12 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
+  /**
+   * Provenance records who caused this turn's prompt. Server-set at
+   * creation and never updated; rows from before it existed read as
+   * origin "unknown".
+   */
+  provenance?: TypesTurnProvenance;
   question_history?: TypesResolvedQuestion[];
   rag_results?: TypesSessionRAGResult[];
   /**
@@ -4766,6 +4877,12 @@ export interface TypesInteraction {
   summary_updated_at?: string;
   /** System prompt for the interaction (copy of the session's system prompt that was used to create this interaction) */
   system_prompt?: string;
+  /**
+   * ThreadReseeds records every time Helix prepended a context preamble to
+   * this turn's prompt because the agent could not reopen its session, so
+   * what the agent was actually sent is auditable. Server-written only.
+   */
+  thread_reseeds?: TypesThreadReseed[];
   /** For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool. */
   tool_call_id?: string;
   /** For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls. */
@@ -6112,6 +6229,11 @@ export interface TypesPromptHistoryEntry {
   /** For reference, but primary grouping is by spec_task */
   project_id?: string;
   /**
+   * Provenance records who caused this prompt. Server-set at creation and
+   * never updated; the interaction created from it copies it.
+   */
+  provenance?: TypesTurnProvenance;
+  /**
    * QueuePosition tracks ordering for drag-and-drop reordering
    * Lower values = earlier in queue. Null for sent messages.
    */
@@ -6551,6 +6673,11 @@ export interface TypesRequestAuditEventResponse {
 }
 
 export interface TypesResolvedQuestion {
+  /**
+   * AnsweredBy says who resolved the question. Server-set; entries from
+   * before it existed read as origin "unknown".
+   */
+  answered_by?: TypesTurnProvenance;
   answers?: Record<string, string>;
   asked_at?: string;
   outcome?: string;
@@ -7037,6 +7164,13 @@ export interface TypesSecret {
    * behaviour and dev stays the primary path.
    */
   scope?: TypesSecretScope;
+  /**
+   * Undecryptable is set by the secrets lists when the stored value cannot
+   * be decrypted with the current HELIX_ENCRYPTION_KEY (it was written under
+   * an earlier key). Such a secret is never injected or substituted; it must
+   * be re-entered.
+   */
+  undecryptable?: boolean;
   updated?: string;
   value?: number[];
 }
@@ -7142,9 +7276,6 @@ export interface TypesServerConfigForFrontend {
   registration_enabled?: boolean;
   /** Require an active subscription before allowing to use the product */
   require_active_subscription?: boolean;
-  rudderstack_data_plane_url?: string;
-  rudderstack_write_key?: string;
-  sentry_dsn_frontend?: string;
   /**
    * ServerURL is the operator-configured public origin for this helix
    * instance (env SERVER_URL → WebServer.URL). Empty when not
@@ -7880,6 +8011,15 @@ export interface TypesSpecTask {
    * done (mark_task_complete) awaits the user's decision.
    */
   completion_requested_at?: string;
+  /**
+   * ConfineAgentKey confines every API key minted for this task's sessions
+   * to this task: its sessions and the task itself, not the project's other
+   * tasks and sessions, and it may not create tasks. Project files, git,
+   * repositories, artifacts and the LLM proxy stay reachable as for any
+   * project-scoped key. Set at creation and never changed, so a key cannot
+   * outlive the confinement it was minted under.
+   */
+  confine_agent_key?: boolean;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -8364,6 +8504,15 @@ export interface TypesSpecTaskWithProject {
    * done (mark_task_complete) awaits the user's decision.
    */
   completion_requested_at?: string;
+  /**
+   * ConfineAgentKey confines every API key minted for this task's sessions
+   * to this task: its sessions and the task itself, not the project's other
+   * tasks and sessions, and it may not create tasks. Project files, git,
+   * repositories, artifacts and the LLM proxy stay reachable as for any
+   * project-scoped key. Set at creation and never changed, so a key cannot
+   * outlive the confinement it was minted under.
+   */
+  confine_agent_key?: boolean;
   created_at?: string;
   /** Metadata */
   created_by?: string;
@@ -8727,6 +8876,11 @@ export interface TypesSystemSettingsResponse {
    * can show the floor without hardcoding it.
    */
   opencode_version?: string;
+  /**
+   * OpenCodeVersionError is set when the stored pin fails validation;
+   * sessions then ignore it and run the bundled build.
+   */
+  opencode_version_error?: string;
   optimus_generation_model?: string;
   optimus_generation_model_provider?: string;
   optimus_reasoning_model?: string;
@@ -8743,6 +8897,43 @@ export interface TypesSystemSettingsResponse {
   sandbox_desktop_price_credits_per_second?: number;
   sandbox_headless_price_credits_per_second?: number;
   updated?: string;
+}
+
+export enum TypesSystemTurnKind {
+  SystemTurnPlanningPrompt = "planning_prompt",
+  SystemTurnImplementationPrompt = "implementation_prompt",
+  SystemTurnRevisionRequested = "revision_requested",
+  SystemTurnDesignReviewComment = "design_review_comment",
+  SystemTurnAttachmentAdded = "attachment_added",
+  SystemTurnRebaseRequired = "rebase_required",
+  SystemTurnPushRequired = "push_required",
+  SystemTurnCompletionSentBack = "completion_sent_back",
+  SystemTurnPRSettled = "pr_settled",
+  SystemTurnPRProposalOutcome = "pr_proposal_outcome",
+  SystemTurnCIStatus = "ci_status",
+  SystemTurnReviewComment = "review_comment",
+  SystemTurnSecretIntakeSubmitted = "secret_intake_submitted",
+  SystemTurnSessionForked = "session_forked",
+  SystemTurnForkHandoff = "fork_handoff",
+  SystemTurnAgentSwitched = "agent_switched",
+  SystemTurnAgentSwitchHandoff = "agent_switch_handoff",
+  SystemTurnOrgActivation = "org_activation",
+  SystemTurnOrgBotSpecTaskMessage = "org_bot_spec_task_message",
+  SystemTurnOrgBotInstanceMessage = "org_bot_instance_message",
+  SystemTurnCronTrigger = "cron_trigger",
+  SystemTurnSlackMessage = "slack_message",
+  SystemTurnTeamsMessage = "teams_message",
+  SystemTurnCrispMessage = "crisp_message",
+  SystemTurnAzureDevOpsEvent = "azure_devops_event",
+  SystemTurnCodeReviewTrigger = "code_review_trigger",
+  SystemTurnEvaluationQuestion = "evaluation_question",
+  SystemTurnExternalAgentTestHarness = "external_agent_test_harness",
+  SystemTurnThreadReseed = "thread_reseed",
+  SystemTurnQuestionSettled = "question_settled",
+  SystemTurnOrgBotAction = "org_bot_action",
+  SystemTurnHelixAgentTool = "helix_agent_tool",
+  SystemTurnTriggerConfiguration = "trigger_configuration",
+  SystemTurnPRAutoApprove = "pr_auto_approve",
 }
 
 export interface TypesTeam {
@@ -8786,6 +8977,24 @@ export interface TypesTestStep {
 export enum TypesTextSplitterType {
   TextSplitterTypeMarkdown = "markdown",
   TextSplitterTypeText = "text",
+}
+
+export interface TypesThreadReseed {
+  agent_name?: string;
+  at?: string;
+  preamble_length?: number;
+  /** PreambleSHA256 is the hex sha256 of the injected preamble text. */
+  preamble_sha256?: string;
+  /** Provenance is always origin=system, system_kind=thread_reseed. */
+  provenance?: TypesTurnProvenance;
+  /** Reason is why the agent's session could not be resumed. */
+  reason?: TypesThreadReseedReason;
+  /** Runtime and AgentName identify the coding agent that was reseeded. */
+  runtime?: TypesCodeAgentRuntime;
+}
+
+export enum TypesThreadReseedReason {
+  ThreadReseedAgentCannotLoadSession = "agent_cannot_load_session",
 }
 
 export interface TypesTitleHistoryEntry {
@@ -9020,6 +9229,50 @@ export enum TypesTriggerType {
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+}
+
+export enum TypesTurnOrigin {
+  TurnOriginUser = "user",
+  TurnOriginAPI = "api",
+  TurnOriginSystem = "system",
+  TurnOriginExternalAgent = "external_agent",
+  TurnOriginUnknown = "unknown",
+}
+
+export interface TypesTurnProvenance {
+  api_key_id?: string;
+  api_key_org_id?: string;
+  /**
+   * API key fields, for origin=api. APIKeyID is the non-secret key_… id
+   * (see APIKeyID), never the secret.
+   */
+  api_key_owner?: string;
+  api_key_project_id?: string;
+  api_key_session_id?: string;
+  api_key_spec_task_id?: string;
+  /** APIKeyTaskConfined: the key reaches only APIKeySpecTaskID. */
+  api_key_task_confined?: boolean;
+  api_key_type?: TypesAPIKeyScope;
+  /** OrgBotID is the org bot that caused an org_bot_* system turn. */
+  org_bot_id?: string;
+  origin?: TypesTurnOrigin;
+  /** SystemKind names the code path, for origin=system. */
+  system_kind?: TypesSystemTurnKind;
+  trigger_app_id?: string;
+  /**
+   * Trigger fields, for a trigger_configuration actor: the trigger's id
+   * when it has one, the app it is configured on, and its configuring user.
+   */
+  trigger_id?: string;
+  trigger_owner?: string;
+  /**
+   * TriggeredBy is the authenticated caller whose request made Helix write
+   * this system turn (an operator clicking "request changes", say). Nil
+   * when the system turn came from a background event.
+   */
+  triggered_by?: TypesTurnProvenance;
+  /** UserID is the signed-in user for origin=user. */
+  user_id?: string;
 }
 
 export interface TypesUnifiedSearchResponse {
@@ -9306,6 +9559,11 @@ export interface TypesUser {
   session_id?: string;
   /** When running in Helix Code sandbox */
   spec_task_id?: string;
+  /**
+   * TaskConfined: the key reaches only its spec task (SpecTaskID) and that
+   * task's sessions (ApiKey.TaskConfined).
+   */
+  task_confined?: boolean;
   /** none, runner. keycloak, api_key */
   token_type?: TypesTokenType;
   trial_credits_on_first_org?: number;
@@ -11667,7 +11925,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a new API key
+     * @description Create a new API key. With project_id (and type "api"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization. Unknown body fields are refused. The legacy name query parameter mints a personal key and cannot be combined with a body.
      *
      * @tags api-keys
      * @name V1ApiKeysCreate
@@ -14204,6 +14462,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns a short-lived token stating which spec task, session or sandbox the caller's key belongs to, for one audience and nonce. Only the session or sandbox key of a desktop in a project may call it.
+     *
+     * @tags identity
+     * @name V1IdentityAttestationsCreate
+     * @summary Mint an identity attestation
+     * @request POST:/api/v1/identity/attestations
+     * @secure
+     */
+    v1IdentityAttestationsCreate: (request: TypesIdentityAttestationRequest, params: RequestParams = {}) =>
+      this.request<TypesIdentityAttestationResponse, SystemHTTPError>({
+        path: `/api/v1/identity/attestations`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Redeems an attestation once. The caller must be a user or an org-scoped API key that may read the attested project; session, project and app keys are refused. Every invalid, expired, foreign or replayed token gets the same 404.
+     *
+     * @tags identity
+     * @name V1IdentityAttestationsVerifyCreate
+     * @summary Verify an identity attestation
+     * @request POST:/api/v1/identity/attestations/verify
+     * @secure
+     */
+    v1IdentityAttestationsVerifyCreate: (request: TypesIdentityAttestationVerifyRequest, params: RequestParams = {}) =>
+      this.request<TypesIdentityAttestationClaims, SystemHTTPError | TypesIdentityAttestationError>({
+        path: `/api/v1/identity/attestations/verify`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -17214,6 +17512,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List the caller's own API keys scoped to the project. Key secrets are never returned; each key has a non-secret id and key_prefix. Requires a browser session, a personal API key, or an API key of the project's organization.
+     *
+     * @tags projects
+     * @name V1ProjectsApiKeysDetail
+     * @summary List project API keys
+     * @request GET:/api/v1/projects/{id}/api_keys
+     * @secure
+     */
+    v1ProjectsApiKeysDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAPIKeySummary[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/api_keys`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Revoke one of the caller's own API keys scoped to the project. The key stops authenticating immediately. To rotate a key, create a new one and revoke the old one.
+     *
+     * @tags projects
+     * @name V1ProjectsApiKeysDelete
+     * @summary Revoke a project API key
+     * @request DELETE:/api/v1/projects/{id}/api_keys/{key_id}
+     * @secure
+     */
+    v1ProjectsApiKeysDelete: (id: string, keyId: string, params: RequestParams = {}) =>
+      this.request<TypesAPIKeySummary, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/api_keys/${keyId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List static artifacts in a project. Access is inherited from the project.
      *
      * @tags Artifacts
@@ -17222,10 +17554,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/projects/{id}/artifacts
      * @secure
      */
-    v1ProjectsArtifactsDetail: (id: string, params: RequestParams = {}) =>
+    v1ProjectsArtifactsDetail: (
+      id: string,
+      query?: {
+        /** Only artifacts created by this spec task's task-confined key */
+        spec_task_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesArtifactsListResponse, any>({
         path: `/api/v1/projects/${id}/artifacts`,
         method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,
@@ -17872,7 +18212,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.
+     * @description One entry per distinct VCS provider present among the project's external repos, with the acting user, the configured repository account, and per-repo access status. Backs the project board connection lozenge.
      *
      * @tags Projects
      * @name GetProjectVcsConnections
@@ -19165,6 +19505,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         session_role?: string;
         /** Include external agent sessions */
         include_external_agents?: boolean;
+        /** Only the sessions Helix created for threads opened on this external agent connection (session id the agent connected with). The connection session itself is not included. Implies include_external_agents. */
+        external_agent_id?: string;
         /** Return only archived sessions instead of only unarchived ones */
         archived?: boolean;
         /** List another org member's sessions (requires org_id); limited to projects the caller can access unless they own the org */

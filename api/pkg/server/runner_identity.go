@@ -169,13 +169,12 @@ func runnerRefusalLog() *zerolog.Logger {
 }
 
 // canRunnerReadSession decides whether a runner-token caller may read a
-// session's credentials or sandbox configuration. The shared token may (as
-// before); a per-runner token only for sessions running on its own sandbox
-// host (Session.SandboxID is the host id its hydra-<id> tunnel uses).
+// session's credentials or sandbox configuration: only a per-runner token,
+// and only for sessions running on its own sandbox host (Session.SandboxID is
+// the host id its hydra-<id> tunnel uses). The shared token names no host, so
+// it is refused: nothing legitimate reads these with it, since the sandbox's
+// settings-sync daemon uses the session's own API key (fac73baae5).
 func canRunnerReadSession(user *types.User, session *types.Session) bool {
-	if user.RunnerID == "" {
-		return true
-	}
 	return types.RunnerIDsMatch(user.RunnerID, session.SandboxID)
 }
 

@@ -65,7 +65,6 @@ func NewTestServer(s store.Store, ps pubsub.PubSub) *HelixAPIServer {
 		interactionDispatchClaims:   make(map[string]dispatchClaim),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
-		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),
@@ -115,6 +114,9 @@ func paceChatMessage(sessionID string) {
 }
 
 // SendChatMessage sends a chat message via the low-level
+// testHarnessTurn marks turns the WebSocket-sync e2e server injects.
+var testHarnessTurn = types.SystemTurn(types.SystemTurnExternalAgentTestHarness)
+
 // sendChatMessageToExternalAgent primitive (creates an interaction with the
 // caller-supplied request_id and sends the WebSocket command). This is a
 // TEST-HARNESS entry point for the WebSocket-sync e2e server, which needs to
@@ -125,14 +127,14 @@ func paceChatMessage(sessionID string) {
 // e2e test server (zed-repo). Use SendChatMessageWithInterrupt for tests that
 // need to exercise the interrupt path.
 func (s *HelixAPIServer) SendChatMessage(sessionID, message, requestID string) error {
-	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, false)
+	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, false, testHarnessTurn)
 	return err
 }
 
 // SendChatMessageWithInterrupt sends a chat message with the interrupt flag set,
 // matching the semantic used by design-review comments and the prompt-history queue.
 func (s *HelixAPIServer) SendChatMessageWithInterrupt(sessionID, message, requestID string, interrupt bool) error {
-	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt)
+	_, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt, testHarnessTurn)
 	return err
 }
 
@@ -148,7 +150,7 @@ func (s *HelixAPIServer) SendChatMessageWithInterrupt(sessionID, message, reques
 // a live Zed binary. Returns the queue-entry (prompt) id. The drain is
 // synchronous so tests observe the outcome deterministically without polling.
 func (s *HelixAPIServer) EnqueueQueuedPrompt(sessionID, message string, interrupt bool) (string, error) {
-	promptID, err := s.persistQueuedPrompt(context.Background(), sessionID, message, interrupt, "", "")
+	promptID, err := s.persistQueuedPrompt(context.Background(), sessionID, message, interrupt, "", "", testHarnessTurn)
 	if err != nil {
 		return "", err
 	}
@@ -192,13 +194,10 @@ func (s *HelixAPIServer) ContextMappings() map[string]string {
 	return cp
 }
 
-// SetExternalAgentUserMapping sets the user ID mapping for an agent session.
-// The production handler uses this to determine the owner when creating sessions.
-func (s *HelixAPIServer) SetExternalAgentUserMapping(agentSessionID, userID string) {
-	s.contextMappingsMutex.Lock()
-	defer s.contextMappingsMutex.Unlock()
-	s.externalAgentUserMapping[agentSessionID] = userID
-}
+// SetExternalAgentUserMapping is a no-op kept for the Zed e2e test server at
+// the pinned ZED_COMMIT, which still calls it. Sessions for agent-created
+// threads now take their owner from the connection's own session.
+func (s *HelixAPIServer) SetExternalAgentUserMapping(_, _ string) {}
 
 // ProcessSyncEvent injects a sync event as if it came from a connected agent.
 // Used by E2E tests to simulate events that the Zed binary can't send in

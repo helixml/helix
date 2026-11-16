@@ -402,6 +402,27 @@ func (s *GitIntegrationSuite) TestExternalWriteReportsFailedHelixSpecsPublicatio
 	s.Equal(localCommit, s.getMiddleCommit(SpecsBranchName))
 }
 
+// A contents write to a mirrored branch is published upstream, and the commit
+// it returns is the one upstream holds.
+func (s *GitIntegrationSuite) TestExternalContentsWritePushesUpstream() {
+	var commit string
+	err := s.gitRepoService.WithExternalRepoWrite(
+		s.ctx,
+		s.testRepo,
+		ExternalRepoWriteOptions{Branch: "main", FailOnSyncError: true, FailOnPushError: true},
+		func() error {
+			var writeErr error
+			commit, writeErr = s.gitRepoService.CreateOrUpdateFileContents(
+				s.ctx, s.testRepo.ID, "docs/new.md", "main", []byte("new\n"), "Add doc", "Alice", "alice@example.com",
+			)
+			return writeErr
+		},
+	)
+	s.Require().NoError(err)
+	s.Equal(commit, s.getMiddleCommit("main"))
+	s.Equal(commit, s.getUpstreamCommit("main"))
+}
+
 func (s *GitIntegrationSuite) TestAgentHelixSpecsPushSurvivesUserOAuthFailure() {
 	agentClone := filepath.Join(s.testDir, "agent-specs-clone")
 	s.cloneFromServer(agentClone)

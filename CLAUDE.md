@@ -596,9 +596,12 @@ gh release create <tag> --target main --generate-notes   # e.g. 2.11.32
 control plane** (`helix-cloud-london`) runs first: it ZFS-snapshots the DB, bumps
 `HELIX_VERSION` in `/data/helix-app/helix/.env`, pulls and restarts the API, health-checks it,
 and auto-rolls back on failure. After that succeeds, the **prod runner code.helix.ml** and
-**prod runner dev.code.helix.ml** steps pull the released sandbox image and run their
-respective launchers; the legacy runner updates `SANDBOX_TAG`, while the dev runner updates
-the image tag in `/opt/HelixML/prod-app-runner/run.sh`. The CD key must be authorized on all
+**prod runner dev.code.helix.ml** steps pull the released sandbox image and compare its
+`helix.sandbox.fingerprint` with the running sandbox's. Same fingerprint (only desktops/Zed
+changed) means the desktop image is rolled into the running sandbox and every desktop on it
+keeps running; otherwise the host's launcher is re-run, which recreates the sandbox (the
+legacy runner updates `SANDBOX_TAG`, the dev runner updates the image tag in
+`/opt/HelixML/prod-app-runner/run.sh`). The CD key must be authorized on all
 three hosts. See `design/2026-06-25-prod-version-bump-runbook.md`. Watch the build with
 `gh pr checks` / the Drone MCP tools and confirm all three deploy steps go green.
 

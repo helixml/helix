@@ -94,6 +94,20 @@ func (suite *AuthSuite) assertMovedToSession(rec *httptest.ResponseRecorder) {
 	}
 }
 
+func (suite *AuthSuite) assertCallbackReturnedToSignIn(rec *httptest.ResponseRecorder) {
+	suite.Equal(testServerURL, rec.Header().Get("Location"))
+	cookies := map[string]*http.Cookie{}
+	for _, cookie := range rec.Result().Cookies() {
+		cookies[cookie.Name] = cookie
+	}
+	for _, name := range []string{accessTokenCookie.Name, refreshTokenCookie.Name, stateCookie.Name, nonceCookie.Name, redirectURICookie.Name} {
+		suite.Require().Contains(cookies, name)
+		suite.Empty(cookies[name].Value)
+		suite.Less(cookies[name].MaxAge, 0)
+	}
+	suite.NotContains(cookies, auth.SessionCookieName)
+}
+
 func (suite *AuthSuite) addCookie(req *http.Request, name, value string) {
 	req.AddCookie(&http.Cookie{Name: name, Value: value})
 }
@@ -392,12 +406,37 @@ func (suite *AuthSuite) TestCallback() {
 		{
 			name: "Missing state cookie",
 			setupRequest: func() *http.Request {
-				req := suite.createTestRequest("GET", fmt.Sprintf("/api/v1/auth/callback?state=%s&code=%s", testState, testCode), nil)
+				req := suite.createTestRequest("GET", fmt.Sprintf("/api/v1/auth/callback?state=%s&code=%s&redirect_uri=https://evil.example&iss=https://evil.example", testState, testCode), nil)
 				suite.addCookie(req, "nonce", testNonce)
-				suite.addCookie(req, "redirect_uri", testServerURL+"/dashboard")
+				suite.addCookie(req, "redirect_uri", "https://evil.example")
 				return req
 			},
 			expectedStatus: http.StatusFound, // Should redirect to the homepage
+			checkResponse:  suite.assertCallbackReturnedToSignIn,
+		},
+		{
+			name: "empty state cookie",
+			setupRequest: func() *http.Request {
+				req := suite.createTestRequest("GET", "/api/v1/auth/callback?code=must-not-exchange", nil)
+				suite.addCookie(req, "state", "")
+				suite.addCookie(req, "nonce", testNonce)
+				suite.addCookie(req, "redirect_uri", "https://evil.example")
+				return req
+			},
+			expectedStatus: http.StatusFound,
+			checkResponse:  suite.assertCallbackReturnedToSignIn,
+		},
+		{
+			name: "missing callback state",
+			setupRequest: func() *http.Request {
+				req := suite.createTestRequest("GET", "/api/v1/auth/callback?code=must-not-exchange", nil)
+				suite.addCookie(req, "state", testState)
+				suite.addCookie(req, "nonce", testNonce)
+				suite.addCookie(req, "redirect_uri", "https://evil.example")
+				return req
+			},
+			expectedStatus: http.StatusFound,
+			checkResponse:  suite.assertCallbackReturnedToSignIn,
 		},
 		{
 			name: "missing nonce cookie",
@@ -425,17 +464,7 @@ func (suite *AuthSuite) TestCallback() {
 				return req
 			},
 			expectedStatus: http.StatusFound,
-			checkResponse: func(rec *httptest.ResponseRecorder) {
-				res := rec.Result()
-				defer res.Body.Close()
-				cookies := res.Cookies()
-				for _, cookie := range cookies {
-					suite.Equal(-1, cookie.MaxAge, "Cookie should be deleted")
-					suite.Empty(cookie.Value, "Cookie value should be empty")
-				}
-				// Should redirect to the homepage
-				suite.Equal(testServerURL, rec.Header().Get("Location"))
-			},
+			checkResponse:  suite.assertCallbackReturnedToSignIn,
 		},
 		{
 			name: "empty code",
@@ -446,7 +475,32 @@ func (suite *AuthSuite) TestCallback() {
 				suite.addCookie(req, "redirect_uri", testServerURL+"/dashboard")
 				return req
 			},
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusFound,
+			checkResponse:  suite.assertCallbackReturnedToSignIn,
+		},
+		{
+			name: "expired authentication",
+			setupRequest: func() *http.Request {
+				req := suite.createTestRequest("GET", fmt.Sprintf("/api/v1/auth/callback?state=%s&error=temporarily_unavailable&error_description=authentication_expired&redirect_uri=https://evil.example&iss=https://evil.example", testState), nil)
+				suite.addCookie(req, "state", testState)
+				suite.addCookie(req, "nonce", testNonce)
+				suite.addCookie(req, "redirect_uri", "https://evil.example")
+				return req
+			},
+			expectedStatus: http.StatusFound,
+			checkResponse:  suite.assertCallbackReturnedToSignIn,
+		},
+		{
+			name: "provider denied authentication",
+			setupRequest: func() *http.Request {
+				req := suite.createTestRequest("GET", fmt.Sprintf("/api/v1/auth/callback?state=%s&error=access_denied", testState), nil)
+				suite.addCookie(req, "state", testState)
+				suite.addCookie(req, "nonce", testNonce)
+				suite.addCookie(req, "redirect_uri", "https://evil.example")
+				return req
+			},
+			expectedStatus: http.StatusFound,
+			checkResponse:  suite.assertCallbackReturnedToSignIn,
 		},
 		{
 			name: "exchange failure",

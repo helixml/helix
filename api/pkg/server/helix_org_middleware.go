@@ -261,6 +261,10 @@ func (s *HelixAPIServer) withHelixOrgScope(scope *helixOrgScope, next http.Handl
 // stores the canonical organization ID and authenticated user on context.
 func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := denyHelixOrgToConfinedKey(getRequestUser(r)); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 		orgSlugOrID := mux.Vars(r)["org"]
 		if orgSlugOrID == "" {
 			http.Error(w, "missing org", http.StatusBadRequest)
