@@ -645,11 +645,11 @@ func (c *inProcHelixClient) DeleteProjectSecret(ctx context.Context, projectID, 
 // map. Dev scope matches the desktop container's environment — the bot
 // reads exactly what it would have had injected at boot.
 func (c *inProcHelixClient) ListProjectSecrets(ctx context.Context, projectID string) (map[string]string, error) {
-	envVars, err := c.server.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
+	secrets, err := c.server.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
 	if err != nil {
 		return nil, err
 	}
-	return parseEnvVarsToMap(envVars), nil
+	return parseEnvVarsToMap(secrets.Env), nil
 }
 
 func (c *inProcHelixClient) ListProjectSecretRecords(ctx context.Context, projectID string) ([]types.Secret, error) {
@@ -1173,7 +1173,7 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	if params.DeliveryID != "" {
 		req.InteractionID = activationDeliveryID(system.InteractionPrefix, params.DeliveryID)
 	}
-	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID)
+	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID, types.SystemTurn(types.SystemTurnOrgActivation))
 	if err != nil {
 		return runtimehelix.DeliveryResult{}, fmt.Errorf("start external agent session: %w", err)
 	}
@@ -1243,14 +1243,12 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			if interactionCompleted(interaction) {
 				return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interaction.ID, PromptID: promptID, Completed: true}, nil
 			}
-			if interaction != nil && interaction.State == types.InteractionStateError && entry.Status == "sent" &&
-				(isOpaqueProviderAbort(interaction.Error) || isExplicitProviderFailure(interaction.Error)) {
-				failure, failureErr := c.server.failedProviderCallForInteraction(ctx, interaction.ID)
+			if interaction != nil && interaction.State == types.InteractionStateError && entry.Status == "sent" {
+				failure, failureErr := c.server.providerFailureForInteraction(ctx, interaction)
 				if failureErr != nil {
 					return runtimehelix.DeliveryResult{}, fmt.Errorf("load activation provider failure: %w", failureErr)
 				}
-				if providerFailureMatchesConfig(failure, session.Metadata.CodeAgentConfig) &&
-					c.server.recordProviderRecovery(ctx, interaction, failure) {
+				if failure != nil && c.server.recordProviderRecovery(ctx, interaction, failure) {
 					return runtimehelix.DeliveryResult{}, fmt.Errorf("activation is waiting for model provider recovery")
 				}
 			}
@@ -1258,7 +1256,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		if err := requireUnpaused(session); err != nil {
 			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
 		}
-		if err := c.server.reconcileSessionAgentWithApp(ctx, session); err != nil {
+		if err := c.server.reconcileSessionAgentWithApp(ctx, session, types.SystemTurn(types.SystemTurnOrgActivation)); err != nil {
 			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
 		}
 		defer c.server.lockPromptDrain(sessionID)()
@@ -1270,12 +1268,13 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			}
 		}
 		entry = &types.PromptHistoryEntry{
-			ID:        promptID,
-			UserID:    session.Owner,
-			ProjectID: session.ProjectID,
-			SessionID: sessionID,
-			Content:   prompt,
-			Status:    "reserved",
+			ID:         promptID,
+			UserID:     session.Owner,
+			ProjectID:  session.ProjectID,
+			SessionID:  sessionID,
+			Content:    prompt,
+			Status:     "reserved",
+			Provenance: types.SystemTurn(types.SystemTurnOrgActivation),
 		}
 		created, err := c.server.Store.CreatePromptHistoryEntryIfAbsent(ctx, entry)
 		if err != nil {
@@ -1342,7 +1341,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		}
 	}
 	body := SessionMessageRequest{Content: prompt}
-	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", body, map[string]string{"id": sessionID})
+	r, err := c.newRequest(withSystemTurn(ctx, types.SystemTurn(types.SystemTurnOrgActivation)), http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", body, map[string]string{"id": sessionID})
 	if err != nil {
 		return runtimehelix.DeliveryResult{}, err
 	}

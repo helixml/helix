@@ -16,7 +16,7 @@ import (
 // reports to ManagerID. Composite PK (org_id, manager_id, report_id).
 // Both (org_id, manager_id) and (org_id, report_id) carry an
 // ON DELETE CASCADE FK to org_bots(org_id, id), installed in
-// OpenWithDB — so deleting either endpoint Bot drops the line with
+// Migrate — so deleting either endpoint Bot drops the line with
 // no app code involved.
 type reportingLineRow struct {
 	OrgID     string `gorm:"primaryKey;type:text;index"`

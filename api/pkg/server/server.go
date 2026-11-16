@@ -27,6 +27,7 @@ import (
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/anthropic"
+	"github.com/helixml/helix/api/pkg/attestation"
 	"github.com/helixml/helix/api/pkg/auditlog"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -131,7 +132,9 @@ type HelixAPIServer struct {
 	// orgAgentConfigChanged, when wired, is called after an App's
 	// system prompt changes so the helix-org layer can flag any Bot backed
 	// by that App as needing a sandbox restart. nil when helix-org is off.
-	orgAgentConfigChanged       func(ctx context.Context, appID string)
+	orgAgentConfigChanged func(ctx context.Context, appID string)
+	// attestations mints and verifies identity attestations.
+	attestations                *attestation.Signer
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
@@ -160,7 +163,6 @@ type HelixAPIServer struct {
 	// so it survives API restart; the in-memory map was deleted in the
 	// 2026-04-30 stuck-queue fix.)
 	externalAgentSessionMapping map[string]string      // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping    map[string]string      // External agent session_id -> user_id mapping
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
 	cancelTurnMutexes           sync.Map               // session_id -> *sync.Mutex; serializes concurrent cancel requests
 	pendingCancelRetries        sync.Map               // interaction_id -> struct{}; dedupes durable cancel retries
@@ -185,7 +187,13 @@ type HelixAPIServer struct {
 	oauthManager              *oauth.Manager
 	sessionManager            *auth.SessionManager
 	// passwordResetSends tracks reset emails being sent after their response.
-	passwordResetSends       sync.WaitGroup
+	passwordResetSends sync.WaitGroup
+	// loginThrottle refuses password sign-ins after repeated failures. Nil
+	// disables it.
+	loginThrottle *loginThrottle
+	// loginTrustedProxies are the proxies whose X-Forwarded-For identifies
+	// the client for loginThrottle (HELIX_LOGIN_TRUSTED_PROXIES).
+	loginTrustedProxies      []*net.IPNet
 	fileServerHandler        http.Handler
 	cache                    *ristretto.Cache[string, string]
 	avatarsBucket            *blob.Bucket
@@ -439,9 +447,25 @@ func NewServer(
 	if err != nil {
 		return nil, err
 	}
+	loginTrustedProxies, err := parseTrustedProxies(cfg.Auth.LoginTrustedProxies)
+	if err != nil {
+		return nil, fmt.Errorf("HELIX_LOGIN_TRUSTED_PROXIES: %w", err)
+	}
+
+	// The same secret the authenticator resolved in serve; the signer derives
+	// its own key from it.
+	jwtSecret, err := auth.ResolveJWTSecret(context.Background(), store, cfg.Auth.Regular.JWTSecret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve JWT secret for identity attestations: %w", err)
+	}
+	attestations, err := attestation.NewSigner(jwtSecret)
+	if err != nil {
+		return nil, err
+	}
 
 	apiServer := &HelixAPIServer{
 		Cfg:                        cfg,
+		attestations:               attestations,
 		Store:                      store,
 		Stripe:                     stripe,
 		startTime:                  time.Now(),
@@ -461,7 +485,6 @@ func NewServer(
 		credentialTokens:            make(map[string]map[string]struct{}),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
-		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),
@@ -507,6 +530,8 @@ func NewServer(
 		// Durable request audit trail (incident forensics). Nil when disabled.
 		requestAudit:           requestAuditRecorder,
 		requestAuditMiddleware: newRequestAuditMiddleware(requestAuditRecorder, requestAuditOpts),
+		loginThrottle:          newLoginThrottle(),
+		loginTrustedProxies:    loginTrustedProxies,
 
 		openAIResponsesLogStores:     responsesLogStores,
 		openAIResponsesBillingLogger: responsesBillingLogger,
@@ -729,13 +754,17 @@ func NewServer(
 	// (spec task, exploratory session, resume) picks up project secrets without
 	// each caller having to remember. Desktop containers are the "dev"
 	// environment, so they only receive dev- and both-scoped secrets.
-	externalAgentExecutor.SetProjectSecretsGetter(func(ctx context.Context, projectID string) ([]string, error) {
+	externalAgentExecutor.SetProjectSecretsGetter(func(ctx context.Context, projectID string) (types.ProjectSecretEnv, error) {
 		return apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
 	})
+	externalAgentExecutor.SetUndecryptableSecretsReporter(apiServer.reportUndecryptableProjectSecrets)
 	// Web service deploys are the "prod" environment, so they receive prod- and
 	// both-scoped secrets, injected into the deployed container's environment.
+	// Undecryptable secrets are logged by GetProjectSecretsAsEnvVars and badged
+	// on the project's secrets list.
 	apiServer.webServiceController.SetProjectSecretsGetter(func(ctx context.Context, projectID string) ([]string, error) {
-		return apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeProd)
+		secrets, err := apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeProd)
+		return secrets.Env, err
 	})
 	// Set the attachment blob reader so the service can pull uploaded files from the filestore.
 	apiServer.specDrivenTaskService.ReadAttachmentBlob = apiServer.readSpecTaskAttachmentBlob
@@ -985,7 +1014,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 			Int("canonical_hostnames", len(vhostCfg.CanonicalHostnames)).
 			Msg("vhost middleware enabled (project web services + preview tokens)")
 	}
-	var handler http.Handler = NewVHostMiddleware(vhostCfg, apiServer, cleanWebSearchBasePath(apiServer.router))
+	// Security headers go on the application router only, not around the
+	// vhost proxy: customer web services and previews set their own.
+	appHandler := securityHeadersMiddleware(apiServer.Cfg.WebServer.URL, apiServer.Cfg.WebServer.HSTSMaxAge, cleanWebSearchBasePath(apiServer.router))
+	var handler http.Handler = NewVHostMiddleware(vhostCfg, apiServer, appHandler)
 
 	// Request audit trail: one durable record per request, wrapped around the
 	// vhost proxy so customer traffic that never reaches the mux is audited
@@ -1025,10 +1057,6 @@ func matchAllRoutes(*http.Request, *mux.RouteMatch) bool {
 
 func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
-	err := apiServer.Janitor.InjectMiddleware(router)
-	if err != nil {
-		return nil, err
-	}
 
 	// The audit trail itself wraps the whole server (see ListenAndServe), outside
 	// the vhost proxy and outside this mux. This only hands the matched route
@@ -1123,18 +1151,22 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// e.g. /sessions/123 becomes /users/456/sessions/123
 	// so - the point is, the auth is done by injecting the user id based on the token
 	authRouter.HandleFunc("/filestore/config", system.DefaultWrapper(apiServer.filestoreConfig)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(apiServer.filestoreList)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(apiServer.filestoreGet)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/filestore/folder", system.DefaultWrapper(apiServer.filestoreCreateFolder)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/filestore/upload", system.DefaultWrapper(apiServer.filestoreUpload)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(apiServer.filestoreRename)).Methods(http.MethodPut)
-	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(apiServer.filestoreDelete)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreList))).Methods(http.MethodGet)
+	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreGet))).Methods(http.MethodGet)
+	authRouter.HandleFunc("/filestore/folder", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreCreateFolder))).Methods(http.MethodPost)
+	authRouter.HandleFunc("/filestore/upload", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreUpload))).Methods(http.MethodPost)
+	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreRename))).Methods(http.MethodPut)
+	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(withFilestoreErrors(apiServer.filestoreDelete))).Methods(http.MethodDelete)
 	// Authentication is done within the handler itself based on API path
 	subRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(APIPrefix+"/filestore/viewer/", http.HandlerFunc(apiServer.filestoreViewerHandler)))
 
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.createAPIKey)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.getAPIKeys)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods(http.MethodDelete)
+
+	// Identity attestations: a desktop's key mints, a verifier redeems once.
+	authRouter.HandleFunc("/identity/attestations", system.Wrapper(apiServer.createIdentityAttestation)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/identity/attestations/verify", apiServer.verifyIdentityAttestation).Methods(http.MethodPost)
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods(http.MethodGet)
 
 	// User search endpoint
@@ -1689,6 +1721,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Project audit log routes
 	authRouter.HandleFunc("/projects/{id}/audit-logs", system.Wrapper(apiServer.listProjectAuditLogs)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/api_keys", system.Wrapper(apiServer.listProjectAPIKeys)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/api_keys/{key_id}", system.Wrapper(apiServer.deleteProjectAPIKey)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.getArtifact).Methods(http.MethodGet)
 	authRouter.HandleFunc("/artifacts/{artifact_id}/download", apiServer.serveArtifactDownload).Methods(http.MethodGet, http.MethodHead)
 	authRouter.HandleFunc("/artifacts/{artifact_id}", apiServer.updateArtifact).Methods(http.MethodPut)
@@ -1900,7 +1934,7 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 	} else {
 		log.Info().Msgf("serving static UI files from %s", frontendURL)
 		fileSystem := http.Dir(frontendURL)
-		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem, spa.ShellPolicy{FrameAncestors: apiServer.Cfg.WebServer.FrameAncestors}))
 	}
 }
 

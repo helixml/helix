@@ -567,6 +567,10 @@ func (suite *AuthSuite) TestUser() {
 				return suite.createTestRequest("GET", "/api/v1/auth/user", nil)
 			},
 			expectedStatus: http.StatusUnauthorized,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				// Generic answer: no cookie names or Go error text.
+				suite.Equal("Not authenticated\n", rec.Body.String())
+			},
 		},
 		{
 			name: "validate token failure",
@@ -579,6 +583,9 @@ func (suite *AuthSuite) TestUser() {
 				suite.oidcClient.EXPECT().ValidateUserToken(gomock.Any(), testAccessToken).Return(nil, fmt.Errorf("validate token failure"))
 			},
 			expectedStatus: http.StatusInternalServerError,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				suite.NotContains(rec.Body.String(), "validate token failure")
+			},
 		},
 		{
 			name: "validate token unauthorized",
@@ -979,7 +986,10 @@ func (suite *AuthSuite) TestRefresh() {
 			setupRequest: func() *http.Request {
 				return suite.createTestRequest("POST", "/api/v1/auth/refresh", nil)
 			},
-			expectedStatus: http.StatusNoContent,
+			expectedStatus: http.StatusUnauthorized,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				suite.Empty(rec.Result().Cookies(), "a refused refresh sets no cookies")
+			},
 		},
 		{
 			name: "Refresh token failure",
@@ -991,9 +1001,12 @@ func (suite *AuthSuite) TestRefresh() {
 			setupMocks: func() {
 				suite.oidcClient.EXPECT().
 					RefreshAccessToken(gomock.Any(), "invalid-refresh-token").
-					Return(nil, errors.New("refresh failed"))
+					Return(nil, errors.New("refresh failed: upstream detail"))
 			},
-			expectedStatus: http.StatusInternalServerError,
+			expectedStatus: http.StatusUnauthorized,
+			checkResponse: func(rec *httptest.ResponseRecorder) {
+				suite.NotContains(rec.Body.String(), "upstream detail")
+			},
 		},
 		{
 			name: "OPTIONS request",

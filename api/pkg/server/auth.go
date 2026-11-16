@@ -323,7 +323,7 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 	createdUser, err := s.authenticator.CreateUser(ctx, user)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create user")
-		http.Error(w, "Failed to create user: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		return
 	}
 
@@ -367,7 +367,7 @@ func (s *HelixAPIServer) startRegularSession(w http.ResponseWriter, r *http.Requ
 	_, err := s.sessionManager.CreateSession(r.Context(), w, r, user.ID, types.AuthProviderRegular, "", "", "", time.Time{})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create session")
-		http.Error(w, "Failed to create session: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
 		return false
 	}
 	return true
@@ -452,7 +452,7 @@ func (s *HelixAPIServer) accountUpdate(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to get user")
-		http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
 	}
 
@@ -501,7 +501,7 @@ func (s *HelixAPIServer) accountUpdate(w http.ResponseWriter, r *http.Request) {
 	updatedUser, err := s.Store.UpdateUser(ctx, existingUser)
 	if err != nil {
 		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to update user")
-		http.Error(w, "Failed to update user: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to update user", http.StatusInternalServerError)
 		return
 	}
 
@@ -548,7 +548,7 @@ func (s *HelixAPIServer) passwordReset(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Error().Err(err).Msg("Failed to get user")
-		http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to get user", http.StatusInternalServerError)
 		return
 	}
 	if user == nil {
@@ -618,6 +618,10 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Failed to complete password reset: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Failures against the old password no longer lock the account.
+	if s.loginThrottle != nil {
+		s.loginThrottle.clearAccount(user.Email)
+	}
 
 	// A reset is how an account is recovered from whoever holds the old
 	// password, so every session that password opened is closed, and any
@@ -626,7 +630,7 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 	if s.sessionManager != nil {
 		if err := s.sessionManager.RevokeUserSessions(ctx, user.ID, ""); err != nil {
 			log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to revoke sessions after password reset")
-			http.Error(w, "Password changed, but failed to sign out existing sessions: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Password changed, but failed to sign out existing sessions", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -696,7 +700,7 @@ func (s *HelixAPIServer) passwordUpdate(w http.ResponseWriter, r *http.Request) 
 	if s.sessionManager != nil {
 		if err := s.sessionManager.RevokeUserSessions(ctx, user.ID, s.currentSessionID(r)); err != nil {
 			log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to revoke other sessions after password update")
-			http.Error(w, "Password changed, but failed to sign out other sessions: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Password changed, but failed to sign out other sessions", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -766,12 +770,25 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		// the login form cannot be used to find out which addresses have an
 		// account.
 		const invalidCredentials = "Invalid email or password"
+		// Repeated failures for an account or from one client are refused
+		// before any lookup, the same way for known and unknown addresses.
+		// The attempt is reserved before any lookup, the same way for known
+		// and unknown addresses, so parallel requests cannot exceed the limit.
+		var attempt *loginAttempt
+		if s.loginThrottle != nil {
+			var wait time.Duration
+			attempt, wait = s.loginThrottle.reserve(loginRequest.Email, loginClientKey(r, s.loginTrustedProxies))
+			if attempt == nil {
+				writeLoginThrottled(w, wait)
+				return
+			}
+		}
 		user, err := s.Store.GetUser(r.Context(), &store.GetUserQuery{
 			Email: loginRequest.Email,
 		})
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			log.Error().Err(err).Msg("Failed to get user")
-			http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Failed to get user", http.StatusInternalServerError)
 			return
 		}
 		if user == nil {
@@ -789,6 +806,9 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, invalidCredentials, http.StatusUnauthorized)
 			return
 		}
+		if attempt != nil {
+			attempt.Succeeded()
+		}
 
 		// Create a BFF session for this user
 		// For regular auth, we don't have OIDC tokens
@@ -805,7 +825,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to create session")
-			http.Error(w, "Failed to create session: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Failed to create session", http.StatusInternalServerError)
 			return
 		}
 
@@ -884,14 +904,14 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 			Str("provider_url", s.Cfg.Auth.OIDC.URL).
 			Str("callback_url", fmt.Sprintf("%s/api/v1/auth/callback", s.Cfg.WebServer.URL)).
 			Msg("Failed to exchange token")
-		http.Error(w, "Failed to exchange token: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
 
 	idToken, err := s.oidcClient.VerifyIDToken(ctx, oauth2Token)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to verify ID Token")
-		http.Error(w, "Failed to verify ID Token: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to verify ID Token", http.StatusInternalServerError)
 		return
 	}
 	rawIDToken, _ := oauth2Token.Extra("id_token").(string)
@@ -925,7 +945,7 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to validate user token and get/create user")
-		http.Error(w, "Failed to get user info: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to get user info", http.StatusInternalServerError)
 		return
 	}
 
@@ -948,7 +968,7 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create session")
-		http.Error(w, "Failed to create session: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
 		return
 	}
 
@@ -1033,7 +1053,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	accessToken, err := cm.Get(r, accessTokenCookie)
 	if err != nil {
 		log.Debug().Err(err).Str("cookie", accessTokenCookie.Name).Msg("failed to get cookie")
-		http.Error(w, fmt.Sprintf("failed to get cookie: %s", accessTokenCookie.Name), http.StatusUnauthorized)
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
 		return
 	}
 
@@ -1043,8 +1063,9 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	case types.AuthProviderRegular:
 		user, err = s.authenticator.ValidateUserToken(ctx, accessToken)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to validate user token")
-			http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
+			// An expired or forged legacy cookie is a sign-in, not a fault.
+			log.Debug().Err(err).Msg("Failed to validate user token")
+			http.Error(w, "Not authenticated", http.StatusUnauthorized)
 			return
 		}
 		s.adoptLegacyJWTCookie(w, r, user)
@@ -1095,7 +1116,7 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 				if strings.Contains(errStr, "401") || strings.Contains(errStr, "unauthorized") {
 					http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				} else {
-					http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
+					http.Error(w, "Failed to validate user token", http.StatusInternalServerError)
 				}
 				return
 			}
@@ -1401,15 +1422,12 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cm := NewCookieManager(s.Cfg)
+	// Without a refresh credential there is nothing to refresh: answer as
+	// for any unauthenticated call rather than with an empty success.
 	refreshToken, err := cm.Get(r, refreshTokenCookie)
-	if err != nil {
-		log.Debug().Err(err).Msg("Failed to get refresh_token, skipping refresh")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if refreshToken == "" {
-		log.Debug().Msg("refresh_token is empty, skipping refresh")
-		w.WriteHeader(http.StatusNoContent)
+	if err != nil || refreshToken == "" {
+		log.Debug().Err(err).Msg("refresh called without a refresh_token cookie")
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
 		return
 	}
 
@@ -1444,8 +1462,8 @@ func (s *HelixAPIServer) refresh(w http.ResponseWriter, r *http.Request) {
 		}
 		token, err := s.oidcClient.RefreshAccessToken(ctx, refreshToken)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to refresh access_token")
-			http.Error(w, "Failed to refresh access_token: "+err.Error(), http.StatusInternalServerError)
+			log.Warn().Err(err).Msg("Failed to refresh access_token")
+			http.Error(w, "Session expired: please log in again", http.StatusUnauthorized)
 			return
 		}
 

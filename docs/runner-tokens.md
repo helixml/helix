@@ -20,6 +20,12 @@ Using it for any other runner id gets `403`. A revoked or unknown token gets
 `401`. Everything else the shared token can do, a per-runner token can do too,
 so hosts need no other change.
 
+The shared token cannot read any session's agent credentials or sandbox
+configuration (`/sessions/{id}/zed-config`, `/claude-credentials`,
+`/codex-credentials`): it names no host, so it is refused there whatever
+`RUNNER_REQUIRE_PER_HOST_TOKENS` says. The sandbox's settings-sync daemon reads
+them with the session's own API key.
+
 The control plane stores only a SHA-256 hash of each token. The token itself is
 shown once, when it is created.
 

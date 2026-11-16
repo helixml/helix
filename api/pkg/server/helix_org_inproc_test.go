@@ -40,6 +40,25 @@ type gormBackedInProcStore struct {
 	db *gorm.DB
 }
 
+type llmCallInProcStore struct {
+	*memorystore.MemoryStore
+	calls []*types.LLMCall
+}
+
+func (s *llmCallInProcStore) ListLLMCalls(_ context.Context, query *helixstore.ListLLMCallsQuery) ([]*types.LLMCall, int64, error) {
+	var matches []*types.LLMCall
+	for _, call := range s.calls {
+		if query.SessionID != "" && call.SessionID != query.SessionID {
+			continue
+		}
+		if query.InteractionID != "" && call.InteractionID != query.InteractionID {
+			continue
+		}
+		matches = append(matches, call)
+	}
+	return matches, int64(len(matches)), nil
+}
+
 func (s *gormBackedInProcStore) GormDB() *gorm.DB {
 	return s.db
 }
@@ -908,6 +927,45 @@ func TestInProcSpawnerClient_InterruptedQueuedDeliveryRetriesOnce(t *testing.T) 
 	interactions, _, err := store.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID, GenerationID: -1})
 	require.NoError(t, err)
 	require.Len(t, interactions, 2)
+}
+
+func TestInProcSpawnerClient_UnlinkedProviderFailureSchedulesRecovery(t *testing.T) {
+	server, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/provider-failure"
+	now := time.Now()
+	session, err := store.CreateSession(ctx, types.Session{
+		ID: "ses_provider_failure", Owner: user.ID,
+		Metadata: types.SessionMetadata{OrgWorkerID: "coordinator", AutoRestartOnCrash: true},
+	})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry provider failure", Status: "sent",
+	}))
+	interaction, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_provider_failure", SessionID: session.ID, PromptID: promptID,
+		Created: now.Add(-10 * time.Minute), Updated: now, State: types.InteractionStateError,
+		Error: `agent turn aborted: Internal error: {"message":"the request to the model provider failed","errorName":"UnknownError"}`,
+		CodeAgentConfigSnapshot: &types.InteractionCodeAgentConfigSnapshot{
+			Provider: "pe_bunker", Model: "glm-5.3-flash", Runtime: types.CodeAgentRuntimeOpenCode,
+		},
+	})
+	require.NoError(t, err)
+	server.Store = &llmCallInProcStore{MemoryStore: store, calls: []*types.LLMCall{{
+		SessionID: session.ID, InteractionID: "n/a", Provider: "pe_bunker", Model: "glm-5.3-flash",
+		Created: now.Add(-20 * time.Second), Updated: now.Add(-10 * time.Second), Error: "http2: server sent GOAWAY",
+	}}}
+
+	_, err = client.SendMessage(ctx, session.ID, "retry provider failure", deliveryID, false)
+	require.ErrorContains(t, err, "waiting for model provider recovery")
+	updated, err := store.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	require.Equal(t, promptID, updated.Metadata.Recovery.PromptID)
+	require.Equal(t, interaction.ID, updated.Metadata.Recovery.InteractionID)
+	require.Equal(t, "pe_bunker", updated.Metadata.Recovery.Provider)
+	entry, err := store.GetPromptHistoryEntry(ctx, promptID)
+	require.NoError(t, err)
+	require.Equal(t, "sent", entry.Status)
 }
 
 func TestInProcSpawnerClient_PendingInterruptedDeliveryRecoversAfterRestart(t *testing.T) {

@@ -22,7 +22,7 @@ func (apiServer *HelixAPIServer) authorizeUserToRepositoryAccessGrants(ctx conte
 	}
 
 	// Repository owner always has access
-	if user.ID == repository.OwnerID {
+	if callerOwns(user, repository.OwnerID, repository.OrganizationID) {
 		return nil
 	}
 

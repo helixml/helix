@@ -132,13 +132,18 @@ func (apiServer *HelixAPIServer) getInternalPR(ctx context.Context, repo *types.
 	return pr, mergeable, nil
 }
 
-func (apiServer *HelixAPIServer) updateInternalPR(ctx context.Context, repo *types.GitRepository, number int, update *types.GitPullRequestUpdate) (*types.GitPullRequest, error) {
+func (apiServer *HelixAPIServer) updateInternalPR(ctx context.Context, repo *types.GitRepository, user *types.User, number int, update *types.GitPullRequestUpdate) (*types.GitPullRequest, error) {
 	// Refresh first: it may record that the PR already landed.
-	if _, _, err := apiServer.getInternalPR(ctx, repo, number, false); err != nil {
+	current, _, err := apiServer.getInternalPR(ctx, repo, number, false)
+	if err != nil {
+		return nil, err
+	}
+	// An agent edits only the pull requests of its own branches.
+	if err := apiServer.authorizeAgentRepositoryWrite(ctx, user, repo.ID, current.HeadBranch, ""); err != nil {
 		return nil, err
 	}
 	var updated *types.GitPullRequest
-	err := apiServer.gitRepositoryService.WithRepoLock(repo.ID, func() error {
+	err = apiServer.gitRepositoryService.WithRepoLock(repo.ID, func() error {
 		pr, err := apiServer.Store.GetGitPullRequest(ctx, repo.ID, number)
 		if err != nil {
 			return err
@@ -153,6 +158,15 @@ func (apiServer *HelixAPIServer) updateInternalPR(ctx context.Context, repo *typ
 		return nil, err
 	}
 	return updated, nil
+}
+
+// mergeInternalPR merges an open internal PR as user. Merging is a person's
+// decision: an agent-bound key is refused.
+func (apiServer *HelixAPIServer) mergeInternalPR(ctx context.Context, repo *types.GitRepository, user *types.User, number int, req *types.GitPullRequestMergeRequest) (*types.GitPullRequest, error) {
+	if holdsAgentKey(user) {
+		return nil, statusErr(http.StatusForbidden, "%s", errAgentKeyRepositoryAdmin.Error())
+	}
+	return apiServer.gitHTTPServer.MergeInternalPullRequest(ctx, repo, number, req.MergeMethod, req.CommitTitle, req.CommitMessage, user.ID)
 }
 
 // applyInternalPRUpdate edits and saves a PR. The caller holds the repository
@@ -364,7 +378,7 @@ func (apiServer *HelixAPIServer) updateGitRepositoryPull(w http.ResponseWriter, 
 		writeErrResponse(w, jsonDecodeHTTPError(err), http.StatusBadRequest)
 		return
 	}
-	pr, err := apiServer.updateInternalPR(r.Context(), repo, number, &update)
+	pr, err := apiServer.updateInternalPR(r.Context(), repo, getRequestUser(r), number, &update)
 	if err != nil {
 		writeInternalPRError(w, err)
 		return
@@ -405,7 +419,7 @@ func (apiServer *HelixAPIServer) mergeGitRepositoryPull(w http.ResponseWriter, r
 			return
 		}
 	}
-	pr, err := apiServer.gitHTTPServer.MergeInternalPullRequest(r.Context(), repo, number, req.MergeMethod, req.CommitTitle, req.CommitMessage, user.ID)
+	pr, err := apiServer.mergeInternalPR(r.Context(), repo, user, number, &req)
 	if err != nil {
 		writeInternalPRError(w, err)
 		return
@@ -460,7 +474,12 @@ func (apiServer *HelixAPIServer) requestGitRepositoryPullRebase(w http.ResponseW
 		writeInternalPRError(w, err)
 		return
 	}
-	if err := apiServer.enqueueSpecTaskAgentMessage(r.Context(), task, message, false, user.ID); err != nil {
+	provenance, err := types.SystemTurnTriggeredBy(types.SystemTurnRebaseRequired, user)
+	if err != nil {
+		writeInternalPRError(w, statusErr(http.StatusForbidden, "%s", err.Error()))
+		return
+	}
+	if err := apiServer.enqueueSpecTaskAgentMessage(r.Context(), task, message, false, user.ID, provenance); err != nil {
 		writeInternalPRError(w, err)
 		return
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -437,46 +438,92 @@ func TestAuthorizeRunnerIdentity_RefusalWarningsRateLimited(t *testing.T) {
 	require.Equal(t, 20, strings.Count(buf.String(), "per-runner token used for another runner"))
 }
 
-func TestCanUseSessionAgentCredential_PerRunnerTokenLimitedToItsHost(t *testing.T) {
+// Only a per-runner token for the session's own sandbox host reads its agent
+// credentials or sandbox config. The shared token names no host and is
+// refused, as is any token for another host or a session with no host.
+func TestCanRunnerReadSession_OnlyOwnHostPerRunnerToken(t *testing.T) {
 	shared := &types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testSharedRunnerToken}
 	bound := &types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testHost1Token, RunnerID: "host1"}
 	onHost1 := &types.Session{ID: "ses_1", Owner: "usr_A", SandboxID: "host1"}
+	onHost1Tunnel := &types.Session{ID: "ses_4", Owner: "usr_A", SandboxID: "hydra-host1"}
 	onHost2 := &types.Session{ID: "ses_2", Owner: "usr_B", SandboxID: "host2"}
 	noHost := &types.Session{ID: "ses_3", Owner: "usr_B"}
+	apiServer := &HelixAPIServer{}
+	ctx := context.Background()
 
-	// The shared token is unchanged: any session.
 	for _, s := range []*types.Session{onHost1, onHost2, noHost} {
-		require.True(t, canUseSessionAgentCredential(shared, s, "usr_B", types.OwnerTypeUser))
-		require.NoError(t, (&HelixAPIServer{}).authorizeSessionSandboxConfig(context.Background(), shared, s))
+		require.False(t, canUseSessionAgentCredential(shared, s, s.Owner, types.OwnerTypeUser), s.ID)
+		require.Error(t, apiServer.authorizeSessionSandboxConfig(ctx, shared, s), s.ID)
 	}
 
-	require.True(t, canUseSessionAgentCredential(bound, onHost1, "usr_A", types.OwnerTypeUser))
-	require.NoError(t, (&HelixAPIServer{}).authorizeSessionSandboxConfig(context.Background(), bound, onHost1))
+	for _, s := range []*types.Session{onHost1, onHost1Tunnel} {
+		require.True(t, canUseSessionAgentCredential(bound, s, "usr_A", types.OwnerTypeUser), s.ID)
+		require.NoError(t, apiServer.authorizeSessionSandboxConfig(ctx, bound, s), s.ID)
+	}
 	for _, s := range []*types.Session{onHost2, noHost} {
 		require.False(t, canUseSessionAgentCredential(bound, s, "usr_B", types.OwnerTypeUser), s.ID)
-		require.Error(t, (&HelixAPIServer{}).authorizeSessionSandboxConfig(context.Background(), bound, s), s.ID)
+		require.Error(t, apiServer.authorizeSessionSandboxConfig(ctx, bound, s), s.ID)
 	}
 }
 
-// Through the real handler: a per-runner token asking for the Claude
-// credentials of a session on another host is refused before anything is
-// decrypted.
-func TestGetSessionClaudeCredentials_PerRunnerTokenOtherHostRefused(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	st := store.NewMockStore(ctrl)
-	session := &types.Session{ID: "ses_2", Owner: "usr_B", SandboxID: "host2"}
-	st.EXPECT().GetSession(gomock.Any(), "ses_2").Return(session, nil)
-	st.EXPECT().GetSessionClaudeSubscription(gomock.Any(), session).
-		Return(&types.ClaudeSubscription{ID: "csub_1", OwnerID: "usr_B", OwnerType: types.OwnerTypeUser}, nil)
-	apiServer := &HelixAPIServer{Store: st}
+// Through the real handlers, for every verb: runner B's session is refused to
+// runner A's per-runner token and to the shared token, before anything is
+// decrypted or written. The strict mock store fails the test on any call
+// other than the lookups declared here.
+func TestSessionReadRoutes_CrossRunnerRefused(t *testing.T) {
+	session := &types.Session{ID: "ses_2", Owner: "usr_B", OrganizationID: "org_B", SandboxID: "host2"}
+	claudeBody := `{"accessToken":"a","refreshToken":"r"}`
+	codexBody := `{"auth_mode":"chatgpt","tokens":{"id_token":"i","access_token":"a","refresh_token":"r","account_id":"acc"},"last_refresh":"2026-11-13T00:00:00Z"}`
+	callers := map[string]types.User{
+		"runner A per-runner token": {ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testHost1Token, RunnerID: "host1"},
+		"shared runner token":       {ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testSharedRunnerToken},
+	}
+	routes := []struct {
+		name    string
+		method  string
+		body    string
+		handler func(*HelixAPIServer, *http.Request) (any, *system.HTTPError)
+	}{
+		{"GET claude-credentials", http.MethodGet, "", func(a *HelixAPIServer, r *http.Request) (any, *system.HTTPError) {
+			return a.getSessionClaudeCredentials(nil, r)
+		}},
+		{"PUT claude-credentials", http.MethodPut, claudeBody, func(a *HelixAPIServer, r *http.Request) (any, *system.HTTPError) {
+			return a.updateSessionClaudeCredentials(nil, r)
+		}},
+		{"GET codex-credentials", http.MethodGet, "", func(a *HelixAPIServer, r *http.Request) (any, *system.HTTPError) {
+			return a.getSessionCodexCredentials(nil, r)
+		}},
+		{"PUT codex-credentials", http.MethodPut, codexBody, func(a *HelixAPIServer, r *http.Request) (any, *system.HTTPError) {
+			return a.updateSessionCodexCredentials(nil, r)
+		}},
+		{"GET zed-config", http.MethodGet, "", func(a *HelixAPIServer, r *http.Request) (any, *system.HTTPError) {
+			return a.getZedConfig(nil, r)
+		}},
+		{"POST zed-config/user", http.MethodPost, `{}`, func(a *HelixAPIServer, r *http.Request) (any, *system.HTTPError) {
+			return a.updateZedUserSettings(nil, r)
+		}},
+	}
+	for callerName, user := range callers {
+		for _, route := range routes {
+			t.Run(callerName+"/"+route.name, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				st := store.NewMockStore(ctrl)
+				st.EXPECT().GetSession(gomock.Any(), "ses_2").Return(session, nil)
+				st.EXPECT().GetSessionClaudeSubscription(gomock.Any(), session).
+					Return(&types.ClaudeSubscription{ID: "csub_1", OwnerID: "usr_B", OwnerType: types.OwnerTypeUser}, nil).AnyTimes()
+				st.EXPECT().GetEffectiveCodexSubscription(gomock.Any(), "usr_B", "org_B").
+					Return(&types.CodexSubscription{ID: "cxsub_1", OwnerID: "usr_B", OwnerType: types.OwnerTypeUser}, nil).AnyTimes()
+				apiServer := &HelixAPIServer{Store: st}
 
-	user := types.User{ID: "runner-system", TokenType: types.TokenTypeRunner, Token: testHost1Token, RunnerID: "host1"}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/ses_2/claude-credentials", nil)
-	req = mux.SetURLVars(req.WithContext(setRequestUser(req.Context(), user)), map[string]string{"id": "ses_2"})
-	resp, httpErr := apiServer.getSessionClaudeCredentials(nil, req)
-	require.Nil(t, resp)
-	require.NotNil(t, httpErr)
-	require.Equal(t, http.StatusForbidden, httpErr.StatusCode)
+				req := httptest.NewRequest(route.method, "/api/v1/sessions/ses_2", strings.NewReader(route.body))
+				req = mux.SetURLVars(req.WithContext(setRequestUser(req.Context(), user)), map[string]string{"id": "ses_2"})
+				resp, httpErr := route.handler(apiServer, req)
+				require.NotNil(t, httpErr)
+				require.Equal(t, http.StatusForbidden, httpErr.StatusCode)
+				require.Nil(t, resp)
+			})
+		}
+	}
 }
 
 // dialRevDialConn opens a RevDial control connection and returns a channel

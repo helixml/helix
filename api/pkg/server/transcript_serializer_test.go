@@ -180,7 +180,7 @@ func TestMaybePrependTranscript_NoOpWhenThreadAlreadyExists(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	parent := newTestParentSession("user_a")
 	seedParentWithInteractions(t, mem, parent, 1)
-	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser}
+	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	child, httpErr := srv.forkSessionFromParent(context.Background(), user, parent, types.CodeAgentRuntimeQwenCode, "")
 	require.Nil(t, httpErr)
 
@@ -208,7 +208,7 @@ func TestMaybePrependTranscript_PrependsOnFirstMessageOfForkedSession(t *testing
 	parent := newTestParentSession("user_a")
 	parent.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeClaudeCode
 	seedParentWithInteractions(t, mem, parent, 2)
-	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser}
+	user := &types.User{ID: parent.Owner, Type: types.OwnerTypeUser, TokenType: types.TokenTypeOIDC}
 	child, httpErr := srv.forkSessionFromParent(context.Background(), user, parent, types.CodeAgentRuntimeQwenCode, "")
 	require.Nil(t, httpErr)
 

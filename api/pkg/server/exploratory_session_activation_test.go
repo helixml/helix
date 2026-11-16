@@ -154,7 +154,7 @@ func (s *ExploratorySessionActivationSuite) TestActivationReusesExistingExplorat
 		}},
 	}
 
-	got, err := s.server.StartExternalAgentSession(ctx, req, userID)
+	got, err := s.server.StartExternalAgentSession(ctx, req, userID, types.SystemTurn(types.SystemTurnCronTrigger))
 	s.Require().NoError(err)
 	s.Require().NotNil(got)
 
@@ -223,14 +223,14 @@ func (s *ExploratorySessionActivationSuite) TestActivationDeliveryReusesInitialI
 			Content: types.MessageContent{Parts: []any{"activation prompt"}},
 		}},
 	}
-	first, err := s.server.StartExternalAgentSession(ctx, req, userID)
+	first, err := s.server.StartExternalAgentSession(ctx, req, userID, types.SystemTurn(types.SystemTurnCronTrigger))
 	s.Require().NoError(err)
 	s.Equal(sessionID, first.ID)
 	s.Require().NotNil(created)
 	s.Equal(interactionID, created.ID)
 
 	created.State = types.InteractionStateComplete
-	second, err := s.server.StartExternalAgentSession(ctx, req, userID)
+	second, err := s.server.StartExternalAgentSession(ctx, req, userID, types.SystemTurn(types.SystemTurnCronTrigger))
 	s.Require().NoError(err)
 	s.Equal(sessionID, second.ID)
 }
@@ -421,7 +421,7 @@ func (s *ExploratorySessionActivationSuite) TestNoProjectStillMintsFreshSession(
 		}},
 	}
 
-	got, err := s.server.StartExternalAgentSession(ctx, req, userID)
+	got, err := s.server.StartExternalAgentSession(ctx, req, userID, types.SystemTurn(types.SystemTurnCronTrigger))
 	s.Require().NoError(err)
 	s.Require().NotNil(got)
 	s.NotEmpty(got.ID, "must mint a fresh session id when no project to key against")
@@ -474,7 +474,7 @@ func (s *ExploratorySessionActivationSuite) TestAppSessionPersistsAgentRuntimeBi
 			Role:    "user",
 			Content: types.MessageContent{Parts: []any{"activate"}},
 		}},
-	}, userID)
+	}, userID, types.SystemTurn(types.SystemTurnOrgActivation))
 	s.Require().NoError(err)
 	s.Require().NotNil(got)
 	s.Require().NotNil(capturedSession)
@@ -524,7 +524,7 @@ func (s *ExploratorySessionActivationSuite) TestNonExploratoryRoleStillMintsFres
 		}},
 	}
 
-	got, err := s.server.StartExternalAgentSession(ctx, req, userID)
+	got, err := s.server.StartExternalAgentSession(ctx, req, userID, types.SystemTurn(types.SystemTurnCronTrigger))
 	s.Require().NoError(err)
 	s.Require().NotNil(got)
 	s.NotEmpty(got.ID)

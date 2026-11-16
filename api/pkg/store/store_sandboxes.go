@@ -21,6 +21,19 @@ type ListSandboxesQuery struct {
 	HostDeviceID   string
 	SessionID      string
 	IncludeDeleted bool
+	// Visibility, when set, narrows the result to the rows a caller who is
+	// not an organization owner may reach. Nil applies no access filter.
+	Visibility *SandboxVisibility
+}
+
+// SandboxVisibility is the set of sandboxes a caller may see: rows in one of
+// ProjectIDs, session-backed rows outside them owned by SessionOwner (a
+// person may always reach their own sessions), and, when IncludeUnscoped,
+// rows with neither a project nor a session. An empty value matches nothing.
+type SandboxVisibility struct {
+	ProjectIDs      []string
+	SessionOwner    string
+	IncludeUnscoped bool
 }
 
 // CreateSandbox inserts a new sandbox row.
@@ -106,6 +119,19 @@ func (s *PostgresStore) ListSandboxes(ctx context.Context, q *ListSandboxesQuery
 		}
 		if !q.IncludeDeleted {
 			query = query.Where("deleted_at IS NULL")
+		}
+		if v := q.Visibility; v != nil {
+			clause := s.gdb.Where("1 = 0")
+			if len(v.ProjectIDs) > 0 {
+				clause = clause.Or("project_id IN ?", v.ProjectIDs)
+			}
+			if v.SessionOwner != "" {
+				clause = clause.Or("COALESCE(session_id, '') <> '' AND owner = ?", v.SessionOwner)
+			}
+			if v.IncludeUnscoped {
+				clause = clause.Or("COALESCE(project_id, '') = '' AND COALESCE(session_id, '') = ''")
+			}
+			query = query.Where(clause)
 		}
 	}
 

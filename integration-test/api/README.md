@@ -36,9 +36,11 @@ are already occupied.
 
 `TestAuthzMatrix` (`authz_matrix_*_test.go`) checks who may do what across
 tenants. It builds one fixture: organizations A and B; A's owner, a read-only
-member of A, B's owner, a user in no organization, a waitlisted account and an
-admin; every kind of credential A's owner can hold (personal, org, project
-spec-task, session, helix-org worker and app keys); and A's resources (projects,
+member of A, a second member of A (`aPeer`) with unshared objects of their own,
+B's owner and a member of B, a user in no organization, a waitlisted account and
+an admin; every kind of credential A's owner can hold (personal, org, project
+spec-task, session, sandbox, helix-org worker and app keys, and an org key for
+B, which A's owner also belongs to); and A's resources (projects,
 repositories, agents, sessions, spec tasks, secrets, knowledge, triggers,
 provider endpoints, artifacts, grants, filestore files). Every table row is
 then sent as every actor it lists. It needs Postgres and the browser launcher,
@@ -64,8 +66,12 @@ actor:
   (the unique names of the fixture's resources) in the body. `reached` wants
   the request past authorization for routes that cannot finish in CI (no
   desktop, no LLM); use `ReachedMarker` when that answer is itself a 404.
-- `strangers(...)` adds B's owner, the outsider, the waitlisted account and an
-  anonymous caller as `deny`.
+- `strangers(...)` adds B's owner, B's member, A's owner's org-B key, the
+  outsider, the waitlisted account and an anonymous caller as `deny`.
+- `desktopKeysDenied(...)` adds the project-less session and sandbox keys as
+  `deny` to every row of a table of project, repository or secret routes.
+- `peerRoutes()` holds the member-to-member rows: `aMember` against `aPeer`'s
+  objects, every verb.
 - Every row needs at least one `allow` or `reached` actor, so a route that
   fails for everyone cannot pass as "refused".
 - A row that changes state sets `Fresh`, so allowed actors act on a copy, and

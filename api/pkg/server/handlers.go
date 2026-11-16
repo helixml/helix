@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -88,10 +89,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
 		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
 		MinimumInferenceBalance:                apiServer.Cfg.Stripe.MinimumInferenceBalance,
-		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
-		RudderStackWriteKey:                    apiServer.Cfg.Janitor.RudderStackWriteKey,
-		RudderStackDataPlaneURL:                apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
 		ToolsEnabled:                           apiServer.Cfg.Tools.Enabled,
 		AppsEnabled:                            apiServer.Cfg.Apps.Enabled,
 		DisableLLMCallLogging:                  apiServer.Cfg.DisableLLMCallLogging,
@@ -151,9 +149,7 @@ func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request
 	}
 	// The exact build and the deployment's identity are for signed-in users
 	// (update banner, licence gate, support debug context); an anonymous
-	// caller only needs what renders the login and registration pages. The
-	// Sentry DSN and RudderStack write key stay: they are browser-side
-	// ingestion keys the SPA needs before sign-in.
+	// caller only needs what renders the login and registration pages.
 	if !hasUser(getRequestUser(req)) {
 		config.Version = ""
 		config.LatestVersion = ""
@@ -229,7 +225,7 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
-			return nil, fmt.Errorf("invalid app path format: %s", err)
+			return nil, system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -250,6 +246,9 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, path); err != nil {
+		return nil, err
+	}
 	return apiServer.Controller.FilestoreList(getOwnerContext(req), path)
 }
 
@@ -270,7 +269,7 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
-			return filestore.Item{}, fmt.Errorf("invalid app path format: %s", err)
+			return filestore.Item{}, system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -291,6 +290,9 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, path); err != nil {
+		return filestore.Item{}, err
+	}
 	return apiServer.Controller.FilestoreGet(getOwnerContext(req), path)
 }
 
@@ -316,7 +318,7 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 	if controller.IsAppPath(request.Path) {
 		appID, err := controller.ExtractAppID(request.Path)
 		if err != nil {
-			return filestore.Item{}, fmt.Errorf("invalid app path format: %s", err)
+			return filestore.Item{}, system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -337,6 +339,9 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, request.Path); err != nil {
+		return filestore.Item{}, err
+	}
 	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), request.Path)
 }
 
@@ -362,23 +367,23 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 
 	// Don't allow moving between user space and app space
 	if fromAppPath != toAppPath {
-		return filestore.Item{}, fmt.Errorf("cannot rename files between different scopes (user/app)")
+		return filestore.Item{}, system.NewHTTPError400("cannot rename files between different scopes (user/app)")
 	}
 
 	// For app paths, ensure it's the same app
 	if fromAppPath && toAppPath {
 		fromAppID, err := controller.ExtractAppID(path)
 		if err != nil {
-			return filestore.Item{}, fmt.Errorf("invalid source app path: %s", err)
+			return filestore.Item{}, system.NewHTTPError400("invalid source app path")
 		}
 
 		toAppID, err := controller.ExtractAppID(newPath)
 		if err != nil {
-			return filestore.Item{}, fmt.Errorf("invalid destination app path: %s", err)
+			return filestore.Item{}, system.NewHTTPError400("invalid destination app path")
 		}
 
 		if fromAppID != toAppID {
-			return filestore.Item{}, fmt.Errorf("cannot rename files between different apps")
+			return filestore.Item{}, system.NewHTTPError400("cannot rename files between different apps")
 		}
 	}
 
@@ -394,6 +399,11 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 	}
 
 	// Return to the controller which handles path sanitization for user context
+	if !fromAppPath {
+		if err := keyFilestorePathRefusal(req, path, newPath); err != nil {
+			return filestore.Item{}, err
+		}
+	}
 	return apiServer.Controller.FilestoreRename(getOwnerContext(req), path, newPath)
 }
 
@@ -414,7 +424,7 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
-			return "", fmt.Errorf("invalid app path format: %s", err)
+			return "", system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -436,6 +446,9 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 	}
 
 	// Regular user path handling
+	if err := keyFilestorePathRefusal(req, path); err != nil {
+		return "", err
+	}
 	err := apiServer.Controller.FilestoreDelete(getOwnerContext(req), path)
 	return path, err
 }
@@ -460,7 +473,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
 			log.Error().Err(err).Str("path", path).Msg("invalid app path format")
-			return false, fmt.Errorf("invalid app path format: %s", err)
+			return false, system.NewHTTPError400("invalid app path format")
 		}
 
 		// Check app filestore access for app-scoped paths
@@ -477,30 +490,30 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		// Parse and handle file upload
 		err = req.ParseMultipartForm(10 << 20)
 		if err != nil {
-			return false, err
+			return false, system.NewHTTPError400("invalid multipart upload")
 		}
 
 		if len(req.MultipartForm.File["files"]) == 0 {
-			return false, fmt.Errorf("no files to upload")
+			return false, system.NewHTTPError400("no files to upload")
 		}
 
 		files := req.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
-				return false, fmt.Errorf("unable to open file")
+				return false, system.NewHTTPError400("unable to open uploaded file")
 			}
 			defer file.Close()
 
 			destination, err := filestoreAppUploadDestination(path, appID, fileHeader.Filename)
 			if err != nil {
-				return false, fmt.Errorf("invalid upload path: %w", err)
+				return false, system.NewHTTPError400("invalid upload path: " + err.Error())
 			}
 
 			// Use the app-specific upload method
 			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, destination, file)
 			if err != nil {
-				return false, fmt.Errorf("unable to upload file: %s", err.Error())
+				return false, fmt.Errorf("unable to upload file: %w", err)
 			}
 		}
 
@@ -510,29 +523,32 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 	// Regular user path handling
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
-		return false, err
+		return false, system.NewHTTPError400("invalid multipart upload")
 	}
 
 	if len(req.MultipartForm.File["files"]) == 0 {
-		return false, fmt.Errorf("no files to upload")
+		return false, system.NewHTTPError400("no files to upload")
 	}
 
 	files := req.MultipartForm.File["files"]
 	for _, fileHeader := range files {
 		file, err := fileHeader.Open()
 		if err != nil {
-			return false, fmt.Errorf("unable to open file")
+			return false, system.NewHTTPError400("unable to open uploaded file")
 		}
 		defer file.Close()
 
 		destination, err := filestoreUploadDestination(path, fileHeader.Filename)
 		if err != nil {
-			return false, fmt.Errorf("invalid upload path: %w", err)
+			return false, system.NewHTTPError400("invalid upload path: " + err.Error())
+		}
+		if err := keyFilestorePathRefusal(req, destination); err != nil {
+			return false, err
 		}
 
 		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), destination, file)
 		if err != nil {
-			return false, fmt.Errorf("unable to upload file: %s", err.Error())
+			return false, fmt.Errorf("unable to upload file: %w", err)
 		}
 	}
 
@@ -1116,9 +1132,9 @@ func (apiServer *HelixAPIServer) approveWaitlistedUser(ctx context.Context, targ
 
 // createAPIKey godoc
 // @Summary Create a new API key
-// @Description Create a new API key
+// @Description Create a new API key. With project_id (and type "api"), the key is scoped to that project: it reaches only the project's routes and the LLM proxy, and proxy usage is attributed to the project. Minting a project key requires write access to the project and a browser session, a personal API key, or an API key of the project's organization. Unknown body fields are refused. The legacy name query parameter mints a personal key and cannot be combined with a body.
 // @Tags    api-keys
-// @Param request body map[string]interface{} true "Request body with name and type"
+// @Param request body map[string]interface{} true "Request body with name, type, and app_id (app keys) or project_id (project keys)"
 // @Success 200 {string} string "API key"
 // @Router /api/v1/api_keys [post]
 func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
@@ -1128,16 +1144,21 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 	user := getRequestUser(req)
 	ctx := req.Context()
 
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return "", err
+	}
 	if name != "" {
-		// if we are using the query string route then don't try to deode the body
+		// The query-string form mints a personal key. A body would be
+		// ignored, so a request meant to mint a scoped key would silently
+		// get an unscoped one.
+		if len(bytes.TrimSpace(body)) > 0 {
+			return "", system.NewHTTPError400("the name query parameter cannot be combined with a request body; send name in the body instead")
+		}
 		newAPIKey.Name = name
 		newAPIKey.Type = types.APIkeytypeAPI
 	} else {
 		// For now we need to manually unmarshal the body because of the sql.NullString
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			return "", err
-		}
 		var objmap map[string]json.RawMessage
 		err = json.Unmarshal(body, &objmap)
 		if err != nil {
@@ -1150,6 +1171,13 @@ func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.R
 		typeStr, httpErr := requiredJSONStringField(objmap, "type")
 		if httpErr != nil {
 			return "", httpErr
+		}
+		if _, ok := objmap["project_id"]; ok {
+			createdKey, err := apiServer.createProjectAPIKey(ctx, user, body)
+			if err != nil {
+				return "", err
+			}
+			return createdKey.Key, nil
 		}
 		apiKeyStr, httpErr := requiredJSONStringField(objmap, "app_id")
 		if httpErr != nil {

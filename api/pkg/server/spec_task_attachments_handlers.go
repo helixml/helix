@@ -12,9 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -336,11 +338,16 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
+		return
+	}
+	uploader, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	if specTaskAttachmentUploadsLocked(task.Status) {
@@ -424,7 +431,7 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 	// received doesn't abort the git commit.
 	stageCtx, cancel := detachContext(ctx, 60*time.Second)
 	defer cancel()
-	if err := s.specDrivenTaskService.StageUploadedAttachments(stageCtx, taskID); err != nil {
+	if err := s.specDrivenTaskService.StageUploadedAttachments(stageCtx, taskID, uploader); err != nil {
 		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to stage uploaded attachments into helix-specs (planning-time staging will retry)")
 	}
 
@@ -458,8 +465,8 @@ func (s *HelixAPIServer) listSpecTaskAttachments(w http.ResponseWriter, r *http.
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	attachments, err := s.Store.ListSpecTaskAttachments(ctx, taskID)
@@ -515,13 +522,17 @@ func (s *HelixAPIServer) getSpecTaskAttachmentContent(w http.ResponseWriter, r *
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
+			writeSpecTaskAuthzError(w, err)
 			return
 		}
 	}
 
 	rc, err := s.Controller.FilestoreSpecTaskAttachmentDownload(att.FilestorePath)
+	if errors.Is(err, filestore.ErrNotFound) {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		log.Error().Err(err).Str("path", att.FilestorePath).Msg("Failed to open attachment from filestore")
 		http.Error(w, "failed to load file", http.StatusInternalServerError)
@@ -568,8 +579,8 @@ func (s *HelixAPIServer) deleteSpecTaskAttachment(w http.ResponseWriter, r *http
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -610,14 +621,15 @@ func (s *HelixAPIServer) readSpecTaskAttachmentBlob(_ context.Context, absoluteP
 	return io.ReadAll(rc)
 }
 
-// sanitiseAttachmentFilename trims path components and rejects hidden/empty names.
+// sanitiseAttachmentFilename trims path components and rejects hidden/empty
+// names and names holding control characters.
 func sanitiseAttachmentFilename(name string) string {
 	name = filepath.Base(name)
 	name = strings.TrimSpace(name)
 	if name == "" || name == "." || name == ".." || strings.HasPrefix(name, ".") {
 		return ""
 	}
-	if strings.ContainsAny(name, "/\\\x00") {
+	if strings.ContainsAny(name, "/\\") || strings.ContainsFunc(name, unicode.IsControl) {
 		return ""
 	}
 	return name

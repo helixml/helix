@@ -43,14 +43,21 @@ var sensitiveBodyPaths = []string{
 	"/organizations/*/webhook-endpoints",
 	"/organizations/*/webhook-endpoints/**",
 
-	// Sandbox create carries an env map.
+	// Sandbox create and command runs carry env maps; a file write's body is
+	// the file, which in a desktop can be a credential or config file.
 	"/organizations/*/sandboxes",
+	"/organizations/*/sandboxes/*/commands",
+	"/organizations/*/sandboxes/*/files",
 
 	// Secret intake: the whole point of the form is collecting credentials.
 	"/projects/*/secret-intakes",
 	"/projects/*/secret-intakes/**",
 	"/connect/intake/redeem",
 	"/connect/intake/submit",
+
+	// Identity attestation tokens are bearer credentials until redeemed.
+	"/identity/attestations",
+	"/identity/attestations/verify",
 }
 
 // IsSensitiveBodyRoute reports whether the body of a request for this path must

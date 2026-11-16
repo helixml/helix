@@ -79,9 +79,13 @@ func (apiServer *HelixAPIServer) listOrganizations(rw http.ResponseWriter, r *ht
 			return
 		}
 
-		// Get all organizations the user is a member of
-		var organizations []*types.Organization
+		// Get all organizations the user is a member of. An org-scoped key
+		// sees only its own organization, not every org its owner joined.
+		organizations := []*types.Organization{}
 		for _, membership := range memberships {
+			if user.OrganizationID != "" && membership.OrganizationID != user.OrganizationID {
+				continue
+			}
 			org, err := apiServer.Store.GetOrganization(r.Context(), &store.GetOrganizationQuery{
 				ID: membership.OrganizationID,
 			})
@@ -784,6 +788,18 @@ func (apiServer *HelixAPIServer) getOrganizationGuidelinesHistory(rw http.Respon
 	}
 
 	writeResponse(rw, history, http.StatusOK)
+}
+
+// writeOrgMemberAuthzError answers a failed authorizeOrgMember check for a
+// route addressed by organization: callers outside the org get the same 404
+// as an unknown org, and store failures a generic 500.
+func writeOrgMemberAuthzError(rw http.ResponseWriter, err error) {
+	if isOutsideTenant(err) {
+		http.Error(rw, "Organization not found", http.StatusNotFound)
+		return
+	}
+	log.Err(err).Msg("error checking org membership")
+	http.Error(rw, "Could not check org membership", http.StatusInternalServerError)
 }
 
 // writeOrgOwnerAuthzError answers a failed authorizeOrgOwner check: callers

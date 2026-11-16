@@ -337,6 +337,10 @@ func (s *HelixAPIServer) startEvaluationRun(_ http.ResponseWriter, req *http.Req
 		AppConfigSnapshot: app.Config,
 	}
 
+	actor, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 	createdRun, err := s.Store.CreateEvaluationRun(ctx, run)
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create evaluation run: %s", err))
@@ -351,6 +355,7 @@ func (s *HelixAPIServer) startEvaluationRun(_ http.ResponseWriter, req *http.Req
 			Store:      s.Store,
 			Controller: s.Controller,
 			Judge:      evaluation.NewControllerLLMJudge(s.Controller, user, app),
+			Actor:      actor,
 		}
 
 		evaluation.RunEvaluation(runCtx, runnerCfg, createdRun, suite, app, user, func(progress types.EvaluationRunProgress) {
@@ -593,7 +598,7 @@ func (s *HelixAPIServer) getAppForEvaluation(ctx context.Context, user *types.Us
 	}
 
 	// Check user can access the app
-	if app.Owner != user.ID && !user.Admin {
+	if !callerOwns(user, app.Owner, app.OrganizationID) && !user.Admin {
 		if app.OrganizationID != "" {
 			_, err := s.authorizeOrgMember(ctx, user, app.OrganizationID)
 			if err != nil {

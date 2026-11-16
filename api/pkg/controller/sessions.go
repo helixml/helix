@@ -30,6 +30,9 @@ type RunSessionRequest struct {
 
 	PromptMessage types.MessageContent
 
+	// Provenance records who caused this turn. Required.
+	Provenance types.TurnProvenance
+
 	HistoryLimit int // Do -1 to not include any interactions
 }
 
@@ -43,6 +46,10 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 
 	if len(req.PromptMessage.Parts) == 0 {
 		return nil, fmt.Errorf("prompt message is required")
+	}
+
+	if err := req.Provenance.Validate(); err != nil {
+		return nil, err
 	}
 
 	if req.HistoryLimit == 0 {
@@ -94,6 +101,7 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		State:                types.InteractionStateWaiting,
 		PromptMessage:        req.PromptMessage.Parts[0].(string),
 		PromptMessageContent: req.PromptMessage,
+		Provenance:           req.Provenance,
 	}
 
 	interactions = append(interactions, interaction)
@@ -260,7 +268,7 @@ func (c *Controller) checkInferenceTokenQuota(ctx context.Context, userID string
 			if pro {
 				tierName = "pro"
 			}
-			return fmt.Errorf("monthly token limit exceeded for %s tier (%d/%d tokens used). Please upgrade your plan or wait until next month to continue", tierName, monthlyTokens, limit)
+			return &InferenceQuotaExceededError{Tier: tierName, Used: monthlyTokens, Limit: limit}
 		}
 		// Log warning for soft limits
 		log.Warn().

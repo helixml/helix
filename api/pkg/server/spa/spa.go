@@ -18,13 +18,60 @@ import (
 type FileServer struct {
 	fileSystem http.FileSystem
 	fileServer http.Handler
+	policy     ShellPolicy
 }
 
-func NewSPAFileServer(fileSystem http.FileSystem) *FileServer {
+// ShellPolicy is the browser policy sent with the HTML shell (index.html and
+// every client-side route that falls back to it).
+type ShellPolicy struct {
+	// FrameAncestors is a CSP frame-ancestors source list. Empty leaves
+	// framing unrestricted. /embed/* routes are never restricted: they exist
+	// to be framed by other sites.
+	FrameAncestors string
+}
+
+// shellPermissionsPolicy turns off browser features the web UI never uses,
+// for the shell and anything it frames.
+const shellPermissionsPolicy = "geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), browsing-topics=()"
+
+func NewSPAFileServer(fileSystem http.FileSystem, policy ShellPolicy) *FileServer {
 	return &FileServer{
 		fileSystem: fileSystem,
 		fileServer: http.FileServer(fileSystem),
+		policy:     policy,
 	}
+}
+
+// contentSecurityPolicy is the shell's CSP for a request path. It is scoped
+// so it cannot break the SPA, its third-party scripts or embedding: no
+// plugins, no <base> retargeting, and frame-ancestors when configured.
+func (p ShellPolicy) contentSecurityPolicy(urlPath string) string {
+	csp := "object-src 'none'; base-uri 'self'"
+	if p.FrameAncestors != "" && !isEmbedPath(urlPath) {
+		csp += "; frame-ancestors " + p.FrameAncestors
+	}
+	return csp
+}
+
+func isEmbedPath(urlPath string) bool {
+	return urlPath == "/embed" || strings.HasPrefix(urlPath, "/embed/")
+}
+
+// isMissingFilePath reports whether a request for a file that does not exist
+// should be a 404 rather than the SPA shell: API paths (an unknown API route
+// is not a page), hashed bundle assets (a stale chunk must fail as a missing
+// script, not parse HTML as JavaScript), and dot-files such as /.env or
+// /.git/HEAD, which are never client-side routes.
+func isMissingFilePath(urlPath string) bool {
+	if urlPath == "/api" || strings.HasPrefix(urlPath, "/api/") || strings.HasPrefix(urlPath, "/assets/") {
+		return true
+	}
+	for _, segment := range strings.Split(urlPath, "/") {
+		if strings.HasPrefix(segment, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +94,10 @@ func (s *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}
 	}
+	setShellHeaders := func() {
+		w.Header().Set("Content-Security-Policy", s.policy.contentSecurityPolicy(r.URL.Path))
+		w.Header().Set("Permissions-Policy", shellPermissionsPolicy)
+	}
 
 	if f, err := s.fileSystem.Open(path); err == nil {
 		if err = f.Close(); err != nil {
@@ -56,10 +107,18 @@ func (s *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Serving actual file - check if it's index.html
 		isIndex := r.URL.Path == "/" || r.URL.Path == "/index.html"
 		setCacheHeaders(isIndex)
+		if isIndex {
+			setShellHeaders()
+		}
 		s.fileServer.ServeHTTP(w, r)
 	} else if os.IsNotExist(err) {
+		if isMissingFilePath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
 		// SPA fallback - serving index.html for client-side routing
 		setCacheHeaders(true)
+		setShellHeaders()
 		r.URL.Path = ""
 		s.fileServer.ServeHTTP(w, r)
 		return

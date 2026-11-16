@@ -80,7 +80,8 @@ func newInteractiveEmbedModelHandlerFixture(t *testing.T) *interactiveEmbedModel
 		store: helixStore, manager: providerManager, task: task,
 		session: &types.Session{ID: "ses_A", Owner: "owner", GenerationID: 1},
 		user: types.User{
-			ID: "owner", APIKeyType: types.APIkeytypeEmbed, EmbedInteractive: true,
+			ID: "owner", TokenType: types.TokenTypeAPIKey, Token: provenanceTestSecret,
+			APIKeyType: types.APIkeytypeEmbed, EmbedInteractive: true,
 			SpecTaskID: "spt_A", SessionID: "ses_A",
 		},
 		endpoint: endpoint,

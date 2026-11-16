@@ -84,6 +84,15 @@ type Interaction struct {
 	// caches only; cancellation and restart recovery use this persisted value.
 	ExternalAgentRequestID string `json:"-" gorm:"index"`
 
+	// ExternalAgentUserThreadID and ExternalAgentUserEntryID identify the
+	// external agent's user entry this turn was recorded from: the ACP thread
+	// and Zed's message_id, which is the entry's index in that thread and
+	// restarts at 0 in every new thread. Empty for turns Helix sent. Together
+	// they let a re-reported entry be recognised instead of becoming a second
+	// turn.
+	ExternalAgentUserThreadID string `json:"-"`
+	ExternalAgentUserEntryID  string `json:"-"`
+
 	// ExternalAgentDispatchedAt distinguishes an interaction that only exists in
 	// the durable queue from one that has been handed to the external agent.
 	// It is set before the command is enqueued and cleared if enqueueing fails.
@@ -104,6 +113,9 @@ type Interaction struct {
 
 	PendingQuestion *PendingQuestion   `json:"pending_question,omitempty" gorm:"type:jsonb;serializer:json"`
 	QuestionHistory []ResolvedQuestion `json:"question_history,omitempty" gorm:"type:jsonb;serializer:json"`
+	// QuestionSubmission is the API answer or cancel in flight for the pending
+	// question. Server-only: never serialized to API responses or publishes.
+	QuestionSubmission *QuestionSubmission `json:"-" gorm:"type:jsonb;serializer:json"`
 
 	// CodeChanges is the immutable before/after workspace checkpoint summary for
 	// this turn. The full patch remains in hidden Git checkpoint refs.
@@ -140,7 +152,40 @@ type Interaction struct {
 	// relying on an in-memory map that doesn't survive API restarts. See
 	// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
 	PromptID string `json:"prompt_id,omitempty" gorm:"index"`
+
+	// Provenance records who caused this turn's prompt. Server-set at
+	// creation and never updated; rows from before it existed read as
+	// origin "unknown".
+	Provenance TurnProvenance `json:"provenance" gorm:"type:jsonb"`
+
+	// ThreadReseeds records every time Helix prepended a context preamble to
+	// this turn's prompt because the agent could not reopen its session, so
+	// what the agent was actually sent is auditable. Server-written only.
+	ThreadReseeds []ThreadReseed `json:"thread_reseeds,omitempty" gorm:"type:jsonb;serializer:json"`
 }
+
+// ThreadReseed is one context preamble Helix injected in front of a replayed
+// turn. The preamble itself is rebuilt from the session's own transcript and
+// task, so only its hash and length are stored rather than a second copy.
+type ThreadReseed struct {
+	At time.Time `json:"at"`
+	// Reason is why the agent's session could not be resumed.
+	Reason ThreadReseedReason `json:"reason"`
+	// Runtime and AgentName identify the coding agent that was reseeded.
+	Runtime   CodeAgentRuntime `json:"runtime,omitempty"`
+	AgentName string           `json:"agent_name,omitempty"`
+	// PreambleSHA256 is the hex sha256 of the injected preamble text.
+	PreambleSHA256 string `json:"preamble_sha256"`
+	PreambleLength int    `json:"preamble_length"`
+	// Provenance is always origin=system, system_kind=thread_reseed.
+	Provenance TurnProvenance `json:"provenance"`
+}
+
+type ThreadReseedReason string
+
+// ThreadReseedAgentCannotLoadSession: the ACP agent declares no loadSession
+// capability, so after a restart its thread can never be reopened.
+const ThreadReseedAgentCannotLoadSession ThreadReseedReason = "agent_cannot_load_session"
 
 type InteractionCodeAgentConfigSnapshot struct {
 	AppID          string                  `json:"app_id,omitempty"`
@@ -532,16 +577,16 @@ type SessionMetadata struct {
 	// Anything embedding a session — Find AI presented a chat box to candidates
 	// on this basis — needs to know it can send, not merely that a machine
 	// exists. Computed per request, never stored.
-	ExternalAgentConnected  bool                 `json:"external_agent_connected"`
-	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
-	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
-	GoldenBuild             bool                 `json:"golden_build,omitempty"`              // Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped
-	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
-	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
-	RenderNode              string               `json:"render_node,omitempty"`               // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
-	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
-	CodeAgentRuntime        CodeAgentRuntime     `json:"code_agent_runtime,omitempty"`        // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
-	StatusMessage           string               `json:"status_message,omitempty"`            // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
+	ExternalAgentConnected bool             `json:"external_agent_connected"`
+	Phase                  string           `json:"phase,omitempty"`                  // NEW: SpecTask phase (planning, implementation)
+	DevContainerID         string           `json:"dev_container_id,omitempty"`       // Dev container ID for streaming
+	GoldenBuild            bool             `json:"golden_build,omitempty"`           // Golden Docker cache build session: bounded by the golden build timeout, never idle-stopped
+	SwayVersion            string           `json:"sway_version,omitempty"`           // helix-sway image version (commit hash) running in this session
+	GPUVendor              string           `json:"gpu_vendor,omitempty"`             // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
+	RenderNode             string           `json:"render_node,omitempty"`            // GPU render node of sandbox (/dev/dri/renderD128 or SOFTWARE)
+	PausedScreenshotPath   string           `json:"paused_screenshot_path,omitempty"` // Path to saved screenshot when agent is paused
+	CodeAgentRuntime       CodeAgentRuntime `json:"code_agent_runtime,omitempty"`     // Which code agent runtime is used (zed_agent, qwen_code, claude_code, etc.)
+	StatusMessage          string           `json:"status_message,omitempty"`         // Transient status message shown during startup (e.g., "Unpacking build cache (2.1/7.0 GB)")
 
 	// CodeAgentOverrides customizes the coding model for THIS session without
 	// mutating its Agent. Set from the chat composer's execution controls on
@@ -1069,6 +1114,20 @@ type ApiKey struct { //nolint:revive
 	// (keyboard, mouse, clipboard). Off for public embeds; set for an operator
 	// that embeds a tenant's own agent for that tenant. Ignored on other types.
 	EmbedInteractive bool `json:"embed_interactive,omitempty"`
+	// TaskConfined confines a session key of a spec task created with
+	// confine_agent_key to that task (SpecTask.ConfineAgentKey).
+	TaskConfined bool `json:"task_confined,omitempty" gorm:"not null;default:false"`
+}
+
+// IsAgentBound reports whether the key acts for an agent rather than a person:
+// it is bound to a session, sandbox, spec task, project or app, or is an
+// app/embed/bot-instance key. Personal and org keys are not agent-bound.
+func (k *ApiKey) IsAgentBound() bool {
+	if k.Type != APIkeytypeAPI && k.Type != APIkeytypeNone {
+		return true
+	}
+	return k.SessionID != "" || k.ProjectID != "" || k.SpecTaskID != "" ||
+		(k.AppID != nil && k.AppID.Valid && k.AppID.String != "")
 }
 
 type OwnerContext struct {
@@ -1117,15 +1176,15 @@ type WebsocketEvent struct {
 // applies the same patch logic as the flat content patch, but scoped to a
 // single ResponseEntry's content.
 type EntryPatch struct {
-	Index        int    `json:"index"`                    // Position in the entries array
-	MessageID    string `json:"message_id"`               // Zed message_id for this entry
-	Type         string `json:"type"`                     // "text", "tool_call", or "plan"
+	Index     int    `json:"index"`      // Position in the entries array
+	MessageID string `json:"message_id"` // Zed message_id for this entry
+	Type      string `json:"type"`       // "text", "tool_call", or "plan"
 	// Patch/PatchOffset/TotalLength are deliberately NOT omitempty: a rewrite
 	// from offset 0 must arrive as an explicit 0, or the frontend's applyPatch
 	// appends instead of replacing and the entry is silently corrupted.
-	Patch        string `json:"patch"`        // Content delta from PatchOffset onwards
-	PatchOffset  int    `json:"patch_offset"` // UTF-16 offset of first change in this entry
-	TotalLength  int    `json:"total_length"` // Final content length of this entry after patch
+	Patch        string `json:"patch"`                    // Content delta from PatchOffset onwards
+	PatchOffset  int    `json:"patch_offset"`             // UTF-16 offset of first change in this entry
+	TotalLength  int    `json:"total_length"`             // Final content length of this entry after patch
 	ToolName     string `json:"tool_name,omitempty"`      // For tool_call: the tool label
 	ToolStatus   string `json:"tool_status,omitempty"`    // For tool_call: "Completed", "In Progress", etc.
 	ToolCallID   string `json:"tool_call_id,omitempty"`   // Stable ACP tool-call id
@@ -1273,12 +1332,9 @@ type ServerConfigForFrontend struct {
 	BillingEnabled                         bool         `json:"billing_enabled"`             // Charging for usage
 	MinimumInferenceBalance                float64      `json:"minimum_inference_balance"`   // Minimum wallet balance required for inference
 	RequireActiveSubscription              bool         `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
-	SentryDSNFrontend                      string       `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string       `json:"google_analytics_frontend"`
 	ToolsEnabled                           bool         `json:"tools_enabled"`
 	AppsEnabled                            bool         `json:"apps_enabled"`
-	RudderStackWriteKey                    string       `json:"rudderstack_write_key"`
-	RudderStackDataPlaneURL                string       `json:"rudderstack_data_plane_url"`
 	DisableLLMCallLogging                  bool         `json:"disable_llm_call_logging"`
 	Version                                string       `json:"version"`
 	LatestVersion                          string       `json:"latest_version"`
@@ -2882,6 +2938,21 @@ type Secret struct {
 	// Defaults to "dev" so pre-existing secrets keep their original (dev-only)
 	// behaviour and dev stays the primary path.
 	Scope SecretScope `json:"scope,omitempty" yaml:"scope,omitempty" gorm:"type:varchar(16);default:'dev';index"`
+	// Undecryptable is set by the secrets lists when the stored value cannot
+	// be decrypted with the current HELIX_ENCRYPTION_KEY (it was written under
+	// an earlier key). Such a secret is never injected or substituted; it must
+	// be re-entered.
+	Undecryptable bool `json:"undecryptable,omitempty" yaml:"-" gorm:"-"`
+}
+
+// ProjectSecretEnv is the decrypted, scope-filtered view of a project's
+// secrets prepared for injection into a container.
+type ProjectSecretEnv struct {
+	// Env holds `KEY=value` strings.
+	Env []string
+	// Undecryptable names secrets that apply to the target but could not be
+	// decrypted with the current encryption key, and were therefore skipped.
+	Undecryptable []string
 }
 
 // LicenseKey represents a license key in the database

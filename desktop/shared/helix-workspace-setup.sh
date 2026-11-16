@@ -139,6 +139,13 @@ export GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-300}"
 
 # Source the git helper functions (provides get_default_branch, create_helix_specs_branch)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Provides helix_trusted_startup_script. If it is missing the startup script is
+# refused (resolve_startup_script treats "command not found" as a refusal).
+if [ -f "$SCRIPT_DIR/helix-trusted-startup.sh" ]; then
+    source "$SCRIPT_DIR/helix-trusted-startup.sh"
+elif [ -f "/usr/local/bin/helix-trusted-startup.sh" ]; then
+    source "/usr/local/bin/helix-trusted-startup.sh"
+fi
 if [ -f "$SCRIPT_DIR/helix-specs-create.sh" ]; then
     source "$SCRIPT_DIR/helix-specs-create.sh"
 elif [ -f "/usr/local/bin/helix-specs-create.sh" ]; then
@@ -1027,6 +1034,33 @@ echo ""
 echo "Zed will open ${#ZED_FOLDERS[@]} folder(s)"
 echo ""
 
+# resolve_startup_script sets STARTUP_SCRIPT to the trusted startup script and
+# STARTUP_STATUS to 0 (run it), 1 (none; the project-YAML fallbacks may run) or
+# anything else (refused: nothing runs, and the reason is in
+# /tmp/helix-startup.log, which agents are told to read).
+resolve_startup_script() {
+    STARTUP_SCRIPT=""
+    STARTUP_STATUS=1
+    if [ -z "$HELIX_PRIMARY_REPO_NAME" ]; then
+        return
+    fi
+    local refusal
+    refusal=$(mktemp)
+    # The && / || keeps set -e from aborting setup on a non-zero status.
+    STARTUP_SCRIPT=$(helix_trusted_startup_script "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" "$WORK_DIR/helix-specs" 2>"$refusal") \
+        && STARTUP_STATUS=0 || STARTUP_STATUS=$?
+    if [ "$STARTUP_STATUS" -gt 1 ]; then
+        STARTUP_SCRIPT=""
+        {
+            echo "========================================="
+            echo "❌ Startup script NOT run"
+            echo "========================================="
+            cat "$refusal"
+        } | tee /tmp/helix-startup.log
+    fi
+    rm -f "$refusal"
+}
+
 # =========================================
 # Golden build mode: run startup script and exit
 # =========================================
@@ -1035,9 +1069,9 @@ echo ""
 # in the foreground, skip Zed, and exit with the script's exit code.
 # The resulting /var/lib/docker is then promoted to a golden snapshot.
 if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
-    STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
-    if [ ! -f "$STARTUP_SCRIPT" ]; then
-        echo "❌ Golden build: no startup script found at $STARTUP_SCRIPT"
+    resolve_startup_script
+    if [ "$STARTUP_STATUS" -ne 0 ]; then
+        echo "❌ Golden build: no trusted startup script to run"
         # Disable trap — no interactive menu for golden builds
         trap - EXIT
         exit 1
@@ -1178,13 +1212,15 @@ echo "========================================="
 # =========================================
 # Note: Startup script failures are NOT fatal - we continue
 # The user can see the error and fix it
-STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
-if [ -f "$STARTUP_SCRIPT" ]; then
+resolve_startup_script
+if [ "$STARTUP_STATUS" -gt 1 ]; then
+    echo "You can still run setup commands by hand in this terminal."
+elif [ "$STARTUP_STATUS" -eq 0 ]; then
     echo ""
     echo "========================================="
     echo "Running startup script (Zed starting in parallel)..."
     echo "========================================="
-    echo "Script: $STARTUP_SCRIPT"
+    echo "Script: $STARTUP_SCRIPT (trusted helix-specs commit $HELIX_TRUSTED_STARTUP_SHA)"
     echo ""
 
     # Change to primary repo for running commands

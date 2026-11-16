@@ -128,6 +128,10 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if err := denyTaskCreationToConfinedKey(user); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	var req types.CreateTaskRequest
 	r.Body = http.MaxBytesReader(w, r.Body, requestMaxBytes)
@@ -199,6 +203,10 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateSpecTaskName(strings.TrimSpace(req.Name)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if req.AppID != "" || req.CodeAgentOverrides != nil {
 		http.Error(w, "app_id and code_agent_overrides are no longer supported; provide code_agent_config", http.StatusBadRequest)
 		return
@@ -262,12 +270,18 @@ func (s *HelixAPIServer) createTaskFromPromptWithMaxRequestBytes(w http.Response
 	// tasks are first created in a durable, non-dispatchable preparing state.
 	req.Attachments = nil
 
+	creator, err := requestTurnProvenance(ctx, user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
 	// Create task via spec-driven service
 	var task *types.SpecTask
 	if len(inlineAttachments) == 0 {
-		task, err = s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req)
+		task, err = s.specDrivenTaskService.CreateTaskFromPrompt(ctx, &req, creator)
 	} else {
-		task, err = s.specDrivenTaskService.CreateTaskFromPromptPreparingAttachments(ctx, &req)
+		task, err = s.specDrivenTaskService.CreateTaskFromPromptPreparingAttachments(ctx, &req, creator)
 	}
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create task from prompt")
@@ -354,8 +368,8 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Authorize user to get task in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -525,6 +539,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		Labels:             labelFilter,
 		ExcludeStatuses:    []types.SpecTaskStatus{types.TaskStatusPreparing},
 	}
+	scopeSpecTaskFiltersToKey(user, filters)
 
 	tasks, err := s.Store.ListSpecTasks(ctx, filters)
 	if err != nil {
@@ -709,8 +724,8 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Authorize user to approve specs in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, existingTask.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, existingTask, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -766,12 +781,19 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	reviewer, reviewerErr := requestTurnProvenance(r.Context(), user)
+	if reviewerErr != nil {
+		http.Error(w, reviewerErr.Error(), http.StatusForbidden)
+		return
+	}
+
 	now := time.Now()
 	req.TaskID = taskID
 	req.ApprovedBy = user.ID
 	req.ApprovedAt = now
 	existingTask.SpecApproval = &req
 	existingTask.StatusUpdatedAt = &now
+	existingTask.QueuedBy = reviewer
 	specApprovalJSON, err := json.Marshal(req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to encode spec approval: %v", err), http.StatusInternalServerError)
@@ -780,7 +802,9 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 
 	var nextStatus types.SpecTaskStatus
 	var fromStatuses []types.SpecTaskStatus
-	extraFields := map[string]any{"spec_approval": string(specApprovalJSON)}
+	// Approving queues implementation and rejecting queues a revision; both
+	// are sent later by the orchestrator in the reviewer's name.
+	extraFields := map[string]any{"spec_approval": string(specApprovalJSON), "queued_by": reviewer}
 	if req.Approved {
 		existingTask.SpecApprovedBy = user.ID
 		existingTask.SpecApprovedAt = &now
@@ -925,8 +949,8 @@ func (s *HelixAPIServer) getTaskSpecs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Authorize user to get specs in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -986,8 +1010,8 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Authorize user to get progress in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionGet); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionGet); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 
@@ -1067,11 +1091,13 @@ func (s *HelixAPIServer) getBatchTaskProgress(w http.ResponseWriter, r *http.Req
 	includeChecklist := r.URL.Query().Get("include_checklist") == "true"
 
 	// Get all non-archived tasks for this project in a single query
-	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+	filters := &types.SpecTaskFilters{
 		ProjectID:       projectID,
 		IncludeArchived: false,
 		ExcludeStatuses: []types.SpecTaskStatus{types.TaskStatusPreparing},
-	})
+	}
+	scopeSpecTaskFiltersToKey(user, filters)
+	tasks, err := s.Store.ListSpecTasks(ctx, filters)
 	if err != nil {
 		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to list tasks for batch progress")
 		http.Error(w, "failed to list tasks", http.StatusInternalServerError)
@@ -1186,6 +1212,11 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	starter, err := requestTurnProvenance(r.Context(), user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	vars := mux.Vars(r)
 	taskID := vars["taskId"]
@@ -1215,8 +1246,8 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Authorize user to start planning in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -1284,6 +1315,7 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	// Record who kicked off planning so downstream push-credential and
 	// container git-identity resolution can attribute to them.
 	task.PlanningStartedBy = user.ID
+	task.QueuedBy = starter
 	// The person who starts the task owns its execution, replacing any
 	// pre-start assignment.
 	task.AssigneeID = user.ID
@@ -1371,6 +1403,16 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := types.ValidateSpecTaskName(strings.TrimSpace(updateReq.Name)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if updateReq.UserShortTitle != nil {
+		if err := types.ValidateSpecTaskName(*updateReq.UserShortTitle); err != nil {
+			http.Error(w, "user_short_title: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 
 	// Get existing task
 	task, err := s.Store.GetSpecTask(ctx, taskID)
@@ -1387,8 +1429,8 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Authorize user to update task in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -1399,6 +1441,10 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	// object they read); changing it goes through the archive endpoint.
 	if updateReq.Archived != nil && *updateReq.Archived != task.Archived {
 		http.Error(w, "archived cannot be changed with PUT; use PATCH /api/v1/spec-tasks/{taskId}/archive", http.StatusBadRequest)
+		return
+	}
+	if updateReq.ConfineAgentKey != nil && *updateReq.ConfineAgentKey != task.ConfineAgentKey {
+		http.Error(w, "confine_agent_key is fixed when the task is created", http.StatusBadRequest)
 		return
 	}
 	if updateReq.Status == types.TaskStatusPreparing {
@@ -1626,8 +1672,8 @@ func (s *HelixAPIServer) deleteSpecTask(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Authorize user to delete task in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {
@@ -1714,8 +1760,8 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Authorize user to archive task in the project
-	if err := s.authorizeUserToProjectByID(ctx, user, task.ProjectID, types.ActionUpdate); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+	if err := s.authorizeUserToSpecTask(ctx, user, task, types.ActionUpdate); err != nil {
+		writeSpecTaskAuthzError(w, err)
 		return
 	}
 	if rejectPreparingSpecTaskMutation(w, task) {

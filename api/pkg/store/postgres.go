@@ -18,6 +18,7 @@ import (
 	_ "github.com/lib/pq" // enable postgres driver
 
 	"github.com/helixml/helix/api/pkg/config"
+	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
@@ -113,11 +114,16 @@ type MigrationScript struct {
 	HasRun bool
 }
 
+// skipAutoMigrate reports whether HELIX_SKIP_AUTOMIGRATE=1 applies to schema.
+// CI sets it when migrations run in a separate step before parallel tests. It
+// only covers the public schema: tests that create their own schemas still need
+// migrations.
+func skipAutoMigrate(schema string) bool {
+	return os.Getenv("HELIX_SKIP_AUTOMIGRATE") == "1" && (schema == "" || schema == "public")
+}
+
 func (s *PostgresStore) autoMigrate() error {
-	// Skip migrations for the public schema if HELIX_SKIP_AUTOMIGRATE is set.
-	// This is used in CI where migrations run in a separate step before parallel tests.
-	// We only skip for public schema - tests that create their own schemas still need migrations.
-	if os.Getenv("HELIX_SKIP_AUTOMIGRATE") == "1" && (s.cfg.Schema == "" || s.cfg.Schema == "public") {
+	if skipAutoMigrate(s.cfg.Schema) {
 		log.Debug().Msg("skipping automigrate for public schema (HELIX_SKIP_AUTOMIGRATE=1)")
 		return nil
 	}
@@ -130,7 +136,67 @@ func (s *PostgresStore) autoMigrate() error {
 		}
 	}
 
-	return s.runMigrations()
+	ctx, cancel := context.WithTimeout(context.Background(), migrationLockWait)
+	defer cancel()
+	return s.withMigrationLock(ctx, s.runMigrations)
+}
+
+const (
+	// migrationLockPollInterval is how often a process waiting for another
+	// one's migration retries the advisory lock.
+	migrationLockPollInterval = 500 * time.Millisecond
+	// migrationLockWait bounds how long startup waits for another process's
+	// migration; past it startup fails instead of hanging on a stuck holder.
+	migrationLockWait = 30 * time.Minute
+)
+
+// withMigrationLock runs migrate while holding a Postgres advisory lock scoped
+// to this database and schema, so API replicas starting together migrate one
+// at a time instead of racing on CREATE TABLE / CREATE TYPE (which fails with
+// a duplicate key on pg_type_typname_nsp_index).
+//
+// The lock is polled with pg_try_advisory_lock rather than awaited with
+// pg_advisory_lock: a backend blocked inside pg_advisory_lock holds a
+// snapshot, and the holder's CREATE INDEX CONCURRENTLY waits for every older
+// snapshot to finish, which would deadlock the two processes. The lock is held
+// on a dedicated connection and released when it closes, including when the
+// process dies mid-migration.
+func (s *PostgresStore) withMigrationLock(ctx context.Context, migrate func() error) error {
+	sqlDB, err := s.gdb.DB()
+	if err != nil {
+		return fmt.Errorf("get sql db: %w", err)
+	}
+	conn, err := sqlDB.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("get migration lock connection: %w", err)
+	}
+	defer conn.Close()
+
+	key := "helix-automigrate:" + s.cfg.Schema
+	for logged := false; ; {
+		var acquired bool
+		if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", key).Scan(&acquired); err != nil {
+			return fmt.Errorf("acquire migration lock: %w", err)
+		}
+		if acquired {
+			break
+		}
+		if !logged {
+			log.Info().Str("schema", s.cfg.Schema).Msg("waiting for another process to finish database migrations")
+			logged = true
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("acquire migration lock: %w", ctx.Err())
+		case <-time.After(migrationLockPollInterval):
+		}
+	}
+
+	migrateErr := migrate()
+	if _, err := conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock(hashtext($1))", key); err != nil && migrateErr == nil {
+		return fmt.Errorf("release migration lock: %w", err)
+	}
+	return migrateErr
 }
 
 // runMigrations performs the actual database migrations.
@@ -227,6 +293,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.ProjectAuditLog{},   // Audit trail for project activity
 		&types.OrgAuditLog{},       // Audit trail for Helix org activity
 		&types.RequestAuditEvent{}, // Audit trail for API requests (incident forensics)
+		&types.IdentityAttestationRedemption{},
 		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
@@ -303,10 +370,28 @@ func (s *PostgresStore) runMigrations() error {
 	).Error; err != nil {
 		return fmt.Errorf("failed to create sessions provider recovery index: %w", err)
 	}
+	// One interaction per agent-reported user entry: overlapping readers of a
+	// reconnecting agent can both pass the read-side dedupe in
+	// userEntryAlreadyRecorded, and this index makes the second insert fail
+	// (CreateInteraction reports it as ErrDuplicateExternalAgentUserEntry).
+	// The text is part of the key, matching the read-side rule: an index an
+	// agent restart renumbered can carry a genuinely new message. Partial, so
+	// turns Helix sent (no entry id) are unaffected; CONCURRENTLY for the same
+	// reason as the sessions indexes above.
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS " + externalAgentUserEntryIndex +
+			" ON interactions (session_id, generation_id, external_agent_user_thread_id, external_agent_user_entry_id, md5(prompt_message))" +
+			" WHERE external_agent_user_entry_id <> ''",
+	).Error; err != nil {
+		return fmt.Errorf("failed to create interactions external agent user entry index: %w", err)
+	}
 	if err := s.backfillAgentKinds(context.Background()); err != nil {
 		return err
 	}
 	if err := s.backfillEmailVerified(context.Background()); err != nil {
+		return err
+	}
+	if err := s.backfillSessionAgentConnections(context.Background()); err != nil {
 		return err
 	}
 
@@ -351,6 +436,10 @@ func (s *PostgresStore) runMigrations() error {
 		).Error; err != nil {
 			return fmt.Errorf("failed to backfill sandboxes.org_bot_id: %w", err)
 		}
+	}
+
+	if err := s.encryptLegacyPlaintextSecrets(context.Background(), encryptLegacySecretsBatchSize); err != nil {
+		return err
 	}
 
 	if err := s.migrateGoldenBuildsFromProjectMetadata(context.Background()); err != nil {
@@ -454,6 +543,11 @@ func (s *PostgresStore) runMigrations() error {
 	if err := s.ensureDefaultProject(context.Background()); err != nil {
 		log.Err(err).Msg("failed to ensure default project exists")
 		return err
+	}
+
+	// helix-org's org_* tables reference organizations, so they migrate last.
+	if err := orggorm.Migrate(s.gdb, orggorm.Options{InstallOrganizationFK: true}); err != nil {
+		return fmt.Errorf("failed to migrate helix-org tables: %w", err)
 	}
 
 	return nil

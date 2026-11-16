@@ -550,9 +550,9 @@ func (s *HelixAPIServer) getSpecTaskUsage(_ http.ResponseWriter, r *http.Request
 		return nil, system.NewHTTPError404(err.Error())
 	}
 
-	err = s.authorizeUserToProjectByID(r.Context(), user, specTask.ProjectID, types.ActionGet)
+	err = s.authorizeUserToSpecTask(r.Context(), user, specTask, types.ActionGet)
 	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
+		return nil, specTaskAuthzHTTPError(err)
 	}
 
 	var from time.Time
@@ -678,10 +678,12 @@ func (s *HelixAPIServer) getBatchTaskUsage(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Get all non-archived tasks for this project
-	tasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+	filters := &types.SpecTaskFilters{
 		ProjectID:       projectID,
 		IncludeArchived: false,
-	})
+	}
+	scopeSpecTaskFiltersToKey(user, filters)
+	tasks, err := s.Store.ListSpecTasks(ctx, filters)
 	if err != nil {
 		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to list tasks for batch usage")
 		http.Error(w, "failed to list tasks", http.StatusInternalServerError)

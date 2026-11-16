@@ -190,7 +190,8 @@ func (b botInstances) Create(ctx context.Context, orgID string, botID orgchart.N
 	}()
 
 	if params.Message != "" {
-		if _, err := b.server.enqueueAgentMessage(ctx, created.ID, params.Message, false, "", ""); err != nil {
+		if _, err := b.server.enqueueAgentMessage(ctx, created.ID, params.Message, false, "", "",
+			types.OrgBotSystemTurn(types.SystemTurnOrgBotInstanceMessage, string(bot.ID))); err != nil {
 			return nil, fmt.Errorf("queue first message: %w", err)
 		}
 	}

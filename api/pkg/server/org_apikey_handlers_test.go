@@ -145,7 +145,9 @@ func TestListOrgAPIKeys_NonMemberForbidden(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.listOrgAPIKeys(rr, req)
 
-	require.Equal(t, http.StatusForbidden, rr.Code)
+	// A non-member gets the answer an unknown org gets.
+	require.Equal(t, http.StatusNotFound, rr.Code)
+	require.Equal(t, "Organization not found\n", rr.Body.String())
 }
 
 func TestListOrgAPIKeys_FiltersOutSpecTaskKeys(t *testing.T) {

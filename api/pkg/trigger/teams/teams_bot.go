@@ -328,6 +328,7 @@ func (t *TeamsBot) handleMessage(ctx context.Context, existingThread *types.Team
 		Session:        session,
 		User:           user,
 		PromptMessage:  types.MessageContent{Parts: []any{messageText}},
+		Provenance:     types.TriggerTurn(types.SystemTurnTeamsMessage, types.TriggerSource{AppID: t.app.ID, Owner: t.app.Owner}),
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get response from inference API: %w", err)

@@ -29,7 +29,6 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/function61/holepunch-server v0.0.0-20210312073819-8f5e8775e813
 	github.com/getkin/kin-openapi v0.133.0
-	github.com/getsentry/sentry-go v0.25.0
 	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/go-gst/go-gst v1.4.0
 	github.com/go-rod/rod v0.116.2
@@ -47,6 +46,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/helixml/kodit v1.4.0
 	github.com/infracloudio/msbotbuilder-go v0.2.5
+	github.com/jackc/pgx/v5 v5.9.1
 	github.com/jfrog/froggit-go v1.20.1
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
@@ -284,7 +284,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.9.1 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect

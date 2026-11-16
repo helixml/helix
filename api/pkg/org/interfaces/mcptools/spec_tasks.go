@@ -43,6 +43,8 @@ type createSpecTaskArgs struct {
 	DependsOn      []string `json:"depends_on,omitempty"`
 	SandboxVCPUs   int      `json:"sandbox_vcpus,omitempty"`
 	SandboxRuntime string   `json:"sandbox_runtime,omitempty"`
+	// ConfineAgentKey confines the task's agent key to the task itself.
+	ConfineAgentKey bool `json:"confine_agent_key,omitempty"`
 }
 
 var createSpecTaskSchema = mustSchema[createSpecTaskArgs]()
@@ -60,7 +62,9 @@ func (t *CreateSpecTask) Description() string {
 		"(task IDs), sandbox_vcpus (" + types.SpecTaskSandboxVCPUList() +
 		" — memory follows; omit for the project default), " +
 		"sandbox_runtime (headless-ubuntu for agent-only work, ubuntu-desktop when the task " +
-		"needs a GUI; omit for the project default). " +
+		"needs a GUI; omit for the project default), confine_agent_key (confine the task's " +
+		"agent to this one task: it cannot read or message the project's other tasks or " +
+		"sessions, nor create tasks — use it when another task must check this one's work). " +
 		"The task runs on the coding agent and model configured for the project, which is your " +
 		"own — do not try to set one, and do not call the REST API to work around this tool. " +
 		"The task starts in backlog — call start_spectask_planning to begin work."
@@ -71,15 +75,16 @@ func (t *CreateSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
 	view, err := t.deps.SpecTasks.Create(ctx, inv.Caller, args.ProjectID, runtime.CreateSpecTaskInput{
-		Name:           args.Name,
-		Description:    args.Description,
-		Type:           args.Type,
-		Priority:       args.Priority,
-		OriginalPrompt: args.OriginalPrompt,
-		SkipPlanning:   args.SkipPlanning,
-		DependsOn:      args.DependsOn,
-		SandboxVCPUs:   args.SandboxVCPUs,
-		SandboxRuntime: args.SandboxRuntime,
+		Name:            args.Name,
+		Description:     args.Description,
+		Type:            args.Type,
+		Priority:        args.Priority,
+		OriginalPrompt:  args.OriginalPrompt,
+		SkipPlanning:    args.SkipPlanning,
+		DependsOn:       args.DependsOn,
+		SandboxVCPUs:    args.SandboxVCPUs,
+		SandboxRuntime:  args.SandboxRuntime,
+		ConfineAgentKey: args.ConfineAgentKey,
 	})
 	if err != nil {
 		return nil, err

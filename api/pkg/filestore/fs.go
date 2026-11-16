@@ -3,8 +3,10 @@ package filestore
 import (
 	"archive/tar"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,12 +37,15 @@ func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, erro
 
 	fullPath, err := s.getSafePath(fullPath)
 	if err != nil {
-		return []Item{}, fmt.Errorf("invalid path: %s", prefix)
+		return []Item{}, fmt.Errorf("%w: %s", ErrInvalidPath, prefix)
 	}
 
 	files, err := os.ReadDir(fullPath)
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return []Item{}, nil
+	}
+	if err != nil {
+		return nil, storeError("list", prefix, err)
 	}
 
 	items := []Item{}
@@ -48,7 +53,7 @@ func (s *FileSystemStorage) List(_ context.Context, prefix string) ([]Item, erro
 		path := filepath.Join(prefix, f.Name())
 		info, err := f.Info()
 		if err != nil {
-			return nil, fmt.Errorf("error fetching file info: %w", err)
+			return nil, storeError("stat", path, err)
 		}
 		items = append(items, Item{
 			Directory: f.IsDir(),
@@ -68,12 +73,12 @@ func (s *FileSystemStorage) Get(_ context.Context, path string) (Item, error) {
 
 	fullPath, err := s.getSafePath(fullPath)
 	if err != nil {
-		return Item{}, fmt.Errorf("invalid path: %s", path)
+		return Item{}, fmt.Errorf("%w: %s", ErrInvalidPath, path)
 	}
 
 	info, err := os.Stat(fullPath)
 	if err != nil {
-		return Item{}, fmt.Errorf("error fetching file info: %w", err)
+		return Item{}, storeError("stat", path, err)
 	}
 	return Item{
 		Directory: info.IsDir(),
@@ -94,7 +99,7 @@ func (s *FileSystemStorage) WriteFile(ctx context.Context, path string, r io.Rea
 
 	fullPath, err := s.getSafePath(fullPath)
 	if err != nil {
-		return Item{}, fmt.Errorf("invalid path: %s", path)
+		return Item{}, fmt.Errorf("%w: %s", ErrInvalidPath, path)
 	}
 
 	// Create the directory structure if it doesn't exist
@@ -120,12 +125,12 @@ func (s *FileSystemStorage) OpenFile(_ context.Context, path string) (io.ReadClo
 
 	fullPath, err := s.getSafePath(fullPath)
 	if err != nil {
-		return nil, fmt.Errorf("invalid path: %s", path)
+		return nil, fmt.Errorf("%w: %s", ErrInvalidPath, path)
 	}
 
 	file, err := os.Open(fullPath)
 	if err != nil {
-		return nil, fmt.Errorf("error opening file: %w", err)
+		return nil, storeError("open", path, err)
 	}
 
 	return file, nil
@@ -196,12 +201,12 @@ func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath str
 
 	src, err := s.getSafePath(src)
 	if err != nil {
-		return Item{}, fmt.Errorf("invalid source path: %s", src)
+		return Item{}, fmt.Errorf("%w: source %s", ErrInvalidPath, src)
 	}
 
 	dst, err = s.getSafePath(dst)
 	if err != nil {
-		return Item{}, fmt.Errorf("invalid destination path: %s", dst)
+		return Item{}, fmt.Errorf("%w: destination %s", ErrInvalidPath, dst)
 	}
 
 	if err := os.Rename(src, dst); err != nil {
@@ -216,7 +221,7 @@ func (s *FileSystemStorage) Delete(_ context.Context, path string) error {
 
 	fullPath, err := s.getSafePath(fullPath)
 	if err != nil {
-		return fmt.Errorf("invalid path: %s", path)
+		return fmt.Errorf("%w: %s", ErrInvalidPath, path)
 	}
 
 	if err := os.RemoveAll(fullPath); err != nil {
@@ -231,7 +236,7 @@ func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (Item
 
 	fullPath, err := s.getSafePath(fullPath)
 	if err != nil {
-		return Item{}, fmt.Errorf("invalid path: %s", path)
+		return Item{}, fmt.Errorf("%w: %s", ErrInvalidPath, path)
 	}
 
 	if err := os.MkdirAll(fullPath, os.ModePerm); err != nil {
@@ -247,12 +252,12 @@ func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath 
 
 	fullFromPath, err := s.getSafePath(fullFromPath)
 	if err != nil {
-		return fmt.Errorf("invalid from path: %s", fromPath)
+		return fmt.Errorf("%w: from %s", ErrInvalidPath, fromPath)
 	}
 
 	fullToPath, err = s.getSafePath(fullToPath)
 	if err != nil {
-		return fmt.Errorf("invalid to path: %s", toPath)
+		return fmt.Errorf("%w: to %s", ErrInvalidPath, toPath)
 	}
 
 	srcFile, err := os.Open(fullFromPath)
@@ -284,15 +289,29 @@ func (s *FileSystemStorage) CopyFile(_ context.Context, fromPath string, toPath 
 func (s *FileSystemStorage) getSafePath(path string) (string, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("invalid path: %s", path)
+		return "", fmt.Errorf("%w: %s", ErrInvalidPath, path)
 	}
 	absBasePath, err := filepath.Abs(s.basePath)
 	if err != nil {
-		return "", fmt.Errorf("invalid base path: %s", s.basePath)
+		return "", fmt.Errorf("invalid filestore base path: %w", err)
 	}
 	relativePath, err := filepath.Rel(absBasePath, absPath)
 	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("invalid path: %s", path)
+		return "", fmt.Errorf("%w: %s", ErrInvalidPath, path)
 	}
 	return absPath, nil
+}
+
+// storeError reports a failed operation on a store-relative path. The
+// *fs.PathError from the os package names the host path, so only its
+// underlying cause is kept; a missing path becomes ErrNotFound.
+func storeError(op, path string, err error) error {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		err = pathErr.Err
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%s %s: %w", op, path, ErrNotFound)
+	}
+	return fmt.Errorf("%s %s: %w", op, path, err)
 }

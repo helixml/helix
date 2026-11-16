@@ -275,6 +275,9 @@ type User struct {
 	SpecTaskID     string `json:"spec_task_id" gorm:"-"`    // When running in Helix Code sandbox
 	SessionID      string `json:"session_id" gorm:"-"`      // Session this API key is scoped to (ephemeral keys)
 	OrganizationID string `json:"organization_id" gorm:"-"` // Organization this API key is scoped to (ephemeral keys)
+	// TaskConfined: the key reaches only its spec task (SpecTaskID) and that
+	// task's sessions (ApiKey.TaskConfined).
+	TaskConfined bool `json:"task_confined,omitempty" gorm:"-"`
 	// RunnerID is the runner a per-runner token is bound to. Empty for the
 	// shared runner token and for every non-runner credential.
 	RunnerID string `json:"runner_id,omitempty" gorm:"-"`
@@ -394,6 +397,24 @@ func (u *User) AccountAccessError() error {
 		return ErrAccountWaitlisted
 	}
 	return nil
+}
+
+// IsHumanCredential reports whether the request authenticated as a person: a
+// browser session, an OIDC token, or a personal or org API key. Agent-bound
+// keys (ApiKey.IsAgentBound), runner tokens and other system identities are
+// not human.
+func (u *User) IsHumanCredential() bool {
+	if u == nil {
+		return false
+	}
+	switch u.TokenType {
+	case TokenTypeOIDC, TokenTypeSession:
+		return true
+	case TokenTypeAPIKey:
+		key := ApiKey{Type: u.APIKeyType, SessionID: u.SessionID, ProjectID: u.ProjectID, SpecTaskID: u.SpecTaskID}
+		return u.AppID == "" && !key.IsAgentBound()
+	}
+	return false
 }
 
 type UserSearchResponse struct {

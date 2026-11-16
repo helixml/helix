@@ -59,6 +59,20 @@ func (mr *MockStoreMockRecorder) AddSpecTaskLabel(ctx, taskID, label any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddSpecTaskLabel", reflect.TypeOf((*MockStore)(nil).AddSpecTaskLabel), ctx, taskID, label)
 }
 
+// AppendInteractionThreadReseed mocks base method.
+func (m *MockStore) AppendInteractionThreadReseed(ctx context.Context, interactionID string, generationID int, reseed types.ThreadReseed) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AppendInteractionThreadReseed", ctx, interactionID, generationID, reseed)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AppendInteractionThreadReseed indicates an expected call of AppendInteractionThreadReseed.
+func (mr *MockStoreMockRecorder) AppendInteractionThreadReseed(ctx, interactionID, generationID, reseed any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendInteractionThreadReseed", reflect.TypeOf((*MockStore)(nil).AppendInteractionThreadReseed), ctx, interactionID, generationID, reseed)
+}
+
 // AttachRepositoryToProject mocks base method.
 func (m *MockStore) AttachRepositoryToProject(ctx context.Context, projectID, repoID string) error {
 	m.ctrl.T.Helper()
@@ -220,6 +234,20 @@ func (m *MockStore) ClearInteractionExternalAgentDispatched(ctx context.Context,
 func (mr *MockStoreMockRecorder) ClearInteractionExternalAgentDispatched(ctx, interactionID, generationID, requestID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearInteractionExternalAgentDispatched", reflect.TypeOf((*MockStore)(nil).ClearInteractionExternalAgentDispatched), ctx, interactionID, generationID, requestID)
+}
+
+// ClearInteractionQuestionSubmission mocks base method.
+func (m *MockStore) ClearInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID, submissionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearInteractionQuestionSubmission", ctx, interactionID, generationID, requestID, submissionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearInteractionQuestionSubmission indicates an expected call of ClearInteractionQuestionSubmission.
+func (mr *MockStoreMockRecorder) ClearInteractionQuestionSubmission(ctx, interactionID, generationID, requestID, submissionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearInteractionQuestionSubmission", reflect.TypeOf((*MockStore)(nil).ClearInteractionQuestionSubmission), ctx, interactionID, generationID, requestID, submissionID)
 }
 
 // ClearSessionInteractions mocks base method.
@@ -3274,6 +3302,21 @@ func (m *MockStore) GetInteractionByExternalAgentRequestID(ctx context.Context, 
 func (mr *MockStoreMockRecorder) GetInteractionByExternalAgentRequestID(ctx, requestID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionByExternalAgentRequestID", reflect.TypeOf((*MockStore)(nil).GetInteractionByExternalAgentRequestID), ctx, requestID)
+}
+
+// GetInteractionByExternalAgentUserEntry mocks base method.
+func (m *MockStore) GetInteractionByExternalAgentUserEntry(ctx context.Context, sessionID string, generationID int, threadID, entryID string) (*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInteractionByExternalAgentUserEntry", ctx, sessionID, generationID, threadID, entryID)
+	ret0, _ := ret[0].(*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInteractionByExternalAgentUserEntry indicates an expected call of GetInteractionByExternalAgentUserEntry.
+func (mr *MockStoreMockRecorder) GetInteractionByExternalAgentUserEntry(ctx, sessionID, generationID, threadID, entryID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteractionByExternalAgentUserEntry", reflect.TypeOf((*MockStore)(nil).GetInteractionByExternalAgentUserEntry), ctx, sessionID, generationID, threadID, entryID)
 }
 
 // GetInteractionsSummary mocks base method.
@@ -6705,6 +6748,21 @@ func (mr *MockStoreMockRecorder) ReconcileStuckSendingPrompts(ctx any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileStuckSendingPrompts", reflect.TypeOf((*MockStore)(nil).ReconcileStuckSendingPrompts), ctx)
 }
 
+// RecordInteractionQuestionSubmission mocks base method.
+func (m *MockStore) RecordInteractionQuestionSubmission(ctx context.Context, interactionID string, generationID int, requestID string, submission types.QuestionSubmission) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordInteractionQuestionSubmission", ctx, interactionID, generationID, requestID, submission)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordInteractionQuestionSubmission indicates an expected call of RecordInteractionQuestionSubmission.
+func (mr *MockStoreMockRecorder) RecordInteractionQuestionSubmission(ctx, interactionID, generationID, requestID, submission any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordInteractionQuestionSubmission", reflect.TypeOf((*MockStore)(nil).RecordInteractionQuestionSubmission), ctx, interactionID, generationID, requestID, submission)
+}
+
 // RecordSessionAgentConfigApplied mocks base method.
 func (m *MockStore) RecordSessionAgentConfigApplied(ctx context.Context, sessionID string, appliedAt time.Time, handoffDelivered bool) error {
 	m.ctrl.T.Helper()
@@ -6747,6 +6805,21 @@ func (m *MockStore) RecoverProviderPrompt(ctx context.Context, sessionID, prompt
 func (mr *MockStoreMockRecorder) RecoverProviderPrompt(ctx, sessionID, promptID, now, nextCheckAt, maxAttempts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecoverProviderPrompt", reflect.TypeOf((*MockStore)(nil).RecoverProviderPrompt), ctx, sessionID, promptID, now, nextCheckAt, maxAttempts)
+}
+
+// RedeemIdentityAttestation mocks base method.
+func (m *MockStore) RedeemIdentityAttestation(ctx context.Context, jti string, expiresAt time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RedeemIdentityAttestation", ctx, jti, expiresAt)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RedeemIdentityAttestation indicates an expected call of RedeemIdentityAttestation.
+func (mr *MockStoreMockRecorder) RedeemIdentityAttestation(ctx, jti, expiresAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemIdentityAttestation", reflect.TypeOf((*MockStore)(nil).RedeemIdentityAttestation), ctx, jti, expiresAt)
 }
 
 // RedeemSecretIntakeInvitation mocks base method.
@@ -6894,9 +6967,9 @@ func (mr *MockStoreMockRecorder) ResetStuckComments(ctx any) *gomock.Call {
 }
 
 // ResolveInteractionPendingQuestion mocks base method.
-func (m *MockStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string) (*types.Interaction, bool, error) {
+func (m *MockStore) ResolveInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, requestID, outcome string, answers map[string]string, answeredBy func(*types.QuestionSubmission) types.TurnProvenance) (*types.Interaction, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ResolveInteractionPendingQuestion", ctx, interactionID, generationID, requestID, outcome, answers)
+	ret := m.ctrl.Call(m, "ResolveInteractionPendingQuestion", ctx, interactionID, generationID, requestID, outcome, answers, answeredBy)
 	ret0, _ := ret[0].(*types.Interaction)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -6904,9 +6977,9 @@ func (m *MockStore) ResolveInteractionPendingQuestion(ctx context.Context, inter
 }
 
 // ResolveInteractionPendingQuestion indicates an expected call of ResolveInteractionPendingQuestion.
-func (mr *MockStoreMockRecorder) ResolveInteractionPendingQuestion(ctx, interactionID, generationID, requestID, outcome, answers any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ResolveInteractionPendingQuestion(ctx, interactionID, generationID, requestID, outcome, answers, answeredBy any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveInteractionPendingQuestion", reflect.TypeOf((*MockStore)(nil).ResolveInteractionPendingQuestion), ctx, interactionID, generationID, requestID, outcome, answers)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveInteractionPendingQuestion", reflect.TypeOf((*MockStore)(nil).ResolveInteractionPendingQuestion), ctx, interactionID, generationID, requestID, outcome, answers, answeredBy)
 }
 
 // ResourceSearch mocks base method.
@@ -7066,6 +7139,20 @@ func (m *MockStore) SetActiveWebServiceSandbox(ctx context.Context, projectID, s
 func (mr *MockStoreMockRecorder) SetActiveWebServiceSandbox(ctx, projectID, sandboxID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActiveWebServiceSandbox", reflect.TypeOf((*MockStore)(nil).SetActiveWebServiceSandbox), ctx, projectID, sandboxID)
+}
+
+// SetGitRepositoryTrustedStartupSHA mocks base method.
+func (m *MockStore) SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetGitRepositoryTrustedStartupSHA", ctx, id, sha)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetGitRepositoryTrustedStartupSHA indicates an expected call of SetGitRepositoryTrustedStartupSHA.
+func (mr *MockStoreMockRecorder) SetGitRepositoryTrustedStartupSHA(ctx, id, sha any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGitRepositoryTrustedStartupSHA", reflect.TypeOf((*MockStore)(nil).SetGitRepositoryTrustedStartupSHA), ctx, id, sha)
 }
 
 // SetInteractionPendingQuestion mocks base method.
@@ -7330,18 +7417,18 @@ func (mr *MockStoreMockRecorder) SumSandboxCharges(ctx, sandboxID any) *gomock.C
 }
 
 // SyncPromptHistory mocks base method.
-func (m *MockStore) SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
+func (m *MockStore) SyncPromptHistory(ctx context.Context, userID string, provenance types.TurnProvenance, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SyncPromptHistory", ctx, userID, req)
+	ret := m.ctrl.Call(m, "SyncPromptHistory", ctx, userID, provenance, req)
 	ret0, _ := ret[0].(*types.PromptHistorySyncResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // SyncPromptHistory indicates an expected call of SyncPromptHistory.
-func (mr *MockStoreMockRecorder) SyncPromptHistory(ctx, userID, req any) *gomock.Call {
+func (mr *MockStoreMockRecorder) SyncPromptHistory(ctx, userID, provenance, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPromptHistory", reflect.TypeOf((*MockStore)(nil).SyncPromptHistory), ctx, userID, req)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPromptHistory", reflect.TypeOf((*MockStore)(nil).SyncPromptHistory), ctx, userID, provenance, req)
 }
 
 // TakeSecretIntake mocks base method.

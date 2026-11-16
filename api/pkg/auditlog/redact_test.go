@@ -211,9 +211,13 @@ func TestIsSensitiveBodyRoute(t *testing.T) {
 		"/api/v1/apps/app_1",
 		"/api/v1/organizations/org_1/webhook-endpoints/wh_1/rotate-secret",
 		"/api/v1/organizations/org_1/sandboxes",
+		"/api/v1/organizations/org_1/sandboxes/sbx_1/commands",
+		"/api/v1/organizations/org_1/sandboxes/sbx_1/files",
 		"/api/v1/projects/prj_1/secret-intakes/sci_1/submissions",
 		"/connect/intake/redeem",
 		"/connect/intake/submit",
+		"/api/v1/identity/attestations",
+		"/api/v1/identity/attestations/verify",
 	}
 	for _, path := range sensitive {
 		require.True(t, IsSensitiveBodyRoute(path), "path %q", path)
@@ -222,7 +226,8 @@ func TestIsSensitiveBodyRoute(t *testing.T) {
 	notSensitive := []string{
 		"/api/v1/sessions",
 		"/api/v1/sessions/ses_1",
-		"/api/v1/organizations/org_1/sandboxes/sbx_1/commands",
+		"/api/v1/organizations/org_1/sandboxes/sbx_1",
+		"/api/v1/organizations/org_1/sandboxes/sbx_1/commands/sbcmd_1/kill",
 		"/api/v1/secretsmanager",
 		"/api/v1/projects/prj_1",
 		"/api/v1/agentsmd",

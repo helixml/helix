@@ -19,6 +19,70 @@ upgrade step.
 - The two move **together**: the runner pulls desktop images by heartbeat version, so a version
   mismatch between controlplane and runner means stale desktop/sandbox images. Always bump both.
 
+## Automated path: `scripts/deploy-prod.sh`
+The release tag's `deploy-prod` pipeline runs this runbook. It can also be run by hand from a
+checkout of the version being deployed, which may be a release tag or the 7-character SHA of
+a green `main` build. Principles:
+- **The compose file is part of the release.** The deploy diffs the host's
+  `docker-compose.yaml` against the release's and prints each service's image as running →
+  deploying; it reads the running containers, not a re-rendering of `.env`, which may have
+  been edited since. Drift fails the deploy. `COMPOSE_SYNC=true` installs the release's file
+  after a timestamped backup; the host's `docker-compose.override.yaml` and `.env` stay.
+- **Nothing changes until everything checks out.** Every image the deploy will pull must be
+  pullable on the host first, so a private ghcr package fails here and names the package.
+- **The stack converges, the databases don't.** Every non-database service is brought to the
+  new config, so `api` and `chrome` both follow `HELIX_VERSION`. Postgres moves only with
+  `RECREATE_POSTGRES=true`, after the ZFS snapshot. A database's target image must match the
+  major of its data (`PG_VERSION` in the running container), with or without the flag; a
+  major change is a dump/restore (`docs/postgres-upgrade.md`). With the flag, a defined but
+  stopped database fails the deploy, since its data major can't be read, and a database
+  service new to the host starts only if its volumes and bind mounts hold nothing yet.
+- Secrets the new compose needs and only this host uses, such as `CHROME_LAUNCHER_TOKEN`, are
+  generated on the host into `.env`. They never pass through CI.
+- Any failure after the snapshot (pull, recreate or health-check) restores the exact previous
+  `.env` and compose file and brings the previous services back.
+- Database services (by name or PostgreSQL-family image) are never created or recreated
+  without `RECREATE_POSTGRES=true`.
+
+### Runner step: desktop-only rollout (`RUNNER_FORCE_RECREATE`)
+A runner deploy recreates `helix-sandbox-app`, which stops every desktop on that host, so
+it now recreates **only when the sandbox image itself changed**. Every sandbox image carries
+`helix.sandbox.fingerprint` (the output of `scripts/sandbox-fingerprint.sh` for its source;
+desktop and Zed inputs are excluded). `scripts/lib/deploy-runner-remote.sh` compares the
+fingerprint of the released image with the one on the running container:
+
+- **Equal** → desktop-only. The release's own `helix-ubuntu` image (read from the release
+  image's baked `/opt/images/helix-ubuntu.{ref,version}`, so the arch tag comes from the
+  release) is pulled into the running sandbox's dockerd, tagged as the sandbox's boot tags
+  it, and `/opt/images/helix-ubuntu.{ref,runtime-ref,version}` are swapped atomically. Hydra
+  re-reads the version file on every desktop create and `sandbox-heartbeat` re-reads it every
+  30 s, so new desktops land on the new image within one heartbeat; **running desktops keep
+  theirs**. Old desktop images are freed with the sandbox's own GC, which keeps any image a
+  desktop container still uses: once before the pull (like the sandbox's boot, so a nearly-full
+  host can still make room for the new image) and once after the swap. The launcher is still
+  re-pointed at the release, so the host's next natural restart boots it.
+- **Anything else** → recreate, exactly as before: unlabelled release image (built before
+  the label existed, or an arm64 image, which the release pipeline does not label), a
+  running sandbox on a pre-label image, a stopped/missing sandbox, or an unreadable desktop
+  pin. The reason is logged as `runner: recreating helix-sandbox-app: …`. The first release
+  after this change therefore still recreates once; later ones only when the sandbox changes.
+- A failed desktop pull fails the deploy **before** the version file is touched; the host
+  keeps its old desktops and old launcher image.
+- `RUNNER_FORCE_RECREATE=true` (`drone build restart --param RUNNER_FORCE_RECREATE=true …`,
+  passed through by the runner steps) forces a recreate, e.g. to test a sandbox change.
+- The runner image retention dry run (`scripts/cleanup-runner-images.sh`) still runs either
+  way. Watch the runner step's log for `runner: recreating …` vs `rolling helix-ubuntu only`.
+
+
+To deploy a tag with an opt-in from CI, restart its build with the param; the
+`prod control plane` step passes only `COMPOSE_SYNC` and `RECREATE_POSTGRES` through, and the
+two runner steps pass `RUNNER_FORCE_RECREATE` through:
+```bash
+drone build restart --param COMPOSE_SYNC=true helixml/helix <tag build number>
+```
+
+The manual steps below remain the reference and the fallback when CI is unavailable.
+
 ## Step 1 — build & publish images (no prod impact)
 1. Land all PRs for the release on `main`.
 2. Cut release tag **`<NEW_VERSION>`** → Drone builds and pushes `controlplane:<NEW_VERSION>`,
@@ -32,13 +96,15 @@ gcloud compute ssh --zone europe-west2-a helix-cloud-london --project helixml --
 ```
 
 ## Step 3 — upgrade the controlplane (london) — HIGHEST RISK (customer-facing)
-1. SSH to london. Confirm the version-pin location (compose vs. install script) — typically the
-   `image: ghcr.io/helixml/controlplane:<OLD_VERSION>` line in `/data/helix-app/docker-compose.yaml`.
-2. Bump the tag → `<NEW_VERSION>`, then:
+1. SSH to london. The version pin is `HELIX_VERSION` in `/data/helix-app/helix/.env`. Diff
+   `/data/helix-app/helix/docker-compose.yaml` against the release's first: compose-level fixes
+   (image pins, new env, log rotation) only reach prod if that file is current.
+2. Bump `HELIX_VERSION` → `<NEW_VERSION>`, then pull and recreate every service whose image
+   follows it (never postgres):
    ```bash
-   cd /data/helix-app
-   docker compose pull api
-   docker compose up -d api
+   cd /data/helix-app/helix
+   docker compose pull api chrome
+   docker compose up -d --no-deps api chrome
    ```
 3. **Watch GORM AutoMigrate** on start: `docker logs -f helix-api-1` (look for migrate
    completion, no panics).
@@ -57,7 +123,9 @@ gcloud compute ssh --zone europe-west2-a helix-cloud-london --project helixml --
    sandbox images. Named volumes `sandbox-storage-app:/var/lib/docker`, `sandbox-data-app:/data`,
    `hydra-storage-app:/hydra-data` persist across the swap. **~seconds offline** during the swap
    (and a brief blip for any live sandbox/web-service while its container restarts; `/data`
-   survives).
+   survives). This manual path always recreates: it does not compare fingerprints. Use
+   `scripts/deploy-prod.sh <NEW_VERSION>` from a checkout of the release when you want the
+   desktop-only rollout described above, or accept the desktop interruption this once.
 2. Verify re-registration on london:
    ```bash
    docker exec helix-postgres-1 psql -U postgres -d postgres -x -c \

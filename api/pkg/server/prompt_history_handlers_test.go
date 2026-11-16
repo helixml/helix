@@ -54,7 +54,6 @@ func (s *PromptHistoryHandlersSuite) SetupTest() {
 		requestToInteractionMapping: make(map[string]string),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
-		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
 		requestToCommenterMapping:   make(map[string]string),
 		streamingContexts:           make(map[string]*streamingContext),
@@ -233,7 +232,7 @@ func (s *PromptHistoryHandlersSuite) TestPersistQueuedPrompt_CreatesRowWithField
 			return nil
 		})
 
-	promptID, err := s.server.persistQueuedPrompt(context.Background(), sessionID, "hello agent", true, "commenter-1", "spt_1")
+	promptID, err := s.server.persistQueuedPrompt(context.Background(), sessionID, "hello agent", true, "commenter-1", "spt_1", testHarnessTurn)
 	s.Require().NoError(err)
 	s.Require().NotEmpty(promptID)
 	s.Require().NotNil(captured)
@@ -249,7 +248,7 @@ func (s *PromptHistoryHandlersSuite) TestPersistQueuedPrompt_CreatesRowWithField
 // TestPersistQueuedPrompt_RequiresSession verifies the enqueue primitive rejects
 // an empty session id rather than silently dropping the message.
 func (s *PromptHistoryHandlersSuite) TestPersistQueuedPrompt_RequiresSession() {
-	_, err := s.server.persistQueuedPrompt(context.Background(), "", "msg", false, "", "")
+	_, err := s.server.persistQueuedPrompt(context.Background(), "", "msg", false, "", "", testHarnessTurn)
 	s.Require().Error(err)
 }
 

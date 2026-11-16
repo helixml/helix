@@ -16,6 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -732,9 +733,11 @@ func (r *Reconciler) getMetadataFromFilestore(ctx context.Context, metadataFileP
 
 	// Check if the metadata file exists
 	_, err := r.filestore.Get(ctx, metadataFilePath)
-	if err != nil {
-		// If the file doesn't exist, just return nil with no error
+	if errors.Is(err, filestore.ErrNotFound) {
 		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat metadata file: %w", err)
 	}
 
 	log.Info().Str("path", metadataFilePath).Msg("Metadata file exists, opening...")

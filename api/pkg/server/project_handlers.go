@@ -366,6 +366,9 @@ func (s *HelixAPIServer) listProjectSpecTaskAgents(_ http.ResponseWriter, r *htt
 // @Router /api/v1/projects [post]
 func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (*types.Project, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyProjectMutationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 
 	var req types.ProjectCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -533,6 +536,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	// Startup script lives at .helix/startup.sh in the primary repository
 	if primaryRepo.LocalPath != "" {
 		// Keep the startup script locally even when best-effort upstream publication fails.
+		var startupCommit string
 		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
 			r.Context(),
 			primaryRepo,
@@ -542,15 +546,20 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 				FailOnPushError: false,
 			},
 			func() error {
-				return s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
+				var initErr error
+				startupCommit, initErr = s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
 					primaryRepo.LocalPath,
 					created.Name,
 					req.StartupScript,
 					user.FullName,
 					user.Email,
 				)
+				return initErr
 			},
 		)
+		if writeErr == nil {
+			writeErr = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, startupCommit)
+		}
 		if writeErr != nil {
 			log.Warn().
 				Err(writeErr).
@@ -647,6 +656,9 @@ func projectNameExists(projects []*types.Project, name string) bool {
 // @Router /api/v1/projects/{id} [put]
 func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (*types.Project, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyProjectMutationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 	projectID := getID(r)
 
 	var req types.ProjectUpdateRequest
@@ -858,6 +870,7 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
 			var changed bool
+			var startupCommit string
 			writeErr := s.gitRepositoryService.WithExternalRepoWrite(
 				r.Context(),
 				primaryRepo,
@@ -868,7 +881,7 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 				},
 				func() error {
 					var saveErr error
-					changed, saveErr = s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(
+					startupCommit, changed, saveErr = s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(
 						primaryRepo.LocalPath,
 						*req.StartupScript,
 						user.FullName,
@@ -886,6 +899,12 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 					return nil
 				},
 			)
+			// Only a save that wrote a commit is trusted: the settings page
+			// resends the unchanged script on every save, which must not
+			// endorse whatever agents have since pushed to helix-specs.
+			if writeErr == nil && changed {
+				writeErr = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, startupCommit)
+			}
 			if writeErr != nil {
 				log.Error().
 					Err(writeErr).
@@ -999,6 +1018,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 // @Router /api/v1/projects/{id} [delete]
 func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyProjectMutationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 	projectID := getID(r)
 
 	// Get existing project to check authorization
@@ -1213,7 +1235,9 @@ func (s *HelixAPIServer) setProjectPrimaryRepository(_ http.ResponseWriter, r *h
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionGet)
+	// Choosing the primary repository changes the project: a read grant is
+	// not enough.
+	err = s.authorizeUserToProject(r.Context(), user, project, types.ActionUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
@@ -1535,6 +1559,11 @@ func (s *HelixAPIServer) getProjectExploratorySession(_ http.ResponseWriter, r *
 
 	// If no session found in database, return nil
 	if session == nil {
+		return nil, nil
+	}
+	// The exploratory session belongs to no task: a task-confined key does
+	// not see it.
+	if err := enforceKeySessionScope(user, session); err != nil {
 		return nil, nil
 	}
 
@@ -2101,6 +2130,13 @@ func (s *HelixAPIServer) getProjectGuidelinesHistory(_ http.ResponseWriter, r *h
 	return history, nil
 }
 
+// canMoveProject: only a personal project's owner may move it into an
+// organization, and only with a credential whose scope reaches it (a key
+// scoped to another project or to an organization does not).
+func canMoveProject(user *types.User, project *types.Project) bool {
+	return callerOwns(user, project.UserID, project.OrganizationID) && enforceKeyProjectScope(user, project.ID) == nil
+}
+
 // moveProjectPreview godoc
 // @Summary Preview moving a project to an organization
 // @Description Check for naming conflicts before moving a project to an organization
@@ -2135,7 +2171,7 @@ func (s *HelixAPIServer) moveProjectPreview(_ http.ResponseWriter, r *http.Reque
 	}
 
 	// Check user owns the project
-	if project.UserID != user.ID && !user.Admin {
+	if !user.Admin && !canMoveProject(user, project) {
 		return nil, system.NewHTTPError403("you must be the project owner to move it")
 	}
 
@@ -2273,6 +2309,9 @@ func getUniqueProjectName(baseName string, existingNames map[string]bool) string
 // @Router /api/v1/projects/{id}/move [post]
 func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*types.Project, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyProjectMutationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
 	projectID := getID(r)
 
 	var req types.MoveProjectRequest
@@ -2291,7 +2330,7 @@ func (s *HelixAPIServer) moveProject(_ http.ResponseWriter, r *http.Request) (*t
 	}
 
 	// Check user owns the project
-	if project.UserID != user.ID && !user.Admin {
+	if !user.Admin && !canMoveProject(user, project) {
 		return nil, system.NewHTTPError403("you must be the project owner to move it")
 	}
 
@@ -2855,6 +2894,13 @@ func (s *HelixAPIServer) unpinProject(_ http.ResponseWriter, r *http.Request) (*
 // @Router /api/v1/projects/apply [put]
 func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*types.ProjectApplyResponse, *system.HTTPError) {
 	user := getRequestUser(r)
+	if err := denyTaskCreationToConfinedKey(user); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+	taskCreator, creatorErr := requestTurnProvenance(r.Context(), user)
+	if creatorErr != nil {
+		return nil, system.NewHTTPError403(creatorErr.Error())
+	}
 
 	var req types.ProjectApplyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -3091,7 +3137,11 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				// Repo not yet cloned — trigger async clone; write startup script after clone succeeds.
 				log.Info().Str("repo_id", primaryRepo.ID).Msg("Triggering async clone to initialize startup script in helix-specs")
 				s.gitRepositoryService.CloneRepositoryAsync(primaryRepo, func(localPath string) {
-					if _, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail); err != nil {
+					commitSHA, changed, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail)
+					if err == nil && changed {
+						err = s.trustStartupScriptWrite(context.Background(), user, primaryRepo.ID, commitSHA)
+					}
+					if err != nil {
 						log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs after clone")
 					} else {
 						log.Info().Str("repo_id", primaryRepo.ID).Msg("Startup script written to helix-specs after async clone")
@@ -3099,7 +3149,11 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				})
 			} else {
 				// Repo already cloned — write startup script synchronously.
-				if _, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail); err != nil {
+				commitSHA, changed, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail)
+				if err == nil && changed {
+					err = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, commitSHA)
+				}
+				if err != nil {
 					log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs")
 				}
 			}
@@ -3122,6 +3176,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 			}
 			task := &types.SpecTask{
 				ID:             system.GenerateUUID(),
+				QueuedBy:       taskCreator,
 				ProjectID:      project.ID,
 				UserID:         user.ID,
 				CreatedBy:      user.ID,

@@ -125,7 +125,7 @@ func (s *SpecTaskAssigneeSuite) TestCreateTaskFromPrompt_NonMemberAssignee_Retur
 	s.Require().NoError(err)
 
 	req := httptest.NewRequest("POST", "/api/v1/spec-tasks/from-prompt", bytes.NewReader(body))
-	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID}))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: ownerID, TokenType: types.TokenTypeOIDC}))
 
 	rr := httptest.NewRecorder()
 	s.server.createTaskFromPrompt(rr, req)
@@ -161,7 +161,7 @@ func (s *SpecTaskAssigneeSuite) TestStartPlanning_AssignsStarter() {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
 	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
-	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID, TokenType: types.TokenTypeOIDC}))
 	rr := httptest.NewRecorder()
 
 	s.server.startPlanning(rr, req)
@@ -212,7 +212,7 @@ func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryReleasesFailedLaunchSessi
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
 	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
-	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID, TokenType: types.TokenTypeOIDC}))
 	rr := httptest.NewRecorder()
 
 	s.server.startPlanning(rr, req)
@@ -254,7 +254,7 @@ func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryReleasesSessionFromDiscon
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
 	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
-	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID, TokenType: types.TokenTypeOIDC}))
 	rr := httptest.NewRecorder()
 
 	s.server.startPlanning(rr, req)
@@ -287,7 +287,7 @@ func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryRejectsOtherStopErrors() 
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
 	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
-	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID, TokenType: types.TokenTypeOIDC}))
 	rr := httptest.NewRecorder()
 
 	s.server.startPlanning(rr, req)
@@ -322,7 +322,7 @@ func (s *SpecTaskAssigneeSuite) TestStartPlanning_RetryDoesNotReleaseSessionWhen
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/spec-tasks/"+taskID+"/start-planning", nil)
 	req = mux.SetURLVars(req, map[string]string{"taskId": taskID})
-	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID}))
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: starterID, TokenType: types.TokenTypeOIDC}))
 	rr := httptest.NewRecorder()
 
 	s.server.startPlanning(rr, req)

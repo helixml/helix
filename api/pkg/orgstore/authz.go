@@ -34,11 +34,13 @@ var ErrKeyOrgScope = errors.New("credentials are scoped to another organization"
 // for an owner-only action.
 var ErrNotOrgOwner = errors.New("user is not an owner of this organization")
 
-// enforceKeyOrgScope confines an org-scoped credential to its own
-// organization. Organization API keys carry the org they were created for on
-// the request user; without this check a key created by a user belonging to
-// several organizations inherits their memberships everywhere.
-func enforceKeyOrgScope(user *types.User, orgID string) error {
+// EnforceKeyOrgScope confines an org-scoped credential to its own
+// organization; orgID "" names a resource outside every organization, which
+// such a credential never reaches. Organization API keys carry the org they
+// were created for on the request user; without this check a key created by
+// a user belonging to several organizations inherits their memberships
+// everywhere. Owner shortcuts ("the caller created it") must call it too.
+func EnforceKeyOrgScope(user *types.User, orgID string) error {
 	if user == nil || user.OrganizationID == "" || user.OrganizationID == orgID {
 		return nil
 	}
@@ -67,7 +69,7 @@ func (a *Authorizer) AuthorizeOrgOwner(ctx context.Context, user *types.User, or
 	// Org-scoped credentials (organization API keys and ephemeral session
 	// keys) authorize only within their own organization, no matter which
 	// other organizations or privileges the owning user has.
-	if err := enforceKeyOrgScope(user, orgID); err != nil {
+	if err := EnforceKeyOrgScope(user, orgID); err != nil {
 		return nil, err
 	}
 	if err := enforceKeyNotAgentScoped(user); err != nil {
@@ -93,7 +95,7 @@ func (a *Authorizer) AuthorizeOrgOwner(ctx context.Context, user *types.User, or
 // AuthorizeOrgMember checks the user is a member of the organization (global
 // admins are treated as members/owners).
 func (a *Authorizer) AuthorizeOrgMember(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
-	if err := enforceKeyOrgScope(user, orgID); err != nil {
+	if err := EnforceKeyOrgScope(user, orgID); err != nil {
 		return nil, err
 	}
 	if user.Admin {

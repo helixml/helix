@@ -201,6 +201,11 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeProjectManager {
+			// The project manager lists, creates, updates and starts any
+			// task of the project: beyond a task-confined key's one task.
+			if req.User != nil && req.User.TaskConfined {
+				return nil, nil, fmt.Errorf("a task-confined key cannot use the project manager tool")
+			}
 			skills = append(skills, project.NewHelixProjectsSkill(assistantTool.Config.ProjectManager.ProjectID, c.Options.Store))
 			skills = append(skills, repository.NewHelixRepositorySkill(assistantTool.Config.ProjectManager.ProjectID, c.Options.Store, c.gitRepositoryService))
 		}

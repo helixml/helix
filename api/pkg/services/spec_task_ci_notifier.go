@@ -47,5 +47,5 @@ func (n *EnqueueCINotifier) NotifyCIResult(
 	if n == nil || n.enqueue == nil {
 		return nil
 	}
-	return n.enqueue(ctx, task, message, true, "")
+	return n.enqueue(ctx, task, message, true, "", types.SystemTurn(types.SystemTurnCIStatus))
 }

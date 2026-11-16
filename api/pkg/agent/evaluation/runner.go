@@ -22,6 +22,9 @@ type RunnerConfig struct {
 	Store      store.Store
 	Controller SessionController
 	Judge      LLMJudge // optional, needed for llm_judge assertions
+	// Actor is the caller who started the run; each question's turn is
+	// triggered_by it.
+	Actor types.TurnProvenance
 }
 
 // RunEvaluation executes all questions in a suite sequentially, calling progressFn after each
@@ -186,6 +189,7 @@ func runSingleQuestion(
 		Session:        session,
 		User:           user,
 		PromptMessage:  types.MessageContent{Parts: []any{question.Question}},
+		Provenance:     types.TriggeredBySystemTurn(types.SystemTurnEvaluationQuestion, cfg.Actor),
 		HistoryLimit:   -1,
 	})
 

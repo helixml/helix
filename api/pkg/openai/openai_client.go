@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -203,11 +202,14 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 
 	// Use native genai SDK for Google providers
 	if isGoogleProvider(c.baseURL) {
-		return c.createGoogleChatCompletion(ctx, request)
+		resp, err = c.createGoogleChatCompletion(ctx, request)
+		return resp, asProviderError(err, nil)
 	}
 
 	// Perform request with retries
+	ctx, captured := withProviderHeaderCapture(ctx)
 	err = retry.Do(func() error {
+		captured.reset()
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
 			return c.classifyRequestError(err, request.Model)
@@ -221,28 +223,7 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 		retry.Context(ctx),
 	)
 
-	return
-}
-
-// providerStatusCode extracts the HTTP status from a go-openai error. Both
-// error types it returns carry the code as a field, so read it rather than
-// looking for the digits in the rendered message: a provider that echoes the
-// request back in its body can easily put "400" inside a 502's message and
-// invert the decision.
-//
-// Returns 0 when the error is not one of those types (a transport failure, or
-// an error from the native Google adapter), which callers treat as "unknown"
-// and fall back to string matching for.
-func providerStatusCode(err error) int {
-	var apiErr *openai.APIError
-	if errors.As(err, &apiErr) && apiErr.HTTPStatusCode > 0 {
-		return apiErr.HTTPStatusCode
-	}
-	var reqErr *openai.RequestError
-	if errors.As(err, &reqErr) && reqErr.HTTPStatusCode > 0 {
-		return reqErr.HTTPStatusCode
-	}
-	return 0
+	return resp, captured.wrap(err)
 }
 
 // classifyRequestError decides whether a failed provider request is worth
@@ -268,7 +249,7 @@ func (c *RetryableClient) classifyRequestError(err error, model string) error {
 		return retry.Unrecoverable(err)
 	}
 
-	if status := providerStatusCode(err); status > 0 {
+	if status := ProviderStatusCode(err); status > 0 {
 		switch {
 		case status == http.StatusTooManyRequests:
 			log.Warn().
@@ -317,7 +298,8 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 
 	// Use native genai SDK for Google providers
 	if isGoogleProvider(c.baseURL) {
-		return c.createGoogleChatCompletionStream(ctx, request)
+		stream, err := c.createGoogleChatCompletionStream(ctx, request)
+		return stream, asProviderError(err, nil)
 	}
 
 	// Always include usage
@@ -337,8 +319,10 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 	// and started emitting deltas, re-issuing it would duplicate tokens the
 	// caller has already consumed, so a mid-stream failure stays the caller's
 	// problem.
+	ctx, captured := withProviderHeaderCapture(ctx)
 	var stream *openai.ChatCompletionStream
 	err := retry.Do(func() error {
+		captured.reset()
 		var streamErr error
 		stream, streamErr = c.apiClient.CreateChatCompletionStream(ctx, request)
 		if streamErr != nil {
@@ -352,7 +336,7 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 		retry.Context(ctx),
 	)
 	if err != nil {
-		return nil, err
+		return nil, captured.wrap(err)
 	}
 
 	return stream, nil
@@ -838,6 +822,8 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 	if resp != nil && resp.Body != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		resp.Body = &reasoningFieldMapper{ReadCloser: resp.Body}
 	}
+
+	recordProviderResponse(req.Context(), resp)
 
 	// Handle rate limiting for all provider responses
 	if c.rateLimiter != nil {
