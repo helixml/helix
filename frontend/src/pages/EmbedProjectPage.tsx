@@ -6,7 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
-import { ArrowLeft, Bot, KanbanSquare } from 'lucide-react'
+import { ArrowLeft, Bot, ExternalLink, KanbanSquare } from 'lucide-react'
 import AgentChat from '../components/session/AgentChat'
 import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard'
@@ -35,8 +35,29 @@ import { initialQueryParams } from '../router'
 // patches fetch, WebSocket and EventSource, so every reused component authenticates.
 type View = 'bot' | 'board'
 
+// ?task= (and the project id) come from the host page's URL, and router5's buildPath
+// THROWS on some characters, e.g. parentheses — which would take the whole embed down
+// to a white iframe. So only build the link for ids shaped like real Helix ids.
+const HELIX_ID = /^[A-Za-z0-9_-]+$/
+
+export function openInHelixPath(
+  buildPath: (name: string, params: Record<string, string>) => string,
+  orgId: string | undefined,
+  projectId: string,
+  taskId: string | null,
+): string | undefined {
+  if (!orgId || !taskId || ![orgId, projectId, taskId].every((id) => HELIX_ID.test(id))) {
+    return undefined
+  }
+  try {
+    return buildPath('org_project-task-detail', { org_id: orgId, id: projectId, taskId })
+  } catch {
+    return undefined
+  }
+}
+
 const EmbedProjectPage: FC = () => {
-  const { route } = useRoute()
+  const { route, router } = useRoute()
   const theme = useTheme()
   const projectId = route.params.projectId as string
   const initialView: View = (initialQueryParams.view || route.params.view) === 'board' ? 'board' : 'bot'
@@ -55,6 +76,13 @@ const EmbedProjectPage: FC = () => {
   // Polls (5.3s): a bot's session is created asynchronously after it is hired or run.
   const { data: session } = useGetProjectExploratorySession(projectId, !!projectId)
   const sessionId = session?.id
+
+  const openHref = openInHelixPath(
+    (name, params) => router.buildPath(name, params),
+    project?.organization_id,
+    projectId,
+    taskId,
+  )
 
   // Embed contexts have no parent body background; paint the theme's.
   const bg = theme.palette.background.default
@@ -109,6 +137,24 @@ const EmbedProjectPage: FC = () => {
             sx={{ textTransform: 'none', ml: 1 }}
           >
             Back to board
+          </Button>
+        )}
+        {/* The embed is a slice of Helix for another product's page. The full task
+            page (PR review, every agent setting) is in Helix itself, so link out to
+            it in a new tab rather than navigating the iframe away from /embed/*.
+            The new tab uses the person's own Helix login, not the embed token. */}
+        {view === 'board' && openHref && (
+          <Button
+            size="small"
+            component="a"
+            href={openHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            startIcon={<ExternalLink size={16} />}
+            color="inherit"
+            sx={{ textTransform: 'none' }}
+          >
+            Open in Helix
           </Button>
         )}
         <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }} noWrap>
