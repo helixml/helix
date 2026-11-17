@@ -164,6 +164,76 @@ describe('EmbeddedSessionView follow-latest behavior', () => {
     expect(scrollContainer.scrollTop).toBe(650)
     expect(screen.getByRole('button', { name: 'Jump to latest' })).toBeInTheDocument()
   })
+
+  it('pauses following after a small upward scroll that stays near the bottom', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.wheel(scrollContainer, { deltaY: -30 })
+    setScrollGeometry(scrollContainer, { scrollTop: 770, scrollHeight: 1000, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+
+    setScrollGeometry(scrollContainer, { scrollTop: 770, scrollHeight: 1050, clientHeight: 200 })
+    act(() => triggerResize(content, 1050))
+
+    expect(scrollContainer.scrollTop).toBe(770)
+    expect(screen.getByRole('button', { name: 'Jump to latest' })).toBeInTheDocument()
+  })
+
+  it('pauses following after a keyboard scroll up', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.keyDown(scrollContainer, { key: 'ArrowUp' })
+    setScrollGeometry(scrollContainer, { scrollTop: 760, scrollHeight: 1000, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+
+    setScrollGeometry(scrollContainer, { scrollTop: 760, scrollHeight: 1050, clientHeight: 200 })
+    act(() => triggerResize(content, 1050))
+
+    expect(scrollContainer.scrollTop).toBe(760)
+  })
+
+  it('keeps following when a clicked disclosure shrinks the content', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.pointerDown(scrollContainer)
+    fireEvent.pointerUp(scrollContainer)
+    setScrollGeometry(scrollContainer, { scrollTop: 700, scrollHeight: 900, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+    act(() => triggerResize(content, 900))
+
+    setScrollGeometry(scrollContainer, { scrollTop: 700, scrollHeight: 1000, clientHeight: 200 })
+    act(() => triggerResize(content, 1000))
+
+    expect(scrollContainer.scrollTop).toBe(1000)
+  })
+
+  it('does not show the jump pill while paused but visually at the bottom', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.wheel(scrollContainer, { deltaY: -30 })
+    setScrollGeometry(scrollContainer, { scrollTop: 0, scrollHeight: 200, clientHeight: 200 })
+    act(() => triggerResize(content, 1100))
+
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).not.toBeInTheDocument()
+  })
+
+  it('resumes following when the user scrolls back down to the bottom', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.wheel(scrollContainer, { deltaY: -30 })
+    setScrollGeometry(scrollContainer, { scrollTop: 770, scrollHeight: 1000, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+
+    fireEvent.wheel(scrollContainer, { deltaY: 30 })
+    setScrollGeometry(scrollContainer, { scrollTop: 800, scrollHeight: 1000, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+
+    setScrollGeometry(scrollContainer, { scrollTop: 800, scrollHeight: 1050, clientHeight: 200 })
+    act(() => triggerResize(content, 1050))
+
+    expect(scrollContainer.scrollTop).toBe(1050)
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).not.toBeInTheDocument()
+  })
 })
 
 describe('EmbeddedSessionView turn navigator visibility', () => {
