@@ -128,9 +128,19 @@ func (suite *PostgresStoreTestSuite) TestDelegatedClaudeSubscriptionResolution()
 		suite.T().Cleanup(func() { _ = suite.db.DeleteClaudeSubscription(context.Background(), sub.ID) })
 		return sub
 	}
+	createOrg := func(orgID string) *types.ClaudeSubscription {
+		sub, err := suite.db.CreateClaudeSubscription(suite.ctx, &types.ClaudeSubscription{
+			OwnerID: orgID, OwnerType: types.OwnerTypeOrg, Status: "active",
+			EncryptedCredentials: "encrypted", CreatedBy: "usr_admin_" + suffix,
+		})
+		suite.Require().NoError(err)
+		suite.T().Cleanup(func() { _ = suite.db.DeleteClaudeSubscription(context.Background(), sub.ID) })
+		return sub
+	}
 
 	delegated := create("usr_delegate_"+suffix, orgID)
 	owner := create("usr_owner_" + suffix)
+	createOrg(orgID)
 
 	sub, err := suite.db.GetDelegatedClaudeSubscriptionForOrg(suite.ctx, orgID)
 	suite.Require().NoError(err)
@@ -155,6 +165,15 @@ func (suite *PostgresStoreTestSuite) TestDelegatedClaudeSubscriptionResolution()
 	})
 	suite.Require().NoError(err)
 	suite.Equal(owner.ID, sub.ID)
+
+	orgFallbackID := "org_owned_fallback_" + suffix
+	orgOwned := createOrg(orgFallbackID)
+	sub, err = suite.db.GetSessionClaudeSubscription(suite.ctx, &types.Session{
+		Owner: "usr_without_subscription_" + suffix, OrganizationID: orgFallbackID,
+		Metadata: types.SessionMetadata{OrgWorkerID: "chief-of-staff"},
+	})
+	suite.Require().NoError(err)
+	suite.Equal(orgOwned.ID, sub.ID)
 
 	sub, err = suite.db.GetSessionClaudeSubscription(suite.ctx, &types.Session{
 		Owner: owner.OwnerID, OrganizationID: "org_without_delegation_" + suffix,
