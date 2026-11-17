@@ -194,3 +194,20 @@ func TestDefaultBranch_CloneRepositoryAsyncKeepsCallerBranch(t *testing.T) {
 	assert.Equal(t, "develop", repo.DefaultBranch)
 	assert.Equal(t, "develop", headBranch(t, repoPath))
 }
+
+// A branch saved while detection was running must not be overwritten by the detected value.
+func TestDefaultBranch_DetectionDoesNotOverwriteConcurrentSave(t *testing.T) {
+	st := &fakeStore{repo: &types.GitRepository{ID: "repo-race", DefaultBranch: "develop"}}
+	svc := NewGitRepositoryService(st, t.TempDir(), "http://localhost:8080", "test", "test@test.com")
+
+	// Detection started when the stored branch was empty, then a save set "develop".
+	effective := svc.persistDetectedDefaultBranch(t.Context(), "repo-race", "", "main")
+	assert.Equal(t, "develop", effective)
+	assert.Equal(t, "develop", st.repo.DefaultBranch)
+
+	// With no concurrent change, the detected branch is saved.
+	st.repo.DefaultBranch = ""
+	effective = svc.persistDetectedDefaultBranch(t.Context(), "repo-race", "", "main")
+	assert.Equal(t, "main", effective)
+	assert.Equal(t, "main", st.repo.DefaultBranch)
+}

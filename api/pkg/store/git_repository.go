@@ -107,6 +107,22 @@ func (s *PostgresStore) UpdateGitRepository(ctx context.Context, repo *types.Git
 		Omit("last_sync_at", "last_sync_error", "sync_in_progress_since", "trusted_startup_sha").Save(repo).Error
 }
 
+// SetGitRepositoryDefaultBranchIfUnchanged sets a repository's default branch
+// only if it still equals expected, so an automatically detected branch never
+// overwrites one saved concurrently. It reports whether the row was updated.
+func (s *PostgresStore) SetGitRepositoryDefaultBranchIfUnchanged(ctx context.Context, id, expected, branch string) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("id not specified")
+	}
+	res := s.gdb.WithContext(ctx).Model(&types.GitRepository{}).
+		Where("id = ? AND default_branch = ?", id, expected).
+		UpdateColumns(map[string]any{"default_branch": branch, "updated_at": time.Now()})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
 // SetGitRepositoryTrustedStartupSHA records the helix-specs commit sandboxes
 // may run the startup script from.
 func (s *PostgresStore) SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error {

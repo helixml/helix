@@ -1072,6 +1072,10 @@ func (s *GitRepositoryService) UpdateRepository(
 	return existing, nil
 }
 
+// defaultBranchUpstreamTimeout bounds the upstream lookup and fetch done
+// while saving a default branch the local mirror doesn't have yet.
+const defaultBranchUpstreamTimeout = 20 * time.Second
+
 // ErrDefaultBranchNotFound is returned when a requested default branch does not exist in the repository.
 var ErrDefaultBranchNotFound = errors.New("branch does not exist in repository")
 
@@ -1145,6 +1149,10 @@ func (s *GitRepositoryService) setDefaultBranch(ctx context.Context, repo *types
 		if !repo.IsExternal {
 			return fmt.Errorf("%w: %q", ErrDefaultBranchNotFound, branch)
 		}
+		// This runs inside the settings save request; a slow upstream must
+		// fail the save quickly rather than hang it.
+		ctx, cancel := context.WithTimeout(ctx, defaultBranchUpstreamTimeout)
+		defer cancel()
 		upstreamBranches, err := s.listExternalBranches(ctx, repo)
 		if err != nil {
 			return fmt.Errorf("failed to check branch upstream: %w", err)
@@ -1676,30 +1684,44 @@ func (s *GitRepositoryService) updateRepositoryFromGit(ctx context.Context, gitR
 	// A fresh mirror's HEAD is the upstream default; repoint it at a configured
 	// branch. Otherwise only fill in or repair the default branch: a configured
 	// branch that exists is never overwritten.
-	defaultBranchChanged := false
+	previousDefaultBranch := gitRepo.DefaultBranch
 	if justCloned || gitRepo.DefaultBranch == "" ||
 		(gitRepo.IsExternal && !slices.Contains(branches, gitRepo.DefaultBranch)) {
-		previous := gitRepo.DefaultBranch
 		reconcileDefaultBranch(ctx, repoPath, gitRepo, branches)
-		defaultBranchChanged = gitRepo.DefaultBranch != previous
 	}
 
 	gitRepo.LastActivity = time.Now()
 	gitRepo.UpdatedAt = time.Now()
 
-	// Persist changes to database if default branch was detected/changed
-	// This ensures the detected default branch from external repos is saved
-	if defaultBranchChanged {
-		if err := s.store.UpdateGitRepository(ctx, gitRepo); err != nil {
-			log.Warn().Err(err).
-				Str("repo_id", gitRepo.ID).
-				Str("default_branch", gitRepo.DefaultBranch).
-				Msg("Failed to persist detected default branch to database")
-			// Don't fail - the in-memory value is correct
-		}
+	if gitRepo.DefaultBranch != previousDefaultBranch {
+		gitRepo.DefaultBranch = s.persistDetectedDefaultBranch(ctx, gitRepo.ID, previousDefaultBranch, gitRepo.DefaultBranch)
 	}
 
 	return nil
+}
+
+// persistDetectedDefaultBranch saves a detected default branch only if the
+// stored value is still the one detection started from, so it never
+// overwrites a branch saved concurrently through UpdateRepository (by this or
+// another API replica). It returns the default branch now in effect.
+func (s *GitRepositoryService) persistDetectedDefaultBranch(ctx context.Context, repoID, previous, detected string) string {
+	updated, err := s.store.SetGitRepositoryDefaultBranchIfUnchanged(ctx, repoID, previous, detected)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("repo_id", repoID).
+			Str("default_branch", detected).
+			Msg("Failed to persist detected default branch")
+		return detected
+	}
+	if updated {
+		return detected
+	}
+	fresh, err := s.store.GetGitRepository(ctx, repoID)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to re-read repository after concurrent default branch change")
+		return previous
+	}
+	return fresh.DefaultBranch
 }
 
 // getSampleProjectFiles returns sample files based on project type

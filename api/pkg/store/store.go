@@ -799,6 +799,7 @@ type Store interface {
 	GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error)
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	MarkGitRepositorySyncStarted(ctx context.Context, id string, startedAt time.Time) error
+	SetGitRepositoryDefaultBranchIfUnchanged(ctx context.Context, id, expected, branch string) (bool, error)
 	SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error
 	MarkGitRepositorySyncFinished(ctx context.Context, id string, finishedAt time.Time, syncErr string) error
 	ClearStaleGitRepositorySync(ctx context.Context, id string, staleSince time.Time, syncErr string) error

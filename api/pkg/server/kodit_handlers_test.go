@@ -144,6 +144,14 @@ func (f *fakeGitRepositoryStore) UpdateGitRepository(_ context.Context, repo *ty
 	return nil
 }
 
+func (f *fakeGitRepositoryStore) SetGitRepositoryDefaultBranchIfUnchanged(_ context.Context, _, expected, branch string) (bool, error) {
+	if f.repository == nil || f.repository.DefaultBranch != expected {
+		return false, nil
+	}
+	f.repository.DefaultBranch = branch
+	return true, nil
+}
+
 // Helpers
 
 func newTestAPIServer(t *testing.T, koditSvc services.KoditServicer, s *fakeGitRepositoryStore) *HelixAPIServer {
