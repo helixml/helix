@@ -192,6 +192,31 @@ describe('EmbeddedSessionView follow-latest behavior', () => {
     expect(scrollContainer.scrollTop).toBe(760)
   })
 
+  it('keeps following when a clicked disclosure shrinks the content', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.pointerDown(scrollContainer)
+    fireEvent.pointerUp(scrollContainer)
+    setScrollGeometry(scrollContainer, { scrollTop: 700, scrollHeight: 900, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+    act(() => triggerResize(content, 900))
+
+    setScrollGeometry(scrollContainer, { scrollTop: 700, scrollHeight: 1000, clientHeight: 200 })
+    act(() => triggerResize(content, 1000))
+
+    expect(scrollContainer.scrollTop).toBe(1000)
+  })
+
+  it('does not show the jump pill while paused but visually at the bottom', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.wheel(scrollContainer, { deltaY: -30 })
+    setScrollGeometry(scrollContainer, { scrollTop: 0, scrollHeight: 200, clientHeight: 200 })
+    act(() => triggerResize(content, 1100))
+
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).not.toBeInTheDocument()
+  })
+
   it('resumes following when the user scrolls back down to the bottom', () => {
     const { scrollContainer, content } = renderView()
 

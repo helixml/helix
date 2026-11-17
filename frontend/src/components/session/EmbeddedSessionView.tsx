@@ -139,8 +139,11 @@ const EmbeddedSessionView = forwardRef<
   // alone is not sufficient to decide that follow mode should stop.
   const shouldFollowLatestRef = useRef(true);
   const isPointerScrollingRef = useRef(false);
-  // scrollTop seen by the previous scroll event, used to tell scroll direction.
+  // scrollTop / scrollHeight seen by the previous scroll event, used to tell
+  // scroll direction. scrollHeight is tracked because a content shrink clamps
+  // scrollTop upward without any user input.
   const lastScrollTopRef = useRef(0);
+  const lastScrollHeightRef = useRef(0);
 
   // True when new content has landed below a viewport that is away from the
   // latest message. Drives the "Jump to latest" pill.
@@ -159,6 +162,7 @@ const EmbeddedSessionView = forwardRef<
     container.scrollTop = container.scrollHeight;
     lastScrolledHeightRef.current = container.scrollHeight;
     lastScrollTopRef.current = container.scrollTop;
+    lastScrollHeightRef.current = container.scrollHeight;
   }, []);
 
   // Pagination state: track which page we've loaded up to (page 0 = newest)
@@ -186,8 +190,11 @@ const EmbeddedSessionView = forwardRef<
     if (!container) return;
 
     const { scrollTop, scrollHeight, clientHeight } = container;
-    const movedUp = scrollTop < lastScrollTopRef.current;
+    const movedUp =
+      scrollTop < lastScrollTopRef.current &&
+      scrollHeight >= lastScrollHeightRef.current;
     lastScrollTopRef.current = scrollTop;
+    lastScrollHeightRef.current = scrollHeight;
 
     if (movedUp) {
       if (isPointerScrollingRef.current) {
@@ -224,6 +231,16 @@ const EmbeddedSessionView = forwardRef<
     if (SCROLL_KEYS.has(event.key)) {
       isPointerScrollingRef.current = true;
     }
+  }, []);
+
+  // A keyup lost to window blur (focus leaving mid key-hold) would otherwise
+  // leave the scroll-intent flag stuck on.
+  useEffect(() => {
+    const clearIntent = () => {
+      isPointerScrollingRef.current = false;
+    };
+    window.addEventListener("blur", clearIntent);
+    return () => window.removeEventListener("blur", clearIntent);
   }, []);
 
   // Scroll to bottom. `force` is used for initial mount, session changes, and
@@ -377,6 +394,7 @@ const EmbeddedSessionView = forwardRef<
       lastContentHeightRef.current = 0;
       lastScrolledHeightRef.current = 0;
       lastScrollTopRef.current = 0;
+      lastScrollHeightRef.current = 0;
       shouldFollowLatestRef.current = true;
       setHasNewBelow(false);
       setOldestPageLoaded(0);
@@ -443,7 +461,13 @@ const EmbeddedSessionView = forwardRef<
         pinToBottom(container);
         shouldFollowLatestRef.current = true;
         setHasNewBelow(false);
-      } else {
+      } else if (
+        container.scrollHeight - container.scrollTop - container.clientHeight >
+        AT_BOTTOM_PX
+      ) {
+        // Only when there is actually content below the viewport: a
+        // not-yet-scrollable transcript can be paused (wheel-up) while the
+        // user is visually at the bottom, and no scroll event would clear it.
         setHasNewBelow(true);
       }
     });
