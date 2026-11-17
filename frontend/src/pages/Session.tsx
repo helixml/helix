@@ -591,10 +591,25 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
   useEffect(() => {
     if (!scrollContainerEl) return
 
+    // Direction-aware follow mode: scrolling up pauses it even a few pixels
+    // from the bottom (as does being more than 20px away); only moving down
+    // to the true bottom resumes it.
+    // A shrinking scrollHeight clamps scrollTop upward without user input,
+    // so that case is not treated as the user scrolling away.
+    let lastScrollTop = scrollContainerEl.scrollTop
+    let lastScrollHeight = scrollContainerEl.scrollHeight
     const saveScrollOnScroll = () => {
       scrollPositionRef.current = scrollContainerEl.scrollTop;
       const { scrollTop, scrollHeight, clientHeight } = scrollContainerEl
-      shouldFollowLatestRef.current = scrollTop + clientHeight >= scrollHeight - 20
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+      const movedUp = scrollTop < lastScrollTop && scrollHeight >= lastScrollHeight
+      if (movedUp || distanceFromBottom > 20) {
+        shouldFollowLatestRef.current = false
+      } else if (scrollTop > lastScrollTop && distanceFromBottom <= 4) {
+        shouldFollowLatestRef.current = true
+      }
+      lastScrollTop = scrollTop
+      lastScrollHeight = scrollHeight
     };
 
     scrollContainerEl.addEventListener('scroll', saveScrollOnScroll);
