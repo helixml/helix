@@ -1821,6 +1821,13 @@ platform:
   os: linux
   arch: amd64
 
+# Zed's release build peaks above 32GB RAM (21 rustc/linker procs on a 16-core
+# runner swapped hard), so both amd64 Zed pipelines go to the bigmem runner.
+# Same host also means build-sandbox-amd64 hits the Zed binary this pipeline
+# cached in /var/cache/drone/sandbox-build instead of recompiling elsewhere.
+node:
+  bigmem: "true"
+
 trigger:
   event:
     - push
@@ -2078,6 +2085,10 @@ depends_on:
 platform:
   os: linux
   arch: amd64
+
+# Same runner as zed-e2e-amd64: see the comment there.
+node:
+  bigmem: "true"
 
 # Runs on main + tags only, once zed-e2e-amd64 has passed.
 trigger:

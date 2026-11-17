@@ -28,7 +28,7 @@ func (a *apiHandler) getOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	bs, err := a.deps.Queries.ListBots(ctx, orgID)
+	bs, err := a.listLiveBots(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list bots: %w", err))
 		return

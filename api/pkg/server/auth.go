@@ -878,11 +878,12 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	state, err := cm.Get(r, stateCookie)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get state")
+		cm.DeleteAllCookies(w)
 		// Redirect to the homepage
 		http.Redirect(w, r, s.Cfg.WebServer.URL, http.StatusFound)
 		return
 	}
-	if r.URL.Query().Get("state") != state {
+	if state == "" || r.URL.Query().Get("state") != state {
 		log.Debug().Str("state", r.URL.Query().Get("state")).Str("cookie", state).Msg("state did not match")
 		// Remove the cookies and start again
 		cm.DeleteAllCookies(w)
@@ -893,7 +894,8 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		log.Debug().Msg("No code found in callback")
-		http.Error(w, "No code found in callback", http.StatusBadRequest)
+		cm.DeleteAllCookies(w)
+		http.Redirect(w, r, s.Cfg.WebServer.URL, http.StatusFound)
 		return
 	}
 

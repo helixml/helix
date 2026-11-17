@@ -133,7 +133,7 @@ func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context,
 	if a.deps.Queries == nil || !a.runtimeConfigComplete(ctx, orgID) {
 		return
 	}
-	bs, err := a.deps.Queries.ListBots(ctx, orgID)
+	bs, err := a.listLiveBots(ctx, orgID)
 	if err != nil {
 		log.Warn().Err(err).Str("org", orgID).Msg("activate deferred bots after runtime change: list bots failed")
 		return

@@ -360,7 +360,7 @@ const HelixOrgBotDetail: FC = () => {
     if (!botId) return
     try {
       await del.mutateAsync(botId)
-      snackbar.success(`deleted ${botId}`)
+      snackbar.success(`Deleting org bot ${botId} in the background`)
       if (orgSlug) {
         router.navigate('helix_org_bots', { org_id: orgSlug })
       }

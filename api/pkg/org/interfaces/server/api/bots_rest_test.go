@@ -909,10 +909,10 @@ func TestRESTBotMutationsRequireAgentEditForMembers(t *testing.T) {
 	if _, err := st.Nodes.Get(ctx, "org-test", "w-theirs"); err != nil {
 		t.Fatalf("rejected delete removed the bot: %v", err)
 	}
-	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-mine", nil, types.OrganizationRoleMember, false); rec.Code != http.StatusNoContent {
+	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-mine", nil, types.OrganizationRoleMember, false); rec.Code != http.StatusAccepted {
 		t.Fatalf("member delete of editable bot: status=%d body=%s", rec.Code, rec.Body)
 	}
-	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-theirs", nil, types.OrganizationRoleOwner, false); rec.Code != http.StatusNoContent {
+	if rec := doAsRole(t, h, http.MethodDelete, "/bots/w-theirs", nil, types.OrganizationRoleOwner, false); rec.Code != http.StatusAccepted {
 		t.Fatalf("owner delete: status=%d body=%s", rec.Code, rec.Body)
 	}
 

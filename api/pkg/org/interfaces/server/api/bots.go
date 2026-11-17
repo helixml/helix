@@ -42,7 +42,7 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	bs, err := a.deps.Queries.ListBots(ctx, orgID)
+	bs, err := a.listLiveBots(ctx, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("list bots: %w", err))
 		return
@@ -57,6 +57,9 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, l := range lines {
+			if a.deps.Lifecycle.Deleting(orgID, l.ManagerID) {
+				continue
+			}
 			managersByReport[l.ReportID] = append(managersByReport[l.ReportID], string(l.ManagerID))
 		}
 	}
@@ -193,6 +196,10 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
 	}
+	if a.deps.Lifecycle.Deleting(orgID, id) {
+		writeError(w, http.StatusNotFound, fmt.Errorf("get bot %s: being deleted", id))
+		return
+	}
 	b, err := a.deps.Queries.GetBot(ctx, orgID, id)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
@@ -268,7 +275,9 @@ func displayActivationError(err string) string {
 // @Param id path string true "Bot ID"
 // @Param payload body api.UpdateBotRequest true "Patch fields"
 // @Success 200 {object} api.BotDTO
+// @Failure 403 {object} api.ErrorResponse
 // @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/bots/{id} [patch]
 func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
@@ -408,17 +417,18 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto)
 }
 
-// deleteBot tears down a Bot via the lifecycle service. Cascades the
-// Helix app, runtime state, attachments, reporting lines, then the bot
+// deleteBot starts tearing down a Bot via the lifecycle service and returns
+// 202 without waiting: destroying its sandboxes can take minutes. The bot is
+// hidden from reads and refuses edits until the teardown finishes. Cascades
+// the Helix app, runtime state, attachments, reporting lines, then the bot
 // row. Its runtime-owned project is archived and repositories are preserved.
 //
 // @Summary Helix-org: delete a bot
-// @Description Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.
+// @Description Delete a Bot in the background; returns 202 once the teardown has started. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.
 // @Tags HelixOrg
 // @Param id path string true "Bot ID"
-// @Success 204
+// @Success 202
 // @Failure 404 {object} api.ErrorResponse
-// @Failure 409 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/bots/{id} [delete]
@@ -437,15 +447,14 @@ func (a *apiHandler) deleteBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
 	}
-	if !a.authorizeBotEdit(w, r, orgID, id, "deletion") {
+	if !a.authorizeBotEditAccess(w, r, orgID, id, "deletion") {
 		return
 	}
-	switch err := a.deps.Lifecycle.Delete(r.Context(), orgID, id); {
-	case err == nil:
-		w.WriteHeader(http.StatusNoContent)
-	default:
+	if err := a.deps.Lifecycle.StartDelete(r.Context(), orgID, id); err != nil {
 		writeError(w, errStatus(err), err)
+		return
 	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // addBotParent adds a reporting line: the Bot at {id} now also reports
@@ -565,6 +574,7 @@ func (a *apiHandler) removeBotParent(w http.ResponseWriter, r *http.Request) {
 // @Param id path string true "Bot ID"
 // @Success 200 {object} api.BotChatDTO
 // @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/bots/{id}/chat [post]
@@ -586,6 +596,9 @@ func (a *apiHandler) ensureBotChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if a.refuseDeletingBot(w, orgID, id) {
 		return
 	}
 	projectID, agentAppID, _, err := a.deps.ProjectEnsurer.Ensure(ctx, orgID, id)
@@ -610,6 +623,7 @@ func (a *apiHandler) ensureBotChat(w http.ResponseWriter, r *http.Request) {
 // @Param id path string true "Bot ID"
 // @Success 202 {object} api.BotActivateDTO
 // @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/bots/{id}/activate [post]
@@ -633,6 +647,9 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 	// command runs its project/dispatch side effects.
 	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if a.refuseDeletingBot(w, orgID, id) {
 		return
 	}
 	res, err := a.deps.Activations.Activate(ctx, orgID, id)
@@ -812,6 +829,9 @@ func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.N
 	}
 	out := make([]string, 0, len(managers))
 	for _, m := range managers {
+		if a.deps.Lifecycle.Deleting(orgID, m) {
+			continue
+		}
 		out = append(out, string(m))
 	}
 	return out
@@ -1054,6 +1074,12 @@ func (a *apiHandler) editableBots(ctx context.Context, orgID string, bots []orgc
 // names the part being changed for the error message. It writes the error
 // response and returns false when the caller may not.
 func (a *apiHandler) authorizeBotEdit(w http.ResponseWriter, r *http.Request, orgID string, botID orgchart.NodeID, what string) bool {
+	return a.authorizeBotEditAccess(w, r, orgID, botID, what) && !a.refuseDeletingBot(w, orgID, botID)
+}
+
+// authorizeBotEditAccess is authorizeBotEdit without the in-flight delete
+// check, for the delete handler, where repeating a delete is a no-op.
+func (a *apiHandler) authorizeBotEditAccess(w http.ResponseWriter, r *http.Request, orgID string, botID orgchart.NodeID, what string) bool {
 	ctx := r.Context()
 	if helixorgserver.CanManageOrganization(ctx) {
 		return true
@@ -1067,17 +1093,42 @@ func (a *apiHandler) authorizeBotEdit(w http.ResponseWriter, r *http.Request, or
 		writeAPIError(w, errStatus(err), "not_found", "Bot not found")
 		return false
 	}
-	return a.authorizeLoadedBotEdit(w, r, orgID, bot, what)
+	if !a.botEditAllowed(ctx, orgID, bot) {
+		writeAPIError(w, http.StatusForbidden, "forbidden", botEditDenied(what))
+		return false
+	}
+	return true
 }
 
 // authorizeLoadedBotEdit is authorizeBotEdit for a bot the handler has
 // already loaded, so the row is not read twice per mutation.
 func (a *apiHandler) authorizeLoadedBotEdit(w http.ResponseWriter, r *http.Request, orgID string, bot orgchart.Node, what string) bool {
-	if a.botEditAllowed(r.Context(), orgID, bot) {
-		return true
+	if !a.botEditAllowed(r.Context(), orgID, bot) {
+		writeAPIError(w, http.StatusForbidden, "forbidden", botEditDenied(what))
+		return false
 	}
-	writeAPIError(w, http.StatusForbidden, "forbidden", botEditDenied(what))
-	return false
+	return !a.refuseDeletingBot(w, orgID, bot.ID)
+}
+
+// refuseDeletingBot writes 409 when a background delete of the bot is in
+// flight, so nothing re-provisions or edits a bot that is being torn down.
+func (a *apiHandler) refuseDeletingBot(w http.ResponseWriter, orgID string, botID orgchart.NodeID) bool {
+	if !a.deps.Lifecycle.Deleting(orgID, botID) {
+		return false
+	}
+	writeAPIError(w, http.StatusConflict, "conflict", "Bot is being deleted")
+	return true
+}
+
+// listLiveBots lists the org's bots minus those being deleted.
+func (a *apiHandler) listLiveBots(ctx context.Context, orgID string) ([]orgchart.Node, error) {
+	bs, err := a.deps.Queries.ListBots(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(bs, func(b orgchart.Node) bool {
+		return a.deps.Lifecycle.Deleting(orgID, b.ID)
+	}), nil
 }
 
 func botEditDenied(what string) string {

@@ -74,7 +74,7 @@ const HelixOrgBots: FC = () => {
     if (!deleting) return
     try {
       await deleteBot.mutateAsync(deleting.id ?? '')
-      snackbar.success(`Deleted org bot ${deleting.id}`)
+      snackbar.success(`Deleting org bot ${deleting.id} in the background`)
     } catch (e: any) {
       const status = e?.response?.status
       if (status === 409) {
