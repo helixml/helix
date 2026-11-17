@@ -6,9 +6,12 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import ReplayIcon from "@mui/icons-material/Replay";
 import { useGetWallet } from "../../services/useBilling";
+import { useModelSwitcher } from "../../contexts/modelSwitcher";
+import { describeInferenceError } from "./inferenceErrors";
 import Row from "../widgets/Row";
 import Cell from "../widgets/Cell";
 import Markdown from "./Markdown";
+import MarkdownCodeBlock from "./MarkdownCodeBlock";
 import WorkLog from "./WorkLog";
 import { CollapsibleToolCall } from "./CollapsibleToolCall";
 import ActivitySummary from "./ActivitySummary";
@@ -570,6 +573,7 @@ export const InteractionInference: FC<{
   const [viewingExport, setViewingExport] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [userMessageExpanded, setUserMessageExpanded] = useState(false);
+  const [errorDetailsOpen, setErrorDetailsOpen] = useState(false);
   const [internalIsEditing, setInternalIsEditing] = useState(false);
   const [internalEditedMessage, setInternalEditedMessage] = useState(
     message || "",
@@ -589,7 +593,9 @@ export const InteractionInference: FC<{
     session.id || "",
     interaction.id || "",
   );
-  const isInsufficientBalance = !!error && /insufficient balance/i.test(error);
+  const isBotChat = !!router.params.org_id && !!router.params.bot_id;
+  const errorInfo = error ? describeInferenceError(error, { isBotChat }) : undefined;
+  const isInsufficientBalance = errorInfo?.kind === "insufficient_balance";
   const { data: wallet } = useGetWallet(
     router.params.org_id,
     isInsufficientBalance && !!router.params.org_id,
@@ -599,30 +605,30 @@ export const InteractionInference: FC<{
   const showAddCredits = isInsufficientBalance
     && !hasCredits
     && !!router.params.org_id;
-  const isBotProviderUnavailable = !!error
-    && !!router.params.org_id
-    && !!router.params.bot_id
-    && (
-      /provider is not available to the organization/i.test(error)
-      || /provider ".+" is not enabled for coding-agent (?:runtime|harness) ".+" in this organization/i.test(error)
-      || (/anthropic/i.test(error)
-        && /\b403\b/.test(error)
-        && /SERVICE_DISABLED/i.test(error)
-        && /aiplatform\.googleapis\.com/i.test(error))
-      || /anthropic provider not configured/i.test(error)
-    );
-  const errorTitle = isInsufficientBalance
-    ? "More credits needed"
-    : isBotProviderUnavailable
-      ? "Model provider unavailable"
-      : "We couldn’t complete that request";
-  const errorMessage = isInsufficientBalance
-    ? hasCredits
-      ? "Credits are available now. Retry to continue."
-      : "Your organization doesn’t have enough credits. Add credits to continue."
-    : isBotProviderUnavailable
-      ? "This bot's model provider is unavailable. Choose an available provider and model in bot settings."
-      : error;
+  const errorSummary = isInsufficientBalance && hasCredits
+    ? "Credits are available now. Retry to continue."
+    : errorInfo?.summary;
+  const showErrorDetails = !!error && !!errorInfo && errorInfo.kind !== "unknown"
+    && errorInfo.kind !== "insufficient_balance";
+  const modelSwitcher = useModelSwitcher();
+  // Recovery for a model or provider failure: the chat's own model picker
+  // when it has one, otherwise the bot's settings in bot chat.
+  const switchModelAction = !errorInfo?.suggestSwitchModel
+    ? undefined
+    : modelSwitcher?.openModelSwitcher
+      ? { label: "Switch model", onClick: modelSwitcher.openModelSwitcher }
+      : isBotChat
+        ? {
+          label: errorInfo.kind === "bot_provider_unavailable" ? "Configure provider" : "Switch model",
+          onClick: () => router.navigate("helix_org_bot_detail", {
+            org_id: router.params.org_id,
+            bot_id: router.params.bot_id,
+          }),
+        }
+        : undefined;
+  const showManageProviders = errorInfo?.kind === "auth" && !!router.params.org_id;
+  const canRetry = !!errorInfo
+    && (errorInfo.retryable || (isInsufficientBalance && hasCredits));
   const handleCancel =
     externalHandleCancel ||
     (() => {
@@ -1145,58 +1151,106 @@ export const InteractionInference: FC<{
           </Cell>
         </Row>
       )}
-      {error && !errorIsHistorical && (
+      {error && !errorIsHistorical && errorInfo && (
         <Row
           sx={{
             mt: 3,
+            alignItems: "flex-start",
           }}
         >
           <Cell grow>
             <Alert severity="error">
-              <AlertTitle>{errorTitle}</AlertTitle>
+              <AlertTitle>{errorInfo.title}</AlertTitle>
               <Typography
                 variant="body2"
                 sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
               >
-                {errorMessage}
+                {errorSummary}
               </Typography>
-              {showAddCredits && (
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  size="small"
-                  sx={{ mt: 1 }}
-                  onClick={() =>
-                    router.navigate("org_billing", {
-                      org_id: router.params.org_id,
-                    })
-                  }
+              {errorInfo.providerMessage && errorInfo.kind !== "unknown" && (
+                <Typography
+                  variant="body2"
+                  sx={{ mt: 1, overflowWrap: "anywhere" }}
                 >
-                  Add credits
-                </Button>
+                  Provider response
+                  {errorInfo.providerStatus ? ` (HTTP ${errorInfo.providerStatus})` : ""}
+                  : “{errorInfo.providerMessage}”
+                </Typography>
               )}
-              {isBotProviderUnavailable && (
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  size="small"
-                  sx={{ mt: 1 }}
-                  onClick={() =>
-                    router.navigate("helix_org_bot_detail", {
-                      org_id: router.params.org_id,
-                      bot_id: router.params.bot_id,
-                    })
-                  }
-                >
-                  Configure provider
-                </Button>
+              {errorInfo.steps.length > 0 && (
+                <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2.5 }}>
+                  {errorInfo.steps.map((step) => (
+                    <Typography component="li" variant="body2" key={step}>
+                      {step}
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+              {(showAddCredits || switchModelAction || showManageProviders) && (
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 1.5 }}>
+                  {showAddCredits && (
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      size="small"
+                      onClick={() =>
+                        router.navigate("org_billing", {
+                          org_id: router.params.org_id,
+                        })
+                      }
+                    >
+                      Add credits
+                    </Button>
+                  )}
+                  {switchModelAction && (
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      size="small"
+                      onClick={switchModelAction.onClick}
+                    >
+                      {switchModelAction.label}
+                    </Button>
+                  )}
+                  {showManageProviders && (
+                    <Button
+                      variant="outlined"
+                      color="inherit"
+                      size="small"
+                      onClick={() =>
+                        router.navigate("org_providers", {
+                          org_id: router.params.org_id,
+                        })
+                      }
+                    >
+                      Manage providers
+                    </Button>
+                  )}
+                </Box>
+              )}
+              {showErrorDetails && (
+                <Box sx={{ mt: 1 }}>
+                  <Button
+                    size="small"
+                    color="inherit"
+                    aria-expanded={errorDetailsOpen}
+                    onClick={() => setErrorDetailsOpen((open) => !open)}
+                    sx={{ px: 0, minWidth: 0, textTransform: "none", opacity: 0.8 }}
+                  >
+                    {errorDetailsOpen ? "Hide details" : "Show details"}
+                  </Button>
+                  {errorDetailsOpen && (
+                    <Box sx={{ mt: 0.5 }}>
+                      <MarkdownCodeBlock language="text" defaultWrapped>
+                        {error}
+                      </MarkdownCodeBlock>
+                    </Box>
+                  )}
+                </Box>
               )}
             </Alert>
           </Cell>
-          {onRegenerate
-            && !message
-            && !isBotProviderUnavailable
-            && (!isInsufficientBalance || hasCredits) && (
+          {onRegenerate && !message && canRetry && (
             <Cell
               sx={{
                 ml: 2,
