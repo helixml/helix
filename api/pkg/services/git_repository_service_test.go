@@ -67,6 +67,22 @@ func (f *fakeStore) UpdateGitRepository(_ context.Context, repo *types.GitReposi
 	return nil
 }
 
+func (f *fakeStore) SetGitRepositoryDefaultBranchIfUnchanged(_ context.Context, _, expected, branch string) (bool, error) {
+	if f.repo == nil || f.repo.DefaultBranch != expected {
+		return false, nil
+	}
+	f.repo.DefaultBranch = branch
+	return true, nil
+}
+
+func (f *fakeStore) MarkGitRepositorySyncStarted(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (f *fakeStore) MarkGitRepositorySyncFinished(_ context.Context, _ string, _ time.Time, _ string) error {
+	return nil
+}
+
 func (f *fakeStore) CountGitRepositoriesByKoditRepoID(_ context.Context, _ int64, _ string) (int64, error) {
 	return f.koditRepoRefCount, nil
 }

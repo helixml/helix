@@ -7141,6 +7141,21 @@ func (mr *MockStoreMockRecorder) SetActiveWebServiceSandbox(ctx, projectID, sand
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActiveWebServiceSandbox", reflect.TypeOf((*MockStore)(nil).SetActiveWebServiceSandbox), ctx, projectID, sandboxID)
 }
 
+// SetGitRepositoryDefaultBranchIfUnchanged mocks base method.
+func (m *MockStore) SetGitRepositoryDefaultBranchIfUnchanged(ctx context.Context, id, expected, branch string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetGitRepositoryDefaultBranchIfUnchanged", ctx, id, expected, branch)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetGitRepositoryDefaultBranchIfUnchanged indicates an expected call of SetGitRepositoryDefaultBranchIfUnchanged.
+func (mr *MockStoreMockRecorder) SetGitRepositoryDefaultBranchIfUnchanged(ctx, id, expected, branch any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGitRepositoryDefaultBranchIfUnchanged", reflect.TypeOf((*MockStore)(nil).SetGitRepositoryDefaultBranchIfUnchanged), ctx, id, expected, branch)
+}
+
 // SetGitRepositoryTrustedStartupSHA mocks base method.
 func (m *MockStore) SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error {
 	m.ctrl.T.Helper()
