@@ -10,12 +10,13 @@ const state = vi.hoisted(() => ({
 
 vi.mock('../../services/systemSettingsService', () => ({
   useGetSystemSettings: () => ({
-    data: { max_concurrent_desktop_sandboxes: state.desktopLimit },
+    data: { llm_payload_retention_days: 7, max_concurrent_desktop_sandboxes: state.desktopLimit },
     isLoading: false,
     error: null,
     refetch: vi.fn(),
   }),
   useUpdateSystemSettings: () => ({
+    mutate: (update: Record<string, unknown>) => state.updates.push(update),
     mutateAsync: async (update: Record<string, unknown>) => state.updates.push(update),
     isPending: false,
   }),
@@ -31,6 +32,18 @@ describe('SystemSettingsTable desktop sandbox limit', () => {
   beforeEach(() => {
     state.desktopLimit = 0
     state.updates = []
+  })
+
+  it('validates and saves LLM body retention', () => {
+    render(<SystemSettingsTable />)
+    const input = screen.getByLabelText('LLM payload retention (days)')
+    const save = screen.getByRole('button', {name: 'Save'})
+    expect(input).toHaveValue('7')
+    fireEvent.change(input, {target: {value: '0'}})
+    expect(save).toBeDisabled()
+    fireEvent.change(input, {target: {value: '30'}})
+    fireEvent.click(save)
+    expect(state.updates).toEqual([{llm_payload_retention_days: 30}])
   })
 
   it('shows plan defaults and leaves the override empty', () => {

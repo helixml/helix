@@ -258,9 +258,10 @@ curl -fsSL 'https://openrouter.ai/api/v1/models/<author>/<canonical-slug>/endpoi
 ```bash
 # What did Helix actually send vs what did the caller ask for?
 docker exec helix-postgres-1 psql -U postgres -d postgres -c \
-  "SELECT id, model, original_request->>'reasoning_effort' AS asked, \
-   request->>'reasoning_effort' AS sent, left(error,120) AS err \
-   FROM llm_calls WHERE session_id='ses_…' ORDER BY created DESC LIMIT 10;"
+  "SELECT c.id, c.model, COALESCE(p.original_request,c.original_request)->>'reasoning_effort' AS asked, \
+   COALESCE(p.request,c.request)->>'reasoning_effort' AS sent, left(c.error,120) AS err \
+   FROM llm_calls c LEFT JOIN llm_call_payloads p USING (id,created) \
+   WHERE c.session_id='ses_…' ORDER BY c.created DESC LIMIT 10;"
 
 # Probe a provider directly — prompt_tokens reveals the template branch taken;
 # equal counts across values mean they collapse to the same default.

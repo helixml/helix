@@ -27,8 +27,17 @@ export function useUpdateSystemSettings() {
       const response = await apiClient.v1SystemSettingsUpdate(request)
       return response.data
     },
-    onSuccess: (data) => {
-      queryClient.setQueryData(SYSTEM_SETTINGS_QUERY_KEY, data)
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: SYSTEM_SETTINGS_QUERY_KEY })
     },
+  })
+}
+
+export function useHostHistory(days: number) {
+  const client = useApi().getApiClient()
+  return useQuery({
+    queryKey: ['host-history', days],
+    queryFn: async () => (await client.v1SystemHostHistoryList({ days })).data,
+    refetchInterval: 300_000,
   })
 }
