@@ -187,3 +187,16 @@ func TestStoreDeleteRemovesEveryDayAndBlocksLateSamples(t *testing.T) {
 		t.Fatalf("expired tombstone kept: %v", err)
 	}
 }
+
+func TestPercentileIsNearestRank(t *testing.T) {
+	v := []float64{1, 2, 3, 4}
+	if got := percentile(v, 0.5); got != 2 {
+		t.Fatalf("p50 of 4 values = %v, want the lower median 2", got)
+	}
+	if got := percentile(v, 0.95); got != 4 {
+		t.Fatalf("p95 = %v", got)
+	}
+	if got := percentile([]float64{7}, 0.5); got != 7 {
+		t.Fatalf("single value p50 = %v", got)
+	}
+}

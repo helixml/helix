@@ -55,8 +55,13 @@ describe('SessionResourcesView', () => {
   })
 
   it('explains an empty window', () => {
-    render(<SessionResourcesView resources={{ ...resources(), points: [] }} />)
+    render(<SessionResourcesView resources={{ ...resources({ samples: 0 }), points: [] }} />)
     expect(screen.getByText(/No sandbox samples in this window/)).toBeTruthy()
+  })
+
+  it('does not call a window with samples but no intervals empty', () => {
+    render(<SessionResourcesView resources={{ ...resources({ samples: 1 }), points: [] }} />)
+    expect(screen.getByText(/1 sample in this window, not yet enough/)).toBeTruthy()
   })
 
   it('formats bytes', () => {

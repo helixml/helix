@@ -1,6 +1,7 @@
 package sessionresources
 
 import (
+	"math"
 	"slices"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -89,11 +90,13 @@ func point(group []interval) types.SessionResourcePoint {
 	return p
 }
 
+// percentile is the nearest-rank percentile: the smallest value with at least
+// q of the values at or below it.
 func percentile(sorted []float64, q float64) float64 {
 	if len(sorted) == 0 {
 		return 0
 	}
-	return sorted[int(q*float64(len(sorted)-1)+0.5)]
+	return sorted[max(int(math.Ceil(q*float64(len(sorted))))-1, 0)]
 }
 
 // Summarize turns samples (oldest first) into a summary and at most maxPoints

@@ -74,7 +74,9 @@ export const SessionResourcesView: FC<{ resources: SessionResources }> = ({ reso
   if (rows.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary">
-        No sandbox samples in this window. The desktop reports every 30 seconds while it runs.
+        {s.samples === 0
+          ? 'No sandbox samples in this window. The desktop reports every 30 seconds while it runs.'
+          : `${s.samples} sample${s.samples === 1 ? '' : 's'} in this window, not yet enough to measure usage: rates need two consecutive samples from the same desktop run.`}
       </Typography>
     )
   }
