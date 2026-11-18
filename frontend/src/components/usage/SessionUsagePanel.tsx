@@ -3,7 +3,7 @@
 // turn. Compact enough for the session workspace's side panel; the charts are
 // the org usage page's ShadcnAreaChart with the same series colours.
 
-import { FC, useMemo } from 'react'
+import { FC, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
@@ -12,7 +12,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import { SessionUsage, useSessionUsage } from '../../services/sessionUsageService'
 import ShadcnAreaChart, { ShadcnSeries } from './ShadcnAreaChart'
 import SessionResourcesPanel from './SessionResourcesPanel'
-import { CompactTable, OverviewStat, OverviewStatStrip, UsageChartGrid, UsageGroup } from './UsageOverview'
+import { CompactTable, OverviewStat, OverviewStatStrip, SegmentBar, SegmentBarPanel, UsageChartGrid, UsageGroup, UsageSwitch } from './UsageOverview'
 
 // Same palette as the usage page (TotalCost / TokenUsage).
 const TOKEN_SERIES: ShadcnSeries[] = [
@@ -20,6 +20,8 @@ const TOKEN_SERIES: ShadcnSeries[] = [
   { key: 'cacheRead', label: 'Cache read', color: '#22c55e' },
   { key: 'output', label: 'Output', color: '#a855f7' },
 ]
+const CALL_SERIES: ShadcnSeries[] = [{ key: 'calls', label: 'LLM calls', color: '#3b82f6' }]
+const COST_SERIES: ShadcnSeries[] = [{ key: 'cost', label: 'Cost', color: '#3b82f6' }]
 const LATENCY_SERIES: ShadcnSeries[] = [
   { key: 'duration', label: 'Call', color: '#3b82f6' },
   { key: 'ttft', label: 'First token', color: '#f59e0b' },
@@ -55,15 +57,64 @@ export const buildUsageRows = (usage: SessionUsage) => {
     duration: c.duration_ms / 1000,
     ttft: c.time_to_first_token_ms / 1000,
   }))
-  const cache = usage.calls
-    .filter(c => c.prompt_tokens > 0)
-    .map(c => ({ date: c.created, hit: c.cache_read_tokens / c.prompt_tokens }))
-  return { tokens, latency, cache }
+  return { tokens, latency }
+}
+
+type ActivityMetric = 'tokens' | 'calls' | 'cost' | 'per-call'
+
+const MINUTE = 60_000
+const BUCKETS = [1, 5, 15, 30, 60, 180, 360, 720, 1440].map(m => m * MINUTE)
+
+// bucketCalls sums the session's calls into even time buckets, sized so the
+// span fits in about 40 bars: a ten-minute run reads per minute, a week-long
+// task per day. Empty buckets stay, so idle time shows as a gap.
+export interface CallBucket {
+  date: string
+  input: number
+  cacheRead: number
+  output: number
+  calls: number
+  cost: number
+  prompt: number
+}
+
+export const bucketCalls = (calls: SessionUsage['calls']): { size: number; rows: CallBucket[]; cache: Array<{ date: string; hit: number }> } => {
+  if (!calls.length) return { size: MINUTE, rows: [], cache: [] }
+  const times = calls.map(c => new Date(c.created).getTime())
+  const first = Math.min(...times)
+  const last = Math.max(...times)
+  const size = BUCKETS.find(b => (last - first) / b <= 40) ?? BUCKETS[BUCKETS.length - 1]
+  const start = Math.floor(first / size) * size
+  const count = Math.floor((last - start) / size) + 1
+  const rows: CallBucket[] = Array.from({ length: count }, (_, i) => ({
+    date: new Date(start + i * size).toISOString(),
+    input: 0, cacheRead: 0, output: 0, calls: 0, cost: 0, prompt: 0,
+  }))
+  calls.forEach((c, i) => {
+    const row = rows[Math.floor((times[i] - start) / size)]
+    row.input += Math.max(c.prompt_tokens - c.cache_read_tokens, 0)
+    row.cacheRead += c.cache_read_tokens
+    row.output += c.completion_tokens
+    row.calls += 1
+    row.cost += c.total_cost
+    row.prompt += c.prompt_tokens
+  })
+  // Cache hit per bucket: buckets without input stay empty, not 0%.
+  const cache = rows.filter(r => r.prompt > 0).map(r => ({ date: r.date, hit: r.cacheRead / r.prompt }))
+  return { size, rows, cache }
+}
+
+const bucketLabel = (size: number): string => {
+  if (size >= 1440 * MINUTE) return 'per day'
+  if (size >= 60 * MINUTE) return `per ${size / (60 * MINUTE)} h`
+  return size === MINUTE ? 'per minute' : `per ${size / MINUTE} min`
 }
 
 export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
   const s = usage.summary
   const rows = useMemo(() => buildUsageRows(usage), [usage])
+  const buckets = useMemo(() => bucketCalls(usage.calls), [usage])
+  const [metric, setMetric] = useState<ActivityMetric>('tokens')
   // Self-hosted providers often have no price: say so rather than show $0.
   const priced = s.total_cost > 0
   const totalTokens = s.prompt_tokens + s.completion_tokens
@@ -85,16 +136,48 @@ export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
         <OverviewStat emphasis label="LLM time" value={formatSeconds(s.llm_ms)} detail={`First token p50 ${formatSeconds(s.ttft_p50_ms)}`} />
       </OverviewStatStrip>
 
+      <SegmentBarPanel fit="container">
+        <SegmentBar
+        label="Tokens by type"
+        segments={[
+          { label: 'Input', value: Math.max(s.prompt_tokens - s.cache_read_tokens, 0), color: TOKEN_SERIES[0].color },
+          { label: 'Cache read', value: s.cache_read_tokens, color: TOKEN_SERIES[1].color },
+          { label: 'Output', value: s.completion_tokens, color: TOKEN_SERIES[2].color },
+        ]}
+        format={formatTokens}
+        />
+      </SegmentBarPanel>
+
       <ShadcnAreaChart
-        title="Tokens per call"
-        headline={`${formatTokens(totalTokens)} across ${s.calls} calls`}
-        data={rows.tokens}
-        series={TOKEN_SERIES}
-        valueFormatter={formatTokens}
+        title={metric === 'per-call' ? 'Tokens per call' : `${{ tokens: 'Tokens', calls: 'LLM calls', cost: 'Spend' }[metric]} ${bucketLabel(buckets.size)}`}
+        headline={{
+          tokens: `${formatTokens(totalTokens)} across ${s.calls} calls`,
+          calls: `${s.calls} calls`,
+          cost: `${formatCost(s.total_cost)} across ${s.calls} calls`,
+          'per-call': `${formatTokens(s.calls ? totalTokens / s.calls : 0)} per call on average`,
+        }[metric]}
+        action={(
+          <UsageSwitch<ActivityMetric>
+            label="Metric"
+            value={metric}
+            options={[
+              { value: 'tokens', label: 'Tokens' },
+              { value: 'calls', label: 'Calls' },
+              ...(priced ? [{ value: 'cost' as const, label: 'Cost' }] : []),
+              { value: 'per-call', label: 'Per call' },
+            ]}
+            onChange={setMetric}
+          />
+        )}
+        data={metric === 'per-call' ? rows.tokens : buckets.rows}
+        series={metric === 'calls' ? CALL_SERIES : metric === 'cost' ? COST_SERIES : TOKEN_SERIES}
+        valueFormatter={metric === 'calls' ? (v => `${Math.round(v)}`) : metric === 'cost' ? formatCost : formatTokens}
+        variant={metric === 'per-call' ? 'area' : 'bar'}
+        hideLegend={metric === 'calls' || metric === 'cost'}
         cardHeight="auto"
-        chartHeight={150}
+        chartHeight={170}
         yAxisWidth={48}
-        showTime
+        showTime={metric === 'per-call' || buckets.size < 1440 * MINUTE}
       />
       <UsageChartGrid fit="container">
         <ShadcnAreaChart
@@ -111,9 +194,9 @@ export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
           showTime
         />
         <ShadcnAreaChart
-          title="Cache hit ratio"
+          title={`Cache hit ratio ${bucketLabel(buckets.size)}`}
           headline={`${formatPercent(s.cache_hit_ratio)} of input tokens`}
-          data={rows.cache}
+          data={buckets.cache}
           series={CACHE_SERIES}
           valueFormatter={v => `${Math.round(v * 100)}%`}
           stacked={false}
@@ -144,11 +227,12 @@ export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
             title: t.prompt,
             cells: {
               message: t.prompt || '—',
-              calls: t.calls,
-              tokens: formatTokens(t.prompt_tokens + t.completion_tokens),
+              // A turn with no LLM calls (a notice, an agent switch) shows dashes, not zeros.
+              calls: t.calls || '–',
+              tokens: t.calls ? formatTokens(t.prompt_tokens + t.completion_tokens) : '–',
               cache: formatPercent(t.cache_hit_ratio),
-              llm: formatSeconds(t.llm_ms),
-              cost: formatCost(t.total_cost),
+              llm: t.calls ? formatSeconds(t.llm_ms) : '–',
+              cost: t.calls ? formatCost(t.total_cost) : '–',
             },
           }))}
           footer={(

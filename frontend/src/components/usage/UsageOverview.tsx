@@ -4,6 +4,7 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { alpha } from '@mui/material/styles'
 
@@ -185,13 +186,13 @@ export const UsageGroup: FC<{ title: string; description: string; action?: React
   </Box>
 )
 
-// UsageChartGrid lays charts out two-up on wide screens, one-up on narrow.
-export const UsageChartGrid: FC<{ fit?: UsageFit; children: ReactNode }> = ({ fit = 'viewport', children }) => (
+// UsageChartGrid lays charts out two- or three-up on wide screens, one-up on narrow.
+export const UsageChartGrid: FC<{ fit?: UsageFit; columns?: 2 | 3; children: ReactNode }> = ({ fit = 'viewport', columns = 2, children }) => (
   <Box
     sx={{
       display: 'grid',
       gap: 2,
-      gridTemplateColumns: fit === 'container' ? 'minmax(0, 1fr)' : { xs: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' },
+      gridTemplateColumns: fit === 'container' ? 'minmax(0, 1fr)' : { xs: 'minmax(0, 1fr)', lg: `repeat(${columns}, minmax(0, 1fr))` },
       ...(fit === 'container' && {
         '@container (min-width: 560px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
       }),
@@ -274,7 +275,7 @@ export const CompactTable: FC<{
 export const UsageSection: FC<{ title: string; action?: ReactNode; children: ReactNode }> = ({ title, action, children }) => (
   <Box sx={{ width: '100%' }}>
     <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2} sx={{ mb: 1.5 }}>
-      <Typography variant="h6" sx={{ fontSize: '1rem' }}>
+      <Typography variant="body2" component="h4" sx={{ fontWeight: 600 }}>
         {title}
       </Typography>
       {action}
@@ -282,3 +283,114 @@ export const UsageSection: FC<{ title: string; action?: ReactNode; children: Rea
     {children}
   </Box>
 )
+
+export interface UsageSegment {
+  label: string
+  value: number
+  color: string
+}
+
+// SegmentBar is one total split by kind (tokens by type, cost by provider): a
+// thin proportional bar over a legend that carries every value, so the split
+// reads at a glance and the numbers stay exact. Renders nothing when empty.
+export const SegmentBar: FC<{
+  label: string
+  segments: UsageSegment[]
+  format: (value: number) => string
+  aside?: ReactNode
+}> = ({ label, segments, format, aside }) => {
+  const shown = segments.filter(s => s.value > 0)
+  const total = shown.reduce((sum, s) => sum + s.value, 0)
+  if (total <= 0) return null
+  const share = (v: number) => `${(v / total * 100).toFixed(v / total < 0.1 ? 1 : 0)}%`
+  return (
+    <Stack spacing={1.25} sx={{ minWidth: 0 }}>
+      <Stack direction="row" alignItems="baseline" justifyContent="space-between" spacing={1.5}>
+        <Typography variant="body2" component="h4" sx={{ fontWeight: 600 }}>{label}</Typography>
+        {aside}
+      </Stack>
+      <Box
+        role="img"
+        aria-label={`${label}: ${shown.map(s => `${s.label} ${format(s.value)}`).join(', ')}`}
+        sx={{ display: 'flex', height: 8, gap: '2px' }}
+      >
+        {shown.map(s => (
+          <Tooltip key={s.label} title={`${s.label} · ${format(s.value)} · ${share(s.value)}`} placement="top">
+            <Box
+              sx={{
+                flex: `${s.value} 1 0`,
+                minWidth: 4,
+                height: '100%',
+                bgcolor: s.color,
+                borderRadius: '2px',
+                '&:first-of-type': { borderTopLeftRadius: 8, borderBottomLeftRadius: 8 },
+                '&:last-of-type': { borderTopRightRadius: 8, borderBottomRightRadius: 8 },
+              }}
+            />
+          </Tooltip>
+        ))}
+      </Box>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.5 }}>
+        {shown.map(s => (
+          <Box key={s.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, fontSize: '0.75rem' }}>
+            <Box aria-hidden sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: s.color, flexShrink: 0 }} />
+            <Box component="span" sx={{ color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }} title={s.label}>{s.label}</Box>
+            <Box component="span" sx={{ color: 'text.primary', fontVariantNumeric: 'tabular-nums' }}>{format(s.value)}</Box>
+          </Box>
+        ))}
+      </Box>
+    </Stack>
+  )
+}
+
+// SegmentBarPanel sets SegmentBars side by side in one card.
+export const SegmentBarPanel: FC<{ fit?: UsageFit; children: ReactNode }> = ({ fit = 'viewport', children }) => (
+  <Box
+    sx={{
+      bgcolor: 'background.paper',
+      border: '1px solid',
+      borderColor: 'divider',
+      borderRadius: 2,
+      p: 2,
+      display: 'grid',
+      columnGap: 5,
+      rowGap: 3,
+      gridTemplateColumns: fit === 'container' ? 'minmax(0, 1fr)' : { xs: 'minmax(0, 1fr)', md: 'repeat(3, minmax(0, 1fr))' },
+      ...(fit === 'container' && {
+        '@container (min-width: 560px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+      }),
+    }}
+  >
+    {children}
+  </Box>
+)
+
+export interface UsageSwitchOption<T extends string> {
+  value: T
+  label: string
+  disabled?: boolean
+}
+
+// UsageSwitch is the segmented control a chart header uses to pick what it
+// plots (metric, split).
+export function UsageSwitch<T extends string>({ label, value, options, onChange }: {
+  label: string
+  value: T
+  options: UsageSwitchOption<T>[]
+  onChange: (next: T) => void
+}) {
+  return (
+    <ToggleButtonGroup
+      aria-label={label}
+      value={value}
+      exclusive
+      size="small"
+      onChange={(_: React.MouseEvent<HTMLElement>, next: T | null) => next && onChange(next)}
+      sx={{ '& .MuiToggleButton-root': { px: 1.25, py: 0.25, textTransform: 'none', fontSize: '0.8125rem' } }}
+    >
+      {options.map(o => (
+        <ToggleButton key={o.value} value={o.value} disabled={o.disabled}>{o.label}</ToggleButton>
+      ))}
+    </ToggleButtonGroup>
+  )
+}

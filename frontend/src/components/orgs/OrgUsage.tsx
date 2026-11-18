@@ -6,8 +6,6 @@ import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import TablePagination from '@mui/material/TablePagination'
 import { alpha } from '@mui/material/styles'
 import InputAdornment from '@mui/material/InputAdornment'
@@ -15,11 +13,11 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import Autocomplete from '@mui/material/Autocomplete'
 import LinearProgress from '@mui/material/LinearProgress'
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps, YAxisTickContentProps } from 'recharts'
 import { Cloud, Download, Search, SlidersHorizontal, X } from 'lucide-react'
 
-import type { TypesAggregatedUsageMetric, TypesUsageAgentRuntimeTimeSeries, TypesUsageBreakdownRow, TypesUsageFilterOption, TypesUsageModelTimeSeries, TypesUsageProviderTimeSeries } from '../../api/api'
+import type { TypesAggregatedUsageMetric, TypesUsageAgentRuntimeTimeSeries, TypesUsageBreakdownRow, TypesUsageFilterOption } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useDebounce from '../../hooks/useDebounce'
@@ -52,11 +50,15 @@ import {
   UsageRangeControls,
   UsageRangeKey,
   UsageSection,
-  UsageShareRow,
+  SegmentBar,
+  SegmentBarPanel,
+  UsageSwitch,
+  UsageSegment,
 } from '../usage/UsageOverview'
 
 type UsageLoadingScope = 'filters' | 'projects' | 'tasks' | 'sessions' | 'users'
-type OverviewMetric = 'cost' | 'tokens'
+type ActivityMetric = 'cost' | 'tokens' | 'calls'
+type ActivitySplit = 'provider' | 'model' | 'type'
 type LatencyMetric = 'per-request' | 'per-1k-output'
 type UsageChartRow = { date: string; [key: string]: number | string }
 
@@ -65,6 +67,15 @@ const TOKEN_SERIES: ShadcnSeries[] = [
   { key: 'cacheRead', label: 'Cache read', color: '#16a34a' },
   { key: 'cacheWrite', label: 'Cache write', color: '#d97706' },
   { key: 'output', label: 'Output', color: '#9333ea' },
+]
+
+// Cost splits the same four ways as tokens, in the same colours.
+const COST_TYPE_SERIES: ShadcnSeries[] = TOKEN_SERIES
+
+const ACTIVITY_METRIC_OPTIONS: Array<{ value: ActivityMetric; label: string }> = [
+  { value: 'cost', label: 'Cost' },
+  { value: 'tokens', label: 'Tokens' },
+  { value: 'calls', label: 'Calls' },
 ]
 
 const CHART_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#e11d48']
@@ -266,26 +277,6 @@ const exportJSON = (filename: string, rows: TypesUsageBreakdownRow[]) => {
   URL.revokeObjectURL(url)
 }
 
-const ProviderSummaryRow: FC<{
-  provider: TypesUsageBreakdownRow
-  metric: OverviewMetric
-  total: number
-  color: string
-}> = ({ provider, metric, total, color }) => {
-  const value = metric === 'cost' ? (provider.total_cost ?? 0) : (provider.total_tokens ?? 0)
-  const share = total > 0 ? value / total : 0
-  return (
-    <UsageShareRow
-      icon={<UsageProviderIcon provider={provider.provider} />}
-      label={provider.name || provider.provider || 'Unknown'}
-      value={metric === 'cost' ? formatCost(value) : formatCompact(value)}
-      share={share}
-      color={color}
-      caption={`${formatPercent(share)} of ${metric} · ${formatCompact(provider.total_tokens)} tokens`}
-    />
-  )
-}
-
 // UsagePanel is the outlined card the Sandbox compute block uses. Everything
 // on the page sits in one, so the charts and tables read as parts of a single
 // system instead of floating panes on the page background.
@@ -478,34 +469,47 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
   lastActivity: <Typography variant="body2" color="text.secondary">{formatDateTime(row.last_activity_at)}</Typography>,
 })
 
-const buildModelChart = (series: TypesUsageModelTimeSeries[] = []): UsageChartRow[] => {
+const metricValue = (metric: TypesAggregatedUsageMetric | TypesUsageBreakdownRow, kind: ActivityMetric): number => (
+  kind === 'cost' ? (metric.total_cost ?? 0) : kind === 'tokens' ? (metric.total_tokens ?? 0) : (metric.total_requests ?? 0)
+)
+
+// buildSeriesChart turns per-series daily metrics (one series per provider or
+// model) into one chart row per date.
+export const buildSeriesChart = (
+  series: Array<{ key: string; metrics?: TypesAggregatedUsageMetric[] }>,
+  kind: ActivityMetric,
+): UsageChartRow[] => {
   const dates = new Map<string, UsageChartRow>()
-  series.slice(0, CHART_COLORS.length).forEach(model => {
-    model.metrics?.forEach(metric => {
+  series.forEach(item => {
+    item.metrics?.forEach(metric => {
       if (!metric.date) return
-      const entry = dates.get(metric.date) ?? { date: metric.date }
-      entry[model.id || model.model || 'model'] = metric.total_tokens ?? 0
-      dates.set(metric.date, entry)
+      const row = dates.get(metric.date) ?? { date: metric.date }
+      row[item.key] = metricValue(metric, kind)
+      dates.set(metric.date, row)
     })
   })
   return Array.from(dates.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)))
 }
 
-const buildProviderChart = (
-  series: TypesUsageProviderTimeSeries[] = [],
-  metric: OverviewMetric,
-): UsageChartRow[] => {
-  const dates = new Map<string, UsageChartRow>()
-  series.forEach(provider => {
-    provider.metrics?.forEach(value => {
-      if (!value.date) return
-      const row = dates.get(value.date) ?? { date: value.date }
-      row[provider.provider || 'unknown'] = metric === 'cost' ? (value.total_cost ?? 0) : (value.total_tokens ?? 0)
-      dates.set(value.date, row)
-    })
-  })
-  return Array.from(dates.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)))
-}
+// buildTypeChart splits each day's tokens or API-rate cost into uncached
+// input, cache reads, cache writes and output.
+export const buildTypeChart = (metrics: TypesAggregatedUsageMetric[], kind: 'cost' | 'tokens'): UsageChartRow[] => metrics.map(metric => (
+  kind === 'tokens'
+    ? {
+      date: metric.date || '',
+      input: getUncachedInputTokens(metric),
+      cacheRead: metric.cache_read_tokens ?? 0,
+      cacheWrite: metric.cache_write_tokens ?? 0,
+      output: metric.completion_tokens ?? 0,
+    }
+    : {
+      date: metric.date || '',
+      input: metric.prompt_cost ?? 0,
+      cacheRead: metric.cache_read_cost ?? 0,
+      cacheWrite: metric.cache_write_cost ?? 0,
+      output: metric.completion_cost ?? 0,
+    }
+))
 
 const buildAgentCacheChart = (series: TypesUsageAgentRuntimeTimeSeries[] = []) => (
   buildCacheHitRatioChartData(series)
@@ -634,7 +638,12 @@ const ProjectModelChart: FC<{
               content={React.createElement(ProjectModelTooltip)}
               cursor={{ fill: lightTheme.isLight ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)' }}
             />
-            <Legend wrapperStyle={{ fontSize: '0.75rem' }} iconType="square" iconSize={8} />
+            <Legend
+              wrapperStyle={{ fontSize: '0.75rem' }}
+              iconType="square"
+              iconSize={8}
+              formatter={(value: string) => <span style={{ color: tick.fill }}>{value}</span>}
+            />
             {series.map(item => (
               <Bar key={item.key} dataKey={item.key} name={item.label} stackId="tokens" fill={item.color} isAnimationActive={false} />
             ))}
@@ -677,7 +686,8 @@ const OrgUsage: FC = () => {
   const [taskRowsPerPage, setTaskRowsPerPage] = useState(10)
   const [sessionPage, setSessionPage] = useState(0)
   const [sessionRowsPerPage, setSessionRowsPerPage] = useState(10)
-  const [overviewMetric, setOverviewMetric] = useState<OverviewMetric>('cost')
+  const [activityMetric, setActivityMetric] = useState<ActivityMetric>('cost')
+  const [activitySplit, setActivitySplit] = useState<ActivitySplit>('provider')
   const [latencyMetric, setLatencyMetric] = useState<LatencyMetric>('per-request')
   const [loadingScope, setLoadingScope] = useState<UsageLoadingScope | null>(null)
   const sessionId = useDebounce(sessionIdInput.trim(), 400)
@@ -834,46 +844,74 @@ const OrgUsage: FC = () => {
   const activeDays = metrics.filter(metric => (metric.total_tokens ?? 0) > 0).length
   const averageTokens = activeDays > 0 ? totals.total / activeDays : 0
   const cachedShare = totals.input > 0 ? totals.cacheRead / totals.input : 0
-  const tokenChartData = useMemo(() => metrics.map(metric => {
-    const cacheRead = metric.cache_read_tokens ?? 0
-    const cacheWrite = metric.cache_write_tokens ?? 0
-    return {
-      date: metric.date || '',
-      input: getUncachedInputTokens(metric),
-      output: metric.completion_tokens ?? 0,
-      cacheRead,
-      cacheWrite,
-    }
-  }), [metrics])
   const cacheHitRatio = useMemo(() => getAggregateCacheHitRatio(metrics), [metrics])
 
   const providerTimeSeries = usage.data?.provider_time_series || []
-  const providerChartData = buildProviderChart(providerTimeSeries, overviewMetric)
   const providerChartSeries: ShadcnSeries[] = providerTimeSeries.map((item, index) => ({
     key: item.provider || 'unknown',
     label: item.name || item.provider || 'Unknown',
     color: providerColor(item.provider || 'unknown', index, lightTheme.isLight),
   }))
-  const providerRows = [...(usage.data?.providers || [])].sort((a, b) => overviewMetric === 'cost'
-    ? (b.total_cost ?? 0) - (a.total_cost ?? 0)
-    : (b.total_tokens ?? 0) - (a.total_tokens ?? 0))
-  const providerTotal = providerRows.reduce((sum, row) => sum + (
-    overviewMetric === 'cost' ? (row.total_cost ?? 0) : (row.total_tokens ?? 0)
-  ), 0)
+  const modelSeries = (usage.data?.model_time_series || []).slice(0, CHART_COLORS.length)
+  const modelChartSeries: ShadcnSeries[] = modelSeries.map((item, index) => ({
+    key: item.id || item.model || `model-${index}`,
+    label: item.name || item.model || `Model ${index + 1}`,
+    color: CHART_COLORS[index],
+  }))
+  // Calls have no per-type split; the chart falls back to providers.
+  const split: ActivitySplit = activityMetric === 'calls' && activitySplit === 'type' ? 'provider' : activitySplit
+  const activity = (() => {
+    if (split === 'type') {
+      const kind = activityMetric === 'cost' ? 'cost' : 'tokens'
+      return { data: buildTypeChart(metrics, kind), series: kind === 'cost' ? COST_TYPE_SERIES : TOKEN_SERIES }
+    }
+    if (split === 'model') {
+      return {
+        data: buildSeriesChart(modelSeries.map((item, index) => ({ key: modelChartSeries[index].key, metrics: item.metrics })), activityMetric),
+        series: modelChartSeries,
+      }
+    }
+    return {
+      data: buildSeriesChart(providerTimeSeries.map(item => ({ key: item.provider || 'unknown', metrics: item.metrics })), activityMetric),
+      series: providerChartSeries,
+    }
+  })()
+  const activityFormat = activityMetric === 'cost' ? formatCost : activityMetric === 'tokens' ? formatCompact : formatNumber
+  const activityTotal = activityMetric === 'cost' ? rawTokenCost : activityMetric === 'tokens' ? totals.total : totals.requests
+  const activityTitle = {
+    cost: 'Daily API-rate cost',
+    tokens: 'Daily processed tokens',
+    calls: 'Daily LLM calls',
+  }[activityMetric]
+
+  const providerSegments = useMemo<UsageSegment[]>(() => [...(usage.data?.providers || [])]
+    .map((row, index) => ({
+      label: row.name || row.provider || 'Unknown',
+      value: metricValue(row, activityMetric),
+      color: providerColor(row.provider || '', index, lightTheme.isLight),
+    }))
+    .sort((a, b) => b.value - a.value), [usage.data?.providers, activityMetric, lightTheme.isLight])
+  const tokenTypeSegments: UsageSegment[] = [
+    { label: 'Input', value: Math.max(totals.input - totals.cacheRead - totals.cacheWrite, 0), color: TOKEN_SERIES[0].color },
+    { label: 'Cache read', value: totals.cacheRead, color: TOKEN_SERIES[1].color },
+    { label: 'Cache write', value: totals.cacheWrite, color: TOKEN_SERIES[2].color },
+    { label: 'Output', value: totals.completion, color: TOKEN_SERIES[3].color },
+  ]
+  const costTypeSegments = useMemo<UsageSegment[]>(() => {
+    const sum = (field: 'prompt_cost' | 'cache_read_cost' | 'cache_write_cost' | 'completion_cost') => metrics.reduce((acc, m) => acc + (m[field] ?? 0), 0)
+    return [
+      { label: 'Input', value: sum('prompt_cost'), color: COST_TYPE_SERIES[0].color },
+      { label: 'Cache read', value: sum('cache_read_cost'), color: COST_TYPE_SERIES[1].color },
+      { label: 'Cache write', value: sum('cache_write_cost'), color: COST_TYPE_SERIES[2].color },
+      { label: 'Output', value: sum('completion_cost'), color: COST_TYPE_SERIES[3].color },
+    ]
+  }, [metrics])
 
   const agentSeries = (usage.data?.agent_runtime_time_series || []).slice(0, CHART_COLORS.length)
   const agentCacheChartData = buildAgentCacheChart(agentSeries)
   const agentCacheChartSeries: ShadcnSeries[] = agentSeries.map((agent, index) => ({
     key: getCacheUsageSeriesKey(agent, index),
     label: agent.name || agent.runtime || 'Unattributed',
-    color: CHART_COLORS[index],
-  }))
-
-  const modelSeries = (usage.data?.model_time_series || []).slice(0, CHART_COLORS.length)
-  const modelChartData = useMemo(() => buildModelChart(modelSeries), [modelSeries])
-  const modelChartSeries: ShadcnSeries[] = modelSeries.map((model, index) => ({
-    key: model.id || model.model || `model-${index}`,
-    label: model.name || model.model || `Model ${index + 1}`,
     color: CHART_COLORS[index],
   }))
 
@@ -1202,53 +1240,41 @@ const OrgUsage: FC = () => {
                   title="LLM tokens and spend"
                   description="What each provider and model processed, and its cost at API rates. Every filter applies."
                 >
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(260px, 0.7fr) minmax(0, 1.6fr)' }, gap: 2 }}>
-                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                      <Stack spacing={2}>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {overviewMetric === 'cost' ? 'By provider, at API rates' : 'By provider, processed tokens'}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {overviewMetric === 'cost'
-                              ? `${formatCost(rawTokenCost)} API-rate equivalent, not the amount debited; subscription usage is not charged per token.`
-                              : `${formatCompact(totals.total)} tokens across ${formatNumber(totals.requests)} LLM calls.`}
-                          </Typography>
-                        </Box>
-                        {providerRows.length ? providerRows.map((row, index) => (
-                          <ProviderSummaryRow
-                            key={row.id || row.provider || index}
-                            provider={row}
-                            metric={overviewMetric}
-                            total={providerTotal}
-                            color={providerColor(row.provider || '', index, lightTheme.isLight)}
-                          />
-                        )) : (
-                          <Typography variant="body2" color="text.secondary">No provider activity in this window.</Typography>
-                        )}
-                      </Stack>
-                    </Paper>
-                    <ShadcnAreaChart
-                      title={overviewMetric === 'cost' ? 'Daily API-rate cost' : 'Daily processed tokens'}
-                      headline={overviewMetric === 'cost' ? `${formatCost(rawTokenCost)} in range` : `${formatCompact(totals.total)} in range`}
-                      action={(
-                        <ToggleButtonGroup
-                          value={overviewMetric}
-                          exclusive
-                          size="small"
-                          onChange={(_, next: OverviewMetric | null) => next && setOverviewMetric(next)}
-                        >
-                          <ToggleButton value="cost">Cost</ToggleButton>
-                          <ToggleButton value="tokens">Tokens</ToggleButton>
-                        </ToggleButtonGroup>
-                      )}
-                      data={providerChartData}
-                      series={providerChartSeries}
-                      valueFormatter={overviewMetric === 'cost' ? formatCost : formatCompact}
-                      variant="bar"
-                      cardHeight="auto"
+                  <ShadcnAreaChart
+                    title={activityTitle}
+                    headline={`${activityFormat(activityTotal)} in range${activityMetric === 'cost' ? ' at API rates, not the amount debited' : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''}`}
+                    action={(
+                      <>
+                        <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={ACTIVITY_METRIC_OPTIONS} onChange={setActivityMetric} />
+                        <UsageSwitch<ActivitySplit>
+                          label="Split by"
+                          value={split}
+                          options={[
+                            { value: 'provider', label: 'Provider' },
+                            { value: 'model', label: 'Model' },
+                            { value: 'type', label: 'Type', disabled: activityMetric === 'calls' },
+                          ]}
+                          onChange={setActivitySplit}
+                        />
+                      </>
+                    )}
+                    data={activity.data}
+                    series={activity.series}
+                    valueFormatter={activityFormat}
+                    variant="bar"
+                    cardHeight="auto"
+                    chartHeight={260}
+                  />
+
+                  <SegmentBarPanel>
+                    <SegmentBar
+                      label={`${{ cost: 'API-rate cost', tokens: 'Tokens', calls: 'LLM calls' }[activityMetric]} by provider`}
+                      segments={providerSegments}
+                      format={activityFormat}
                     />
-                  </Box>
+                    <SegmentBar label="Tokens by type" segments={tokenTypeSegments} format={formatCompact} />
+                    <SegmentBar label="API-rate cost by type" segments={costTypeSegments} format={formatCost} />
+                  </SegmentBarPanel>
 
                   <OverviewStatStrip columns={4}>
                     <OverviewStat label="Tokens per call" value={formatCompact(totals.requests > 0 ? totals.total / totals.requests : 0)} detail={`Across ${formatNumber(totals.requests)} LLM calls`} />
@@ -1266,30 +1292,17 @@ const OrgUsage: FC = () => {
                     </UsageSection>
                   </UsagePanel>
 
-                  <ShadcnAreaChart
-                    title="Tokens over time"
-                    headline={`${formatCompact(totals.total)} tokens`}
-                    data={tokenChartData}
-                    series={TOKEN_SERIES}
-                    valueFormatter={formatCompact}
-                    variant="bar"
-                    cardHeight="auto"
-                  />
-
-                  <UsageChartGrid>
+                  <UsageChartGrid columns={3}>
                     <ShadcnAreaChart
                       title={latencyMetric === 'per-request' ? 'Latency by provider' : 'Latency per 1k output tokens'}
                       headline={latencyHeadline}
                       action={(
-                        <ToggleButtonGroup
+                        <UsageSwitch<LatencyMetric>
+                          label="Latency metric"
                           value={latencyMetric}
-                          exclusive
-                          size="small"
-                          onChange={(_, next: LatencyMetric | null) => next && setLatencyMetric(next)}
-                        >
-                          <ToggleButton value="per-request">Per call</ToggleButton>
-                          <ToggleButton value="per-1k-output">Per 1k out</ToggleButton>
-                        </ToggleButtonGroup>
+                          options={[{ value: 'per-request', label: 'Per call' }, { value: 'per-1k-output', label: 'Per 1k out' }]}
+                          onChange={setLatencyMetric}
+                        />
                       )}
                       data={latencyChartData}
                       series={latencyChartSeries}
@@ -1323,16 +1336,6 @@ const OrgUsage: FC = () => {
                       zeroIsData
                       variant="line"
                       yDomain={[0, 1]}
-                      cardHeight="auto"
-                      chartHeight={200}
-                    />
-                    <ShadcnAreaChart
-                      title="Model usage over time"
-                      headline={`${modelSeries.length} ${modelSeries.length === 1 ? 'model' : 'models'}`}
-                      data={modelChartData}
-                      series={modelChartSeries}
-                      valueFormatter={formatCompact}
-                      variant="bar"
                       cardHeight="auto"
                       chartHeight={200}
                     />

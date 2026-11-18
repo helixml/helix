@@ -89,6 +89,7 @@ const ShadcnTooltip = (
   valueFormatter: (v: number) => string,
   zeroIsData: boolean,
   showTime: boolean,
+  showTotal: boolean,
 ) => {
   const TooltipComponent: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
     const lightTheme = useLightTheme();
@@ -146,6 +147,18 @@ const ShadcnTooltip = (
             </Box>
           );
         })}
+        {showTotal && (() => {
+          const values = seriesConfig.map(s => byKey.get(s.key)?.value).filter((v): v is number => typeof v === 'number' && v > 0);
+          if (values.length < 2) return null;
+          return (
+            <Box sx={{ display: 'flex', gap: 1, mt: 0.5, pt: 0.5, borderTop: '1px solid', borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' }}>
+              <Typography variant="caption" sx={{ flex: 1, pl: 2, color: lightTheme.isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)' }}>Total</Typography>
+              <Typography variant="caption" sx={{ color: lightTheme.textColor, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                {valueFormatter(values.reduce((a, b) => a + b, 0))}
+              </Typography>
+            </Box>
+          );
+        })()}
       </Box>
     );
   };
@@ -204,7 +217,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
         minWidth: 0,
       }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 1, minHeight: 30 }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', columnGap: 1, rowGap: 1, mb: 1, minHeight: 30 }}>
         <Box sx={{ minWidth: 0 }}>
           <Typography
             variant="body2"
@@ -221,7 +234,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
             {headline}
           </Typography>
         </Box>
-        {action}
+        {action && <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{action}</Box>}
       </Box>
       {/* Phones get shorter plots: most usage charts hold a handful of points. */}
       <Box sx={{ height: { xs: Math.min(chartHeight, 170), sm: chartHeight }, width: '100%' }}>
@@ -271,7 +284,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 cursor={variant === 'bar'
                   ? { fill: lightTheme.isLight ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)' }
                   : { stroke: lightTheme.isLight ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.2)' }}
-                content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData, showTime))}
+                content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData, showTime, stacked && variant !== 'line'))}
               />
               {/* Recharts' default legend lays items at whatever order they
                   enter the chart and wraps awkwardly when there are many
