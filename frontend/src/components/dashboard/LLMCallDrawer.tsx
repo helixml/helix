@@ -157,11 +157,12 @@ const StatBox: FC<{ label: string, value: string, hint?: string }> = ({ label, v
 
 interface LLMCallDrawerProps {
   call: TypesLLMCall | null
+  payloadStatus?: string
   open: boolean
   onClose: () => void
 }
 
-const LLMCallDrawer: FC<LLMCallDrawerProps> = ({ call, open, onClose }) => {
+const LLMCallDrawer: FC<LLMCallDrawerProps> = ({ call, open, onClose, payloadStatus }) => {
   const [tab, setTab] = useState<'response' | 'request' | 'original_request'>('response')
 
   useEffect(() => {
@@ -186,6 +187,7 @@ const LLMCallDrawer: FC<LLMCallDrawerProps> = ({ call, open, onClose }) => {
     >
       {call && (
         <Box sx={{ p: 2.5, height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+          {(payloadStatus || (!originalRequest && !request && !response)) && <Typography role="status" variant="body2">{payloadStatus ?? 'No request or response body retained.'}</Typography>}
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1, flexShrink: 0 }}>
             <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
               <Typography variant="h6" noWrap>{call.model || 'LLM Call'}</Typography>

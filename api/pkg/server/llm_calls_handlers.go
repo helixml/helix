@@ -15,6 +15,8 @@ import (
 // @Description List LLM calls with pagination and optional session filtering
 // @Tags    llm_calls
 // @Produce json
+// @Param metadata_only query bool false "Omit request and response bodies"
+// @Param call_id query string false "Filter by call ID"
 // @Param   page          query    int     false  "Page number"
 // @Param   pageSize      query    int     false  "Page size"
 // @Param   session       query    string  false  "Filter by session ID"
@@ -39,6 +41,8 @@ func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*
 
 	// Call the ListLLMCalls function from the store with the session filter
 	calls, totalCount, err := s.Store.ListLLMCalls(r.Context(), &store.ListLLMCallsQuery{
+		MetadataOnly:  r.URL.Query().Get("metadata_only") == "true",
+		ID:            r.URL.Query().Get("call_id"),
 		Page:          page,
 		PerPage:       pageSize,
 		SessionID:     sessionFilter,

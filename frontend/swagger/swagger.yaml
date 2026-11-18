@@ -1108,6 +1108,17 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
+  hosthistory.Sample:
+    properties:
+      cpu:
+        type: number
+      disk:
+        type: number
+      memory:
+        type: number
+      timestamp:
+        type: integer
+    type: object
   hydra.ContainerBlkioStats:
     properties:
       read_bytes:
@@ -13832,6 +13843,8 @@ definitions:
       kodit_vision_embedding_provider:
         description: Kodit vision embedding model configuration
         type: string
+      llm_payload_retention_days:
+        type: integer
       max_concurrent_desktop_sandboxes:
         type: integer
       max_concurrent_headless_sandboxes:
@@ -13910,6 +13923,8 @@ definitions:
       kodit_vision_embedding_provider:
         description: Kodit vision embedding model configuration
         type: string
+      llm_payload_retention_days:
+        type: integer
       max_concurrent_desktop_sandboxes:
         type: integer
       max_concurrent_headless_sandboxes:
@@ -22364,6 +22379,14 @@ paths:
     get:
       description: List LLM calls with pagination and optional session filtering
       parameters:
+      - description: Omit request and response bodies
+        in: query
+        name: metadata_only
+        type: boolean
+      - description: Filter by call ID
+        in: query
+        name: call_id
+        type: string
       - description: Page number
         in: query
         name: page
@@ -31893,6 +31916,25 @@ paths:
       summary: Create a subscription
       tags:
       - wallets
+  /api/v1/system/host-history:
+    get:
+      parameters:
+      - description: Days of history (1 through 30)
+        in: query
+        name: days
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/hosthistory.Sample'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get API host CPU, memory and data filesystem utilization
+      tags:
+      - system
   /api/v1/system/settings:
     get:
       description: Get global system settings. Requires admin privileges.

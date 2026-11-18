@@ -47,6 +47,7 @@ import { TypesProviderEndpointType } from "../api/api";
 import OAuthProvidersTable from "../components/dashboard/OAuthProvidersTable";
 import HelixModelsTable from "../components/dashboard/HelixModelsTable";
 import PricingTable from "../components/dashboard/PricingTable";
+import HostHistory from "../components/dashboard/HostHistory";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import ServiceConnectionsTable from "../components/dashboard/ServiceConnectionsTable";
 import Runners from "../components/admin/Runners";
@@ -291,6 +292,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     </Box>
                 )}
 
+                {tab === "host_history" && account.admin && <HostHistory />}
                 {tab === "system_settings" && account.admin && (
                     <Box
                         sx={{

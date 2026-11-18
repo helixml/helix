@@ -79,6 +79,10 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 		return
 	}
 
+	if err := req.ValidateLLMPayloadRetention(); err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
 	// Validate the opencode override before it is persisted: the version ends
 	// up in an outbound release URL, and an unreachable or bogus pin would
 	// otherwise only surface later as sessions that refuse to start an agent.
@@ -130,6 +134,7 @@ func (apiServer *HelixAPIServer) updateSystemSettings(rw http.ResponseWriter, r 
 
 	log.Info().
 		Str("admin_user", user.ID).
+		Interface("llm_payload_retention_days", req.LLMPayloadRetentionDays).
 		Bool("hf_token_updated", req.HuggingFaceToken != nil).
 		Bool("kodit_model_updated", req.KoditEnrichmentProvider != nil || req.KoditEnrichmentModel != nil).
 		Bool("providers_management_enabled_updated", req.ProvidersManagementEnabled != nil).

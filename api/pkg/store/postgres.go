@@ -334,6 +334,12 @@ func (s *PostgresStore) runMigrations() error {
 	if err != nil {
 		return err
 	}
+	if err := s.gdb.Set("gorm:table_options", "PARTITION BY RANGE (created)").AutoMigrate(&llmCallPayload{}); err != nil {
+		return err
+	}
+	if err := s.gdb.Exec("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_legacy_payload ON llm_calls (created,id) WHERE " + legacyPayload).Error; err != nil {
+		return err
+	}
 	// users.token held whatever bearer token a request carried when the row
 	// was last saved. User.Token is no longer persisted; clear stored values.
 	// A no-op once cleared, and skipped where the column never existed.
