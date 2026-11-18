@@ -17,11 +17,14 @@ type interval struct {
 	memoryHighEvents, oomKills           uint64
 }
 
+// pct is part's share of whole wall time, capped at 100: samples are stamped
+// when the API receives them, so delivery jitter can make an interval look
+// shorter than the counters it covers.
 func pct(part, whole float64) float64 {
 	if whole <= 0 {
 		return 0
 	}
-	return 100 * part / whole
+	return min(100, 100*part/whole)
 }
 
 // intervals pairs consecutive samples. A counter going backwards means the
