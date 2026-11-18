@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -87,7 +88,8 @@ func appendSample(dir string, s Sample) error {
 	cutoff := now.Truncate(24*time.Hour).AddDate(0, 0, -Days)
 	for _, entry := range entries {
 		d, err := time.Parse("2006-01-02.parquet", entry.Name())
-		if err == nil && d.Before(cutoff) {
+		orphan := entry.Type().IsRegular() && strings.HasPrefix(entry.Name(), ".history-")
+		if orphan || (err == nil && d.Before(cutoff)) {
 			if err = os.Remove(filepath.Join(dir, entry.Name())); err != nil {
 				return err
 			}

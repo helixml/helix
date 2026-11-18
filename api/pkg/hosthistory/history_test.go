@@ -3,6 +3,7 @@ package hosthistory
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -12,10 +13,13 @@ import (
 
 func TestParquetHistory(t *testing.T) {
 	dir := t.TempDir()
+	orphan := filepath.Join(dir, ".history-abandoned")
+	require.NoError(t, os.WriteFile(orphan, []byte("partial"), 0600))
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	for _, d := range []int{-35, -1, 0, 0} {
 		require.NoError(t, appendSample(dir, Sample{Timestamp: today.AddDate(0, 0, d).Unix(), CPU: 52, Memory: 43, Disk: 78}))
 	}
+	require.NoFileExists(t, orphan)
 	rows, err := Read(dir, today.Add(-24*time.Hour), today)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)

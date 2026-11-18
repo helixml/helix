@@ -337,6 +337,15 @@ func (s *PostgresStore) runMigrations() error {
 	if err := s.gdb.Set("gorm:table_options", "PARTITION BY RANGE (created)").AutoMigrate(&llmCallPayload{}); err != nil {
 		return err
 	}
+	var invalid bool
+	if err := s.gdb.Raw("SELECT EXISTS (SELECT FROM pg_index WHERE indexrelid = to_regclass('idx_llm_calls_legacy_payload') AND NOT indisvalid)").Scan(&invalid).Error; err != nil {
+		return err
+	}
+	if invalid {
+		if err := s.gdb.Exec("DROP INDEX CONCURRENTLY idx_llm_calls_legacy_payload").Error; err != nil {
+			return err
+		}
+	}
 	if err := s.gdb.Exec("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_legacy_payload ON llm_calls (created,id) WHERE " + legacyPayload).Error; err != nil {
 		return err
 	}
