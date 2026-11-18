@@ -135,9 +135,12 @@ func (apiServer *HelixAPIServer) getSessionResources(_ http.ResponseWriter, req 
 	return sessionresources.Summarize(session.ID, samples, sessionResourcesMaxPoints), nil
 }
 
-// deleteSessionResources removes the resource history of sessions whose spec
-// task or project is being deleted. Archiving keeps it.
+// deleteSessionResources removes the resource history of sessions being
+// deleted with their spec task, project or user. Archiving keeps it.
 func (apiServer *HelixAPIServer) deleteSessionResources(sessionIDs []string) error {
+	if len(sessionIDs) == 0 {
+		return nil
+	}
 	sessionPlacements.Lock()
 	for _, id := range sessionIDs {
 		delete(sessionPlacements.bySession, id)

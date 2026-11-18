@@ -39,7 +39,8 @@ const (
 	compactAt     = 24
 )
 
-var sessionIDPattern = regexp.MustCompile(`^ses_[0-9a-z]+$`)
+// Session ids name directories, so only path-safe ids are accepted.
+var sessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z_-]+$`)
 
 type Store struct {
 	dir  string
