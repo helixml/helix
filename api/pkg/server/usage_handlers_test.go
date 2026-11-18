@@ -162,9 +162,6 @@ func TestGetOrgUsageSummaryParsesFiltersAndPagination(t *testing.T) {
 		GetOrganization(gomock.Any(), &store.GetOrganizationQuery{Name: org.Name}).
 		Return(org, nil)
 	mockStore.EXPECT().
-		GetOrganizationMembership(gomock.Any(), gomock.Any()).
-		Return(nil, store.ErrNotFound)
-	mockStore.EXPECT().
 		GetOrgUsageSummary(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ any, q *store.GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error) {
 			require.Equal(t, org.ID, q.OrganizationID)
@@ -224,9 +221,6 @@ func TestGetOrgUsageSummarySurvivesComputeFailure(t *testing.T) {
 	mockStore.EXPECT().
 		GetOrganization(gomock.Any(), &store.GetOrganizationQuery{Name: org.Name}).
 		Return(org, nil)
-	mockStore.EXPECT().
-		GetOrganizationMembership(gomock.Any(), gomock.Any()).
-		Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().
 		GetOrgUsageSummary(gomock.Any(), gomock.Any()).
 		Return(&types.OrgUsageSummaryResponse{RawTokenCost: 42}, nil)

@@ -471,12 +471,6 @@ func TestListOrgAPIKeys_AdminSeesAllKeys(t *testing.T) {
 
 	expectResolveOrganizationByID(mockStore, orgID)
 
-	// Admin user - authorizeOrgMember tries to get membership, falls back to synthetic owner
-	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
-		OrganizationID: orgID,
-		UserID:         adminID,
-	}).Return(nil, store.ErrNotFound)
-
 	mockStore.EXPECT().ListAPIKeys(gomock.Any(), &store.ListAPIKeysQuery{
 		OrganizationID: orgID,
 		Type:           types.APIkeytypeAPI,
