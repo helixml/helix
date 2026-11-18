@@ -232,6 +232,34 @@ steps:
         - push
     depends_on: [build-api-binary]
 
+  # Blue/green deploys run the previous release against this commit's schema
+  # while both colours serve, so migrations must be expand-only. Migrates a
+  # scratch database with the latest published release, then with this commit,
+  # and fails on drops, type changes or new NOT NULL constraints. Exceptions:
+  # api/pkg/store/schemacompat/allow.txt.
+  - name: schema-compat
+    image: golang:1.25-bookworm
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: postgres
+    commands:
+      - curl -fsSL -o /tmp/helix-previous https://github.com/helixml/helix/releases/latest/download/helix-linux-amd64
+      - chmod +x /tmp/helix-previous
+      - /tmp/helix-previous version
+      - go run ./api/cmd/schema-compat --previous /tmp/helix-previous --current ./helix-bin --allow api/pkg/store/schemacompat/allow.txt
+    when:
+      event:
+        - push
+    depends_on: [build-api-binary]
+
   - name: unit-test
     image: golang:1.25-bookworm
     volumes:

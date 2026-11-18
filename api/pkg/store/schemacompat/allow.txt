@@ -1,0 +1,3 @@
+# table.column keys exempt from the schema-compat check (api/cmd/schema-compat).
+# Add a key only when the previous release provably never reads or writes the
+# column, and say why on the line above it.

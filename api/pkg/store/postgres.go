@@ -758,7 +758,7 @@ func (s *PostgresStore) MigrateUp() error {
 	if err != nil {
 		return err
 	}
-	defer migrations.Close()
+	defer func() { _, _ = migrations.Close() }()
 
 	err = migrations.Up()
 	if err != migrate.ErrNoChange {
