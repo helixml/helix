@@ -56,6 +56,7 @@ import (
 	"github.com/helixml/helix/api/pkg/sandbox/compute/bootstrap"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/sessionresources"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -110,6 +111,8 @@ type activeStreamProxy struct {
 type HelixAPIServer struct {
 	Cfg   *config.ServerConfig
 	Store store.Store
+	// sessionResources keeps heartbeat-reported sandbox utilization per session.
+	sessionResources *sessionresources.Store
 	// helixOrg is the optional helix-org subsystem, set once it is
 	// mounted (nil otherwise). The core server holds only this handle;
 	// the org primitives the Slack handlers need — the per-workspace
@@ -466,6 +469,7 @@ func NewServer(
 
 	apiServer := &HelixAPIServer{
 		Cfg:                        cfg,
+		sessionResources:           newSessionResourceStore(cfg),
 		attestations:               attestations,
 		Store:                      store,
 		Stripe:                     stripe,
@@ -905,6 +909,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 			log.Error().Err(err).Msg("host resource collector stopped")
 		}
 	}()
+	go apiServer.sessionResources.Run(ctx)
 	// Request audit trail sinks: batched Postgres inserts and daily retention.
 	if apiServer.requestAudit != nil {
 		go apiServer.requestAudit.Run(ctx)
@@ -1276,6 +1281,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/clear", system.Wrapper(apiServer.clearSessionHandler)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/interactions", system.Wrapper(apiServer.listInteractions)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/usage", system.Wrapper(apiServer.getSessionUsage)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/resources", system.Wrapper(apiServer.getSessionResources)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/interactions/{interaction_id}", system.Wrapper(apiServer.getInteraction)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/interactions/{interaction_id}/feedback", system.Wrapper(apiServer.feedbackInteraction)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/interactions/{interaction_id}/questions/{request_id}/respond", system.Wrapper(apiServer.respondToInteractionQuestion)).Methods(http.MethodPost)

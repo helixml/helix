@@ -3942,6 +3942,9 @@ type SandboxHeartbeatRequest struct {
 	// Cumulative cgroup OOM kills for Helix containers on this runner.
 	ContainerOOMKills []ContainerOOMKills `json:"container_oom_kills,omitempty"`
 
+	// Cumulative cgroup counters of each running desktop session container.
+	SessionResources []SessionResourceSample `json:"session_resources,omitempty"`
+
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
 	RenderNode string `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE

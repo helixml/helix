@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
@@ -16,6 +17,7 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
+	"github.com/helixml/helix/api/pkg/sessionresources"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -401,8 +403,9 @@ func (s *SessionAuthzSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
 	s.server = &HelixAPIServer{
-		Cfg:   &config.ServerConfig{},
-		Store: s.store,
+		Cfg:              &config.ServerConfig{},
+		Store:            s.store,
+		sessionResources: sessionresources.New(s.T().TempDir(), "test"),
 	}
 	s.userID = "user_123"
 	s.orgID = "org_123"
@@ -486,6 +489,35 @@ func (s *SessionAuthzSuite) TestDeleteSession_ExternalAgentDestroysDesktop() {
 			s.Equal(test.session.ID, result.ID)
 		})
 	}
+}
+
+// Deleting a session deletes its sandbox resource history and keeps late
+// samples from bringing it back.
+func (s *SessionAuthzSuite) TestDeleteSession_RemovesResourceHistory() {
+	session := &types.Session{ID: "ses_123", Owner: s.userID}
+	now := time.Now()
+	for _, id := range []string{session.ID, "ses_other"} {
+		s.server.sessionResources.Record([]types.SessionResourceSample{{SessionID: id, Timestamp: now.UnixMilli()}})
+	}
+	s.Require().NoError(s.server.sessionResources.Flush(now))
+
+	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
+	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
+	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
+	req = mux.SetURLVars(req.WithContext(s.authCtx), map[string]string{"id": session.ID})
+	_, httpErr := s.server.deleteSession(httptest.NewRecorder(), req)
+	s.Require().Nil(httpErr)
+
+	s.server.sessionResources.Record([]types.SessionResourceSample{{SessionID: session.ID, Timestamp: now.UnixMilli() + 1}})
+	s.Require().NoError(s.server.sessionResources.Flush(now))
+	read := func(id string) int {
+		got, err := s.server.sessionResources.Read(id, now.Add(-time.Hour), now.Add(time.Hour))
+		s.Require().NoError(err)
+		return len(got)
+	}
+	s.Zero(read(session.ID), "deleted session's history left behind or recreated")
+	s.Equal(1, read("ses_other"))
 }
 
 func (s *SessionAuthzSuite) TestDeleteSession_DesktopDestroyFailureDoesNotDeleteSession() {
@@ -1195,8 +1227,9 @@ func (s *SessionProviderRefValidationSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
 	s.server = &HelixAPIServer{
-		Cfg:   &config.ServerConfig{},
-		Store: s.store,
+		Cfg:              &config.ServerConfig{},
+		Store:            s.store,
+		sessionResources: sessionresources.New(s.T().TempDir(), "test"),
 	}
 	s.userID = "user_123"
 	s.orgID = "org_session"

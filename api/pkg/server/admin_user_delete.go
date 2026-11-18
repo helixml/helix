@@ -215,6 +215,13 @@ func (apiServer *HelixAPIServer) deletePersonalSessions(ctx context.Context, use
 			return fmt.Errorf("delete session %s: %w", session.ID, err)
 		}
 	}
+	ids := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		ids = append(ids, session.ID)
+	}
+	if err := apiServer.deleteSessionResources(ids); err != nil {
+		return fmt.Errorf("delete personal session resource history: %w", err)
+	}
 	return nil
 }
 

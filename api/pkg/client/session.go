@@ -151,3 +151,14 @@ func (c *HelixClient) ListInteractions(ctx context.Context, sessionID string, f 
 	}
 	return &page, nil
 }
+
+// GetSessionResources returns the sandbox utilization of a session over the
+// last hours (1 through 720).
+func (c *HelixClient) GetSessionResources(ctx context.Context, sessionID string, hours int) (*types.SessionResources, error) {
+	var resources types.SessionResources
+	path := fmt.Sprintf("/sessions/%s/resources?hours=%d", url.PathEscape(sessionID), hours)
+	if err := c.makeRequest(ctx, http.MethodGet, path, nil, &resources); err != nil {
+		return nil, err
+	}
+	return &resources, nil
+}

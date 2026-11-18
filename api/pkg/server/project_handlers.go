@@ -1121,7 +1121,7 @@ func (s *HelixAPIServer) purgeProject(ctx context.Context, projectID string) *sy
 			}
 		}
 
-		if delErr := s.deleteSpecTaskCascade(ctx, task.ID); delErr != nil {
+		if delErr := s.deleteSpecTaskCascade(ctx, task); delErr != nil {
 			return system.NewHTTPError500(fmt.Sprintf("delete task %s before project deletion: %s", task.ID, delErr))
 		}
 		log.Info().
@@ -1146,6 +1146,22 @@ func (s *HelixAPIServer) purgeProject(ctx context.Context, projectID string) *sy
 	// not outlive the project.
 	if err := s.webServiceController.Teardown(ctx, projectID); err != nil {
 		return system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
+	}
+
+	// Sessions of the project itself (exploratory session, project chats)
+	// leave sandbox resource history too; the tasks' went with the tasks.
+	projectSessions, _, err := s.Store.ListSessions(ctx, store.ListSessionsQuery{
+		ProjectID: projectID, AnyOwner: true, IncludeExternalAgents: true,
+	})
+	if err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("list project sessions: %s", err))
+	}
+	sessionIDs := make([]string, 0, len(projectSessions))
+	for _, session := range projectSessions {
+		sessionIDs = append(sessionIDs, session.ID)
+	}
+	if err := s.deleteSessionResources(sessionIDs); err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("delete project resource history: %s", err))
 	}
 
 	// Now soft delete the project

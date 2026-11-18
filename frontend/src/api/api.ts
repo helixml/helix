@@ -2466,14 +2466,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindEmail = "email",
-  KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindHelixEvents = "helix_events",
-  KindSlack = "slack",
   KindGitHub = "github",
-  KindWebhook = "webhook",
+  KindGitLab = "gitlab",
+  KindEmail = "email",
+  KindSlack = "slack",
   KindCron = "cron",
+  KindHelixEvents = "helix_events",
+  KindLocal = "local",
+  KindWebhook = "webhook",
 }
 
 export interface TransportResolvedActivation {
@@ -4630,6 +4630,13 @@ export interface TypesGitRepository {
   status?: TypesGitRepositoryStatus;
   /** Set while an upstream operation is running */
   sync_in_progress_since?: string;
+  /**
+   * TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
+   * .helix/startup.sh from. Only a human write moves it (a push with a human
+   * credential, or a startup-script save in the UI/API); agent pushes never
+   * do. Written only via SetGitRepositoryTrustedStartupSHA.
+   */
+  trusted_startup_sha?: string;
   updated_at?: string;
   /** Authentication fields */
   username?: string;
@@ -7011,6 +7018,8 @@ export interface TypesSandboxHeartbeatRequest {
    * "healthy" | "starting" | "failed" | "unknown".
    */
   service_health?: Record<string, string>;
+  /** Cumulative cgroup counters of each running desktop session container. */
+  session_resources?: TypesSessionResourceSample[];
 }
 
 export interface TypesSandboxInstance {
@@ -7534,6 +7543,16 @@ export interface TypesSessionExecutionConfigUpdateResponse {
   spec_task_id?: string;
 }
 
+export interface TypesSessionFilesystemSample {
+  dedicated?: boolean;
+  inodes?: number;
+  inodes_used?: number;
+  /** Container paths mounted from this filesystem, comma separated. */
+  paths?: string;
+  size_bytes?: number;
+  used_bytes?: number;
+}
+
 export interface TypesSessionInfo {
   auth_provider?: TypesAuthProvider;
   created_at?: string;
@@ -7804,6 +7823,81 @@ export interface TypesSessionRAGResult {
   metadata?: Record<string, string>;
   session_id?: string;
   source?: string;
+}
+
+export interface TypesSessionResourcePoint {
+  cpu_cores?: number;
+  cpu_pressure_pct?: number;
+  cpu_throttled_pct?: number;
+  disk_used_bytes?: number;
+  io_pressure_pct?: number;
+  io_read_bps?: number;
+  io_write_bps?: number;
+  memory_bytes?: number;
+  memory_pressure_pct?: number;
+  oom_kills?: number;
+  timestamp?: number;
+}
+
+export interface TypesSessionResourceSample {
+  cpu_limit_millicores?: number;
+  cpu_periods?: number;
+  /**
+   * Pressure stall information: total microseconds in which some task of
+   * the container was stalled on CPU, memory or I/O.
+   */
+  cpu_pressure_usec?: number;
+  cpu_throttled_periods?: number;
+  cpu_throttled_usec?: number;
+  cpu_usage_usec?: number;
+  filesystems?: TypesSessionFilesystemSample[];
+  io_pressure_usec?: number;
+  /** I/O issued by the container, counted on top-of-stack block devices only. */
+  io_read_bytes?: number;
+  io_read_ops?: number;
+  io_write_bytes?: number;
+  io_write_ops?: number;
+  memory_anon_bytes?: number;
+  memory_bytes?: number;
+  memory_file_bytes?: number;
+  memory_high_events?: number;
+  memory_limit_bytes?: number;
+  memory_max_events?: number;
+  memory_peak_bytes?: number;
+  memory_pressure_usec?: number;
+  oom_kills?: number;
+  pids?: number;
+  session_id?: string;
+  /** Unix milliseconds, set by the API when it receives the heartbeat. */
+  timestamp?: number;
+}
+
+export interface TypesSessionResourceSummary {
+  cpu_cores_max?: number;
+  cpu_cores_p50?: number;
+  cpu_cores_p95?: number;
+  cpu_limit_cores?: number;
+  cpu_pressure_pct?: number;
+  cpu_throttled_pct?: number;
+  from?: number;
+  io_pressure_pct?: number;
+  io_read_bytes?: number;
+  io_write_bytes?: number;
+  memory_high_events?: number;
+  memory_limit_bytes?: number;
+  memory_max_bytes?: number;
+  memory_peak_bytes?: number;
+  memory_pressure_pct?: number;
+  oom_kills?: number;
+  samples?: number;
+  to?: number;
+}
+
+export interface TypesSessionResources {
+  filesystems?: TypesSessionFilesystemSample[];
+  points?: TypesSessionResourcePoint[];
+  session_id?: string;
+  summary?: TypesSessionResourceSummary;
 }
 
 export interface TypesSessionSummary {
@@ -20072,6 +20166,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, any>, any>({
         path: `/api/v1/sessions/${id}/rdp-connection`,
         method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description CPU, memory, I/O, pressure stalls, throttling and filesystem use of the session's desktop container, sampled every 30 seconds and kept for 30 days.
+     *
+     * @tags sessions
+     * @name V1SessionsResourcesDetail
+     * @summary Get a session's sandbox resource utilization
+     * @request GET:/api/v1/sessions/{id}/resources
+     * @secure
+     */
+    v1SessionsResourcesDetail: (
+      id: string,
+      query?: {
+        /** Hours of history, 1 through 720 (default 24) */
+        hours?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSessionResources, any>({
+        path: `/api/v1/sessions/${id}/resources`,
+        method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

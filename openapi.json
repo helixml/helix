@@ -24290,6 +24290,51 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/resources": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "CPU, memory, I/O, pressure stalls, throttling and filesystem use of the session's desktop container, sampled every 30 seconds and kept for 30 days.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session's sandbox resource utilization",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Hours of history, 1 through 720 (default 24)",
+                        "name": "hours",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.SessionResources"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/restart-agent": {
             "post": {
                 "security": [
@@ -36303,24 +36348,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
-                    "email",
-                    "gitlab",
-                    "local",
-                    "helix_events",
-                    "slack",
                     "github",
-                    "webhook",
-                    "cron"
+                    "gitlab",
+                    "email",
+                    "slack",
+                    "cron",
+                    "helix_events",
+                    "local",
+                    "webhook"
                 ],
                 "x-enum-varnames": [
-                    "KindEmail",
-                    "KindGitLab",
-                    "KindLocal",
-                    "KindHelixEvents",
-                    "KindSlack",
                     "KindGitHub",
-                    "KindWebhook",
-                    "KindCron"
+                    "KindGitLab",
+                    "KindEmail",
+                    "KindSlack",
+                    "KindCron",
+                    "KindHelixEvents",
+                    "KindLocal",
+                    "KindWebhook"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -40849,6 +40894,10 @@
                     },
                     "sync_in_progress_since": {
                         "description": "Set while an upstream operation is running",
+                        "type": "string"
+                    },
+                    "trusted_startup_sha": {
+                        "description": "TrustedStartupSHA is the helix-specs commit whose tree sandboxes run\n.helix/startup.sh from. Only a human write moves it (a push with a human\ncredential, or a startup-script save in the UI/API); agent pushes never\ndo. Written only via SetGitRepositoryTrustedStartupSHA.",
                         "type": "string"
                     },
                     "updated_at": {
@@ -46023,6 +46072,13 @@
                         "additionalProperties": {
                             "type": "string"
                         }
+                    },
+                    "session_resources": {
+                        "description": "Cumulative cgroup counters of each running desktop session container.",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.SessionResourceSample"
+                        }
                     }
                 }
             },
@@ -46951,6 +47007,30 @@
                     }
                 }
             },
+            "types.SessionFilesystemSample": {
+                "type": "object",
+                "properties": {
+                    "dedicated": {
+                        "type": "boolean"
+                    },
+                    "inodes": {
+                        "type": "integer"
+                    },
+                    "inodes_used": {
+                        "type": "integer"
+                    },
+                    "paths": {
+                        "description": "Container paths mounted from this filesystem, comma separated.",
+                        "type": "string"
+                    },
+                    "size_bytes": {
+                        "type": "integer"
+                    },
+                    "used_bytes": {
+                        "type": "integer"
+                    }
+                }
+            },
             "types.SessionInfo": {
                 "type": "object",
                 "properties": {
@@ -47393,6 +47473,209 @@
                     },
                     "source": {
                         "type": "string"
+                    }
+                }
+            },
+            "types.SessionResourcePoint": {
+                "type": "object",
+                "properties": {
+                    "cpu_cores": {
+                        "type": "number"
+                    },
+                    "cpu_pressure_pct": {
+                        "type": "number"
+                    },
+                    "cpu_throttled_pct": {
+                        "type": "number"
+                    },
+                    "disk_used_bytes": {
+                        "type": "integer"
+                    },
+                    "io_pressure_pct": {
+                        "type": "number"
+                    },
+                    "io_read_bps": {
+                        "type": "number"
+                    },
+                    "io_write_bps": {
+                        "type": "number"
+                    },
+                    "memory_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_pressure_pct": {
+                        "type": "number"
+                    },
+                    "oom_kills": {
+                        "type": "integer"
+                    },
+                    "timestamp": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.SessionResourceSample": {
+                "type": "object",
+                "properties": {
+                    "cpu_limit_millicores": {
+                        "type": "integer"
+                    },
+                    "cpu_periods": {
+                        "type": "integer"
+                    },
+                    "cpu_pressure_usec": {
+                        "description": "Pressure stall information: total microseconds in which some task of\nthe container was stalled on CPU, memory or I/O.",
+                        "type": "integer"
+                    },
+                    "cpu_throttled_periods": {
+                        "type": "integer"
+                    },
+                    "cpu_throttled_usec": {
+                        "type": "integer"
+                    },
+                    "cpu_usage_usec": {
+                        "type": "integer"
+                    },
+                    "filesystems": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.SessionFilesystemSample"
+                        }
+                    },
+                    "io_pressure_usec": {
+                        "type": "integer"
+                    },
+                    "io_read_bytes": {
+                        "description": "I/O issued by the container, counted on top-of-stack block devices only.",
+                        "type": "integer"
+                    },
+                    "io_read_ops": {
+                        "type": "integer"
+                    },
+                    "io_write_bytes": {
+                        "type": "integer"
+                    },
+                    "io_write_ops": {
+                        "type": "integer"
+                    },
+                    "memory_anon_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_file_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_high_events": {
+                        "type": "integer"
+                    },
+                    "memory_limit_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_max_events": {
+                        "type": "integer"
+                    },
+                    "memory_peak_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_pressure_usec": {
+                        "type": "integer"
+                    },
+                    "oom_kills": {
+                        "type": "integer"
+                    },
+                    "pids": {
+                        "type": "integer"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "timestamp": {
+                        "description": "Unix milliseconds, set by the API when it receives the heartbeat.",
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.SessionResourceSummary": {
+                "type": "object",
+                "properties": {
+                    "cpu_cores_max": {
+                        "type": "number"
+                    },
+                    "cpu_cores_p50": {
+                        "type": "number"
+                    },
+                    "cpu_cores_p95": {
+                        "type": "number"
+                    },
+                    "cpu_limit_cores": {
+                        "type": "number"
+                    },
+                    "cpu_pressure_pct": {
+                        "type": "number"
+                    },
+                    "cpu_throttled_pct": {
+                        "type": "number"
+                    },
+                    "from": {
+                        "type": "integer"
+                    },
+                    "io_pressure_pct": {
+                        "type": "number"
+                    },
+                    "io_read_bytes": {
+                        "type": "integer"
+                    },
+                    "io_write_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_high_events": {
+                        "type": "integer"
+                    },
+                    "memory_limit_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_max_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_peak_bytes": {
+                        "type": "integer"
+                    },
+                    "memory_pressure_pct": {
+                        "type": "number"
+                    },
+                    "oom_kills": {
+                        "type": "integer"
+                    },
+                    "samples": {
+                        "type": "integer"
+                    },
+                    "to": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "types.SessionResources": {
+                "type": "object",
+                "properties": {
+                    "filesystems": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.SessionFilesystemSample"
+                        }
+                    },
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.SessionResourcePoint"
+                        }
+                    },
+                    "session_id": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "$ref": "#/components/schemas/types.SessionResourceSummary"
                     }
                 }
             },

@@ -491,6 +491,12 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 		}
 	}
 
+	// The desktop is gone by now, so no new samples arrive; the tombstone
+	// drops any still in flight.
+	if err := apiServer.deleteSessionResources([]string{session.ID}); err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to remove resource history: %s", err))
+	}
+
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
 }
 
