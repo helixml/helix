@@ -144,6 +144,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { buildTaskUsageQuery } from "../../utils/usageDateRange";
+import SessionUsagePanel from "../usage/SessionUsagePanel";
 import {
   ACTION_BUTTON_SX,
   NEUTRAL_ACTION_BUTTON_SX,
@@ -261,6 +262,21 @@ interface SpecTaskDetailContentProps {
   hideControls?: boolean;
 }
 
+const URL_TASK_VIEWS: readonly TaskView[] = [
+  "chat",
+  "plan",
+  "agents",
+  "desktop",
+  "browser",
+  "changes",
+  "files",
+  "usage",
+  "details",
+];
+
+const isUrlTaskView = (view: string | undefined): view is TaskView =>
+  !!view && (URL_TASK_VIEWS as readonly string[]).includes(view);
+
 // What hideControls switches off on the view toolbar.
 const embedControlOverrides = {
   showStart: false,
@@ -268,6 +284,7 @@ const embedControlOverrides = {
   showRestart: false,
   showKeepAlive: false,
   showUpload: false,
+  showUsage: false,
   renderMenuItems: undefined,
   onToggleTerminal: undefined,
 };
@@ -539,16 +556,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       return initialView || "desktop";
     }
     const viewParam = router.params.view;
-    if (
-      viewParam === "chat" ||
-      viewParam === "plan" ||
-      viewParam === "agents" ||
-      viewParam === "desktop" ||
-      viewParam === "browser" ||
-      viewParam === "changes" ||
-      viewParam === "files" ||
-      viewParam === "details"
-    ) {
+    if (isUrlTaskView(viewParam)) {
       return viewParam;
     }
     // On mobile (below md breakpoint / 900px), default to chat view
@@ -567,17 +575,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   useEffect(() => {
     if (!syncViewWithUrl) return;
     const viewParam = router.params.view;
-    if (
-      viewParam &&
-      (viewParam === "chat" ||
-        viewParam === "plan" ||
-        viewParam === "agents" ||
-        viewParam === "desktop" ||
-        viewParam === "browser" ||
-        viewParam === "changes" ||
-        viewParam === "files" ||
-        viewParam === "details")
-    ) {
+    if (isUrlTaskView(viewParam)) {
       if (viewParam !== currentView) {
         setCurrentView(viewParam);
       }
@@ -2978,6 +2976,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   showPlan={planningWorkspace || !!latestDesignReview?.id}
                   showDesktop={!isHeadless}
                   showBrowser={!planningWorkspace}
+                  showUsage
                   renderActions={(density) =>
                     renderTaskActions("inline", density)
                   }
@@ -3109,6 +3108,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     onRemoveComment={removeWorkspaceComment}
                   />
                 )}
+                {currentView === "usage" && activeSessionId && (
+                  <Box sx={{ flex: 1, overflow: "auto", p: { xs: 1.5, sm: 2 } }}>
+                    <SessionUsagePanel sessionId={activeSessionId} />
+                  </Box>
+                )}
                 {currentView === "details" && (
                   <Box
                     sx={{
@@ -3136,6 +3140,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 showPlan={planningWorkspace || !!latestDesignReview?.id}
                 showDesktop={!isHeadless}
                 showBrowser={!planningWorkspace}
+                showUsage
                 renderActions={(density) =>
                   renderTaskActions("inline", density)
                 }
@@ -3405,6 +3410,12 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                   onUpsertComment={upsertWorkspaceComment}
                   onRemoveComment={removeWorkspaceComment}
                 />
+              </Box>
+            )}
+
+            {activeSessionId && currentView === "usage" && (
+              <Box sx={{ flex: 1, overflow: "auto", p: { xs: 1.5, sm: 2 } }}>
+                <SessionUsagePanel sessionId={activeSessionId} />
               </Box>
             )}
 
