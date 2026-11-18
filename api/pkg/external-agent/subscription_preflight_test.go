@@ -133,13 +133,87 @@ func TestVerifySubscriptionCredentials_LoginDesktopSkipped(t *testing.T) {
 	assert.NoError(t, h.verifySubscriptionCredentials(context.Background(), &types.DesktopAgent{SessionID: "ses_login"}))
 }
 
+func TestVerifySubscriptionCredentials_ParentlessOrgWorkerClaude(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sub     *types.ClaudeSubscription
+		subErr  error
+		wantErr bool
+	}{
+		{name: "missing", subErr: store.ErrNotFound, wantErr: true},
+		{name: "active", sub: &types.ClaudeSubscription{Status: "active"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockStore := store.NewMockStore(ctrl)
+			h := newTestExecutor(mockStore)
+			session := &types.Session{
+				ID: "ses_org", Owner: "usr_member", OrganizationID: "org_1",
+				Metadata: types.SessionMetadata{
+					OrgWorkerID: "chief-of-staff",
+					CodeAgentConfig: &types.CodeAgentExecutionConfig{
+						Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+					},
+				},
+			}
+			mockStore.EXPECT().GetSession(gomock.Any(), "ses_org").Return(session, nil)
+			mockStore.EXPECT().GetSessionClaudeSubscription(gomock.Any(), session).Return(tc.sub, tc.subErr)
+
+			err := h.verifySubscriptionCredentials(context.Background(), &types.DesktopAgent{SessionID: "ses_org"})
+			if tc.wantErr {
+				require.ErrorContains(t, err, "Claude subscription")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestVerifySubscriptionCredentials_ParentlessOrgWorkerAPIKeySkipped(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	h := newTestExecutor(mockStore)
+	session := &types.Session{
+		ID: "ses_org", Owner: "usr_member", OrganizationID: "org_1",
+		Metadata: types.SessionMetadata{
+			OrgWorkerID: "chief-of-staff",
+			CodeAgentConfig: &types.CodeAgentExecutionConfig{
+				Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			},
+		},
+	}
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_org").Return(session, nil)
+
+	require.NoError(t, h.verifySubscriptionCredentials(context.Background(), &types.DesktopAgent{SessionID: "ses_org"}))
+}
+
+func TestVerifySubscriptionCredentials_SessionConfigPrecedesParentApp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	h := newTestExecutor(mockStore)
+	session := subscriptionSession()
+	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{
+		Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeSubscription,
+	}
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_x").Return(session, nil)
+	mockStore.EXPECT().GetSessionClaudeSubscription(gomock.Any(), session).Return(nil, store.ErrNotFound)
+
+	err := h.verifySubscriptionCredentials(context.Background(), &types.DesktopAgent{SessionID: "ses_x"})
+	require.ErrorContains(t, err, "Claude subscription")
+}
+
 func TestVerifySubscriptionCredentials_ParentlessSpecTaskMissingClaude(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := store.NewMockStore(ctrl)
 	h := newTestExecutor(mockStore)
 	session := &types.Session{
 		ID: "ses_spec", Owner: "usr_member", OrganizationID: "org_1",
-		Metadata: types.SessionMetadata{SpecTaskID: "spt_1"},
+		Metadata: types.SessionMetadata{
+			SpecTaskID: "spt_1",
+			CodeAgentConfig: &types.CodeAgentExecutionConfig{
+				Runtime: types.CodeAgentRuntimeClaudeCode, CredentialType: types.CodeAgentCredentialTypeAPIKey,
+			},
+		},
 	}
 	mockStore.EXPECT().GetSession(gomock.Any(), "ses_spec").Return(session, nil)
 	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_1").Return(&types.SpecTask{

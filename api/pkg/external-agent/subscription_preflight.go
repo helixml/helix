@@ -25,10 +25,10 @@ func (h *HydraExecutor) verifySubscriptionCredentials(ctx context.Context, agent
 		// Session lookup failures are handled downstream; don't mask them here.
 		return nil
 	}
-	// Login and exploratory desktops have no parent app — and the Codex/Claude
-	// login flows start exactly such a desktop to *obtain* the subscription, so
-	// they must never be gated on already having one.
-	if session.ParentApp == "" && session.Metadata.SpecTaskID == "" {
+	// Login and exploratory desktops have no parent app or execution config.
+	// The Codex/Claude login flows start exactly such a desktop to *obtain* the
+	// subscription, so they must never be gated on already having one.
+	if session.ParentApp == "" && session.Metadata.SpecTaskID == "" && session.Metadata.CodeAgentConfig == nil {
 		return nil
 	}
 	var runtime types.CodeAgentRuntime
@@ -40,6 +40,9 @@ func (h *HydraExecutor) verifySubscriptionCredentials(ctx context.Context, agent
 		}
 		runtime = task.ActiveCodeAgentConfig().Runtime
 		credentialType = task.ActiveCodeAgentConfig().CredentialType
+	} else if session.Metadata.CodeAgentConfig != nil {
+		runtime = session.Metadata.CodeAgentConfig.Runtime
+		credentialType = session.Metadata.CodeAgentConfig.CredentialType
 	} else {
 		app, err := h.store.GetApp(ctx, session.ParentApp)
 		if err != nil || app == nil {
