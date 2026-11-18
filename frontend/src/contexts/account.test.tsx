@@ -15,6 +15,15 @@ const mockApiGet = vi.fn()
 const mockV1AuthLogoutCreate = vi.fn()
 const mockV1AuthAuthenticatedList = vi.fn()
 const mockV1AuthUserList = vi.fn()
+const {
+  mockSessionExpirySetAuthProvider,
+  mockSessionExpiryOnVisibilityChange,
+  mockConfigState,
+} = vi.hoisted(() => ({
+  mockSessionExpirySetAuthProvider: vi.fn(),
+  mockSessionExpiryOnVisibilityChange: vi.fn(),
+  mockConfigState: {} as { auth_provider?: string },
+}))
 
 vi.mock('../hooks/useApi', () => ({
   default: () => ({
@@ -27,6 +36,18 @@ vi.mock('../hooks/useApi', () => ({
     }),
   }),
 }))
+
+vi.mock('../utils/sessionExpiry', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/sessionExpiry')>()
+  return {
+    ...actual,
+    sessionExpiry: {
+      ...actual.sessionExpiry,
+      setAuthProvider: mockSessionExpirySetAuthProvider,
+      onVisibilityChange: mockSessionExpiryOnVisibilityChange,
+    },
+  }
+})
 
 vi.mock('../hooks/useSnackbar', () => ({
   default: () => ({
@@ -64,6 +85,7 @@ vi.mock('../services/userService', () => ({
       google_analytics_frontend: '',
       tools_enabled: true,
       apps_enabled: true,
+      auth_provider: mockConfigState.auth_provider,
     },
     isLoading: false,
     error: null,
@@ -435,5 +457,36 @@ describe('logout', () => {
       get_url: true,
       redirect_uri: window.location.origin,
     })
+  })
+})
+
+describe('session expiry wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouterState.name = 'home'
+    mockOrgState.initialized = true
+    mockOrgState.organizations = [{ id: 'org-1', name: 'my-org', member: true }]
+    mockConfigState.auth_provider = 'oidc'
+    setupDefaultApiResponses()
+    setupAuthenticatedUser({ onboarding_completed: true })
+  })
+
+  it('updates the handler config and rechecks a visible tab', async () => {
+    const hook = renderHook(() => useAccountContext())
+    await waitFor(() => expect(hook.result.current.user?.id).toBe('user-1'))
+
+    expect(mockSessionExpirySetAuthProvider).toHaveBeenCalledWith('oidc')
+    mockConfigState.auth_provider = 'regular'
+    hook.rerender()
+    expect(mockSessionExpirySetAuthProvider).toHaveBeenCalledWith('regular')
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(mockSessionExpiryOnVisibilityChange).toHaveBeenCalledWith(true)
+
+    mockSessionExpiryOnVisibilityChange.mockClear()
+    hook.unmount()
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(mockSessionExpiryOnVisibilityChange).not.toHaveBeenCalled()
   })
 })

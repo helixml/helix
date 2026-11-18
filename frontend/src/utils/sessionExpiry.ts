@@ -21,7 +21,7 @@ export interface SessionExpiryDeps {
   // Resolves true/false for a definite answer, null when it is unknown
   // (network error, server error) and nothing should happen.
   checkAuthenticated: () => Promise<boolean | null>
-  redirectToLogin: () => void
+  redirectToLogin: (autoLogin: boolean) => void
   // How long a "still authenticated" answer suppresses further checks.
   recheckAfterMs?: number
   now?: () => number
@@ -38,9 +38,11 @@ export function createSessionExpiryHandler(deps: SessionExpiryDeps, origin = '')
   const now = deps.now ?? Date.now
   let signedIn = false
   let routeName: string | undefined
+  let authProvider: string | undefined
   let checking = false
   let redirected = false
   let quietUntil = 0
+  let visibilityQuietUntil = 0
 
   const verify = async () => {
     checking = true
@@ -48,7 +50,7 @@ export function createSessionExpiryHandler(deps: SessionExpiryDeps, origin = '')
       const authenticated = await deps.checkAuthenticated()
       if (authenticated === false && signedIn && !redirected && !isSignInExemptRoute(routeName)) {
         redirected = true
-        deps.redirectToLogin()
+        deps.redirectToLogin(Boolean(authProvider && authProvider !== 'regular'))
       } else if (authenticated === true) {
         quietUntil = now() + recheckAfterMs
       }
@@ -65,6 +67,23 @@ export function createSessionExpiryHandler(deps: SessionExpiryDeps, origin = '')
     },
     setRouteName(name: string | undefined) {
       routeName = name
+    },
+    // Config can be undefined during startup; plain /login is the accepted fallback.
+    setAuthProvider(provider: string | undefined) {
+      authProvider = provider
+    },
+    onVisibilityChange(visible: boolean) {
+      if (
+        visible &&
+        signedIn &&
+        !redirected &&
+        !checking &&
+        !isSignInExemptRoute(routeName) &&
+        now() >= visibilityQuietUntil
+      ) {
+        visibilityQuietUntil = now() + 60_000
+        void verify()
+      }
     },
     // Axios response error interceptor.
     onResponseError(error: any) {
@@ -95,7 +114,7 @@ const checkAuthenticated = async (): Promise<boolean | null> => {
   }
 }
 
-const redirectToLogin = () => {
+const redirectToLogin = (autoLogin: boolean) => {
   try {
     const currentPath = window.location.pathname + window.location.search
     if (currentPath !== '/' && currentPath !== '/notfound' && currentPath !== '/login') {
@@ -105,7 +124,7 @@ const redirectToLogin = () => {
   } catch {
     // storage unavailable — the redirect alone still re-authenticates
   }
-  window.location.assign('/login')
+  window.location.assign(autoLogin ? '/login?auto=true' : '/login')
 }
 
 export const sessionExpiry = createSessionExpiryHandler(
