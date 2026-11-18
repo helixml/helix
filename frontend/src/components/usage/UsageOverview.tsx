@@ -128,7 +128,14 @@ export const OverviewStat: FC<{ label: string; value: string; detail: string; em
     >
       {value}
     </Typography>
-    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap title={detail}>{detail}</Typography>
+    <Typography
+      variant="caption"
+      color="text.secondary"
+      title={detail}
+      sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+    >
+      {detail}
+    </Typography>
   </Box>
 )
 
@@ -259,11 +266,15 @@ export const CompactTable: FC<{
         {rows.map(r => (
           <Box key={r.id} sx={{ py: 1, borderTop: '1px solid', borderColor: 'divider', fontSize: '0.8125rem', color: r.muted ? 'text.secondary' : 'inherit' }}>
             <Box title={r.title} sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.cells[nameCol.key]}</Box>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.25, mt: 0.25, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
+            {/* A muted row has no values worth a grid of dashes on a phone. */}
+            {!r.muted && <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 2, rowGap: 0.25, mt: 0.25, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
               {valueCols.map(c => (
-                <span key={c.key}>{c.label} <Box component="span" sx={{ color: 'text.primary' }}>{r.cells[c.key]}</Box></span>
+                <Box key={c.key} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, minWidth: 0 }}>
+                  <span>{c.label}</span>
+                  <Box component="span" sx={{ color: 'text.primary' }}>{r.cells[c.key]}</Box>
+                </Box>
               ))}
-            </Box>
+            </Box>}
           </Box>
         ))}
       </Box>

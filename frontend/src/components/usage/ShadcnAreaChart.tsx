@@ -197,6 +197,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
     // A little headroom so a peak that lands on a tick doesn't ride the top edge.
     return niceTicks(max * 1.08);
   }, [data, series, stacked, variant, yDomain]);
+  const dense = data.length > 40;
   // A chart within one calendar day labels its ticks with the time alone; the
   // tooltip keeps the date.
   const oneDay = React.useMemo(() => {
@@ -315,8 +316,9 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                   dataKey={s.key}
                   name={s.label}
                   stroke={s.color}
-                  strokeWidth={2}
-                  dot={{ r: 2.5, fill: s.color, strokeWidth: 0 }}
+                  // Dense series draw as a thin trace; dots only where samples are sparse.
+                  strokeWidth={dense ? 1.5 : 2}
+                  dot={dense ? false : { r: 2.5, fill: s.color, strokeWidth: 0 }}
                   activeDot={{ r: 4, fill: s.color, strokeWidth: 0 }}
                   connectNulls={connectNulls}
                   isAnimationActive={false}
