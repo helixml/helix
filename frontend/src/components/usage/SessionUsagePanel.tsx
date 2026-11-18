@@ -12,6 +12,8 @@ import CircularProgress from '@mui/material/CircularProgress'
 import useLightTheme from '../../hooks/useLightTheme'
 import { SessionUsage, useSessionUsage } from '../../services/sessionUsageService'
 import ShadcnAreaChart, { ShadcnSeries } from './ShadcnAreaChart'
+import SessionResourcesPanel from './SessionResourcesPanel'
+import { SECTION_LABEL_SX, Tile } from './UsageTile'
 
 // Same palette as the usage page (TotalCost / TokenUsage).
 const TOKEN_SERIES: ShadcnSeries[] = [
@@ -58,34 +60,6 @@ export const buildUsageRows = (usage: SessionUsage) => {
     .filter(c => c.prompt_tokens > 0)
     .map(c => ({ date: c.created, hit: c.cache_read_tokens / c.prompt_tokens }))
   return { tokens, latency, cache }
-}
-
-const Tile: FC<{ label: string; value: string; note?: string }> = ({ label, value, note }) => {
-  const lightTheme = useLightTheme()
-  return (
-    <Box
-      sx={{
-        p: 1.25,
-        borderRadius: 1.5,
-        border: '1px solid',
-        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)',
-        background: lightTheme.isLight ? 'rgba(0,0,0,0.015)' : 'rgba(255,255,255,0.02)',
-        minWidth: 0,
-      }}
-    >
-      <Typography variant="caption" sx={{ fontSize: '0.65rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'text.secondary' }}>
-        {label}
-      </Typography>
-      <Typography variant="body2" sx={{ fontSize: '1rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', lineHeight: 1.3 }} noWrap>
-        {value}
-      </Typography>
-      {note && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontVariantNumeric: 'tabular-nums' }} noWrap>
-          {note}
-        </Typography>
-      )}
-    </Box>
-  )
 }
 
 export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
@@ -156,7 +130,7 @@ export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
 
       {usage.turns.length > 0 && (
         <Box>
-          <Typography variant="caption" sx={{ fontSize: '0.65rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'text.secondary' }}>
+          <Typography variant="caption" sx={SECTION_LABEL_SX}>
             Per turn
           </Typography>
           <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', mt: 0.5, fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>
@@ -200,7 +174,7 @@ export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
   )
 }
 
-const SessionUsagePanel: FC<{ sessionId: string }> = ({ sessionId }) => {
+const SessionLLMUsage: FC<{ sessionId: string }> = ({ sessionId }) => {
   const { data, isLoading, error } = useSessionUsage(sessionId, { refetchInterval: 15000 })
   if (isLoading) return <CircularProgress size={18} />
   if (error || !data) {
@@ -212,5 +186,15 @@ const SessionUsagePanel: FC<{ sessionId: string }> = ({ sessionId }) => {
   }
   return <SessionUsageView usage={data} />
 }
+
+const SessionUsagePanel: FC<{ sessionId: string }> = ({ sessionId }) => (
+  <Stack spacing={3}>
+    <Stack spacing={1}>
+      <Typography variant="caption" sx={SECTION_LABEL_SX}>LLM usage</Typography>
+      <SessionLLMUsage sessionId={sessionId} />
+    </Stack>
+    <SessionResourcesPanel sessionId={sessionId} />
+  </Stack>
+)
 
 export default SessionUsagePanel
