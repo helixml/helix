@@ -906,6 +906,11 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 	return strconv.Itoa(pr.GetNumber()), nil
 }
 
+// reviewWebhookEvents are the GitHub events relayed to spec tasks: formal
+// reviews (with their inline comments and thread replies) and PR conversation
+// comments, which GitHub sends as issue_comment.
+var reviewWebhookEvents = []string{"pull_request_review", "issue_comment"}
+
 // webhookInstaller is the seam for the GitHub webhook upsert so the install
 // path is testable without hitting GitHub. *github.Client satisfies it.
 type webhookInstaller interface {
@@ -958,7 +963,7 @@ func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, in
 
 		payloadURL := fmt.Sprintf("%s/%s", s.githubReviewWebhooksURL, repo.ID)
 		if err := installer.UpsertWebhook(ctx, owner, repoName, "helix-spec-task-reviews",
-			payloadURL, []string{"pull_request_review"}, repo.GitHub.WebhookSecret); err != nil {
+			payloadURL, reviewWebhookEvents, repo.GitHub.WebhookSecret); err != nil {
 			// Reviews are a nice-to-have; CI feedback still arrives via the poller.
 			log.Warn().Err(err).Str("owner", owner).Str("repo", repoName).
 				Msg("failed to install GitHub review webhook on repo; PR review feedback will not reach the task agent")
@@ -972,6 +977,34 @@ func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, in
 		log.Warn().Err(err).Str("repo_id", repoID).
 			Msg("failed to prepare GitHub review webhook install; PR review feedback will not reach the task agent")
 	}
+}
+
+// EnsureReviewWebhook installs or upgrades the PR review webhook on an
+// external GitHub repo, once per repo per process. It backfills repos whose
+// PRs predate the feature and upgrades older hooks to the current event list
+// (UpsertWebhook edits a hook matched by URL). Best-effort, like the install
+// on PR creation; a no-op when the feature is off.
+func (s *GitRepositoryService) EnsureReviewWebhook(ctx context.Context, repoID string) {
+	if s.githubReviewWebhooksURL == "" {
+		return
+	}
+	if _, done := s.reviewWebhookBackfilled.LoadOrStore(repoID, struct{}{}); done {
+		return
+	}
+	repo, err := s.GetRepositoryMetadata(ctx, repoID)
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to load repository for review webhook backfill")
+		return
+	}
+	if repo.ExternalType != types.ExternalRepositoryTypeGitHub || internalPRRouting(repo) {
+		return
+	}
+	client, owner, repoName, err := s.githubClientForRepo(ctx, repo, "")
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("no GitHub client for review webhook backfill")
+		return
+	}
+	s.ensureGitHubReviewWebhook(ctx, client, repo.ID, owner, repoName)
 }
 
 // ListPullRequestReviewComments returns the inline review comments belonging

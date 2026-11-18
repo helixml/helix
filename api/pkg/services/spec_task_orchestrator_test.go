@@ -2080,3 +2080,26 @@ func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweep_SkipsTaskActiveSin
 
 	s.orchestrator.staleArchiveSweep(ctx)
 }
+
+type recordingReviewWebhookEnsurer struct{ repoIDs []string }
+
+func (r *recordingReviewWebhookEnsurer) EnsureReviewWebhook(_ context.Context, repoID string) {
+	r.repoIDs = append(r.repoIDs, repoID)
+}
+
+// Polling an open PR backfills the review webhook on its repo, so PRs opened
+// before the feature was enabled still deliver review feedback; settled PRs
+// don't need it.
+func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_EnsuresReviewWebhookForOpenPRs() {
+	ctx := context.Background()
+	task := makePullRequestTask(2)
+	ensurer := &recordingReviewWebhookEnsurer{}
+	s.orchestrator.SetReviewWebhookEnsurer(ensurer)
+
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-1", "1").Return(&types.PullRequest{State: types.PullRequestStateOpen}, nil)
+	s.gitService.EXPECT().GetPullRequest(ctx, "repo-2", "2").Return(&types.PullRequest{State: types.PullRequestStateMerged}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Return(nil).AnyTimes()
+
+	s.Require().NoError(s.orchestrator.processExternalPullRequestStatus(ctx, task))
+	s.Equal([]string{"repo-1"}, ensurer.repoIDs)
+}

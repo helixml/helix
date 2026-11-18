@@ -35376,9 +35376,6 @@ const docTemplate = `{
                     "description": "PEM-encoded private key for JWT signing",
                     "type": "string"
                 },
-                "review_bot_user_id": {
-                    "type": "integer"
-                },
                 "webhook_secret": {
                     "description": "WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review\ndeliveries with (spec task PR review feedback). Auto-generated at first\nwebhook install; one repo's secret never validates another repo's\ndeliveries, keeping orgs isolated on shared deployments.",
                     "type": "string"
@@ -35987,9 +35984,6 @@ const docTemplate = `{
                 },
                 "password": {
                     "type": "string"
-                },
-                "review_bot_user_id": {
-                    "type": "integer"
                 },
                 "username": {
                     "type": "string"

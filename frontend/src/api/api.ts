@@ -4457,7 +4457,6 @@ export interface TypesGitHub {
   personal_access_token?: string;
   /** PEM-encoded private key for JWT signing */
   private_key?: string;
-  review_bot_user_id?: number;
   /**
    * WebhookSecret is the per-repo HMAC secret GitHub signs pull_request_review
    * deliveries with (spec task PR review feedback). Auto-generated at first
@@ -4721,7 +4720,6 @@ export interface TypesGitRepositoryUpdateRequest {
   /** OAuth connection for authentication */
   oauth_connection_id?: string;
   password?: string;
-  review_bot_user_id?: number;
   username?: string;
 }
 
