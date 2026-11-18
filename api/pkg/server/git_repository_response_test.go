@@ -16,7 +16,6 @@ func TestRedactGitRepository(t *testing.T) {
 			PersonalAccessToken: "github-token",
 			BaseURL:             "https://github.example.com",
 			WebhookSecret:       "webhook-secret",
-			ReviewBotUserID:     291906607,
 			AppID:               1,
 			InstallationID:      2,
 			PrivateKey:          "private-key",
@@ -63,7 +62,7 @@ func TestRedactGitRepository(t *testing.T) {
 		}
 	}
 	if got.Username != "repo-user" || got.GitHub.BaseURL != "https://github.example.com" ||
-		got.GitHub.ReviewBotUserID != 291906607 || got.GitHub.AppID != 1 || got.GitHub.InstallationID != 2 ||
+		got.GitHub.AppID != 1 || got.GitHub.InstallationID != 2 ||
 		got.GitLab.BaseURL != "https://gitlab.example.com" || got.AzureDevOps.OrganizationURL != "https://dev.azure.com/example" ||
 		got.AzureDevOps.TenantID != "tenant" || got.AzureDevOps.ClientID != "client" ||
 		got.Bitbucket.Username != "bitbucket-user" || got.Bitbucket.BaseURL != "https://bitbucket.example.com" {

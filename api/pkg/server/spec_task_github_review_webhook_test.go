@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,9 +23,8 @@ import (
 )
 
 const (
-	testWebhookSecret   = "repo-secret-abc123"
-	testWebhookRepoID   = "repo-e2e"
-	testReviewBotUserID = int64(291906607)
+	testWebhookSecret = "repo-secret-abc123"
+	testWebhookRepoID = "repo-e2e"
 )
 
 func signBody(t *testing.T, secret string, body []byte) string {
@@ -208,8 +206,7 @@ func (s *SpecTaskGitHubReviewWebhookSuite) webhookRepo() *types.GitRepository {
 		ExternalURL:    "https://github.com/owner/repo",
 		ExternalType:   types.ExternalRepositoryTypeGitHub,
 		GitHub: &types.GitHub{
-			WebhookSecret:   testWebhookSecret,
-			ReviewBotUserID: testReviewBotUserID,
+			WebhookSecret: testWebhookSecret,
 		},
 	}
 }
@@ -291,7 +288,8 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestEndToEndEnqueuesNormalizedFeedbac
 	s.Require().NoError(json.Unmarshal(newReviewPayload(s.T()), &payload))
 	payload.Review.State = "commented"
 	payload.Review.AuthorAssociation = "NONE"
-	payload.Review.User = githubWebhookUser{ID: testReviewBotUserID, Login: "helixml-bot[bot]", Type: "Bot"}
+	// An unconfigured GitHub App bot: bots are trusted without per-repo setup.
+	payload.Review.User = githubWebhookUser{ID: 291906607, Login: "helixml-bot[bot]", Type: "Bot"}
 	body, err := json.Marshal(payload)
 	s.Require().NoError(err)
 	rr := s.post(testWebhookRepoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
@@ -472,42 +470,131 @@ func (s *SpecTaskGitHubReviewWebhookSuite) TestTrustGateDropsOutsiders() {
 	}
 }
 
-func (s *SpecTaskGitHubReviewWebhookSuite) TestTrustGateDropsUntrustedBots() {
-	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Times(0)
+func TestIsTrustedGitHubAuthor(t *testing.T) {
+	for _, tc := range []struct {
+		userType, association string
+		want                  bool
+	}{
+		{"Bot", "NONE", true},
+		{"Bot", "", true},
+		{"User", "OWNER", true},
+		{"User", "MEMBER", true},
+		{"User", "COLLABORATOR", true},
+		{"User", "CONTRIBUTOR", false},
+		{"User", "FIRST_TIME_CONTRIBUTOR", false},
+		{"User", "FIRST_TIMER", false},
+		{"User", "MANNEQUIN", false},
+		{"User", "NONE", false},
+		{"User", "", false},
+		{"Organization", "OWNER", false},
+		{"", "OWNER", false},
+	} {
+		got := isTrustedGitHubAuthor(githubWebhookUser{Login: "x", Type: tc.userType}, tc.association)
+		if got != tc.want {
+			t.Errorf("isTrustedGitHubAuthor(type=%q, association=%q) = %v, want %v", tc.userType, tc.association, got, tc.want)
+		}
+	}
+}
+
+// newPRCommentPayload returns an issue_comment delivery for a collaborator's
+// conversation comment on owner/repo#42.
+func newPRCommentPayload(t *testing.T) githubIssueCommentPayload {
+	t.Helper()
+	var payload githubIssueCommentPayload
+	payload.Action = "created"
+	payload.Issue.Number = 42
+	payload.Issue.Title = "add nil check"
+	payload.Issue.PullRequest = &struct{}{}
+	payload.Comment.ID = 901
+	payload.Comment.User = githubWebhookUser{Login: "bob", Type: "User"}
+	payload.Comment.Body = "can you also handle the empty slice?"
+	payload.Comment.HTMLURL = "https://github.com/owner/repo/pull/42#issuecomment-901"
+	payload.Comment.AuthorAssociation = "MEMBER"
+	payload.Repository.FullName = "owner/repo"
+	return payload
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestPRCommentEnqueuesFeedback() {
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
+
+	var capturedFilter *types.SpecTaskPRMatch
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
+			capturedFilter = filters.PRMatch
+			return []*types.SpecTask{s.trackingTask("spt_1", types.TaskStatusPullRequest)}, nil
+		})
 	s.gitRepo.listReviewCommentsFunc = func(_ context.Context, _, _ string, _ int64) ([]*types.PRReviewComment, error) {
-		s.Fail("comment fetch must not run for untrusted bot reviews")
+		s.Fail("PR conversation comments carry their body; no comment fetch")
 		return nil, nil
 	}
 
-	for i, tc := range []struct {
-		name              string
-		configuredID      int64
-		reviewerID        int64
-		reviewerType      string
-		authorAssociation string
-	}{
-		{name: "wrong ID", configuredID: testReviewBotUserID, reviewerID: testReviewBotUserID + 1, reviewerType: "Bot", authorAssociation: "COLLABORATOR"},
-		{name: "right ID user", configuredID: testReviewBotUserID, reviewerID: testReviewBotUserID, reviewerType: "User", authorAssociation: "NONE"},
-		{name: "wrong type", configuredID: testReviewBotUserID, reviewerID: testReviewBotUserID, reviewerType: "Robot", authorAssociation: "COLLABORATOR"},
-		{name: "empty type", configuredID: testReviewBotUserID, reviewerID: testReviewBotUserID, authorAssociation: "COLLABORATOR"},
-		{name: "unconfigured", reviewerID: testReviewBotUserID, reviewerType: "Bot", authorAssociation: "COLLABORATOR"},
-	} {
-		repoID := fmt.Sprintf("%s-%d", testWebhookRepoID, i)
-		repo := s.webhookRepo()
-		repo.ID = repoID
-		repo.GitHub.ReviewBotUserID = tc.configuredID
-		s.expectRepoLoad(repoID, repo, nil)
+	var captured *types.PromptHistoryEntry
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_spt_1").
+		Return(&types.Session{ID: "ses_spt_1", Owner: "user-1"}, nil).AnyTimes()
+	s.store.EXPECT().CreatePromptHistoryEntry(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e *types.PromptHistoryEntry) error {
+			captured = e
+			return nil
+		})
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), "ses_spt_1").Return(nil, nil).AnyTimes()
 
-		var payload githubReviewWebhookPayload
-		s.Require().NoError(json.Unmarshal(newReviewPayload(s.T()), &payload))
-		payload.Review.AuthorAssociation = tc.authorAssociation
-		payload.Review.User = githubWebhookUser{ID: tc.reviewerID, Login: "helixml-bot[bot]", Type: tc.reviewerType}
+	payload := newPRCommentPayload(s.T())
+	body, err := json.Marshal(payload)
+	s.Require().NoError(err)
+	rr := s.post(testWebhookRepoID, body, "issue_comment", signBody(s.T(), testWebhookSecret, body))
+	s.Require().Equal(http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+
+	s.Require().NotNil(capturedFilter)
+	s.Equal(testWebhookRepoID, capturedFilter.RepositoryID)
+	s.Equal(42, capturedFilter.PRNumber)
+	s.Require().NotNil(captured)
+	s.Equal("spt_1", captured.SpecTaskID)
+	s.True(captured.Interrupt)
+	s.Equal(types.SystemTurn(types.SystemTurnReviewComment), captured.Provenance)
+	for _, want := range []string{
+		"GitHub PR comment notification: PR #42 on owner/repo, commenter @bob.",
+		"--- BEGIN UNTRUSTED GITHUB REVIEW CONTENT ---",
+		"can you also handle the empty slice?",
+		"--- END UNTRUSTED GITHUB REVIEW CONTENT ---",
+		"Comment link: https://github.com/owner/repo/pull/42#issuecomment-901",
+	} {
+		s.Require().Contains(captured.Content, want)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestPRCommentIgnoredCases() {
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Times(0)
+
+	for name, mutate := range map[string]func(p *githubIssueCommentPayload){
+		"plain issue":   func(p *githubIssueCommentPayload) { p.Issue.PullRequest = nil },
+		"edited":        func(p *githubIssueCommentPayload) { p.Action = "edited" },
+		"deleted":       func(p *githubIssueCommentPayload) { p.Action = "deleted" },
+		"outsider":      func(p *githubIssueCommentPayload) { p.Comment.AuthorAssociation = "NONE" },
+		"contributor":   func(p *githubIssueCommentPayload) { p.Comment.AuthorAssociation = "CONTRIBUTOR" },
+		"other repo":    func(p *githubIssueCommentPayload) { p.Repository.FullName = "other/tenant" },
+		"no PR number":  func(p *githubIssueCommentPayload) { p.Issue.Number = 0 },
+		"unknown actor": func(p *githubIssueCommentPayload) { p.Comment.User.Type = "" },
+	} {
+		payload := newPRCommentPayload(s.T())
+		mutate(&payload)
 		body, err := json.Marshal(payload)
 		s.Require().NoError(err)
-
-		rr := s.post(repoID, body, "pull_request_review", signBody(s.T(), testWebhookSecret, body))
-		s.Require().Equal(http.StatusOK, rr.Code, tc.name)
+		rr := s.post(testWebhookRepoID, body, "issue_comment", signBody(s.T(), testWebhookSecret, body))
+		s.Require().Equal(http.StatusOK, rr.Code, name)
 	}
+}
+
+func (s *SpecTaskGitHubReviewWebhookSuite) TestPRCommentRequiresSignature() {
+	s.expectRepoLoad(testWebhookRepoID, s.webhookRepo(), nil)
+	s.store.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Times(0)
+
+	body, err := json.Marshal(newPRCommentPayload(s.T()))
+	s.Require().NoError(err)
+	rr := s.post(testWebhookRepoID, body, "issue_comment", signBody(s.T(), "other-repos-secret", body))
+	s.Require().Equal(http.StatusUnauthorized, rr.Code)
 }
 
 func (s *SpecTaskGitHubReviewWebhookSuite) TestTransientStoreErrorIsRetryable() {

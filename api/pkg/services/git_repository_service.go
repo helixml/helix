@@ -986,12 +986,6 @@ func (s *GitRepositoryService) UpdateRepository(
 	if request.AzureDevOps != nil {
 		existing.AzureDevOps = request.AzureDevOps
 	}
-	if request.ReviewBotUserID != nil {
-		if existing.GitHub == nil {
-			existing.GitHub = &types.GitHub{}
-		}
-		existing.GitHub.ReviewBotUserID = *request.ReviewBotUserID
-	}
 
 	// After external URL and credentials are applied, so an upstream lookup uses them.
 	if request.DefaultBranch != "" && request.DefaultBranch != existing.DefaultBranch {
