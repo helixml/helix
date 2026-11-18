@@ -13,7 +13,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -64,15 +63,16 @@ type HeartbeatRequest struct {
 	// Desktop image versions (content-addressable Docker image hashes)
 	// Key: desktop name (e.g., "sway", "zorin", "ubuntu")
 	// Value: image hash (e.g., "a1b2c3d4e5f6...")
-	DesktopVersions       map[string]string         `json:"desktop_versions,omitempty"`
-	DiskUsage             []DiskUsageMetric         `json:"disk_usage,omitempty"`
-	ContainerUsage        []ContainerDiskUsage      `json:"container_usage,omitempty"`
-	ContainerOOMKills     []types.ContainerOOMKills `json:"container_oom_kills,omitempty"`
-	PrivilegedModeEnabled bool                      `json:"privileged_mode_enabled,omitempty"`
-	GPUVendor             string                    `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
-	InstanceType          string                    `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
-	HelixVersion          string                    `json:"helix_version,omitempty"` // git commit hash or release version
-	MaxSandboxes          int                       `json:"max_sandboxes,omitempty"` // per-runner cap; -1 means unlimited, omitted when unset
+	DesktopVersions       map[string]string             `json:"desktop_versions,omitempty"`
+	DiskUsage             []DiskUsageMetric             `json:"disk_usage,omitempty"`
+	ContainerUsage        []ContainerDiskUsage          `json:"container_usage,omitempty"`
+	ContainerOOMKills     []types.ContainerOOMKills     `json:"container_oom_kills,omitempty"`
+	SessionResources      []types.SessionResourceSample `json:"session_resources,omitempty"`
+	PrivilegedModeEnabled bool                          `json:"privileged_mode_enabled,omitempty"`
+	GPUVendor             string                        `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
+	InstanceType          string                        `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
+	HelixVersion          string                        `json:"helix_version,omitempty"` // git commit hash or release version
+	MaxSandboxes          int                           `json:"max_sandboxes,omitempty"` // per-runner cap; -1 means unlimited, omitted when unset
 	// Without a container data root, Hydra keeps desktops' container data in
 	// plain Docker volumes, where it can neither promote nor seed a golden cache.
 	GoldenCacheUnavailable bool `json:"golden_cache_unavailable,omitempty"`
@@ -265,7 +265,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 	// Collect disk usage metrics
 	diskUsage := collectDiskUsage()
 	containerUsage := collectContainerDiskUsage()
-	containerOOMKills := collectContainerOOMKills()
+	containerOOMKills, sessionResources := collectSessionContainers()
 
 	// Read GPU vendor from environment (set by install.sh on the sandbox)
 	gpuVendor := os.Getenv("GPU_VENDOR") // nvidia, amd, intel, none
@@ -293,6 +293,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		DiskUsage:              diskUsage,
 		ContainerUsage:         containerUsage,
 		ContainerOOMKills:      containerOOMKills,
+		SessionResources:       sessionResources,
 		PrivilegedModeEnabled:  privilegedModeEnabled,
 		GPUVendor:              gpuVendor,
 		InstanceType:           instType,
@@ -375,9 +376,12 @@ type dockerContainerInspect struct {
 		Pid       int  `json:"Pid"`
 		OOMKilled bool `json:"OOMKilled"`
 	} `json:"State"`
+	Mounts []dockerMount `json:"Mounts"`
 }
 
-func collectContainerOOMKills() []types.ContainerOOMKills {
+// collectSessionContainers reads each Helix container's cumulative OOM kills
+// and, for running desktop sessions, its resource counters.
+func collectSessionContainers() ([]types.ContainerOOMKills, []types.SessionResourceSample) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	client := &http.Client{
@@ -388,31 +392,37 @@ func collectContainerOOMKills() []types.ContainerOOMKills {
 		},
 		Timeout: 10 * time.Second,
 	}
-	return collectContainerOOMKillsFrom(ctx, client, "http://localhost", "/proc", "/sys/fs/cgroup")
+	return collectSessionContainersFrom(ctx, client, "http://localhost", defaultHostPaths)
 }
 
-func collectContainerOOMKillsFrom(ctx context.Context, client *http.Client, dockerURL, procRoot, cgroupRoot string) []types.ContainerOOMKills {
+func collectSessionContainersFrom(ctx context.Context, client *http.Client, dockerURL string, paths hostPaths) ([]types.ContainerOOMKills, []types.SessionResourceSample) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dockerURL+"/containers/json?all=true", nil)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to list Docker containers for OOM metrics")
-		return nil
+		log.Debug().Err(err).Msg("Failed to list Docker containers for container metrics")
+		return nil, nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil
+		return nil, nil
 	}
 
 	var containers []dockerContainerSummary
 	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
-		log.Warn().Err(err).Msg("Failed to decode Docker containers for OOM metrics")
-		return nil
+		log.Warn().Err(err).Msg("Failed to decode Docker containers for container metrics")
+		return nil, nil
 	}
 
-	metrics := make([]types.ContainerOOMKills, 0, len(containers))
+	mountPoints, err := readMountPoints(paths.mountinfo)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to read mount points for session filesystems")
+	}
+	devices := map[string]bool{}
+	oomKills := make([]types.ContainerOOMKills, 0, len(containers))
+	var resources []types.SessionResourceSample
 	for _, container := range containers {
 		sessionID := container.Labels["helix.session_id"]
 		if sessionID == "" {
@@ -435,48 +445,37 @@ func collectContainerOOMKillsFrom(ctx context.Context, client *http.Client, dock
 			continue
 		}
 
-		count := uint64(0)
-		if inspect.State.Pid > 0 {
-			count, err = readOOMKillCount(procRoot, cgroupRoot, inspect.State.Pid)
-			if err != nil {
-				continue
+		if inspect.State.Pid <= 0 {
+			count := uint64(0)
+			if inspect.State.OOMKilled {
+				count = 1
 			}
-		} else if inspect.State.OOMKilled {
-			count = 1
-		}
-		metrics = append(metrics, types.ContainerOOMKills{
-			ContainerID: container.ID,
-			SessionID:   sessionID,
-			Count:       count,
-		})
-	}
-	return metrics
-}
-
-func readOOMKillCount(procRoot, cgroupRoot string, pid int) (uint64, error) {
-	cgroup, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cgroup"))
-	if err != nil {
-		return 0, err
-	}
-	for _, line := range strings.Split(string(cgroup), "\n") {
-		parts := strings.SplitN(line, ":", 3)
-		if len(parts) != 3 || parts[0] != "0" || parts[1] != "" {
+			oomKills = append(oomKills, types.ContainerOOMKills{ContainerID: container.ID, SessionID: sessionID, Count: count})
 			continue
 		}
-		rel := strings.TrimPrefix(filepath.Clean(parts[2]), string(filepath.Separator))
-		events, err := os.ReadFile(filepath.Join(cgroupRoot, rel, "memory.events"))
+		dir, err := containerCgroupDir(paths, inspect.State.Pid, container.ID)
 		if err != nil {
-			return 0, err
+			log.Debug().Err(err).Str("session_id", sessionID).Msg("Container cgroup not found")
+			continue
 		}
-		for _, event := range strings.Split(string(events), "\n") {
-			fields := strings.Fields(event)
-			if len(fields) == 2 && fields[0] == "oom_kill" {
-				count, err := strconv.ParseUint(fields[1], 10, 64)
-				return count, err
-			}
+		events, err := readKeyValues(filepath.Join(dir, "memory.events"))
+		if err != nil {
+			continue
 		}
+		oomKills = append(oomKills, types.ContainerOOMKills{ContainerID: container.ID, SessionID: sessionID, Count: events["oom_kill"]})
+
+		if !strings.HasPrefix(sessionID, "ses_") {
+			continue
+		}
+		sample := types.SessionResourceSample{SessionID: sessionID}
+		if err := readCgroupResources(dir, paths.sysBlock, devices, &sample); err != nil {
+			log.Debug().Err(err).Str("session_id", sessionID).Msg("Failed to read session resources")
+			continue
+		}
+		sample.Filesystems = filesystemsFor(sessionID, inspect.Mounts, mountPoints, paths.statfs)
+		resources = append(resources, sample)
 	}
-	return 0, fmt.Errorf("cgroup v2 oom_kill counter not found for pid %d", pid)
+	return oomKills, resources
 }
 
 // discoverDesktopVersions scans for all desktop version files

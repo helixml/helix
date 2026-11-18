@@ -20,7 +20,7 @@ func NewSessionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "session",
 		Aliases: []string{"sessions", "ses"},
-		Short:   "Talk to and debug a session: send, turns, watch, usage, exec, put, logs",
+		Short:   "Talk to and debug a session: send, turns, watch, usage, resources, exec, put, logs",
 		Long: `Work with one agent session by id (bot main sessions and bot instances alike).
 
 Examples:
@@ -31,10 +31,12 @@ Examples:
   helix session exec ses_01xxx -- ls ~/work
   helix session logs ses_01xxx                     # processes, setup, agent and browser logs
   helix session usage ses_01xxx                    # tokens, cost, latency, cache hits per turn
+  helix session resources ses_01xxx --hours 72     # CPU, memory, I/O stalls, throttling, disk
 `,
 	}
 	cmd.AddCommand(newSessionSendCmd(), newSessionTurnsCmd(), newSessionWatchCmd(), newSessionExecCmd(),
-		newSessionPutCmd(), newSessionGetCmd(), newSessionLogsCmd(), newSessionScreenshotCmd(), newSessionUsageCmd())
+		newSessionPutCmd(), newSessionGetCmd(), newSessionLogsCmd(), newSessionScreenshotCmd(), newSessionUsageCmd(),
+		newSessionResourcesCmd())
 	return silenceUsage(cmd)
 }
 

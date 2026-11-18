@@ -12,6 +12,7 @@ func init() {
 		"POST /api/v1/sessions/{id}/clear":                                              object("authorizeUserToSession"),
 		"GET /api/v1/sessions/{id}/interactions":                                        object("authorizeUserToSession"),
 		"GET /api/v1/sessions/{id}/usage":                                               object("authorizeUserToSession"),
+		"GET /api/v1/sessions/{id}/resources":                                           object("authorizeUserToSession"),
 		"GET /api/v1/sessions/{id}/interactions/{interaction_id}":                       object("authorizeUserToSession"),
 		"POST /api/v1/sessions/{id}/interactions/{interaction_id}/feedback":             object("authorizeUserToSession"),
 		"GET /api/v1/sessions/{id}/step-info":                                           object("authorizeUserToSession"),
