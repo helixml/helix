@@ -234,13 +234,11 @@ func (s *PostgresStore) backfillEmailVerified(ctx context.Context) error {
 	if !s.gdb.Migrator().HasTable(&types.User{}) {
 		return nil
 	}
-	err := s.gdb.WithContext(ctx).Exec(`
-		UPDATE users
-		SET email_verified = true
-		WHERE email_verified = false
-		  AND email <> ''
-		  AND (auth_provider = ? OR (id NOT LIKE ? AND auth_provider <> ? AND auth_provider <> ?))
-	`, types.AuthProviderOIDC, system.UserPrefix+"%", types.AuthProviderRegular, types.AuthProviderService).Error
+	err := s.backfillRows(ctx, "users", "email_verified = true", nil, `
+		email_verified = false
+		AND email <> ''
+		AND (auth_provider = ? OR (id NOT LIKE ? AND auth_provider <> ? AND auth_provider <> ?))`,
+		types.AuthProviderOIDC, system.UserPrefix+"%", types.AuthProviderRegular, types.AuthProviderService)
 	if err != nil {
 		return fmt.Errorf("backfill users.email_verified: %w", err)
 	}

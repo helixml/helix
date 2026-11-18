@@ -51,6 +51,17 @@ func (s *PostgresStore) GormDB() *gorm.DB {
 	return s.gdb
 }
 
+// withGormDB returns a copy of the store whose queries, including those of the
+// embedded org store, run on db. Migrations use it to run on a dedicated
+// connection pool with its own session settings (lock_timeout).
+func (s *PostgresStore) withGormDB(db *gorm.DB) *PostgresStore {
+	c := *s
+	c.gdb = db
+	c.Store = orgstore.New(db)
+	c.SecretIntakePersistence = NewSecretIntakePersistence(db)
+	return &c
+}
+
 func NewPostgresStore(
 	cfg config.Store,
 	pubsub pubsub.PubSub,
@@ -136,9 +147,35 @@ func (s *PostgresStore) autoMigrate() error {
 		}
 	}
 
+	// A dedicated pool whose every connection has lock_timeout set, so no
+	// migration statement queues behind a lock for long (migration_steps.go).
+	migrationDB, err := connect(context.Background(), connectConfig{
+		host:            s.cfg.Host,
+		port:            s.cfg.Port,
+		schemaName:      s.cfg.Schema,
+		database:        s.cfg.Database,
+		username:        s.cfg.Username,
+		password:        s.cfg.Password,
+		ssl:             s.cfg.SSL,
+		idleConns:       2,
+		maxConns:        4,
+		maxConnIdleTime: s.cfg.MaxConnIdleTime,
+		maxConnLifetime: s.cfg.MaxConnLifetime,
+		lockTimeout:     migrationLockTimeout,
+	})
+	if err != nil {
+		return fmt.Errorf("connect for migrations: %w", err)
+	}
+	ms := s.withGormDB(migrationDB)
+	defer func() {
+		if err := ms.Close(); err != nil {
+			log.Warn().Err(err).Msg("failed to close migration connections")
+		}
+	}()
+
 	ctx, cancel := context.WithTimeout(context.Background(), migrationLockWait)
 	defer cancel()
-	return s.withMigrationLock(ctx, s.runMigrations)
+	return ms.withMigrationLock(ctx, ms.runMigrations)
 }
 
 const (
@@ -199,273 +236,326 @@ func (s *PostgresStore) withMigrationLock(ctx context.Context, migrate func() er
 	return migrateErr
 }
 
-// runMigrations performs the actual database migrations.
+// runMigrations brings the schema and data up to date. Every step is
+// idempotent and, on a database that is already migrated, reads only
+// (TestRunMigrationsIsIdempotent): a write takes locks on a live database,
+// and the previous release keeps serving while a blue/green deploy migrates.
+// Each step retries while it hits lock_timeout (migrationStep).
+//
+// Schema changes must stay additive so the previous release still works on
+// the new schema; see migrations/README.md.
 func (s *PostgresStore) runMigrations() error {
+	ctx := context.Background()
+	m := s.gdb.Migrator()
+
 	// Running migrations from ./migrations directory,
 	// ref: https://github.com/golang-migrate/migrate
-	err := s.MigrateUp()
-	if err != nil {
-		log.Err(err).Msg("there was an error doing the automigration, some functionality may not work")
-		return fmt.Errorf("failed to run version migrations: %w", err)
-	}
-
-	// One-time schema fix: change prompt_history_entries.interrupt default from TRUE to FALSE.
-	// Queue mode (interrupt=false) is the safe default — interrupt mode is the exceptional case.
-	// GORM AutoMigrate doesn't change column defaults, so we do it here manually.
-	// The IF EXISTS + ALTER is idempotent — safe to run on every startup.
-	if s.gdb.Migrator().HasTable(&types.PromptHistoryEntry{}) {
-		if err := s.gdb.WithContext(context.Background()).Exec(
-			"ALTER TABLE prompt_history_entries ALTER COLUMN interrupt SET DEFAULT false",
-		).Error; err != nil {
-			return fmt.Errorf("failed to fix prompt_history_entries interrupt default: %w", err)
-		}
-	}
-
-	// One-time data fix: truncate oversized session names before AutoMigrate
-	// adds the varchar(255) constraint. Safe to run on every startup because
-	// the WHERE clause makes it a no-op once all names are within bounds.
-	// Input validation in CreateSession/UpdateSession/UpdateSessionName now
-	// prevents new oversized names from being written.
-	// Skip on fresh databases where the sessions table doesn't exist yet.
-	if s.gdb.Migrator().HasTable(&types.Session{}) {
-		if err := s.gdb.WithContext(context.Background()).Exec(
-			"UPDATE sessions SET name = LEFT(name, 255) WHERE LENGTH(name) > 255",
-		).Error; err != nil {
-			return fmt.Errorf("failed to truncate oversized session names: %w", err)
-		}
-	}
-
-	err = s.gdb.WithContext(context.Background()).AutoMigrate(
-		&types.Organization{},
-		&types.User{},
-		&types.Team{},
-		&types.TeamMembership{},
-		&types.Role{},
-		&types.OrganizationMembership{},
-		&types.OrganizationInvitation{},
-		&types.AccessGrant{},
-		&types.AccessGrantRoleBinding{},
-		&types.UserMeta{},
-		&types.Session{},
-		&types.Interaction{},
-		&types.App{},
-		&types.ApiKey{},
-		&types.Tool{},
-		&types.Knowledge{},
-		&types.KnowledgeVersion{},
-		&types.DataEntity{},
-		&types.LLMCall{},
-		&MigrationScript{},
-		&types.Secret{},
-		&types.LicenseKey{},
-		&types.ProviderEndpoint{},
-		&types.OAuthProvider{},
-		&types.OAuthConnection{},
-		&types.OAuthRequestToken{},
-		&types.UserSession{},
-		&types.GitProviderConnection{},
-		&types.ServiceConnection{},
-		&types.UsageMetric{},
-		&types.Model{},
-		&types.DynamicModelInfo{},
-		&types.StepInfo{},
-		&types.RunnerProfile{},
-		&types.RunnerAssignment{},
-		&types.RunnerToken{},
-		&types.SlackThread{},
-		&types.TeamsThread{},
-		&types.CrispThread{},
-		&types.TriggerConfiguration{},
-		&types.TriggerExecution{},
-		&types.SystemSettings{},
-		&types.Wallet{},
-		&types.Transaction{},
-		&types.WebSearchRequest{},
-		&types.TopUp{},
-		&types.SubscriptionInvoiceCredit{},
-		&types.Project{},
-		&types.Artifact{},
-		&types.ArtifactVersion{},
-		&types.SecretIntake{},
-		&types.WebhookEndpoint{},
-		&types.WebhookEvent{},
-		&types.WebhookDelivery{},
-		&types.ProjectAuditLog{},   // Audit trail for project activity
-		&types.OrgAuditLog{},       // Audit trail for Helix org activity
-		&types.RequestAuditEvent{}, // Audit trail for API requests (incident forensics)
-		&types.IdentityAttestationRedemption{},
-		&types.SampleProject{},
-		&types.SpecTask{},
-		&types.SpecTaskWorkSession{},
-		&types.SpecTaskZedThread{},
-		&types.SpecTaskExternalAgent{},
-		&types.SpecTaskDesignReview{},
-		&types.SpecTaskPRProposal{},
-		&types.SpecTaskDesignReviewComment{},
-		&types.SpecTaskDesignReviewCommentReply{},
-		&types.SpecTaskGitPushEvent{},
-		&types.SpecTaskAttachment{},
-		&types.GitRepository{},
-		&types.GitPullRequest{},
-		&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
-		&types.SpecTaskImplementationTask{},
-		&types.AgentRunner{},
-		&types.ZedSettingsOverride{},
-		&types.Memory{},
-		&types.SandboxInstance{},
-		&types.Sandbox{},
-		&types.OrgCodeAgentHarness{},
-		&types.DiskUsageHistory{},
-		&types.GuidelinesHistory{},
-		&types.PromptHistoryEntry{},
-		&types.GlobalCounter{},
-		&types.CloneGroup{},
-		&types.ClaudeSubscription{},
-		&types.CodexSubscription{},
-		&types.AttentionEvent{},
-		&types.EvaluationSuite{},
-		&types.EvaluationRun{},
-		&types.VHostRoute{},
-		&types.ProjectWebServiceState{},
-		&types.WebServiceDeploy{},
-		&types.SandboxCacheState{}, // golden_builds
-		&types.WebPage{},
-	)
-	if err != nil {
+	if err := s.migrationStep("golang-migrate", s.MigrateUp); err != nil {
 		return err
 	}
-	if err := s.gdb.Set("gorm:table_options", "PARTITION BY RANGE (created)").AutoMigrate(&llmCallPayload{}); err != nil {
-		return err
-	}
-	var invalid bool
-	if err := s.gdb.Raw("SELECT EXISTS (SELECT FROM pg_index WHERE indexrelid = to_regclass('idx_llm_calls_legacy_payload') AND NOT indisvalid)").Scan(&invalid).Error; err != nil {
-		return err
-	}
-	if invalid {
-		if err := s.gdb.Exec("DROP INDEX CONCURRENTLY idx_llm_calls_legacy_payload").Error; err != nil {
+
+	// Queue mode (interrupt=false) is the safe default — interrupt mode is the
+	// exceptional case. GORM AutoMigrate doesn't change column defaults, so set
+	// it here, only when the catalog still has the old default.
+	if m.HasTable(&types.PromptHistoryEntry{}) {
+		if err := s.migrationStep("prompt_history_entries.interrupt default", func() error {
+			def, err := s.columnDefault(ctx, "prompt_history_entries", "interrupt")
+			if err != nil || def == "false" {
+				return err
+			}
+			return s.gdb.WithContext(ctx).Exec(
+				"ALTER TABLE prompt_history_entries ALTER COLUMN interrupt SET DEFAULT false").Error
+		}); err != nil {
 			return err
 		}
 	}
-	if err := s.gdb.Exec("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_legacy_payload ON llm_calls (created,id) WHERE " + legacyPayload).Error; err != nil {
-		return err
-	}
-	// users.token held whatever bearer token a request carried when the row
-	// was last saved. User.Token is no longer persisted; clear stored values.
-	// A no-op once cleared, and skipped where the column never existed.
-	if s.gdb.Migrator().HasColumn("users", "token") {
-		if err := s.gdb.WithContext(context.Background()).Exec(
-			"UPDATE users SET token = '' WHERE token IS NOT NULL AND token <> ''",
-		).Error; err != nil {
-			return fmt.Errorf("failed to clear stored user tokens: %w", err)
+
+	// Truncate oversized session names before AutoMigrate adds the
+	// varchar(255) constraint. Input validation in CreateSession/UpdateSession/
+	// UpdateSessionName prevents new oversized names.
+	if m.HasTable(&types.Session{}) {
+		if err := s.migrationStep("sessions.name truncate", func() error {
+			return s.backfillRows(ctx, "sessions", "name = LEFT(name, 255)", nil, "LENGTH(name) > 255")
+		}); err != nil {
+			return err
 		}
 	}
-	if err := s.gdb.WithContext(context.Background()).Exec(
-		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_request_id ON llm_calls (request_id)",
-	).Error; err != nil {
-		return fmt.Errorf("failed to create llm_calls request ID index: %w", err)
-	}
-	// Expression index for the sessions.config lookups in
-	// GetProjectExploratorySession (config->>'project_id' = ? AND
-	// config->>'session_role' = ?). The org-bot transcript Mirror polls that
-	// lookup every 5s per tracked worker, so without an index each call is a
-	// parallel seq scan of the whole sessions table — that pinned all 16 cores
-	// of the prod runner on 2026-10-04 (~29 concurrent scans, ~850ms each over
-	// 350k rows). In code, not a migrations/*.sql file: golang-migrate runs
-	// before AutoMigrate creates the table on fresh databases, and CONCURRENTLY
-	// must stay a lone statement (it cannot run in a transaction block, so it
-	// can't be combined with an existence guard in one batch). IF NOT EXISTS
-	// keeps every restart a no-op once built.
-	if err := s.gdb.WithContext(context.Background()).Exec(
-		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_config_project_id_session_role ON sessions ((config->>'project_id'), (config->>'session_role'))",
-	).Error; err != nil {
-		return fmt.Errorf("failed to create sessions config lookup index: %w", err)
-	}
-	if err := s.gdb.WithContext(context.Background()).Exec(
-		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_config_provider_recovery_provider ON sessions ((config->'provider_recovery'->>'provider'))",
-	).Error; err != nil {
-		return fmt.Errorf("failed to create sessions provider recovery index: %w", err)
-	}
-	// One interaction per agent-reported user entry: overlapping readers of a
-	// reconnecting agent can both pass the read-side dedupe in
-	// userEntryAlreadyRecorded, and this index makes the second insert fail
-	// (CreateInteraction reports it as ErrDuplicateExternalAgentUserEntry).
-	// The text is part of the key, matching the read-side rule: an index an
-	// agent restart renumbered can carry a genuinely new message. Partial, so
-	// turns Helix sent (no entry id) are unaffected; CONCURRENTLY for the same
-	// reason as the sessions indexes above.
-	if err := s.gdb.WithContext(context.Background()).Exec(
-		"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS " + externalAgentUserEntryIndex +
-			" ON interactions (session_id, generation_id, external_agent_user_thread_id, external_agent_user_entry_id, md5(prompt_message))" +
-			" WHERE external_agent_user_entry_id <> ''",
-	).Error; err != nil {
-		return fmt.Errorf("failed to create interactions external agent user entry index: %w", err)
-	}
-	if err := s.backfillAgentKinds(context.Background()); err != nil {
+
+	if err := s.migrationStep("automigrate", func() error {
+		return s.gdb.WithContext(ctx).AutoMigrate(
+			&types.Organization{},
+			&types.User{},
+			&types.Team{},
+			&types.TeamMembership{},
+			&types.Role{},
+			&types.OrganizationMembership{},
+			&types.OrganizationInvitation{},
+			&types.AccessGrant{},
+			&types.AccessGrantRoleBinding{},
+			&types.UserMeta{},
+			&types.Session{},
+			&types.Interaction{},
+			&types.App{},
+			&types.ApiKey{},
+			&types.Tool{},
+			&types.Knowledge{},
+			&types.KnowledgeVersion{},
+			&types.DataEntity{},
+			&types.LLMCall{},
+			&MigrationScript{},
+			&types.Secret{},
+			&types.LicenseKey{},
+			&types.ProviderEndpoint{},
+			&types.OAuthProvider{},
+			&types.OAuthConnection{},
+			&types.OAuthRequestToken{},
+			&types.UserSession{},
+			&types.GitProviderConnection{},
+			&types.ServiceConnection{},
+			&types.UsageMetric{},
+			&types.Model{},
+			&types.DynamicModelInfo{},
+			&types.StepInfo{},
+			&types.RunnerProfile{},
+			&types.RunnerAssignment{},
+			&types.RunnerToken{},
+			&types.SlackThread{},
+			&types.TeamsThread{},
+			&types.CrispThread{},
+			&types.TriggerConfiguration{},
+			&types.TriggerExecution{},
+			&types.SystemSettings{},
+			&types.Wallet{},
+			&types.Transaction{},
+			&types.WebSearchRequest{},
+			&types.TopUp{},
+			&types.SubscriptionInvoiceCredit{},
+			&types.Project{},
+			&types.Artifact{},
+			&types.ArtifactVersion{},
+			&types.SecretIntake{},
+			&types.WebhookEndpoint{},
+			&types.WebhookEvent{},
+			&types.WebhookDelivery{},
+			&types.ProjectAuditLog{},   // Audit trail for project activity
+			&types.OrgAuditLog{},       // Audit trail for Helix org activity
+			&types.RequestAuditEvent{}, // Audit trail for API requests (incident forensics)
+			&types.IdentityAttestationRedemption{},
+			&types.SampleProject{},
+			&types.SpecTask{},
+			&types.SpecTaskWorkSession{},
+			&types.SpecTaskZedThread{},
+			&types.SpecTaskExternalAgent{},
+			&types.SpecTaskDesignReview{},
+			&types.SpecTaskPRProposal{},
+			&types.SpecTaskDesignReviewComment{},
+			&types.SpecTaskDesignReviewCommentReply{},
+			&types.SpecTaskGitPushEvent{},
+			&types.SpecTaskAttachment{},
+			&types.GitRepository{},
+			&types.GitPullRequest{},
+			&types.ProjectRepository{}, // Junction table for project-repository many-to-many relationship
+			&types.SpecTaskImplementationTask{},
+			&types.AgentRunner{},
+			&types.ZedSettingsOverride{},
+			&types.Memory{},
+			&types.SandboxInstance{},
+			&types.Sandbox{},
+			&types.OrgCodeAgentHarness{},
+			&types.DiskUsageHistory{},
+			&types.GuidelinesHistory{},
+			&types.PromptHistoryEntry{},
+			&types.GlobalCounter{},
+			&types.CloneGroup{},
+			&types.ClaudeSubscription{},
+			&types.CodexSubscription{},
+			&types.AttentionEvent{},
+			&types.EvaluationSuite{},
+			&types.EvaluationRun{},
+			&types.VHostRoute{},
+			&types.ProjectWebServiceState{},
+			&types.WebServiceDeploy{},
+			&types.SandboxCacheState{}, // golden_builds
+			&types.WebPage{},
+		)
+	}); err != nil {
 		return err
 	}
-	if err := s.backfillEmailVerified(context.Background()); err != nil {
+	if err := s.migrationStep("automigrate llm_call_payloads", func() error {
+		return s.gdb.Set("gorm:table_options", "PARTITION BY RANGE (created)").AutoMigrate(&llmCallPayload{})
+	}); err != nil {
 		return err
 	}
-	if err := s.backfillSessionAgentConnections(context.Background()); err != nil {
-		return err
+
+	// users.token held whatever bearer token a request carried when the row
+	// was last saved. User.Token is no longer persisted; clear stored values.
+	// Skipped where the column never existed.
+	if m.HasColumn("users", "token") {
+		if err := s.migrationStep("users.token clear", func() error {
+			return s.backfillRows(ctx, "users", "token = ''", nil, "token IS NOT NULL AND token <> ''")
+		}); err != nil {
+			return err
+		}
+	}
+
+	// Indexes built in code rather than by AutoMigrate or a migrations/*.sql
+	// file: CONCURRENTLY doesn't block writes while it builds, cannot run in a
+	// transaction block (so not in golang-migrate, which also runs before
+	// AutoMigrate creates the tables on fresh databases), and GORM has no
+	// option for it.
+	for _, idx := range []struct{ name, ddl string }{
+		{"idx_llm_calls_legacy_payload",
+			"CREATE INDEX CONCURRENTLY idx_llm_calls_legacy_payload ON llm_calls (created,id) WHERE " + legacyPayload},
+		{"idx_llm_calls_request_id",
+			"CREATE INDEX CONCURRENTLY idx_llm_calls_request_id ON llm_calls (request_id)"},
+		// GetProjectExploratorySession looks sessions up by
+		// (config->>'project_id', config->>'session_role'); the org-bot
+		// transcript Mirror polls it every 5s per tracked worker, and without
+		// this index each call was a parallel seq scan that pinned all 16 cores
+		// of the prod runner on 2026-10-04.
+		{"idx_sessions_config_project_id_session_role",
+			"CREATE INDEX CONCURRENTLY idx_sessions_config_project_id_session_role ON sessions ((config->>'project_id'), (config->>'session_role'))"},
+		{"idx_sessions_config_provider_recovery_provider",
+			"CREATE INDEX CONCURRENTLY idx_sessions_config_provider_recovery_provider ON sessions ((config->'provider_recovery'->>'provider'))"},
+		// One interaction per agent-reported user entry: overlapping readers of
+		// a reconnecting agent can both pass the read-side dedupe in
+		// userEntryAlreadyRecorded, and this index makes the second insert fail
+		// (CreateInteraction reports it as ErrDuplicateExternalAgentUserEntry).
+		// The text is part of the key, matching the read-side rule: an index an
+		// agent restart renumbered can carry a genuinely new message. Partial,
+		// so turns Helix sent (no entry id) are unaffected.
+		{externalAgentUserEntryIndex,
+			"CREATE UNIQUE INDEX CONCURRENTLY " + externalAgentUserEntryIndex +
+				" ON interactions (session_id, generation_id, external_agent_user_thread_id, external_agent_user_entry_id, md5(prompt_message))" +
+				" WHERE external_agent_user_entry_id <> ''"},
+		// StepInfo and UsageMetric once declared these as GORM indexes named
+		// idx_app_interaction / idx_project_spec_task, names llm_calls already
+		// used, so they were never built and AutoMigrate re-issued them on
+		// every boot.
+		{"idx_step_infos_app_interaction",
+			"CREATE INDEX CONCURRENTLY idx_step_infos_app_interaction ON step_infos (app_id, interaction_id)"},
+		{"idx_usage_metrics_project_spec_task",
+			"CREATE INDEX CONCURRENTLY idx_usage_metrics_project_spec_task ON usage_metrics (project_id, spec_task_id)"},
+	} {
+		if err := s.migrationStep("index "+idx.name, func() error {
+			return s.createIndexConcurrently(ctx, idx.name, idx.ddl)
+		}); err != nil {
+			return err
+		}
+	}
+
+	for _, b := range []struct {
+		name string
+		fn   func(context.Context) error
+	}{
+		{"backfill apps.agent_kind", s.backfillAgentKinds},
+		{"backfill users.email_verified", s.backfillEmailVerified},
+		{"backfill sessions external_agent_id", s.backfillSessionAgentConnections},
+	} {
+		if err := s.migrationStep(b.name, func() error { return b.fn(ctx) }); err != nil {
+			return err
+		}
 	}
 
 	// Relax prompt_history_entries.spec_task_id / project_id to nullable. The
-	// queue is now session-scoped: general/system sends (org bots via
-	// POST /sessions/{id}/messages, and any non-spec-task session send) enqueue
-	// by session with no spec task. AutoMigrate does not reliably DROP NOT NULL,
-	// so do it explicitly. Idempotent — DROP NOT NULL on an already-nullable
-	// column is a no-op.
-	if s.gdb.Migrator().HasTable(&types.PromptHistoryEntry{}) {
-		if err := s.gdb.WithContext(context.Background()).Exec(
-			"ALTER TABLE prompt_history_entries ALTER COLUMN spec_task_id DROP NOT NULL, ALTER COLUMN project_id DROP NOT NULL",
-		).Error; err != nil {
-			return fmt.Errorf("failed to relax prompt_history_entries not-null constraints: %w", err)
+	// queue is session-scoped: general/system sends (org bots via
+	// POST /sessions/{id}/messages, and any non-spec-task session send)
+	// enqueue by session with no spec task. AutoMigrate does not reliably DROP
+	// NOT NULL, so do it explicitly, only while a column still has it.
+	if m.HasTable(&types.PromptHistoryEntry{}) {
+		if err := s.migrationStep("prompt_history_entries nullable ids", func() error {
+			for _, col := range []string{"spec_task_id", "project_id"} {
+				nullable, err := s.columnNullable(ctx, "prompt_history_entries", col)
+				if err != nil {
+					return err
+				}
+				if !nullable {
+					if err := s.gdb.WithContext(ctx).Exec(
+						"ALTER TABLE prompt_history_entries ALTER COLUMN " + col + " DROP NOT NULL").Error; err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 
-	// One-time data fix: backfill secret scope for rows created before the
-	// column existed. AutoMigrate adds the column with default 'dev', but
-	// pre-existing rows can end up NULL/empty depending on the driver, so we
-	// normalise them to 'dev' — the default scope, which also exactly preserves
-	// the pre-feature behaviour (project secrets were dev-only). Idempotent.
-	if s.gdb.Migrator().HasTable(&types.Secret{}) {
-		if err := s.gdb.WithContext(context.Background()).Exec(
-			"UPDATE secrets SET scope = 'dev' WHERE scope IS NULL OR scope = ''",
-		).Error; err != nil {
-			return fmt.Errorf("failed to backfill secret scope: %w", err)
+	// Backfill secret scope for rows created before the column existed.
+	// AutoMigrate adds the column with default 'dev', but pre-existing rows can
+	// end up NULL/empty depending on the driver; 'dev' is the default scope and
+	// preserves the pre-feature behaviour (project secrets were dev-only).
+	if m.HasTable(&types.Secret{}) {
+		if err := s.migrationStep("backfill secrets.scope", func() error {
+			return s.backfillRows(ctx, "secrets", "scope = 'dev'", nil, "scope IS NULL OR scope = ''")
+		}); err != nil {
+			return err
 		}
 	}
 
-	// One-time backfill: link pre-existing session-backed sandbox rows to the
-	// helix-org bot whose session owns them. New rows get org_bot_id from the
-	// executor at BeginSession; idempotent because the WHERE excludes rows
-	// already linked.
-	if s.gdb.Migrator().HasTable(&types.Sandbox{}) && s.gdb.Migrator().HasTable(&types.Session{}) {
-		if err := s.gdb.WithContext(context.Background()).Exec(
-			`UPDATE sandboxes SET org_bot_id = s.config->>'org_worker_id'
-			 FROM sessions s
-			 WHERE sandboxes.session_id = s.id
-			   AND COALESCE(sandboxes.org_bot_id, '') = ''
-			   AND COALESCE(s.config->>'org_worker_id', '') <> ''`,
-		).Error; err != nil {
-			return fmt.Errorf("failed to backfill sandboxes.org_bot_id: %w", err)
+	// Link pre-existing session-backed sandbox rows to the helix-org bot whose
+	// session owns them. New rows get org_bot_id from the executor at
+	// BeginSession.
+	if m.HasTable(&types.Sandbox{}) && m.HasTable(&types.Session{}) {
+		if err := s.migrationStep("backfill sandboxes.org_bot_id", func() error {
+			const unlinked = `FROM sandboxes sb JOIN sessions s ON sb.session_id = s.id
+				WHERE COALESCE(sb.org_bot_id, '') = '' AND COALESCE(s.config->>'org_worker_id', '') <> ''`
+			found, err := s.exists(ctx, "SELECT 1 "+unlinked)
+			if err != nil || !found {
+				return err
+			}
+			return s.execBatches(ctx, fmt.Sprintf(`
+				UPDATE sandboxes SET org_bot_id = s.config->>'org_worker_id'
+				FROM sessions s
+				WHERE sandboxes.session_id = s.id
+				  AND sandboxes.id IN (SELECT sb.id %s LIMIT %d)`, unlinked, backfillBatchSize))
+		}); err != nil {
+			return err
 		}
 	}
 
-	if err := s.encryptLegacyPlaintextSecrets(context.Background(), encryptLegacySecretsBatchSize); err != nil {
+	if err := s.migrationStep("encrypt legacy plaintext secrets", func() error {
+		return s.encryptLegacyPlaintextSecrets(ctx, encryptLegacySecretsBatchSize)
+	}); err != nil {
 		return err
 	}
 
-	if err := s.migrateGoldenBuildsFromProjectMetadata(context.Background()); err != nil {
-		return fmt.Errorf("failed to migrate golden build state out of project metadata: %w", err)
-	}
-
-	err = s.AutoMigrateRoleConfig(context.Background())
-	if err != nil {
+	if err := s.migrationStep("golden builds out of project metadata", func() error {
+		return s.migrateGoldenBuildsFromProjectMetadata(ctx)
+	}); err != nil {
 		return err
 	}
 
+	if err := s.migrationStep("role config", func() error {
+		return s.AutoMigrateRoleConfig(ctx)
+	}); err != nil {
+		return err
+	}
+
+	if err := s.migrationStep("foreign keys", func() error {
+		s.createFKs()
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// Ensure default project exists for spec tasks
+	if err := s.migrationStep("default project", func() error {
+		return s.ensureDefaultProject(ctx)
+	}); err != nil {
+		return err
+	}
+
+	// helix-org's org_* tables reference organizations, so they migrate last.
+	return s.migrationStep("helix-org tables", func() error {
+		return orggorm.Migrate(s.gdb, orggorm.Options{InstallOrganizationFK: true})
+	})
+}
+
+// createFKs installs the foreign keys AutoMigrate doesn't. A failure is
+// logged, not returned: the next migration retries it.
+func (s *PostgresStore) createFKs() {
 	if err := createFK(s.gdb, types.OrganizationMembership{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
@@ -553,19 +643,6 @@ func (s *PostgresStore) runMigrations() error {
 	if err := createFK(s.gdb, types.SandboxCacheState{}, types.Project{}, "project_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK for golden_builds -> projects")
 	}
-
-	// Ensure default project exists for spec tasks
-	if err := s.ensureDefaultProject(context.Background()); err != nil {
-		log.Err(err).Msg("failed to ensure default project exists")
-		return err
-	}
-
-	// helix-org's org_* tables reference organizations, so they migrate last.
-	if err := orggorm.Migrate(s.gdb, orggorm.Options{InstallOrganizationFK: true}); err != nil {
-		return fmt.Errorf("failed to migrate helix-org tables: %w", err)
-	}
-
-	return nil
 }
 
 type namedTable interface {
@@ -674,6 +751,7 @@ func (s *PostgresStore) MigrateUp() error {
 	if err != nil {
 		return err
 	}
+	defer migrations.Close()
 
 	err = migrations.Up()
 	if err != migrate.ErrNoChange {
@@ -712,6 +790,8 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 	if s.cfg.Schema != "" {
 		sqlSettings += fmt.Sprintf("&search_path=%s", s.cfg.Schema)
 	}
+	// lib/pq sends parameters it doesn't know as session settings.
+	sqlSettings += fmt.Sprintf("&lock_timeout=%d", migrationLockTimeout.Milliseconds())
 
 	connectionString := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?%s",
@@ -751,6 +831,8 @@ type connectConfig struct {
 	maxConns        int
 	maxConnIdleTime time.Duration
 	maxConnLifetime time.Duration
+	// lockTimeout, when set, is every connection's lock_timeout.
+	lockTimeout time.Duration
 }
 
 func connect(ctx context.Context, cfg connectConfig) (*gorm.DB, error) {
@@ -783,8 +865,15 @@ func connect(ctx context.Context, cfg connectConfig) (*gorm.DB, error) {
 			// unqualified table names within that schema. Without this, GORM's
 			// NamingStrategy{TablePrefix} can leak FK constraints into the public
 			// schema because the connection's search_path defaults to public.
+			var options []string
 			if cfg.schemaName != "" {
-				dsn += fmt.Sprintf(" options='-csearch_path=%s'", cfg.schemaName)
+				options = append(options, "-csearch_path="+cfg.schemaName)
+			}
+			if cfg.lockTimeout > 0 {
+				options = append(options, fmt.Sprintf("-clock_timeout=%d", cfg.lockTimeout.Milliseconds()))
+			}
+			if len(options) > 0 {
+				dsn += fmt.Sprintf(" options='%s'", strings.Join(options, " "))
 			}
 
 			dialector = gormpostgres.Open(dsn)

@@ -703,19 +703,28 @@ func (s *PostgresStore) backfillSessionAgentConnections(ctx context.Context) err
 	if !s.gdb.Migrator().HasTable(&types.Session{}) {
 		return nil
 	}
-	err := s.gdb.WithContext(ctx).Exec(`
-		UPDATE sessions s
-		SET config = jsonb_set(s.config::jsonb, '{external_agent_id}', to_jsonb(p.id))
-		FROM sessions p
-		WHERE p.id = s.parent_session
-		  AND COALESCE(s.parent_session, '') <> ''
+	// Sessions s missing the link to their parent agent session p.
+	const unlinked = `FROM sessions s JOIN sessions p ON p.id = s.parent_session
+		WHERE COALESCE(s.parent_session, '') <> ''
 		  AND p.id <> s.id
 		  AND COALESCE(s.config->>'spec_task_id', '') <> ''
 		  AND p.config->>'spec_task_id' = s.config->>'spec_task_id'
 		  AND COALESCE(s.config->>'zed_thread_id', '') <> ''
 		  AND COALESCE(s.config->>'external_agent_id', '') = ''
-		  AND s.deleted_at IS NULL
-	`).Error
+		  AND s.deleted_at IS NULL`
+	found, err := s.exists(ctx, "SELECT 1 "+unlinked)
+	if err != nil {
+		return fmt.Errorf("probe sessions.config.external_agent_id backfill: %w", err)
+	}
+	if !found {
+		return nil
+	}
+	err = s.execBatches(ctx, fmt.Sprintf(`
+		UPDATE sessions
+		SET config = jsonb_set(sessions.config::jsonb, '{external_agent_id}', to_jsonb(p.id))
+		FROM sessions p
+		WHERE p.id = sessions.parent_session
+		  AND sessions.id IN (SELECT s.id %s LIMIT %d)`, unlinked, backfillBatchSize))
 	if err != nil {
 		return fmt.Errorf("backfill sessions.config.external_agent_id: %w", err)
 	}

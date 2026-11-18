@@ -71,17 +71,13 @@ func (s *PostgresStore) backfillAgentKinds(ctx context.Context) error {
 	if !s.gdb.Migrator().HasTable(&types.App{}) {
 		return nil
 	}
-	if err := s.gdb.WithContext(ctx).Exec(
-		"UPDATE apps SET agent_kind = ? WHERE agent_kind IS NULL OR agent_kind = ''",
-		types.AgentKindHelix,
-	).Error; err != nil {
+	if err := s.backfillRows(ctx, "apps", "agent_kind = ?", []any{types.AgentKindHelix},
+		"agent_kind IS NULL OR agent_kind = ''"); err != nil {
 		return fmt.Errorf("backfill empty agent kinds: %w", err)
 	}
-	if err := s.gdb.WithContext(ctx).Exec(`
-		UPDATE apps
-		SET agent_kind = ?
-		WHERE agent_kind = ?
-		  AND (
+	if err := s.backfillRows(ctx, "apps", "agent_kind = ?", []any{types.AgentKindCoding}, `
+		agent_kind = ?
+		AND (
 			config::jsonb -> 'helix' ->> 'default_agent_type' = ?
 			OR EXISTS (
 				SELECT 1
@@ -90,8 +86,7 @@ func (s *PostgresStore) backfillAgentKinds(ctx context.Context) error {
 				) AS assistant
 				WHERE assistant ->> 'agent_type' = ?
 			)
-		  )
-	`, types.AgentKindCoding, types.AgentKindHelix, types.AgentTypeZedExternal, types.AgentTypeZedExternal).Error; err != nil {
+		)`, types.AgentKindHelix, types.AgentTypeZedExternal, types.AgentTypeZedExternal); err != nil {
 		return fmt.Errorf("backfill coding agent kinds: %w", err)
 	}
 	return nil

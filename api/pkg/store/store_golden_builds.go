@@ -107,6 +107,10 @@ func (s *PostgresStore) DeleteGoldenBuilds(ctx context.Context, projectID string
 // live in projects.metadata.docker_cache_status into golden_builds. Idempotent:
 // it only touches projects that still carry the old key.
 func (s *PostgresStore) migrateGoldenBuildsFromProjectMetadata(ctx context.Context) error {
+	found, err := s.exists(ctx, `SELECT 1 FROM projects WHERE metadata ? 'docker_cache_status'`)
+	if err != nil || !found {
+		return err
+	}
 	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`
 			INSERT INTO golden_builds (project_id, sandbox_id, status, size_bytes, last_build_at, last_ready_at, build_session_id, error, attempt, pending_rebuild, updated)

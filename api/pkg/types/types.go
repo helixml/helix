@@ -1202,12 +1202,14 @@ const (
 )
 
 type StepInfo struct {
-	ID            string          `json:"id" gorm:"primaryKey"`
-	Created       time.Time       `json:"created"`
-	Updated       time.Time       `json:"updated"`
-	AppID         string          `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
+	ID      string    `json:"id" gorm:"primaryKey"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// (app_id, interaction_id) is indexed by idx_step_infos_app_interaction,
+	// built CONCURRENTLY in store.runMigrations.
+	AppID         string          `json:"app_id"`
 	SessionID     string          `json:"session_id" gorm:"index"`
-	InteractionID string          `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
+	InteractionID string          `json:"interaction_id"`
 	Name          string          `json:"name"`
 	Icon          string          `json:"icon"` // Either Material UI icon, emoji or SVG. Leave empty for default
 	Type          StepInfoType    `json:"type"`
@@ -3108,16 +3110,19 @@ const (
 )
 
 type UsageMetric struct {
-	ID                string            `json:"id" gorm:"primaryKey"`
-	Created           time.Time         `json:"created" gorm:"index:idx_app_time,priority:2;index:idx_org_created,priority:2"`
-	Date              time.Time         `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
-	AppID             string            `json:"app_id" gorm:"index:idx_app_time,priority:1"`
-	OrganizationID    string            `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
-	InteractionID     string            `json:"interaction_id" gorm:"index"`
-	SessionID         string            `json:"session_id" gorm:"index"`
-	CodeAgentRuntime  CodeAgentRuntime  `json:"code_agent_runtime" gorm:"index"`
-	ProjectID         string            `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
-	SpecTaskID        string            `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
+	ID               string           `json:"id" gorm:"primaryKey"`
+	Created          time.Time        `json:"created" gorm:"index:idx_app_time,priority:2;index:idx_org_created,priority:2"`
+	Date             time.Time        `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
+	AppID            string           `json:"app_id" gorm:"index:idx_app_time,priority:1"`
+	OrganizationID   string           `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
+	InteractionID    string           `json:"interaction_id" gorm:"index"`
+	SessionID        string           `json:"session_id" gorm:"index"`
+	CodeAgentRuntime CodeAgentRuntime `json:"code_agent_runtime" gorm:"index"`
+	// (project_id, spec_task_id) is indexed by
+	// idx_usage_metrics_project_spec_task, built CONCURRENTLY in
+	// store.runMigrations.
+	ProjectID         string            `json:"project_id"`
+	SpecTaskID        string            `json:"spec_task_id"`
 	UserID            string            `json:"user_id" gorm:"index"`
 	Provider          string            `json:"provider"`
 	Model             string            `json:"model"`
