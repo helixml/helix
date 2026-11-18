@@ -223,7 +223,8 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
         </Box>
         {action}
       </Box>
-      <Box sx={{ height: chartHeight, width: '100%' }}>
+      {/* Phones get shorter plots: most usage charts hold a handful of points. */}
+      <Box sx={{ height: { xs: Math.min(chartHeight, 170), sm: chartHeight }, width: '100%' }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <Chart data={data} margin={{ top: 10, right: 12, left: 16, bottom: 0 }}>
@@ -348,7 +349,8 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
             px: 0.5,
           }}
         >
-          {series.map(s => (
+          {/* Only series with data in range: a legend entry with nothing plotted reads as a missing line. */}
+          {series.filter(s => data.some(d => (Number(d[s.key]) || 0) > 0 || (zeroIsData && d[s.key] != null))).map(s => (
             <Box
               key={s.key}
               sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: '0 0 auto' }}

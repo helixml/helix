@@ -295,6 +295,35 @@ const UsagePanel: FC<{ children: React.ReactNode }> = ({ children }) => (
   </Paper>
 )
 
+// ResponsiveTable is a breakdown table on tablets and desktops and, on a
+// phone, one block per row: the name, then every other column as a labelled
+// value (cost and tokens first, as in the table), so nothing is clipped.
+const ResponsiveTable: FC<{ fields: ITableField[]; data: Record<string, any>[]; loading?: boolean }> = ({ fields, data, loading }) => {
+  const [nameField, ...valueFields] = fields
+  return (
+    <>
+      <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+        <TableScroll><SimpleTable authenticated fields={fields} data={data} compact loading={loading} /></TableScroll>
+      </Box>
+      <Box sx={{ display: { xs: 'block', sm: 'none' } }}>
+        {data.map((row, i) => (
+          <Box key={row.id ?? i} sx={{ py: 1.25, borderTop: i ? '1px solid' : 'none', borderColor: 'divider', minWidth: 0 }}>
+            <Box sx={{ minWidth: 0, overflow: 'hidden', '& p': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}>{row[nameField.name]}</Box>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 2, rowGap: 0.25, mt: 0.5 }}>
+              {valueFields.map(f => (
+                <Box key={f.name} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, minWidth: 0 }}>
+                  <Typography variant="caption" color="text.secondary" noWrap>{f.title}</Typography>
+                  <Box sx={{ minWidth: 0, textAlign: 'right', '& p': { fontSize: '0.8125rem' } }}>{row[f.name]}</Box>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        ))}
+      </Box>
+    </>
+  )
+}
+
 // BreakdownTable collapses an empty breakdown to one muted line instead of a
 // table header, "No data" row and pagination footer.
 const BreakdownTable: FC<{ empty: string; rows: unknown[]; loading?: boolean; children: React.ReactNode }> = ({ empty, rows, loading, children }) => (
@@ -1233,7 +1262,7 @@ const OrgUsage: FC = () => {
 
                   <UsagePanel>
                     <UsageSection title="Model breakdown">
-                      <TableScroll><SimpleTable authenticated fields={modelOverviewFields} data={modelOverviewRows} compact /></TableScroll>
+                      <ResponsiveTable fields={modelOverviewFields} data={modelOverviewRows} />
                     </UsageSection>
                   </UsagePanel>
 
@@ -1354,7 +1383,7 @@ const OrgUsage: FC = () => {
                     {computeSandboxRows.length > 0 && (
                       <UsagePanel>
                         <UsageSection title="Sandbox breakdown">
-                          <TableScroll><SimpleTable authenticated fields={computeSandboxFields} data={computeSandboxRows} compact /></TableScroll>
+                          <ResponsiveTable fields={computeSandboxFields} data={computeSandboxRows} />
                         </UsageSection>
                       </UsagePanel>
                     )}
@@ -1369,7 +1398,7 @@ const OrgUsage: FC = () => {
                   <UsagePanel>
                     <UsageSection title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
                       <BreakdownTable empty="No projects in this range." loading={isScopedLoading('projects')} rows={tableRows.projects}>
-                        <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} /></TableScroll>
+                        <ResponsiveTable fields={baseFields} data={tableRows.projects} loading={isScopedLoading('projects')} />
                       </BreakdownTable>
                       {(usage.data?.projects_total || 0) > projectRowsPerPage && (<TablePagination
                         component="div"
@@ -1393,7 +1422,7 @@ const OrgUsage: FC = () => {
                   <UsagePanel>
                     <UsageSection title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
                       <BreakdownTable empty="No agents in this range." rows={tableRows.apps}>
-                        <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact /></TableScroll>
+                        <ResponsiveTable fields={baseFields} data={tableRows.apps} />
                       </BreakdownTable>
                     </UsageSection>
                   </UsagePanel>
@@ -1401,7 +1430,7 @@ const OrgUsage: FC = () => {
                   <UsagePanel>
                     <UsageSection title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
                       <BreakdownTable empty="No tasks in this range." loading={isScopedLoading('tasks')} rows={tableRows.tasks}>
-                        <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} /></TableScroll>
+                        <ResponsiveTable fields={baseFields} data={tableRows.tasks} loading={isScopedLoading('tasks')} />
                       </BreakdownTable>
                       {(usage.data?.tasks_total || 0) > taskRowsPerPage && (<TablePagination
                         component="div"
@@ -1425,7 +1454,7 @@ const OrgUsage: FC = () => {
                   <UsagePanel>
                     <UsageSection title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
                       <BreakdownTable empty="No sessions in this range." loading={isScopedLoading('sessions')} rows={tableRows.sessions}>
-                        <TableScroll><SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} /></TableScroll>
+                        <ResponsiveTable fields={sessionFields} data={tableRows.sessions} loading={isScopedLoading('sessions')} />
                       </BreakdownTable>
                       {(usage.data?.sessions_total || 0) > sessionRowsPerPage && (<TablePagination
                         component="div"
@@ -1470,7 +1499,7 @@ const OrgUsage: FC = () => {
                         }}
                       />
                       <BreakdownTable empty="No users in this range." loading={isScopedLoading('users')} rows={tableRows.users}>
-                        <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} /></TableScroll>
+                        <ResponsiveTable fields={baseFields} data={tableRows.users} loading={isScopedLoading('users')} />
                       </BreakdownTable>
                       {(usage.data?.users_total || 0) > userRowsPerPage && (<TablePagination
                         component="div"

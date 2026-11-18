@@ -206,7 +206,14 @@ const describe = (r?: SessionResources | null) => {
   if (!s || s.samples === 0) return 'CPU, memory, I/O and disk of this session\'s sandbox, sampled every 30 seconds.'
   const cpu = s.cpu_limit_cores > 0 ? `${formatCores(s.cpu_limit_cores)} CPU` : 'unlimited CPU'
   const mem = s.memory_limit_bytes > 0 ? `${formatBytes(s.memory_limit_bytes)} memory` : 'unlimited memory'
-  return `Sampled every 30 seconds · ${s.samples} samples · limits ${cpu}, ${mem} · peak memory since start ${formatBytes(s.memory_peak_bytes)}`
+  const from = new Date(s.from)
+  const to = new Date(s.to)
+  const time: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' }
+  const day: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+  const span = from.toDateString() === to.toDateString()
+    ? `${from.toLocaleDateString(undefined, day)}, ${from.toLocaleTimeString(undefined, time)} – ${to.toLocaleTimeString(undefined, time)}`
+    : `${from.toLocaleDateString(undefined, day)} – ${to.toLocaleDateString(undefined, day)}`
+  return `${s.samples} samples, ${span}, every 30 seconds · limits ${cpu}, ${mem} · peak memory since start ${formatBytes(s.memory_peak_bytes)}`
 }
 
 const SessionResourcesPanel: FC<{ sessionId: string }> = ({ sessionId }) => {
