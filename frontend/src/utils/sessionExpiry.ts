@@ -68,6 +68,7 @@ export function createSessionExpiryHandler(deps: SessionExpiryDeps, origin = '')
     setRouteName(name: string | undefined) {
       routeName = name
     },
+    // Config can be undefined during startup; plain /login is the accepted fallback.
     setAuthProvider(provider: string | undefined) {
       authProvider = provider
     },
