@@ -302,8 +302,9 @@ const ResponsiveTable: FC<{ fields: ITableField[]; data: Record<string, any>[]; 
             <Box sx={{ minWidth: 0, overflow: 'hidden', '& p': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}>{row[nameField.name]}</Box>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 2, rowGap: 0.25, mt: 0.5 }}>
               {valueFields.map(f => (
-                <Box key={f.name} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, minWidth: 0 }}>
-                  <Typography variant="caption" color="text.secondary" noWrap>{f.title}</Typography>
+                // Text values (project, kind) take the full row; numbers pair up two per row.
+                <Box key={f.name} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, minWidth: 0, gridColumn: f.numeric ? 'auto' : '1 / -1' }}>
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ flexShrink: 0 }}>{f.title}</Typography>
                   <Box sx={{ minWidth: 0, textAlign: 'right', '& p': { fontSize: '0.8125rem' } }}>{row[f.name]}</Box>
                 </Box>
               ))}
