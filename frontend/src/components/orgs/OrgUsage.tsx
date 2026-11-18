@@ -9,6 +9,7 @@ import TextField from '@mui/material/TextField'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import TablePagination from '@mui/material/TablePagination'
+import { alpha } from '@mui/material/styles'
 import InputAdornment from '@mui/material/InputAdornment'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
@@ -109,7 +110,9 @@ const currentSearchParams = () => new URLSearchParams(window.location.search)
 
 const formatMs = (value?: number) => `${Math.round(value ?? 0).toLocaleString()} ms`
 
-const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString() : '-'
+const formatDateTime = (value?: string) => value
+  ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  : '-'
 
 const filterOptionLabel = (option: TypesUsageFilterOption) => {
   const label = option.name || option.model || option.provider || option.id || ''
@@ -292,10 +295,40 @@ const UsagePanel: FC<{ children: React.ReactNode }> = ({ children }) => (
   </Paper>
 )
 
+// BreakdownTable collapses an empty breakdown to one muted line instead of a
+// table header, "No data" row and pagination footer.
+const BreakdownTable: FC<{ empty: string; rows: unknown[]; loading?: boolean; children: React.ReactNode }> = ({ empty, rows, loading, children }) => (
+  rows.length === 0 && !loading
+    ? <Typography variant="body2" color="text.secondary">{empty}</Typography>
+    : <>{children}</>
+)
+
 // TableScroll lets wide breakdown tables scroll sideways on narrow screens
 // instead of being clipped by their card.
+// Edge shadows (attached to the content vs the box) appear only while more
+// columns are scrolled out of view.
 const TableScroll: FC<{ children: React.ReactNode }> = ({ children }) => (
-  <Box sx={{ overflowX: 'auto', mx: -2, px: 2, '& th, & td': { whiteSpace: 'nowrap' }, '& td:first-of-type': { whiteSpace: 'normal', minWidth: 160 } }}>{children}</Box>
+  <Box
+    sx={theme => {
+      const paper = theme.palette.background.paper
+      const shade = alpha(theme.palette.text.primary, 0.12)
+      return {
+        overflowX: 'auto',
+        mx: -2,
+        px: 2,
+        background: `linear-gradient(to right, ${paper} 30%, ${alpha(paper, 0)}) left center / 32px 100% no-repeat local,
+          linear-gradient(to left, ${paper} 30%, ${alpha(paper, 0)}) right center / 32px 100% no-repeat local,
+          radial-gradient(farthest-side at 0 50%, ${shade}, transparent) left center / 10px 100% no-repeat scroll,
+          radial-gradient(farthest-side at 100% 50%, ${shade}, transparent) right center / 10px 100% no-repeat scroll`,
+        '& .MuiTableContainer-root, & .MuiPaper-root, & table': { background: 'transparent', boxShadow: 'none' },
+        '& th, & td': { whiteSpace: 'nowrap', px: 1.25 },
+        '& td:first-of-type': { maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' },
+        '& td:first-of-type p, & td:first-of-type span': { overflow: 'hidden', textOverflow: 'ellipsis' },
+      }
+    }}
+  >
+    {children}
+  </Box>
 )
 
 const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = ({ filename, rows }) => (
@@ -320,16 +353,18 @@ const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = 
   </Stack>
 )
 
+// Cost and total tokens sit next to the name: they are what a breakdown is
+// read for, and on a phone they stay in view before the table scrolls.
 const baseFields: ITableField[] = [
   { name: 'name', title: 'Name' },
+  { name: 'cost', title: 'Cost', numeric: true },
+  { name: 'total', title: 'Tokens', numeric: true },
   { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'sessions', title: 'Sessions', numeric: true },
   { name: 'input', title: 'Input', numeric: true },
   { name: 'output', title: 'Output', numeric: true },
   { name: 'cache', title: 'Cache read', numeric: true },
   { name: 'cacheHit', title: 'Hit ratio', numeric: true },
-  { name: 'total', title: 'Total', numeric: true },
-  { name: 'cost', title: 'Cost', numeric: true },
   { name: 'latency', title: 'Latency', numeric: true },
 ]
 
@@ -354,15 +389,15 @@ const computeSandboxFields: ITableField[] = [
 
 const sessionFields: ITableField[] = [
   { name: 'name', title: 'Session' },
+  { name: 'cost', title: 'Cost', numeric: true },
+  { name: 'total', title: 'Tokens', numeric: true },
+  { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'users', title: 'Users', numeric: true },
   { name: 'projects', title: 'Projects', numeric: true },
-  { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'input', title: 'Input', numeric: true },
   { name: 'output', title: 'Output', numeric: true },
   { name: 'cache', title: 'Cache read', numeric: true },
   { name: 'cacheHit', title: 'Hit ratio', numeric: true },
-  { name: 'total', title: 'Total', numeric: true },
-  { name: 'cost', title: 'Cost', numeric: true },
   { name: 'lastActivity', title: 'Last activity' },
 ]
 
@@ -381,14 +416,14 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
           }}
           style={{ color: 'inherit', textDecoration: 'none' }}
         >
-          <Typography variant="body2" sx={{ fontWeight: 600, '&:hover': { textDecoration: 'underline' } }}>{row.name || row.id || 'Unknown'}</Typography>
+          <Typography variant="body2" title={row.name || row.id} sx={{ fontWeight: 600, '&:hover': { textDecoration: 'underline' } }}>{row.name || row.id || 'Unknown'}</Typography>
         </a>
       ) : (
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.name || row.id || 'Unknown'}</Typography>
+        <Typography variant="body2" title={row.name || row.id} sx={{ fontWeight: 600 }}>{row.name || row.id || 'Unknown'}</Typography>
       )}
       {(row.email || row.username) && (
         <Typography variant="caption" color="text.secondary">
-          {[row.email, row.username].filter(Boolean).join(' · ')}
+          {[...new Set([row.email, row.username].filter(Boolean))].join(' · ')}
         </Typography>
       )}
       {row.model && !withProvider && (
@@ -403,12 +438,13 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
   projects: <Typography variant="body2">{formatNumber(row.unique_projects)}</Typography>,
   sessions: <Typography variant="body2">{formatNumber(row.session_count)}</Typography>,
   requests: <Typography variant="body2">{formatNumber(row.total_requests)}</Typography>,
-  input: <Typography variant="body2">{formatNumber(getTotalInputTokens(row))}</Typography>,
-  output: <Typography variant="body2">{formatNumber(row.completion_tokens)}</Typography>,
-  cache: <Typography variant="body2">{formatNumber(row.cache_read_tokens)}</Typography>,
-  cacheHit: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatPercent(getCacheHitRatio(row))}</Typography>,
-  total: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatNumber(row.total_tokens)}</Typography>,
-  cost: <Typography variant="body2">{formatCost(row.total_cost)}</Typography>,
+  // Token counts are compact (20.4M) with the exact count on hover; exports keep exact values.
+  input: <Typography variant="body2" title={formatNumber(getTotalInputTokens(row))}>{formatCompact(getTotalInputTokens(row))}</Typography>,
+  output: <Typography variant="body2" title={formatNumber(row.completion_tokens)}>{formatCompact(row.completion_tokens)}</Typography>,
+  cache: <Typography variant="body2" title={formatNumber(row.cache_read_tokens)}>{formatCompact(row.cache_read_tokens)}</Typography>,
+  cacheHit: <Typography variant="body2">{formatPercent(getCacheHitRatio(row))}</Typography>,
+  total: <Typography variant="body2" title={formatNumber(row.total_tokens)}>{formatCompact(row.total_tokens)}</Typography>,
+  cost: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatCost(row.total_cost)}</Typography>,
   latency: <Typography variant="body2">{formatMs(row.latency_ms)}</Typography>,
   lastActivity: <Typography variant="body2" color="text.secondary">{formatDateTime(row.last_activity_at)}</Typography>,
 })
@@ -1115,8 +1151,7 @@ const OrgUsage: FC = () => {
             ) : (
               <>
                 <OverviewStatStrip columns={6}>
-                  <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail="Metered token charges" />
-                  <OverviewStat emphasis label="API-rate token cost" value={formatCost(rawTokenCost)} detail="At model list prices" />
+                  <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail={`≈ ${formatCost(rawTokenCost)} at API rates`} />
                   <OverviewStat
                     emphasis
                     label="Sandbox compute"
@@ -1126,6 +1161,12 @@ const OrgUsage: FC = () => {
                   <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
                   <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
                   <OverviewStat emphasis label="Cache savings" value={formatCost(cacheSavings)} detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× API-rate cost` : 'vs full input rates'} />
+                  <OverviewStat
+                    emphasis
+                    label="Subscription savings"
+                    value={formatCost(subscriptionSavings)}
+                    detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost` : 'No subscription usage'}
+                  />
                 </OverviewStatStrip>
 
                 <UsageGroup
@@ -1183,11 +1224,7 @@ const OrgUsage: FC = () => {
                   <OverviewStatStrip columns={4}>
                     <OverviewStat label="Tokens per call" value={formatCompact(totals.requests > 0 ? totals.total / totals.requests : 0)} detail={`Across ${formatNumber(totals.requests)} LLM calls`} />
                     <OverviewStat label="Tokens per active day" value={formatCompact(averageTokens)} detail={`${activeDays} ${activeDays === 1 ? 'day' : 'days'} with LLM calls`} />
-                    <OverviewStat
-                      label="Subscription savings"
-                      value={formatCost(subscriptionSavings)}
-                      detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost avoided` : 'No subscription usage'}
-                    />
+                    <OverviewStat label="API-rate token cost" value={formatCost(rawTokenCost)} detail="At model list prices" />
                     <OverviewStat label="Cached input tokens" value={formatCompact(totals.cacheRead)} detail={`${formatPercent(cachedShare)} of observed input`} />
                   </OverviewStatStrip>
                   <Typography variant="caption" color="text.secondary">
@@ -1331,8 +1368,10 @@ const OrgUsage: FC = () => {
                   <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
                   <UsagePanel>
                     <UsageSection title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
-                      <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} /></TableScroll>
-                      <TablePagination
+                      <BreakdownTable empty="No projects in this range." loading={isScopedLoading('projects')} rows={tableRows.projects}>
+                        <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} /></TableScroll>
+                      </BreakdownTable>
+                      {(usage.data?.projects_total || 0) > projectRowsPerPage && (<TablePagination
                         component="div"
                         count={usage.data?.projects_total || 0}
                         page={projectPage}
@@ -1347,20 +1386,24 @@ const OrgUsage: FC = () => {
                           setProjectPage(0)
                         }}
                         rowsPerPageOptions={[10, 25, 50, 100]}
-                      />
+                      />)}
                     </UsageSection>
                   </UsagePanel>
 
                   <UsagePanel>
                     <UsageSection title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
-                      <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact /></TableScroll>
+                      <BreakdownTable empty="No agents in this range." rows={tableRows.apps}>
+                        <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact /></TableScroll>
+                      </BreakdownTable>
                     </UsageSection>
                   </UsagePanel>
 
                   <UsagePanel>
                     <UsageSection title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
-                      <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} /></TableScroll>
-                      <TablePagination
+                      <BreakdownTable empty="No tasks in this range." loading={isScopedLoading('tasks')} rows={tableRows.tasks}>
+                        <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} /></TableScroll>
+                      </BreakdownTable>
+                      {(usage.data?.tasks_total || 0) > taskRowsPerPage && (<TablePagination
                         component="div"
                         count={usage.data?.tasks_total || 0}
                         page={taskPage}
@@ -1375,14 +1418,16 @@ const OrgUsage: FC = () => {
                           setTaskPage(0)
                         }}
                         rowsPerPageOptions={[10, 25, 50, 100]}
-                      />
+                      />)}
                     </UsageSection>
                   </UsagePanel>
 
                   <UsagePanel>
                     <UsageSection title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
-                      <TableScroll><SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} /></TableScroll>
-                      <TablePagination
+                      <BreakdownTable empty="No sessions in this range." loading={isScopedLoading('sessions')} rows={tableRows.sessions}>
+                        <TableScroll><SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} /></TableScroll>
+                      </BreakdownTable>
+                      {(usage.data?.sessions_total || 0) > sessionRowsPerPage && (<TablePagination
                         component="div"
                         count={usage.data?.sessions_total || 0}
                         page={sessionPage}
@@ -1397,7 +1442,7 @@ const OrgUsage: FC = () => {
                           setSessionPage(0)
                         }}
                         rowsPerPageOptions={[10, 25, 50, 100]}
-                      />
+                      />)}
                     </UsageSection>
                   </UsagePanel>
 
@@ -1424,8 +1469,10 @@ const OrgUsage: FC = () => {
                           ),
                         }}
                       />
-                      <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} /></TableScroll>
-                      <TablePagination
+                      <BreakdownTable empty="No users in this range." loading={isScopedLoading('users')} rows={tableRows.users}>
+                        <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} /></TableScroll>
+                      </BreakdownTable>
+                      {(usage.data?.users_total || 0) > userRowsPerPage && (<TablePagination
                         component="div"
                         count={usage.data?.users_total || 0}
                         page={userPage}
@@ -1440,7 +1487,7 @@ const OrgUsage: FC = () => {
                           setUserPage(0)
                         }}
                         rowsPerPageOptions={[10, 25, 50, 100]}
-                      />
+                      />)}
                     </UsageSection>
                   </UsagePanel>
                 </UsageGroup>

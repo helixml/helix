@@ -5,6 +5,7 @@ import TextField from '@mui/material/TextField'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
+import { alpha } from '@mui/material/styles'
 
 // Building blocks shared by the org usage pages (LLM usage, web search), so
 // they read as one system: header with range controls, headline number,
@@ -47,8 +48,10 @@ export const UsageRangeControls: FC<{
       <ToggleButton value="30d">30D</ToggleButton>
       <ToggleButton value="90d">90D</ToggleButton>
     </ToggleButtonGroup>
-    <TextField size="small" label="From" type="date" value={from} onChange={e => onFromChange(e.target.value)} InputLabelProps={{ shrink: true }} />
-    <TextField size="small" label="To" type="date" value={to} onChange={e => onToChange(e.target.value)} InputLabelProps={{ shrink: true }} />
+    <Stack direction="row" spacing={1}>
+      <TextField size="small" label="From" type="date" value={from} onChange={e => onFromChange(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ flex: 1, minWidth: 0 }} />
+      <TextField size="small" label="To" type="date" value={to} onChange={e => onToChange(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ flex: 1, minWidth: 0 }} />
+    </Stack>
   </Stack>
 )
 
@@ -94,7 +97,17 @@ export const UsageShareRow: FC<{
 export const OverviewStat: FC<{ label: string; value: string; detail: string; emphasis?: boolean; primary?: boolean }> = ({
   label, value, detail, emphasis, primary,
 }) => (
-  <Box sx={{ bgcolor: primary ? 'action.hover' : 'background.paper', px: 2, py: 1.5, minWidth: 0 }}>
+  <Box
+    sx={{
+      bgcolor: 'background.paper',
+      // Painted over the opaque paper: the strip's 1px gaps are its grey background.
+      backgroundImage: primary ? (theme => `linear-gradient(${alpha(theme.palette.text.primary, 0.035)}, ${alpha(theme.palette.text.primary, 0.035)})`) : 'none',
+      boxShadow: primary ? (theme => `inset 3px 0 0 ${theme.palette.text.primary}`) : 'none',
+      px: 2,
+      py: 1.5,
+      minWidth: 0,
+    }}
+  >
     <Typography
       variant="caption"
       color={primary ? 'text.primary' : 'text.secondary'}
