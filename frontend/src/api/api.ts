@@ -749,6 +749,13 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface HosthistorySample {
+  cpu?: number;
+  disk?: number;
+  memory?: number;
+  timestamp?: number;
+}
+
 export interface HydraContainerBlkioStats {
   read_bytes?: number;
   session_id?: string;
@@ -8821,6 +8828,7 @@ export interface TypesSystemSettingsRequest {
   kodit_vision_embedding_model?: string;
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
+  llm_payload_retention_days?: number;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
   onboarding_helix_model?: string;
@@ -8864,6 +8872,7 @@ export interface TypesSystemSettingsResponse {
   kodit_vision_embedding_model_set?: boolean;
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
+  llm_payload_retention_days?: number;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
   onboarding_helix_model?: string;
@@ -14785,6 +14794,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      */
     v1LlmCallsList: (
       query?: {
+        /** Omit request and response bodies */
+        metadata_only?: boolean;
+        /** Filter by call ID */
+        call_id?: string;
         /** Page number */
         page?: number;
         /** Page size */
@@ -21495,6 +21508,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<string, any>({
         path: `/api/v1/subscription/new`,
         method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags system
+     * @name V1SystemHostHistoryList
+     * @summary Get API host CPU, memory and data filesystem utilization
+     * @request GET:/api/v1/system/host-history
+     * @secure
+     */
+    v1SystemHostHistoryList: (
+      query?: {
+        /** Days of history (1 through 30) */
+        days?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HosthistorySample[], any>({
+        path: `/api/v1/system/host-history`,
+        method: "GET",
         query: query,
         secure: true,
         ...params,

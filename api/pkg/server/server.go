@@ -36,6 +36,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/crypto"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/hosthistory"
 	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
@@ -899,6 +900,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		go apiServer.runSecretIntakeReaper(ctx)
 	}
 
+	go func() {
+		if err := hosthistory.Run(ctx, apiServer.hostHistoryDir()); err != nil {
+			log.Error().Err(err).Msg("host resource collector stopped")
+		}
+	}()
 	// Request audit trail sinks: batched Postgres inserts and daily retention.
 	if apiServer.requestAudit != nil {
 		go apiServer.requestAudit.Run(ctx)
@@ -1605,6 +1611,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter.HandleFunc("/model-info/{id:.*}", apiServer.deleteDynamicModelInfo).Methods(http.MethodDelete)
 
 	// System settings - only admins can access
+	adminRouter.HandleFunc("/system/host-history", apiServer.getHostHistory).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/system/settings", apiServer.getSystemSettings).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/system/settings", apiServer.updateSystemSettings).Methods(http.MethodPut)
 

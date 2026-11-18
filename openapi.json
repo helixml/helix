@@ -10951,6 +10951,22 @@
                 "summary": "List LLM calls",
                 "parameters": [
                     {
+                        "description": "Omit request and response bodies",
+                        "name": "metadata_only",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "Filter by call ID",
+                        "name": "call_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "description": "Page number",
                         "name": "page",
                         "in": "query",
@@ -28407,6 +28423,44 @@
                 }
             }
         },
+        "/api/v1/system/host-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Get API host CPU, memory and data filesystem utilization",
+                "parameters": [
+                    {
+                        "description": "Days of history (1 through 30)",
+                        "name": "days",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/hosthistory.Sample"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/system/settings": {
             "get": {
                 "security": [
@@ -32431,6 +32485,23 @@
                     "valid": {
                         "description": "Valid is true if Time is not NULL",
                         "type": "boolean"
+                    }
+                }
+            },
+            "hosthistory.Sample": {
+                "type": "object",
+                "properties": {
+                    "cpu": {
+                        "type": "number"
+                    },
+                    "disk": {
+                        "type": "number"
+                    },
+                    "memory": {
+                        "type": "number"
+                    },
+                    "timestamp": {
+                        "type": "integer"
                     }
                 }
             },
@@ -49529,6 +49600,9 @@
                         "description": "Kodit vision embedding model configuration",
                         "type": "string"
                     },
+                    "llm_payload_retention_days": {
+                        "type": "integer"
+                    },
                     "max_concurrent_desktop_sandboxes": {
                         "type": "integer"
                     },
@@ -49641,6 +49715,9 @@
                     "kodit_vision_embedding_provider": {
                         "description": "Kodit vision embedding model configuration",
                         "type": "string"
+                    },
+                    "llm_payload_retention_days": {
+                        "type": "integer"
                     },
                     "max_concurrent_desktop_sandboxes": {
                         "type": "integer"

@@ -196,6 +196,7 @@ func TestRedactPath(t *testing.T) {
 
 func TestIsSensitiveBodyRoute(t *testing.T) {
 	sensitive := []string{
+		"/api/v1/system/settings",
 		"/api/v1/secrets",
 		"/api/v1/secrets/sec_1",
 		"/api/v1/projects/prj_1/secrets",

@@ -56,12 +56,28 @@ func (s *PostgresStore) GetEffectiveSystemSettings(ctx context.Context) (*types.
 
 // UpdateSystemSettings updates the global system settings
 func (s *PostgresStore) UpdateSystemSettings(ctx context.Context, req *types.SystemSettingsRequest) (*types.SystemSettings, error) {
-	// Get existing settings
+	var settings *types.SystemSettings
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		locked := *s
+		locked.gdb = tx.Clauses(clause.Locking{Strength: "UPDATE"})
+		var err error
+		settings, err = locked.applySystemSettings(ctx, req)
+		return err
+	})
+	return settings, err
+}
+func (s *PostgresStore) applySystemSettings(ctx context.Context, req *types.SystemSettingsRequest) (*types.SystemSettings, error) {
+	if err := req.ValidateLLMPayloadRetention(); err != nil {
+		return nil, err
+	}
 	settings, err := s.GetSystemSettings(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	if req.LLMPayloadRetentionDays != nil {
+		settings.LLMPayloadRetentionDays = *req.LLMPayloadRetentionDays
+	}
 	// Update only provided fields
 	if req.HuggingFaceToken != nil {
 		settings.HuggingFaceToken = *req.HuggingFaceToken
