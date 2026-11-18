@@ -274,8 +274,17 @@ const URL_TASK_VIEWS: readonly TaskView[] = [
   "details",
 ];
 
-const isUrlTaskView = (view: string | undefined): view is TaskView =>
-  !!view && (URL_TASK_VIEWS as readonly string[]).includes(view);
+// Views a restricted embed (?controls=0) never shows, even when asked for by
+// URL: Usage exposes spend.
+const CONTROL_VIEWS: readonly TaskView[] = ["usage"];
+
+/** The view a `?view=` parameter selects, or undefined when it selects none. */
+export const allowedUrlView = (view: string | undefined, hideControls: boolean): TaskView | undefined => {
+  const known = !!view && (URL_TASK_VIEWS as readonly string[]).includes(view);
+  if (!known) return undefined;
+  if (hideControls && (CONTROL_VIEWS as readonly string[]).includes(view)) return undefined;
+  return view as TaskView;
+};
 
 // What hideControls switches off on the view toolbar.
 const embedControlOverrides = {
@@ -555,9 +564,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     if (!syncViewWithUrl) {
       return initialView || "desktop";
     }
-    const viewParam = router.params.view;
-    if (isUrlTaskView(viewParam)) {
-      return viewParam;
+    const urlView = allowedUrlView(router.params.view, hideControls);
+    if (urlView) {
+      return urlView;
     }
     // On mobile (below md breakpoint / 900px), default to chat view
     // since the desktop stream is less useful on small screens.
@@ -574,13 +583,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // disabled so each panel owns its own view independently.
   useEffect(() => {
     if (!syncViewWithUrl) return;
-    const viewParam = router.params.view;
-    if (isUrlTaskView(viewParam)) {
-      if (viewParam !== currentView) {
-        setCurrentView(viewParam);
-      }
+    const urlView = allowedUrlView(router.params.view, hideControls);
+    if (urlView && urlView !== currentView) {
+      setCurrentView(urlView);
     }
-  }, [router.params.view, syncViewWithUrl]);
+  }, [router.params.view, syncViewWithUrl, hideControls]);
 
   // Update URL when view changes (only when syncing with URL)
   const handleViewChange = useCallback(
@@ -3108,7 +3115,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     onRemoveComment={removeWorkspaceComment}
                   />
                 )}
-                {currentView === "usage" && activeSessionId && (
+                {currentView === "usage" && activeSessionId && !hideControls && (
                   <Box sx={{ flex: 1, overflow: "auto", p: { xs: 1.5, sm: 2 } }}>
                     <SessionUsagePanel sessionId={activeSessionId} />
                   </Box>
@@ -3413,7 +3420,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
               </Box>
             )}
 
-            {activeSessionId && currentView === "usage" && (
+            {activeSessionId && currentView === "usage" && !hideControls && (
               <Box sx={{ flex: 1, overflow: "auto", p: { xs: 1.5, sm: 2 } }}>
                 <SessionUsagePanel sessionId={activeSessionId} />
               </Box>

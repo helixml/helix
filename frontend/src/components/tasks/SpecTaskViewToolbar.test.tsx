@@ -31,6 +31,16 @@ describe("SpecTaskViewToolbar", () => {
     expect(collapse).toHaveBeenCalledOnce();
   });
 
+  it("offers the usage view only when the page asks for it", () => {
+    const { rerender } = render(
+      <SpecTaskViewToolbar currentView="chat" onViewChange={vi.fn()} hasSession />,
+    );
+    expect(screen.queryByRole("button", { name: "Usage view" })).not.toBeInTheDocument();
+
+    rerender(<SpecTaskViewToolbar currentView="chat" onViewChange={vi.fn()} hasSession showUsage />);
+    expect(screen.getByRole("button", { name: "Usage view" })).toBeInTheDocument();
+  });
+
   it("keeps every view inline on a wide screen", () => {
     render(
       <SpecTaskViewToolbar currentView="chat" onViewChange={vi.fn()} hasSession showChatTab />,
