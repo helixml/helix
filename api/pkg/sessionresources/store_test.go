@@ -200,3 +200,23 @@ func TestPercentileIsNearestRank(t *testing.T) {
 		t.Fatalf("single value p50 = %v", got)
 	}
 }
+
+func TestReadSkipsFilesRemovedAfterListing(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir, "node-a")
+	at := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+	s.Record([]types.SessionResourceSample{sample("ses_a", at, 1)})
+	if err := s.Flush(at); err != nil {
+		t.Fatal(err)
+	}
+	files, err := chunks(filepath.Join(dir, "2026-11-18", "ses_a"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("chunks = %v, %v", files, err)
+	}
+	if err := os.Remove(files[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := readFiles(files); err != nil || len(got) != 0 {
+		t.Fatalf("readFiles of a vanished chunk = %v, %v", got, err)
+	}
+}

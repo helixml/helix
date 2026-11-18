@@ -240,6 +240,10 @@ func readFiles(files []string) ([]types.SessionResourceSample, error) {
 	var rows []types.SessionResourceSample
 	for _, f := range files {
 		r, err := parquet.ReadFile[types.SessionResourceSample](f)
+		if errors.Is(err, os.ErrNotExist) {
+			// Removed after listing by a concurrent merge or delete.
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
