@@ -21,6 +21,7 @@ import ProjectChatSidebar from "../components/session/ProjectChatSidebar";
 import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelLayout from "../components/admin/AdminPanelLayout";
 import OrgSidebar from "../components/orgs/OrgSidebar";
+import UsageSidebar from "../components/orgs/UsageSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
 import FullScreenDialog from "../components/dialog/FullScreenDialog";
@@ -593,7 +594,6 @@ const Layout: FC<{
       case "org_people":
       case "org_teams":
       case "org_billing":
-      case "org_usage":
       case "org_api_keys":
       case "org_providers":
       case "org_provider_detail":
@@ -604,6 +604,11 @@ const Layout: FC<{
       case "team_people":
         // Organization management pages use the org context sidebar
         return <OrgSidebar />;
+
+      case "org_usage":
+      case "org_usage_section":
+        // Usage has its own sidebar, one level below org settings.
+        return <UsageSidebar />;
 
       case "files":
         return <FilesSidebar onOpenFile={() => {}} />;

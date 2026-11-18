@@ -13,6 +13,9 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import Autocomplete from '@mui/material/Autocomplete'
 import LinearProgress from '@mui/material/LinearProgress'
+import Collapse from '@mui/material/Collapse'
+import Tab from '@mui/material/Tab'
+import Tabs from '@mui/material/Tabs'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps, YAxisTickContentProps } from 'recharts'
 import { Cloud, Download, Search, SlidersHorizontal, X } from 'lucide-react'
@@ -27,6 +30,7 @@ import SimpleTable, { ITableField } from '../widgets/SimpleTable'
 import ShadcnAreaChart, { ShadcnSeries } from '../usage/ShadcnAreaChart'
 import { PROVIDERS } from '../providers/types'
 import { useGetOrgUsage } from '../../services/orgService'
+import { USAGE_TABLES, UsageTableKey, usageSection, usageSectionRoute } from './usageSections'
 import helixLogo from '../../../assets/img/logo.png'
 import {
   buildCacheHitRatioChartData,
@@ -44,7 +48,6 @@ import {
   OverviewStat,
   OverviewStatStrip,
   UsageChartGrid,
-  UsageGroup,
   USAGE_RANGE_DAYS,
   UsagePageHeader,
   UsageRangeControls,
@@ -712,6 +715,11 @@ const OrgUsage: FC = () => {
   const [model, setModel] = useState(() => initialParam('model'))
   // On a phone the filters fold behind one button so the numbers come first.
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const section = usageSection(router.name === 'org_usage' ? 'overview' : router.params.section)
+  const [table, setTable] = useState<UsageTableKey>(() => {
+    const value = initialParam('table')
+    return USAGE_TABLES.some(t => t.key === value) ? value as UsageTableKey : 'projects'
+  })
   const activeFilters = [userId, projectId, taskId, appId, sessionIdInput, provider || model].filter(Boolean).length
   const [userSearchInput, setUserSearchInput] = useState(() => initialParam('user_search'))
   const [userPage, setUserPage] = useState(0)
@@ -774,6 +782,8 @@ const OrgUsage: FC = () => {
     setParam('provider', provider)
     setParam('model', model)
     setParam('user_search', userSearchInput.trim())
+    if (section.key === 'breakdowns') setParam('table', table, 'projects')
+    else url.searchParams.delete('table')
     url.searchParams.delete('user_page')
     url.searchParams.delete('user_rows')
     url.searchParams.delete('project_page')
@@ -784,7 +794,7 @@ const OrgUsage: FC = () => {
     url.searchParams.delete('session_rows')
 
     window.history.replaceState({}, '', url.toString())
-  }, [from, to, userId, projectId, taskId, appId, sessionIdInput, provider, model, userSearchInput])
+  }, [from, to, userId, projectId, taskId, appId, sessionIdInput, provider, model, userSearchInput, section.key, table])
 
   useEffect(() => {
     if (!usage.isFetching) {
@@ -1149,30 +1159,48 @@ const OrgUsage: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle="Usage"
+      breadcrumbTitle={section.key === 'overview' ? undefined : section.title}
       breadcrumbParent={{
         title: 'Organizations',
         routeName: 'orgs',
         useOrgRouter: false,
       }}
+      breadcrumbs={[
+        { title: account.organizationTools.organization?.name || orgID, routeName: 'org_general', params: { org_id: orgID } },
+        section.key === 'overview'
+          ? { title: 'Usage' }
+          : { title: 'Usage', routeName: 'org_usage', params: usageSectionRoute('overview', orgID, window.location.search).params },
+      ]}
       breadcrumbShowHome={true}
-      orgBreadcrumbs={true}
     >
       <Container maxWidth="xl">
         <Box sx={{ mt: 3, pb: 4 }}>
           <Stack spacing={2.5}>
             <UsagePageHeader
-              title="Usage"
-              description="LLM calls, tokens, cost, latency, and sandbox compute for this organization."
+              title={section.key === 'overview' ? 'Usage' : section.title}
+              description={section.description}
               actions={(
-                <UsageRangeControls
-                  range={range}
-                  from={from}
-                  to={to}
-                  onRangeChange={handleRangeChange}
-                  onFromChange={value => { markFilterChange(); setFrom(value); setRange(null) }}
-                  onToChange={value => { markFilterChange(); setTo(value); setRange(null) }}
-                />
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                  <Button
+                    variant={filtersOpen || activeFilters > 0 ? 'contained' : 'outlined'}
+                    color={filtersOpen || activeFilters > 0 ? 'secondary' : 'inherit'}
+                    size="small"
+                    startIcon={<SlidersHorizontal size={16} />}
+                    onClick={() => setFiltersOpen(open => !open)}
+                    aria-expanded={filtersOpen}
+                    sx={{ textTransform: 'none', minHeight: 40, whiteSpace: 'nowrap' }}
+                  >
+                    {activeFilters > 0 ? `Filters · ${activeFilters}` : 'Filters'}
+                  </Button>
+                  <UsageRangeControls
+                    range={range}
+                    from={from}
+                    to={to}
+                    onRangeChange={handleRangeChange}
+                    onFromChange={value => { markFilterChange(); setFrom(value); setRange(null) }}
+                    onToChange={value => { markFilterChange(); setTo(value); setRange(null) }}
+                  />
+                </Stack>
               )}
             />
 
@@ -1182,86 +1210,76 @@ const OrgUsage: FC = () => {
               </Alert>
             )}
 
-            <Paper variant="outlined" sx={{ px: 1.5, pt: 1.5, pb: 1, borderRadius: 2 }}>
-              <Button
-                fullWidth
-                variant="text"
-                color="inherit"
-                startIcon={<SlidersHorizontal size={16} />}
-                onClick={() => setFiltersOpen(open => !open)}
-                aria-expanded={filtersOpen}
-                sx={{ display: { xs: 'flex', sm: 'none' }, justifyContent: 'flex-start', textTransform: 'none', mb: filtersOpen ? 1.25 : 0 }}
-              >
-                {activeFilters > 0 ? `Filters · ${activeFilters} active` : 'Filters'}
-              </Button>
-              <Box
-                sx={{
-                  display: { xs: filtersOpen ? 'grid' : 'none', sm: 'grid' },
-                  gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
-                  gap: 1.25,
-                }}
-              >
-                <FilterAutocomplete
-                  label="User"
-                  options={userOptions}
-                  value={selectedUser}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => { markFilterChange(); setUserId(option?.id || '') }}
-                />
-                <FilterAutocomplete
-                  label="Project"
-                  options={projectOptions}
-                  value={selectedProject}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => { markFilterChange(); setProjectId(option?.id || '') }}
-                />
-                <FilterAutocomplete
-                  label="Task"
-                  options={taskOptions}
-                  value={selectedTask}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => { markFilterChange(); setTaskId(option?.id || '') }}
-                />
-                <FilterAutocomplete
-                  label="Agent"
-                  options={appOptions}
-                  value={selectedApp}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => { markFilterChange(); setAppId(option?.id || '') }}
-                />
-                <TextField size="small" label="Session ID" value={sessionIdInput} onChange={e => { markFilterChange(); setSessionIdInput(e.target.value) }} />
-                <FilterAutocomplete
-                  label="Provider"
-                  options={providerOptions}
-                  value={selectedProvider}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => {
-                    markFilterChange()
-                    setProvider(option?.id || '')
-                    setModel('')
+            {/* Filters apply to every section; they fold away until asked for. */}
+            <Collapse in={filtersOpen} unmountOnExit>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
+                    gap: 1.25,
                   }}
-                />
-                <FilterAutocomplete
-                  label="Model"
-                  options={filteredModelOptions}
-                  value={selectedModel}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => {
-                    markFilterChange()
-                    setProvider(option?.provider || '')
-                    setModel(option?.model || '')
-                  }}
-                />
-                <Button size="small" variant="outlined" startIcon={<X size={16} />} onClick={clearFilters} sx={{ minHeight: 40 }}>
-                  Clear
-                </Button>
-              </Box>
-              <Box sx={{ height: 3, mt: 1 }}>
-                {isScopedLoading('filters') && (
-                  <LinearProgress sx={{ borderRadius: 1, height: 3 }} />
-                )}
-              </Box>
-            </Paper>
+                >
+                  <FilterAutocomplete
+                    label="User"
+                    options={userOptions}
+                    value={selectedUser}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => { markFilterChange(); setUserId(option?.id || '') }}
+                  />
+                  <FilterAutocomplete
+                    label="Project"
+                    options={projectOptions}
+                    value={selectedProject}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => { markFilterChange(); setProjectId(option?.id || '') }}
+                  />
+                  <FilterAutocomplete
+                    label="Task"
+                    options={taskOptions}
+                    value={selectedTask}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => { markFilterChange(); setTaskId(option?.id || '') }}
+                  />
+                  <FilterAutocomplete
+                    label="Agent"
+                    options={appOptions}
+                    value={selectedApp}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => { markFilterChange(); setAppId(option?.id || '') }}
+                  />
+                  <TextField size="small" label="Session ID" value={sessionIdInput} onChange={e => { markFilterChange(); setSessionIdInput(e.target.value) }} />
+                  <FilterAutocomplete
+                    label="Provider"
+                    options={providerOptions}
+                    value={selectedProvider}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => {
+                      markFilterChange()
+                      setProvider(option?.id || '')
+                      setModel('')
+                    }}
+                  />
+                  <FilterAutocomplete
+                    label="Model"
+                    options={filteredModelOptions}
+                    value={selectedModel}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => {
+                      markFilterChange()
+                      setProvider(option?.provider || '')
+                      setModel(option?.model || '')
+                    }}
+                  />
+                  <Button size="small" variant="outlined" startIcon={<X size={16} />} onClick={clearFilters} sx={{ minHeight: 40 }}>
+                    Clear
+                  </Button>
+                </Box>
+              </Paper>
+            </Collapse>
+            <Box sx={{ height: 3, mt: '-16px !important' }}>
+              {isScopedLoading('filters') && <LinearProgress sx={{ borderRadius: 1, height: 3 }} />}
+            </Box>
 
             {usage.isLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
@@ -1269,78 +1287,117 @@ const OrgUsage: FC = () => {
               </Box>
             ) : (
               <>
-                <OverviewStatStrip columns={6}>
-                  <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail={`≈ ${formatCost(rawTokenCost)} at API rates`} />
-                  <OverviewStat
-                    emphasis
-                    label="Sandbox compute"
-                    value={compute ? formatCost(computeTotals.total) : '—'}
-                    detail={compute ? (compute.billing_enabled ? 'Desktops and containers' : 'Historical, billing off') : 'No compute in this range'}
-                  />
-                  <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
-                  <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
-                  <OverviewStat emphasis label="Cache savings" value={formatCost(cacheSavings)} detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× API-rate cost` : 'vs full input rates'} />
-                  <OverviewStat
-                    emphasis
-                    label="Subscription savings"
-                    value={formatCost(subscriptionSavings)}
-                    detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost` : 'No subscription usage'}
-                  />
-                </OverviewStatStrip>
-
-                <UsageGroup
-                  title="LLM tokens and spend"
-                  description="What each provider and model processed, and its cost at API rates. Every filter applies."
-                >
-                  <ShadcnAreaChart
-                    title={activityTitle}
-                    headline={`${activityFormat(activityTotal)} in range${activityMetric === 'cost' ? ' at API rates' : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''}`}
-                    action={(
-                      <>
-                        <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={ACTIVITY_METRIC_OPTIONS} onChange={setActivityMetric} />
-                        <UsageSwitch<ActivitySplit>
-                          label="Split by"
-                          value={split}
-                          options={[
-                            { value: 'provider', label: 'Provider' },
-                            { value: 'model', label: 'Model' },
-                            { value: 'type', label: 'Type', disabled: activityMetric === 'calls' },
-                          ]}
-                          onChange={setActivitySplit}
-                        />
-                      </>
-                    )}
-                    data={activity.data}
-                    series={activity.series}
-                    valueFormatter={activityFormat}
-                    variant="bar"
-                    cardHeight="auto"
-                    chartHeight={260}
-                  />
-
-                  <SegmentBarPanel>
-                    <SegmentBar
-                      label={`${{ cost: 'API-rate cost', tokens: 'Tokens', calls: 'LLM calls' }[activityMetric]} by provider`}
-                      segments={providerSegments}
-                      format={activityFormat}
+                {section.key === 'overview' && (
+                  <>
+                    <OverviewStatStrip columns={6}>
+                      <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail={`≈ ${formatCost(rawTokenCost)} at API rates`} />
+                      <OverviewStat
+                        emphasis
+                        label="Sandbox compute"
+                        value={compute ? formatCost(computeTotals.total) : '—'}
+                        detail={compute ? (compute.billing_enabled ? 'Desktops and containers' : 'Historical, billing off') : 'No compute in this range'}
+                      />
+                      <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
+                      <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
+                      <OverviewStat emphasis label="Cache savings" value={formatCost(cacheSavings)} detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× API-rate cost` : 'vs full input rates'} />
+                      <OverviewStat
+                        emphasis
+                        label="Subscription savings"
+                        value={formatCost(subscriptionSavings)}
+                        detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost` : 'No subscription usage'}
+                      />
+                    </OverviewStatStrip>
+                    <ShadcnAreaChart
+                      title={activityTitle}
+                      headline={`${activityFormat(activityTotal)} in range${activityMetric === 'cost' ? ' at API rates' : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''}`}
+                      action={(
+                        <>
+                          <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={ACTIVITY_METRIC_OPTIONS} onChange={setActivityMetric} />
+                          <UsageSwitch<ActivitySplit>
+                            label="Split by"
+                            value={split}
+                            options={[
+                              { value: 'provider', label: 'Provider' },
+                              { value: 'model', label: 'Model' },
+                              { value: 'type', label: 'Type', disabled: activityMetric === 'calls' },
+                            ]}
+                            onChange={setActivitySplit}
+                          />
+                        </>
+                      )}
+                      data={activity.data}
+                      series={activity.series}
+                      valueFormatter={activityFormat}
+                      variant="bar"
+                      cardHeight="auto"
+                      chartHeight={260}
                     />
-                    <SegmentBar label="Tokens by type" segments={tokenTypeSegments} format={formatCompact} />
-                    <SegmentBar label="API-rate cost by type" segments={costTypeSegments} format={formatCost} />
-                  </SegmentBarPanel>
+                    {compute && (
+                      <ShadcnAreaChart
+                        title="Daily compute spend"
+                        headline={`${formatCost(computeTotals.total)} in range`}
+                        data={computeChartData}
+                        series={COMPUTE_SERIES}
+                        valueFormatter={formatCost}
+                        zeroIsData
+                        variant="bar"
+                        cardHeight="auto"
+                      />
+                    )}
+                  </>
+                )}
 
-                  {/* The figures here not already shown above, as one quiet line. */}
-                  <Typography variant="caption" color="text.secondary" component="p" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                    <Box component="span" sx={{ color: 'text.primary' }}>{formatCompact(totals.requests > 0 ? totals.total / totals.requests : 0)}</Box> tokens per call
-                    {' · '}<Box component="span" sx={{ color: 'text.primary' }}>{formatCompact(averageTokens)}</Box> tokens per active day ({activeDays} {activeDays === 1 ? 'day' : 'days'} with LLM calls)
-                    {'. '}Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
-                  </Typography>
+                {section.key === 'tokens' && (
+                  <>
+                    <ShadcnAreaChart
+                      title={activityTitle}
+                      headline={`${activityFormat(activityTotal)} in range${activityMetric === 'cost' ? ' at API rates' : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''}`}
+                      action={(
+                        <>
+                          <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={ACTIVITY_METRIC_OPTIONS} onChange={setActivityMetric} />
+                          <UsageSwitch<ActivitySplit>
+                            label="Split by"
+                            value={split}
+                            options={[
+                              { value: 'provider', label: 'Provider' },
+                              { value: 'model', label: 'Model' },
+                              { value: 'type', label: 'Type', disabled: activityMetric === 'calls' },
+                            ]}
+                            onChange={setActivitySplit}
+                          />
+                        </>
+                      )}
+                      data={activity.data}
+                      series={activity.series}
+                      valueFormatter={activityFormat}
+                      variant="bar"
+                      cardHeight="auto"
+                      chartHeight={260}
+                    />
+                    <SegmentBarPanel>
+                      <SegmentBar
+                        label={`${{ cost: 'API-rate cost', tokens: 'Tokens', calls: 'LLM calls' }[activityMetric]} by provider`}
+                        segments={providerSegments}
+                        format={activityFormat}
+                      />
+                      <SegmentBar label="Tokens by type" segments={tokenTypeSegments} format={formatCompact} />
+                      <SegmentBar label="API-rate cost by type" segments={costTypeSegments} format={formatCost} />
+                    </SegmentBarPanel>
+                    {/* The figures here not already shown above, as one quiet line. */}
+                    <Typography variant="caption" color="text.secondary" component="p" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      <Box component="span" sx={{ color: 'text.primary' }}>{formatCompact(totals.requests > 0 ? totals.total / totals.requests : 0)}</Box> tokens per call
+                      {' · '}<Box component="span" sx={{ color: 'text.primary' }}>{formatCompact(averageTokens)}</Box> tokens per active day ({activeDays} {activeDays === 1 ? 'day' : 'days'} with LLM calls)
+                      {'. '}Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
+                    </Typography>
+                    <UsagePanel>
+                      <UsageSection title="Model breakdown">
+                        <ResponsiveTable fields={modelOverviewFields} data={modelOverviewRows} />
+                      </UsageSection>
+                    </UsagePanel>
+                  </>
+                )}
 
-                  <UsagePanel>
-                    <UsageSection title="Model breakdown">
-                      <ResponsiveTable fields={modelOverviewFields} data={modelOverviewRows} />
-                    </UsageSection>
-                  </UsagePanel>
-
+                {section.key === 'performance' && (
                   <UsageChartGrid columns={3}>
                     <ShadcnAreaChart
                       title="Latency"
@@ -1389,15 +1446,15 @@ const OrgUsage: FC = () => {
                       chartHeight={200}
                     />
                   </UsageChartGrid>
-                </UsageGroup>
+                )}
 
-                {compute && (
-                  <UsageGroup
-                    title="Sandbox compute"
-                    description={`${compute.billing_enabled
-                      ? 'Credits debited for running desktops and containers.'
-                      : 'Compute billing is disabled — this is historical spend and nothing new is accruing.'} The date range, project and task filters apply; model, provider, session and user filters describe tokens only.`}
-                  >
+                {section.key === 'compute' && (compute ? (
+                  <>
+                    <Typography variant="body2" color="text.secondary">
+                      {compute.billing_enabled
+                        ? 'Credits debited for running desktops and containers.'
+                        : 'Compute billing is disabled — this is historical spend and nothing new is accruing.'} The date range, project and task filters apply; model, provider, session and user filters describe tokens only.
+                    </Typography>
                     <OverviewStatStrip columns={4}>
                       <OverviewStat
                         label="Desktops"
@@ -1439,139 +1496,158 @@ const OrgUsage: FC = () => {
                         </UsageSection>
                       </UsagePanel>
                     )}
-                  </UsageGroup>
-                )}
+                  </>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No sandbox compute in this range.</Typography>
+                ))}
 
-                <UsageGroup
-                  title="Breakdowns"
-                  description="Tokens, cost and latency attributed to projects, agents, tasks, sessions and users. Export any table as CSV or JSON."
-                >
-                  <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
-                  <UsagePanel>
-                    <UsageSection title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
-                      <BreakdownTable empty="No projects in this range." loading={isScopedLoading('projects')} rows={tableRows.projects}>
-                        <ResponsiveTable fields={baseFields} data={tableRows.projects} loading={isScopedLoading('projects')} />
-                      </BreakdownTable>
-                      {(usage.data?.projects_total || 0) > projectRowsPerPage && (<TablePagination
-                        component="div"
-                        count={usage.data?.projects_total || 0}
-                        page={projectPage}
-                        rowsPerPage={projectRowsPerPage}
-                        onPageChange={(_, nextPage) => {
-                          setLoadingScope('projects')
-                          setProjectPage(nextPage)
-                        }}
-                        onRowsPerPageChange={event => {
-                          setLoadingScope('projects')
-                          setProjectRowsPerPage(parseInt(event.target.value, 10))
-                          setProjectPage(0)
-                        }}
-                        rowsPerPageOptions={[10, 25, 50, 100]}
-                      />)}
-                    </UsageSection>
-                  </UsagePanel>
-
-                  <UsagePanel>
-                    <UsageSection title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
-                      <BreakdownTable empty="No agents in this range." rows={tableRows.apps}>
-                        <ResponsiveTable fields={baseFields} data={tableRows.apps} />
-                      </BreakdownTable>
-                    </UsageSection>
-                  </UsagePanel>
-
-                  <UsagePanel>
-                    <UsageSection title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
-                      <BreakdownTable empty="No tasks in this range." loading={isScopedLoading('tasks')} rows={tableRows.tasks}>
-                        <ResponsiveTable fields={baseFields} data={tableRows.tasks} loading={isScopedLoading('tasks')} />
-                      </BreakdownTable>
-                      {(usage.data?.tasks_total || 0) > taskRowsPerPage && (<TablePagination
-                        component="div"
-                        count={usage.data?.tasks_total || 0}
-                        page={taskPage}
-                        rowsPerPage={taskRowsPerPage}
-                        onPageChange={(_, nextPage) => {
-                          setLoadingScope('tasks')
-                          setTaskPage(nextPage)
-                        }}
-                        onRowsPerPageChange={event => {
-                          setLoadingScope('tasks')
-                          setTaskRowsPerPage(parseInt(event.target.value, 10))
-                          setTaskPage(0)
-                        }}
-                        rowsPerPageOptions={[10, 25, 50, 100]}
-                      />)}
-                    </UsageSection>
-                  </UsagePanel>
-
-                  <UsagePanel>
-                    <UsageSection title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
-                      <BreakdownTable empty="No sessions in this range." loading={isScopedLoading('sessions')} rows={tableRows.sessions}>
-                        <ResponsiveTable fields={sessionFields} data={tableRows.sessions} loading={isScopedLoading('sessions')} />
-                      </BreakdownTable>
-                      {(usage.data?.sessions_total || 0) > sessionRowsPerPage && (<TablePagination
-                        component="div"
-                        count={usage.data?.sessions_total || 0}
-                        page={sessionPage}
-                        rowsPerPage={sessionRowsPerPage}
-                        onPageChange={(_, nextPage) => {
-                          setLoadingScope('sessions')
-                          setSessionPage(nextPage)
-                        }}
-                        onRowsPerPageChange={event => {
-                          setLoadingScope('sessions')
-                          setSessionRowsPerPage(parseInt(event.target.value, 10))
-                          setSessionPage(0)
-                        }}
-                        rowsPerPageOptions={[10, 25, 50, 100]}
-                      />)}
-                    </UsageSection>
-                  </UsagePanel>
-
-                  <UsagePanel>
-                    <UsageSection
-                      title="Users"
-                      action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
+                {section.key === 'breakdowns' && (
+                  <>
+                    <Tabs
+                      value={table}
+                      onChange={(_, next: UsageTableKey) => setTable(next)}
+                      variant="scrollable"
+                      scrollButtons={false}
+                      // Tight tabs so all five fit a phone without scroll buttons.
+                      sx={{ borderBottom: 1, borderColor: 'divider', minHeight: 40, '& .MuiTab-root': { textTransform: 'none', minHeight: 40, minWidth: 0, px: { xs: 1.25, sm: 2 } } }}
                     >
-                      <TextField
-                        size="small"
-                        placeholder="Search username or email"
-                        value={userSearchInput}
-                        onChange={e => {
-                          setLoadingScope('users')
-                          setUserSearchInput(e.target.value)
-                          setUserPage(0)
-                        }}
-                        sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
-                        InputProps={{
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <Search size={16} />
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                      <BreakdownTable empty="No users in this range." loading={isScopedLoading('users')} rows={tableRows.users}>
-                        <ResponsiveTable fields={baseFields} data={tableRows.users} loading={isScopedLoading('users')} />
-                      </BreakdownTable>
-                      {(usage.data?.users_total || 0) > userRowsPerPage && (<TablePagination
-                        component="div"
-                        count={usage.data?.users_total || 0}
-                        page={userPage}
-                        rowsPerPage={userRowsPerPage}
-                        onPageChange={(_, nextPage) => {
-                          setLoadingScope('users')
-                          setUserPage(nextPage)
-                        }}
-                        onRowsPerPageChange={event => {
-                          setLoadingScope('users')
-                          setUserRowsPerPage(parseInt(event.target.value, 10))
-                          setUserPage(0)
-                        }}
-                        rowsPerPageOptions={[10, 25, 50, 100]}
-                      />)}
-                    </UsageSection>
-                  </UsagePanel>
-                </UsageGroup>
+                      {USAGE_TABLES.map(t => <Tab key={t.key} value={t.key} label={t.label} />)}
+                    </Tabs>
+                    {table === 'projects' && (
+                      <>
+                        <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
+                        <UsagePanel>
+                          <UsageSection title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
+                            <BreakdownTable empty="No projects in this range." loading={isScopedLoading('projects')} rows={tableRows.projects}>
+                              <ResponsiveTable fields={baseFields} data={tableRows.projects} loading={isScopedLoading('projects')} />
+                            </BreakdownTable>
+                            {(usage.data?.projects_total || 0) > projectRowsPerPage && (<TablePagination
+                              component="div"
+                              count={usage.data?.projects_total || 0}
+                              page={projectPage}
+                              rowsPerPage={projectRowsPerPage}
+                              onPageChange={(_, nextPage) => {
+                                setLoadingScope('projects')
+                                setProjectPage(nextPage)
+                              }}
+                              onRowsPerPageChange={event => {
+                                setLoadingScope('projects')
+                                setProjectRowsPerPage(parseInt(event.target.value, 10))
+                                setProjectPage(0)
+                              }}
+                              rowsPerPageOptions={[10, 25, 50, 100]}
+                            />)}
+                          </UsageSection>
+                        </UsagePanel>
+                      </>
+                    )}
+                    {table === 'agents' && (
+                      <UsagePanel>
+                        <UsageSection title="Agents" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
+                          <BreakdownTable empty="No agents in this range." rows={tableRows.apps}>
+                            <ResponsiveTable fields={baseFields} data={tableRows.apps} />
+                          </BreakdownTable>
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                    {table === 'tasks' && (
+                      <UsagePanel>
+                        <UsageSection title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
+                          <BreakdownTable empty="No tasks in this range." loading={isScopedLoading('tasks')} rows={tableRows.tasks}>
+                            <ResponsiveTable fields={baseFields} data={tableRows.tasks} loading={isScopedLoading('tasks')} />
+                          </BreakdownTable>
+                          {(usage.data?.tasks_total || 0) > taskRowsPerPage && (<TablePagination
+                            component="div"
+                            count={usage.data?.tasks_total || 0}
+                            page={taskPage}
+                            rowsPerPage={taskRowsPerPage}
+                            onPageChange={(_, nextPage) => {
+                              setLoadingScope('tasks')
+                              setTaskPage(nextPage)
+                            }}
+                            onRowsPerPageChange={event => {
+                              setLoadingScope('tasks')
+                              setTaskRowsPerPage(parseInt(event.target.value, 10))
+                              setTaskPage(0)
+                            }}
+                            rowsPerPageOptions={[10, 25, 50, 100]}
+                          />)}
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                    {table === 'sessions' && (
+                      <UsagePanel>
+                        <UsageSection title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
+                          <BreakdownTable empty="No sessions in this range." loading={isScopedLoading('sessions')} rows={tableRows.sessions}>
+                            <ResponsiveTable fields={sessionFields} data={tableRows.sessions} loading={isScopedLoading('sessions')} />
+                          </BreakdownTable>
+                          {(usage.data?.sessions_total || 0) > sessionRowsPerPage && (<TablePagination
+                            component="div"
+                            count={usage.data?.sessions_total || 0}
+                            page={sessionPage}
+                            rowsPerPage={sessionRowsPerPage}
+                            onPageChange={(_, nextPage) => {
+                              setLoadingScope('sessions')
+                              setSessionPage(nextPage)
+                            }}
+                            onRowsPerPageChange={event => {
+                              setLoadingScope('sessions')
+                              setSessionRowsPerPage(parseInt(event.target.value, 10))
+                              setSessionPage(0)
+                            }}
+                            rowsPerPageOptions={[10, 25, 50, 100]}
+                          />)}
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                    {table === 'users' && (
+                      <UsagePanel>
+                        <UsageSection
+                          title="Users"
+                          action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
+                        >
+                          <TextField
+                            size="small"
+                            placeholder="Search username or email"
+                            value={userSearchInput}
+                            onChange={e => {
+                              setLoadingScope('users')
+                              setUserSearchInput(e.target.value)
+                              setUserPage(0)
+                            }}
+                            sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
+                            InputProps={{
+                              startAdornment: (
+                                <InputAdornment position="start">
+                                  <Search size={16} />
+                                </InputAdornment>
+                              ),
+                            }}
+                          />
+                          <BreakdownTable empty="No users in this range." loading={isScopedLoading('users')} rows={tableRows.users}>
+                            <ResponsiveTable fields={baseFields} data={tableRows.users} loading={isScopedLoading('users')} />
+                          </BreakdownTable>
+                          {(usage.data?.users_total || 0) > userRowsPerPage && (<TablePagination
+                            component="div"
+                            count={usage.data?.users_total || 0}
+                            page={userPage}
+                            rowsPerPage={userRowsPerPage}
+                            onPageChange={(_, nextPage) => {
+                              setLoadingScope('users')
+                              setUserPage(nextPage)
+                            }}
+                            onRowsPerPageChange={event => {
+                              setLoadingScope('users')
+                              setUserRowsPerPage(parseInt(event.target.value, 10))
+                              setUserPage(0)
+                            }}
+                            rowsPerPageOptions={[10, 25, 50, 100]}
+                          />)}
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                  </>
+                )}
               </>
             )}
           </Stack>
