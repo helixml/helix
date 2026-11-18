@@ -7156,20 +7156,6 @@ func (mr *MockStoreMockRecorder) SetGitRepositoryDefaultBranchIfUnchanged(ctx, i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGitRepositoryDefaultBranchIfUnchanged", reflect.TypeOf((*MockStore)(nil).SetGitRepositoryDefaultBranchIfUnchanged), ctx, id, expected, branch)
 }
 
-// SetGitRepositoryTrustedStartupSHA mocks base method.
-func (m *MockStore) SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetGitRepositoryTrustedStartupSHA", ctx, id, sha)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetGitRepositoryTrustedStartupSHA indicates an expected call of SetGitRepositoryTrustedStartupSHA.
-func (mr *MockStoreMockRecorder) SetGitRepositoryTrustedStartupSHA(ctx, id, sha any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGitRepositoryTrustedStartupSHA", reflect.TypeOf((*MockStore)(nil).SetGitRepositoryTrustedStartupSHA), ctx, id, sha)
-}
-
 // SetInteractionPendingQuestion mocks base method.
 func (m *MockStore) SetInteractionPendingQuestion(ctx context.Context, interactionID string, generationID int, question *types.PendingQuestion) (*types.Interaction, bool, error) {
 	m.ctrl.T.Helper()

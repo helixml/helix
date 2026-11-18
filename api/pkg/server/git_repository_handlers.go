@@ -1280,11 +1280,6 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 			return writeErr
 		},
 	)
-	// A person writing the startup script vouches for it, as in Project
-	// Settings; an agent's write never does (trustStartupScriptWrite).
-	if err == nil && request.Branch == services.SpecsBranchName && request.Path == services.StartupScriptPath {
-		err = s.trustStartupScriptWrite(r.Context(), user, repoID, commitHash)
-	}
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Str("path", request.Path).Msg("Failed to create/update file")
 		switch {

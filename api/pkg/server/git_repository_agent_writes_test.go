@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,16 +54,6 @@ type awFixture struct {
 	rec     *isoStore
 	bare    string
 	outside string
-	mu      sync.Mutex
-	trusted []string
-}
-
-func (f *awFixture) takeTrusted() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	out := f.trusted
-	f.trusted = nil
-	return out
 }
 
 func awGit(t *testing.T, dir string, args ...string) string {
@@ -182,10 +171,6 @@ func (f *awFixture) storeResult(name string, mt reflect.Type, args []reflect.Val
 		if arg(1).(string) == awReviewB {
 			return values(&types.SpecTaskDesignReview{ID: awReviewB, SpecTaskID: awTaskB, Status: types.SpecTaskDesignReviewStatusPending}, nil)
 		}
-	case "SetGitRepositoryTrustedStartupSHA":
-		f.mu.Lock()
-		f.trusted = append(f.trusted, arg(2).(string))
-		f.mu.Unlock()
 	}
 	return zeroStoreResult(name, mt)
 }
@@ -268,26 +253,20 @@ func TestAgentKeyWritesItsOwnBranchAndDesignDir(t *testing.T) {
 				assert.NotEqual(t, before, awGit(t, f.bare, "rev-parse", write.branch))
 				assert.Equal(t, "ok", awGit(t, f.bare, "show", write.branch+":"+write.path))
 			}
-			assert.Empty(t, f.takeTrusted(), "an agent write never moves the trusted startup commit")
 		})
 	}
 }
 
-func TestHumanKeyWritesDefaultBranchAndTrustsStartupScript(t *testing.T) {
+func TestHumanKeyWritesDefaultBranchAndStartupScript(t *testing.T) {
 	f := newAgentWriteFixture(t)
 
 	code, body := f.serve(t, http.MethodPut, awRepoBase+"/contents", awContents("main", "README.md", "human"), awHumanKey.Key)
 	require.Equal(t, http.StatusOK, code, body)
 	assert.Equal(t, "human", awGit(t, f.bare, "show", "main:README.md"))
-	assert.Empty(t, f.takeTrusted(), "a write off helix-specs trusts nothing")
-
-	code, body = f.serve(t, http.MethodPut, awRepoBase+"/contents", awContents(services.SpecsBranchName, "design/notes.md", "n"), awHumanKey.Key)
-	require.Equal(t, http.StatusOK, code, body)
-	assert.Empty(t, f.takeTrusted(), "a helix-specs write that is not the startup script trusts nothing")
 
 	code, body = f.serve(t, http.MethodPut, awRepoBase+"/contents", awContents(services.SpecsBranchName, "./.helix/startup.sh", "echo ok"), awHumanKey.Key)
 	require.Equal(t, http.StatusOK, code, body)
-	assert.Equal(t, []string{awGit(t, f.bare, "rev-parse", services.SpecsBranchName)}, f.takeTrusted())
+	assert.Equal(t, "echo ok", awGit(t, f.bare, "show", services.SpecsBranchName+":.helix/startup.sh"))
 }
 
 func TestContentsWriteStaysInsideTheWorkTree(t *testing.T) {
