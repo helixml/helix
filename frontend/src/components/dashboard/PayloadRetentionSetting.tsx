@@ -1,5 +1,8 @@
 import React, { useState } from 'react'
-import { Alert, Button, Stack, TextField } from '@mui/material'
+import Alert from '@mui/material/Alert'
+import Button from '@mui/material/Button'
+import Stack from '@mui/material/Stack'
+import TextField from '@mui/material/TextField'
 import { useUpdateSystemSettings } from '../../services/systemSettingsService'
 
 export default function PayloadRetentionSetting({ days }: { days: number }) {

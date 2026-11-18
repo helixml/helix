@@ -3,6 +3,7 @@ package hosthistory
 import (
 	"context"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -26,6 +27,9 @@ func TestParquetHistory(t *testing.T) {
 	require.Equal(t, "PAR1", string(b[:4]))
 }
 func TestLiveHostSample(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("host sampling requires Linux procfs")
+	}
 	dir := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
