@@ -66,10 +66,10 @@ func orgMemberAction(reason string) helixOrgRoutePolicy {
 var helixOrgRoutePolicies = map[string]helixOrgRoutePolicy{
 	"GET /overview":                                 orgRead(),
 	"GET /bots":                                     orgRead(),
-	"POST /bots":                                    orgBotEdit("authorizeLoadedBotEdit"),
+	"POST /bots":                                    orgBotEdit("authorizeBotEdit"),
 	"GET /bots/{id}":                                orgRead(),
 	"PATCH /bots/{id}":                              orgBotEdit("authorizeLoadedBotEdit"),
-	"DELETE /bots/{id}":                             orgBotEdit("authorizeBotEdit"),
+	"DELETE /bots/{id}":                             orgBotEdit("authorizeBotEditAccess"),
 	"POST /bots/{id}/chat":                          orgMemberAction("opens the caller's own chat with an org bot; members talk to the org's bots"),
 	"POST /bots/{id}/activate":                      orgMemberAction("wakes an org bot for a turn; any member may wake one (stop and restart need edit rights)"),
 	"POST /bots/{id}/stop":                          orgBotEdit("authorizeLoadedBotEdit"),
