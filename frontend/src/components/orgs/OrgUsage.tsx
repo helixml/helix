@@ -78,13 +78,15 @@ const ACTIVITY_METRIC_OPTIONS: Array<{ value: ActivityMetric; label: string }> =
   { value: 'calls', label: 'Calls' },
 ]
 
-const CHART_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#e11d48']
+// Series colours for models, runtimes and providers. They skip green and purple,
+// which mean cache read and output on every token chart.
+const CHART_COLORS = ['#2563eb', '#db2777', '#0891b2', '#ea580c', '#64748b', '#ca8a04']
 
 // Two hues from the page palette so compute reads as part of the same system
 // as the token charts above it. Desktops first: they are the expensive half.
 const COMPUTE_SERIES: ShadcnSeries[] = [
   { key: 'desktop', label: 'Desktops', color: CHART_COLORS[0] },
-  { key: 'headless', label: 'Headless', color: CHART_COLORS[4] },
+  { key: 'headless', label: 'Headless', color: CHART_COLORS[2] },
 ]
 
 const PROVIDER_COLORS: Record<string, string> = {
@@ -354,8 +356,9 @@ const TableScroll: FC<{ children: React.ReactNode }> = ({ children }) => (
   </Box>
 )
 
+// Nothing to export: no buttons, rather than two disabled ones beside the empty state.
 const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = ({ filename, rows }) => (
-  <Stack direction="row" spacing={1}>
+  !rows.length ? null : <Stack direction="row" spacing={1}>
     <Button
       size="small"
       variant="outlined"
@@ -406,7 +409,7 @@ const computeSandboxFields: ITableField[] = [
   { name: 'project', title: 'Project' },
   { name: 'kind', title: 'Kind' },
   { name: 'size', title: 'Size', numeric: true },
-  { name: 'credits', title: 'Credits', numeric: true },
+  { name: 'credits', title: 'Compute cost', numeric: true },
   { name: 'share', title: 'Share', numeric: true },
 ]
 
@@ -1291,7 +1294,7 @@ const OrgUsage: FC = () => {
                 >
                   <ShadcnAreaChart
                     title={activityTitle}
-                    headline={`${activityFormat(activityTotal)} in range${activityMetric === 'cost' ? ' at API rates, not the amount debited' : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''}`}
+                    headline={`${activityFormat(activityTotal)} in range${activityMetric === 'cost' ? ' at API rates' : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''}`}
                     action={(
                       <>
                         <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={ACTIVITY_METRIC_OPTIONS} onChange={setActivityMetric} />

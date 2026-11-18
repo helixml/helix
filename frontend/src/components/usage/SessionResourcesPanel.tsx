@@ -144,7 +144,8 @@ export const SessionResourcesView: FC<{ resources: SessionResources }> = ({ reso
           title="Time stalled"
           headline={`I/O ${formatPct(s.io_pressure_pct)} · CPU throttled ${formatPct(s.cpu_throttled_pct)}`}
           data={rowsFor(rows, 'stalls')}
-          series={STALL_SERIES}
+          // A stall kind at zero throughout stays out of the plot; the headline names it.
+          series={STALL_SERIES.filter(s => s.key === 'io' || rowsFor(rows, 'stalls').some(r => Number(r[s.key]) > 0))}
           valueFormatter={formatPct}
           stacked={false}
           variant="line"
