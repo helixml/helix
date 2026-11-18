@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -59,7 +60,7 @@ func (apiServer *HelixAPIServer) proxyRunnerNATS(w http.ResponseWriter, r *http.
 	defer clientConn.Close()
 
 	// Connect to the backend WebSocket server.
-	backendConn, resp, err := websocket.DefaultDialer.Dial("ws://localhost:8433", nil) // TODO(Phil): make this configurable
+	backendConn, resp, err := websocket.DefaultDialer.Dial(apiServer.natsWebsocketURL(), nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to connect to backend WebSocket server")
 		return
@@ -129,4 +130,13 @@ func (apiServer *HelixAPIServer) proxyRunnerNATS(w http.ResponseWriter, r *http.
 	if err := <-errCh; err != nil {
 		log.Printf("WebSocket proxy error: %v", err)
 	}
+}
+
+// natsWebsocketURL is the NATS websocket listener runner connections are
+// proxied to: NATS_SERVER_WEBSOCKET_URL, or the embedded server's port.
+func (apiServer *HelixAPIServer) natsWebsocketURL() string {
+	if u := apiServer.Cfg.PubSub.Server.WebsocketURL; u != "" {
+		return u
+	}
+	return fmt.Sprintf("ws://localhost:%d", apiServer.Cfg.PubSub.Server.WebsocketPort)
 }

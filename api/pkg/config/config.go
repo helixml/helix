@@ -141,7 +141,10 @@ type ServerConfig struct {
 	// across the fleet on next API restart.
 	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"-1"`
 
-	HostHistoryNode       string `envconfig:"HELIX_HOST_HISTORY_NODE" description:"Stable API node name for deployments sharing a local filestore"`
+	HostHistoryNode string `envconfig:"HELIX_HOST_HISTORY_NODE" description:"Stable API node name for deployments sharing a local filestore"`
+	// InstanceID names this API process among several sharing one database
+	// (the blue/green colours on app.helix.ml). It labels every log line.
+	InstanceID            string `envconfig:"HELIX_INSTANCE_ID" description:"Name of this API instance when several share a database (e.g. blue/green); added to every log line"`
 	DisableLLMCallLogging bool   `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool   `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool   `envconfig:"DISABLE_VERSION_PING" default:"false"`
@@ -1011,6 +1014,7 @@ type PubSub struct {
 		Host                      string `envconfig:"NATS_SERVER_HOST" default:"127.0.0.1" description:"The host to bind the NATS server to."`
 		Port                      int    `envconfig:"NATS_SERVER_PORT" default:"4222" description:"The port to bind the NATS server to."`
 		WebsocketPort             int    `envconfig:"NATS_SERVER_WEBSOCKET_PORT" default:"8433" description:"The websocket port used as a proxy to the NATS server."`
+		WebsocketURL              string `envconfig:"NATS_SERVER_WEBSOCKET_URL" description:"The NATS websocket the runner proxy connects to. Defaults to ws://localhost:<NATS_SERVER_WEBSOCKET_PORT> (the embedded server); set it when NATS is external."`
 		Token                     string `envconfig:"NATS_SERVER_TOKEN" description:"The authentication token for the NATS server."`
 		MaxPayload                int    `envconfig:"NATS_SERVER_MAX_PAYLOAD" default:"33554432" description:"The maximum payload size in bytes (default 32MB)."`
 		JetStream                 bool   `envconfig:"NATS_SERVER_JETSTREAM" default:"true" description:"Whether to enable JetStream."`
