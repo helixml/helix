@@ -51,6 +51,15 @@ func (s *PostgresStore) GormDB() *gorm.DB {
 	return s.gdb
 }
 
+// Ping reports whether the database answers.
+func (s *PostgresStore) Ping(ctx context.Context) error {
+	db, err := s.gdb.DB()
+	if err != nil {
+		return err
+	}
+	return db.PingContext(ctx)
+}
+
 // withGormDB returns a copy of the store whose queries, including those of the
 // embedded org store, run on db. Migrations use it to run on a dedicated
 // connection pool with its own session settings (lock_timeout).

@@ -37,8 +37,37 @@ type KoditResult struct {
 	store          store.Store
 	gitRepoService *services.GitRepositoryService
 
-	// mu serialises Reinit calls.
+	// mu serialises Reinit calls and guards client and workersCtx.
 	mu sync.Mutex
+	// client is the live kodit client (nil when kodit is disabled).
+	client *kodit.Client
+	// workersCtx is set while this process holds the leader lease and runs
+	// the kodit task workers (see RunWorkers).
+	workersCtx context.Context
+}
+
+// RunWorkers runs the kodit task workers until ctx is cancelled. Clients are
+// created WithDeferredWorkers so that only the leader among API processes
+// sharing the kodit database runs them: a starting worker fails tasks in
+// progress, and one worker keeps a repository's tasks in order.
+func (k *KoditResult) RunWorkers(ctx context.Context) {
+	k.mu.Lock()
+	if k.client == nil {
+		k.mu.Unlock()
+		return
+	}
+	if err := k.client.StartWorkers(ctx); err != nil {
+		log.Error().Err(err).Msg("failed to start kodit workers")
+	}
+	k.workersCtx = ctx
+	k.mu.Unlock()
+
+	<-ctx.Done()
+
+	k.mu.Lock()
+	k.workersCtx = nil
+	k.client.StopWorkers()
+	k.mu.Unlock()
 }
 
 // MigrateKodit brings the kodit database up to date, for helix serve
@@ -113,6 +142,7 @@ func InitKodit(cfg *config.ServerConfig, gitRepoService *services.GitRepositoryS
 		Service:        svc,
 		mcpBackend:     mcpBackend,
 		closer:         client,
+		client:         client,
 		koditService:   svc,
 		cfg:            cfg,
 		store:          store,
@@ -163,6 +193,12 @@ func (k *KoditResult) Reinit(ctx context.Context) error {
 	oldClient := k.koditService.SwapClient(newClient)
 	k.mcpBackend.setClient(newClient)
 	k.closer = newClient
+	k.client = newClient
+	if k.workersCtx != nil {
+		if err := newClient.StartWorkers(k.workersCtx); err != nil {
+			log.Error().Err(err).Msg("kodit reinit: failed to start workers on the new client")
+		}
+	}
 
 	if oldClient != nil {
 		if err := oldClient.Close(); err != nil {
@@ -193,6 +229,8 @@ func (k *KoditResult) Reinit(ctx context.Context) error {
 func buildKoditOpts(cfg *config.ServerConfig, s store.Store) ([]kodit.Option, koditEmbeddingDecision, error) {
 	var koditOpts []kodit.Option
 	koditOpts = append(koditOpts, kodit.WithPostgresVectorchord(cfg.Kodit.DatabaseURL))
+	// Workers start only on the leader (KoditResult.RunWorkers).
+	koditOpts = append(koditOpts, kodit.WithDeferredWorkers())
 	if store.AutoMigrateSkipped() {
 		// helix serve --migrate-only ran MigrateKodit already.
 		koditOpts = append(koditOpts, kodit.WithSkipMigrations())

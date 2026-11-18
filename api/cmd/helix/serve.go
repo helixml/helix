@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	// Register file driver
@@ -26,6 +27,7 @@ import (
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/leader"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/netguard"
@@ -231,6 +233,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	system.SetupLogging()
+	if cfg.InstanceID != "" {
+		log.Logger = log.With().Str("instance", cfg.InstanceID).Logger()
+	}
 
 	// Cleanup manager ensures that resources are freed before exiting:
 	cm := system.NewCleanupManager()
@@ -253,8 +258,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}()
 
-	// Context ensures main goroutine waits until killed with ctrl+c:
-	ctx, signalCancel := signal.NotifyContext(ctx, os.Interrupt)
+	// Run until ctrl+c or SIGTERM (`docker stop`, and the blue/green deploy
+	// stopping the old colour), then drain gracefully.
+	ctx, signalCancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer signalCancel()
 
 	fs, err := getFilestore(ctx, cfg)
@@ -279,18 +285,16 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		// Don't fail the entire startup if dynamic providers fail to initialize
 	}
 
-	// Reset any running executions
-	err = postgresStore.ResetRunningExecutions(ctx)
+	// Work that must have one owner among the API processes sharing this
+	// database (cron, bots, orchestration, startup resets) runs only while
+	// this process holds the leader lease. A single instance takes it at
+	// boot; in a blue/green deploy the new colour takes it when the old one
+	// exits.
+	sqlDB, err := postgresStore.GormDB().DB()
 	if err != nil {
-		log.Error().Err(err).Msg("failed to reset running executions")
+		return fmt.Errorf("get database handle for leader lease: %w", err)
 	}
-
-	log.Info().Msg("resetting running interactions")
-
-	err = postgresStore.ResetRunningInteractions(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to reset running interactions")
-	}
+	elector := leader.New(sqlDB, "helix-leader:"+cfg.Store.Schema)
 
 	if cfg.WebServer.RunnerToken == "" {
 		return fmt.Errorf("runner token is required")
@@ -384,6 +388,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize kodit: %w", err)
 	}
+	elector.Go("kodit-workers", koditInit.RunWorkers)
 
 	ragClient := rag.NewKoditRAG(koditInit.Service, postgresStore, cfg.FileStore)
 	log.Info().Msgf("Using Kodit for RAG")
@@ -431,9 +436,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to load oauth providers")
 	} else {
-		// Start the OAuth manager
+		// Keep the provider configuration current
 		oauthManager.Start(ctx)
 	}
+	elector.Go("oauth-token-refresh", oauthManager.RunTokenRefresh)
 
 	// Update controller options with the OAuth manager
 	controllerOptions.OAuthManager = oauthManager
@@ -453,11 +459,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	go func() {
+	elector.Go("knowledge-reconciler", func(ctx context.Context) {
 		if err := knowledgeReconciler.Start(ctx); err != nil {
 			log.Error().Err(err).Msg("failed to start knowledge reconciler")
 		}
-	}()
+	})
 
 	// Started below, AFTER server.NewServer has wired the spec task creator and
 	// external agent starter into it — starting here would race those setters.
@@ -512,6 +518,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		gitRepositoryService,
 		koditInit,
 		webSearch.Provider,
+		elector,
 	)
 	if err != nil {
 		return err
@@ -523,18 +530,28 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// external agent starter into the manager, so cron triggers with
 	// action="spec_task" / agent_type="zed_external" can actually execute.
 	go postgresStore.MaintainLLMPayloads(ctx)
-	go trigger.Start(ctx)
+	elector.Go("triggers", trigger.Start)
+
+	electorDone := make(chan struct{})
+	go func() {
+		elector.Run(ctx)
+		close(electorDone)
+	}()
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
 
-	go func() {
-		err := server.ListenAndServe(ctx, cm)
-		if err != nil {
-			panic(err)
-		}
-	}()
-
-	<-ctx.Done()
+	// ListenAndServe returns once ctx is cancelled and in-flight requests have
+	// drained (server.DrainTimeout).
+	if err := server.ListenAndServe(ctx, cm); err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
+	// The lease is released once the leader's tasks have stopped; exiting
+	// releases it regardless, so don't wait long.
+	select {
+	case <-electorDone:
+	case <-time.After(10 * time.Second):
+		log.Warn().Msg("leader tasks still stopping; exiting")
+	}
 	return nil
 }
 

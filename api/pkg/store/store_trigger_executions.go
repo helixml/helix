@@ -12,11 +12,14 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// ResetRunningExecutions on start we have to reset any running executions as we will not pick them up again to finish (we could in the future),
-// for now we fail them all but if we put them into "pending" state then we could pick them up again and retry
-func (s *PostgresStore) ResetRunningExecutions(ctx context.Context) error {
+// ResetRunningExecutions fails executions still running that were created
+// before the given time: the process that ran them is gone and nothing picks
+// them up again. The leader calls it with its own start time, so executions a
+// process started itself are left alone.
+func (s *PostgresStore) ResetRunningExecutions(ctx context.Context, before time.Time) error {
 	err := s.gdb.WithContext(ctx).Model(&types.TriggerExecution{}).
 		Where("status = ?", types.TriggerExecutionStatusRunning).
+		Where("created < ?", before).
 		Updates(map[string]any{
 			"status": types.TriggerExecutionStatusError,
 			"error":  "Execution was interrupted",

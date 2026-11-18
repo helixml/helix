@@ -556,6 +556,8 @@ github.com/helixml/kodit v1.4.1-0.20261118164726-577352552970 h1:UjEtKEVz8qFbRRt
 github.com/helixml/kodit v1.4.1-0.20261118164726-577352552970/go.mod h1:NhT1+0j9LZk6u0mZzuMbyc/P/Rfheh8OYLUxANN9JTg=
 github.com/helixml/kodit v1.4.1-0.20261118190915-63ebfd87c881 h1:Aa7iIW18BT7+qi3Obe39RXjfOgJsMnOL5uoSnluq7zU=
 github.com/helixml/kodit v1.4.1-0.20261118190915-63ebfd87c881/go.mod h1:NhT1+0j9LZk6u0mZzuMbyc/P/Rfheh8OYLUxANN9JTg=
+github.com/helixml/kodit v1.4.1-0.20261118215600-6de63e1350bf h1:z+2DBfZCNC4R2VMngJIFi0wPwJrImTVhK8mGfoYoX0A=
+github.com/helixml/kodit v1.4.1-0.20261118215600-6de63e1350bf/go.mod h1:NhT1+0j9LZk6u0mZzuMbyc/P/Rfheh8OYLUxANN9JTg=
 github.com/helixml/langchaingo v0.1.15 h1:6cEwRQgEri4aDrvDnSESmsMY9H35UUoWuOEukSP3lJw=
 github.com/helixml/langchaingo v0.1.15/go.mod h1:EeervIv/DNYhSfQSMaql20wMFvhgF7lDaVaatp8lVPw=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=

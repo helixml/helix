@@ -197,29 +197,27 @@ func coldStartGracePeriod() time.Duration {
 	return defaultColdStartGracePeriod
 }
 
-// startAutoWakeStuckInteractionsWorker launches the periodic scanner.
-// Idempotent in spirit but the API server only calls it once at init.
-func (apiServer *HelixAPIServer) startAutoWakeStuckInteractionsWorker(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(autoWakeScanInterval)
-		defer ticker.Stop()
+// runAutoWakeStuckInteractionsWorker runs the periodic scanner until ctx is
+// cancelled.
+func (apiServer *HelixAPIServer) runAutoWakeStuckInteractionsWorker(ctx context.Context) {
+	ticker := time.NewTicker(autoWakeScanInterval)
+	defer ticker.Stop()
 
-		log.Info().
-			Dur("scan_interval", autoWakeScanInterval).
-			Dur("stuck_threshold", autoWakeStuckThreshold()).
-			Int("max_retries", autoWakeMaxRetries).
-			Msg("🚀 [AUTO_WAKE] Started auto-wake worker for stuck waiting interactions")
+	log.Info().
+		Dur("scan_interval", autoWakeScanInterval).
+		Dur("stuck_threshold", autoWakeStuckThreshold()).
+		Int("max_retries", autoWakeMaxRetries).
+		Msg("🚀 [AUTO_WAKE] Started auto-wake worker for stuck waiting interactions")
 
-		for {
-			select {
-			case <-ctx.Done():
-				log.Info().Msg("[AUTO_WAKE] Context cancelled, stopping worker")
-				return
-			case <-ticker.C:
-				apiServer.scanAndAutoWakeStuckInteractions(ctx)
-			}
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("[AUTO_WAKE] Context cancelled, stopping worker")
+			return
+		case <-ticker.C:
+			apiServer.scanAndAutoWakeStuckInteractions(ctx)
 		}
-	}()
+	}
 }
 
 // scanAndAutoWakeStuckInteractions runs one detection pass.

@@ -155,6 +155,13 @@ func (o *SpecTaskOrchestrator) Start(ctx context.Context) error {
 	return nil
 }
 
+// Run runs the orchestration loops until ctx is cancelled and they have
+// returned.
+func (o *SpecTaskOrchestrator) Run(ctx context.Context) {
+	_ = o.Start(ctx)
+	o.wg.Wait()
+}
+
 // Stop stops the orchestrator
 func (o *SpecTaskOrchestrator) Stop() error {
 	log.Info().Msg("Stopping SpecTask orchestrator")

@@ -571,18 +571,19 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	s.orgSeeder = orgHandlers.seeder
 	s.onServiceConnectionChange = s.reactToServiceConnectionChange
 
-	// Stream-cron scheduler runs for the lifetime of ctx
-	// (ListenAndServe's). Logs its own errors; one bad fire can't kill
-	// the loop because fire() has panic recovery.
+	// Stream-cron scheduler and GitHub delivery reconciler run on the
+	// leader only (two instances would fire every cron twice). The
+	// scheduler logs its own errors; one bad fire can't kill the loop
+	// because fire() has panic recovery.
 	if orgHandlers.streamCron != nil {
-		go func() {
+		s.leader.Go("org-streamcron", func(ctx context.Context) {
 			if err := orgHandlers.streamCron.Start(ctx); err != nil {
 				log.Error().Err(err).Msg("streamcron scheduler exited with error")
 			}
-		}()
+		})
 	}
 	if orgHandlers.githubDeliveryRun != nil {
-		go orgHandlers.githubDeliveryRun(ctx)
+		s.leader.Go("org-github-delivery-reconciler", orgHandlers.githubDeliveryRun)
 	}
 	if orgHandlers.assetSSHProxyRun != nil {
 		go func() {
@@ -632,9 +633,9 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 		Handle("/slack/oauth/callback", s.slackOAuthCallbackHandler()).
 		Methods(http.MethodGet)
 	// Socket Mode ingress — long-lived, only active when the global app
-	// is configured for it. Started like streamCron.
+	// is configured for it. One connection per workspace, so leader only.
 	if orgHandlers.slackSocketRun != nil {
-		go orgHandlers.slackSocketRun(ctx)
+		s.leader.Go("org-slack-socket", orgHandlers.slackSocketRun)
 	}
 
 	// Org-scoped Slack endpoints. Registered BEFORE the /orgs/{org}/

@@ -121,8 +121,10 @@ func (c *Scheduler) Start(ctx context.Context) error {
 	<-ctx.Done()
 	wg.Wait()
 
-	if err := c.scheduler.Shutdown(); err != nil {
-		return fmt.Errorf("streamcron: shutdown: %w", err)
+	// Stop, not Shutdown: Start runs again if this instance regains the
+	// leader lease, and a shut-down scheduler can't be restarted.
+	if err := c.scheduler.StopJobs(); err != nil {
+		return fmt.Errorf("streamcron: stop: %w", err)
 	}
 	log.Info().Msg("streamcron scheduler stopped")
 	return nil

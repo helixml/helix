@@ -264,9 +264,13 @@ func (s *PostgresStore) UpdateWebServiceDeploy(ctx context.Context, id string, u
 // alone it would wedge the health monitor's recovery — deployInProgress treats
 // an in-flight deploy as "don't touch". Failing them lets a dead web service
 // recover on the first tick instead of waiting out the build timeout.
-func (s *PostgresStore) FailInFlightWebServiceDeploys(ctx context.Context) (int64, error) {
+//
+// Only deploys started before the given time are failed: the leader passes
+// its own start time, so builds it orchestrates itself are left alone.
+func (s *PostgresStore) FailInFlightWebServiceDeploys(ctx context.Context, before time.Time) (int64, error) {
 	res := s.gdb.WithContext(ctx).
 		Model(&types.WebServiceDeploy{}).
+		Where("started_at < ?", before).
 		Where("status IN ?", []types.WebServiceDeployStatus{
 			types.WebServiceDeployStatusPending,
 			types.WebServiceDeployStatusBuilding,

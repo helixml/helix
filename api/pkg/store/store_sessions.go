@@ -468,16 +468,19 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 }
 
 // ClearStaleStartingSessions marks sessions stuck in "starting" or "restarting"
-// state as "stopped" and clears status_message. Called on API startup — if the
-// API just started, no session can legitimately be mid-startup, and a restart
+// state since before the given time as "stopped" and clears status_message.
+// The leader calls it with its own start time: a start begun before that was
+// orchestrated by a process that is gone (MarkSessionStartingIfIdle and
+// MarkSessionRestarting set updated), and a restart
 // interrupted mid-teardown would otherwise pin the session on a spinner forever
 // (nothing else clears "restarting"). "stopped", not "": a session with no
 // lifecycle state reads as one whose first launch has not begun yet. Discovery
 // upgrades the row to "running" if the container did come up.
-func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
+func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context, before time.Time) (int64, error) {
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("config->>'external_agent_status' IN ?", []string{"starting", "restarting"}).
+		Where("updated < ?", before).
 		Updates(map[string]interface{}{
 			"config": gorm.Expr(`config || '{"external_agent_status":"stopped","status_message":""}'::jsonb`),
 		})
@@ -511,7 +514,8 @@ func (s *PostgresStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID
 		Where("id = ?", sessionID).
 		Where("COALESCE(config->>'external_agent_status', '') NOT IN ('starting', 'restarting', 'running')").
 		Updates(map[string]interface{}{
-			"config": gorm.Expr(`config || '{"external_agent_status":"starting","status_message":"Starting Desktop..."}'::jsonb`),
+			"config":  gorm.Expr(`config || '{"external_agent_status":"starting","status_message":"Starting Desktop..."}'::jsonb`),
+			"updated": gorm.Expr("NOW()"),
 		})
 	if result.Error != nil {
 		return false, result.Error
@@ -541,7 +545,8 @@ func (s *PostgresStore) MarkSessionRestarting(ctx context.Context, sessionID str
 		Model(&types.Session{}).
 		Where("id = ?", sessionID).
 		Updates(map[string]interface{}{
-			"config": gorm.Expr(`config || '{"external_agent_status":"restarting","status_message":"Restarting desktop..."}'::jsonb`),
+			"config":  gorm.Expr(`config || '{"external_agent_status":"restarting","status_message":"Restarting desktop..."}'::jsonb`),
+			"updated": gorm.Expr("NOW()"),
 		}).Error
 }
 
