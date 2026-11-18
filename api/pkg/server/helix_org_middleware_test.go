@@ -212,15 +212,16 @@ func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
 	tests := []struct {
 		name           string
 		role           types.OrganizationRole
+		wantRole       types.OrganizationRole
 		platformAdmin  bool
 		organizationID string
 		tokenType      types.TokenType
 		wantManage     bool
 	}{
-		{name: "member", role: types.OrganizationRoleMember, wantManage: false},
-		{name: "owner", role: types.OrganizationRoleOwner, wantManage: true},
-		{name: "platform admin", role: types.OrganizationRoleMember, platformAdmin: true, wantManage: true},
-		{name: "org-scoped key", role: types.OrganizationRoleMember, organizationID: "org_acme", tokenType: types.TokenTypeAPIKey, wantManage: false},
+		{name: "member", role: types.OrganizationRoleMember, wantRole: types.OrganizationRoleMember, wantManage: false},
+		{name: "owner", role: types.OrganizationRoleOwner, wantRole: types.OrganizationRoleOwner, wantManage: true},
+		{name: "platform admin", role: types.OrganizationRoleMember, wantRole: types.OrganizationRoleOwner, platformAdmin: true, wantManage: true},
+		{name: "org-scoped key", role: types.OrganizationRoleMember, wantRole: types.OrganizationRoleMember, organizationID: "org_acme", tokenType: types.TokenTypeAPIKey, wantManage: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -233,8 +234,8 @@ func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
 				if !ok {
 					t.Fatal("organization authorization missing from context")
 				}
-				if auth.MembershipRole != tt.role || auth.PlatformAdmin != tt.platformAdmin {
-					t.Fatalf("authorization = %+v, want role=%q admin=%v", auth, tt.role, tt.platformAdmin)
+				if auth.MembershipRole != tt.wantRole || auth.PlatformAdmin != tt.platformAdmin {
+					t.Fatalf("authorization = %+v, want role=%q admin=%v", auth, tt.wantRole, tt.platformAdmin)
 				}
 				if got := helixorgserver.CanManageOrganization(r.Context()); got != tt.wantManage {
 					t.Fatalf("CanManageOrganization() = %v, want %v", got, tt.wantManage)

@@ -73,6 +73,67 @@ func TestAuthorizeOrgMember_UnscopedUserUnaffected(t *testing.T) {
 	}
 }
 
+func TestAuthorizeOrg_AdminKeepsOwnerAccessAfterJoining(t *testing.T) {
+	ctx := context.Background()
+	for name, membership := range map[string]*types.OrganizationMembership{
+		"no membership": nil,
+		"member":        {OrganizationID: "org-1", UserID: "admin-1", Role: types.OrganizationRoleMember},
+		"owner":         {OrganizationID: "org-1", UserID: "admin-1", Role: types.OrganizationRoleOwner},
+	} {
+		t.Run(name, func(t *testing.T) {
+			queryer := &fakeQueryer{memberships: map[string]*types.OrganizationMembership{}}
+			originalRole := types.OrganizationRole("")
+			if membership != nil {
+				queryer.memberships["org-1/admin-1"] = membership
+				originalRole = membership.Role
+			}
+			a := NewAuthorizer(queryer)
+			user := &types.User{ID: "admin-1", Admin: true}
+
+			for helper, authorize := range map[string]func() (*types.OrganizationMembership, error){
+				"member": func() (*types.OrganizationMembership, error) {
+					return a.AuthorizeOrgMember(ctx, user, "org-1")
+				},
+				"owner": func() (*types.OrganizationMembership, error) {
+					return a.AuthorizeOrgOwner(ctx, user, "org-1")
+				},
+			} {
+				got, err := authorize()
+				if err != nil {
+					t.Fatalf("%s helper: %v", helper, err)
+				}
+				if got.OrganizationID != "org-1" || got.UserID != "admin-1" || got.Role != types.OrganizationRoleOwner {
+					t.Fatalf("%s helper returned %#v, want synthetic owner", helper, got)
+				}
+			}
+			if membership != nil && queryer.memberships["org-1/admin-1"].Role != originalRole {
+				t.Fatal("authorization changed the stored membership")
+			}
+		})
+	}
+}
+
+func TestAuthorizeOrg_AdminScopeGuardsStillApply(t *testing.T) {
+	a := NewAuthorizer(newFakeQueryer())
+	ctx := context.Background()
+	orgScoped := &types.User{ID: "user-1", Admin: true, OrganizationID: "org-1"}
+	if _, err := a.AuthorizeOrgMember(ctx, orgScoped, "org-2"); !errors.Is(err, ErrKeyOrgScope) {
+		t.Fatalf("member helper: expected ErrKeyOrgScope, got %v", err)
+	}
+	if _, err := a.AuthorizeOrgOwner(ctx, orgScoped, "org-2"); !errors.Is(err, ErrKeyOrgScope) {
+		t.Fatalf("owner helper: expected ErrKeyOrgScope, got %v", err)
+	}
+
+	for name, user := range map[string]*types.User{
+		"project key": {ID: "user-1", Admin: true, OrganizationID: "org-2", ProjectID: "prj-1"},
+		"session key": {ID: "user-1", Admin: true, OrganizationID: "org-2", SessionID: "ses-1"},
+	} {
+		if _, err := a.AuthorizeOrgOwner(ctx, user, "org-2"); !errors.Is(err, ErrNotOrgOwner) {
+			t.Errorf("%s: expected ErrNotOrgOwner, got %v", name, err)
+		}
+	}
+}
+
 // org-2 seeds user-1 as owner, so without enforceKeyNotAgentScoped every
 // scoped case below would be authorized.
 func TestAuthorizeOrgOwner_AgentScopedKeysRefused(t *testing.T) {

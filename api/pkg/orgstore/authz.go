@@ -76,10 +76,6 @@ func (a *Authorizer) AuthorizeOrgOwner(ctx context.Context, user *types.User, or
 		return nil, err
 	}
 	if user.Admin {
-		membership, err := a.store.GetOrganizationMembership(ctx, &GetOrganizationMembershipQuery{OrganizationID: orgID, UserID: user.ID})
-		if err == nil {
-			return membership, nil
-		}
 		return &types.OrganizationMembership{OrganizationID: orgID, UserID: user.ID, Role: types.OrganizationRoleOwner}, nil
 	}
 	membership, err := a.store.GetOrganizationMembership(ctx, &GetOrganizationMembershipQuery{OrganizationID: orgID, UserID: user.ID})
@@ -99,10 +95,6 @@ func (a *Authorizer) AuthorizeOrgMember(ctx context.Context, user *types.User, o
 		return nil, err
 	}
 	if user.Admin {
-		membership, err := a.store.GetOrganizationMembership(ctx, &GetOrganizationMembershipQuery{OrganizationID: orgID, UserID: user.ID})
-		if err == nil {
-			return membership, nil
-		}
 		return &types.OrganizationMembership{OrganizationID: orgID, UserID: user.ID, Role: types.OrganizationRoleOwner}, nil
 	}
 	membership, err := a.store.GetOrganizationMembership(ctx, &GetOrganizationMembershipQuery{OrganizationID: orgID, UserID: user.ID})
