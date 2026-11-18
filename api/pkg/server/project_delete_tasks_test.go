@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
@@ -14,6 +17,7 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/sandbox"
+	"github.com/helixml/helix/api/pkg/sessionresources"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/webservice"
@@ -34,6 +38,10 @@ type DeleteProjectTasksSuite struct {
 	fs       *filestore.MockFileStore
 	server   *HelixAPIServer
 	userID   string
+	history  string
+	// sessions returns ListSessions results by spec task id, or by project id
+	// for the project-wide listing.
+	sessions map[string][]*types.Session
 }
 
 func TestDeleteProjectTasksSuite(t *testing.T) {
@@ -46,7 +54,18 @@ func (s *DeleteProjectTasksSuite) SetupTest() {
 	s.executor = external_agent.NewMockExecutor(s.ctrl)
 	s.fs = filestore.NewMockFileStore(s.ctrl)
 	s.userID = "user-delete-test"
+	s.history = s.T().TempDir()
+	s.sessions = map[string][]*types.Session{}
+	s.sto.EXPECT().ListSessions(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, q store.ListSessionsQuery) ([]*types.Session, int64, error) {
+			key := q.SpecTaskID
+			if key == "" {
+				key = q.ProjectID
+			}
+			return s.sessions[key], int64(len(s.sessions[key])), nil
+		}).AnyTimes()
 	s.server = &HelixAPIServer{
+		sessionResources:      sessionresources.New(s.history, "test"),
 		Cfg:                   &config.ServerConfig{},
 		Store:                 s.sto,
 		externalAgentExecutor: s.executor,
@@ -105,10 +124,38 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectDeletesAllTasksIncludingArchi
 	s.sto.EXPECT().DeleteProject(gomock.Any(), "prj_del").Return(nil)
 	s.expectNoProjectOwnedResources()
 
+	// Resource history of the planning session, a later thread session of the
+	// archived task, and a project chat — and of a session elsewhere.
+	s.sessions["t2"] = []*types.Session{{ID: "ses_thread"}}
+	s.sessions["prj_del"] = []*types.Session{{ID: "ses_projectchat"}, {ID: "ses_thread"}}
+	owned := []string{"ses_1", "ses_thread", "ses_projectchat"}
+	now := time.Now()
+	for _, id := range append(owned, "ses_elsewhere") {
+		s.server.sessionResources.Record([]types.SessionResourceSample{{SessionID: id, Timestamp: now.UnixMilli()}})
+	}
+	s.Require().NoError(s.server.sessionResources.Flush(now))
+
 	resp, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Require().Nil(httpErr)
 	s.Require().NotNil(resp)
 	s.Equal("project deleted successfully", resp["message"])
+
+	day := filepath.Join(s.history, now.UTC().Format(time.DateOnly))
+	for _, id := range owned {
+		_, err := os.Stat(filepath.Join(day, id))
+		s.True(os.IsNotExist(err), "history of %s left behind", id)
+		// A desktop still reporting after the delete must not bring it back.
+		s.server.sessionResources.Record([]types.SessionResourceSample{{SessionID: id, Timestamp: now.UnixMilli() + 1}})
+	}
+	s.Require().NoError(s.server.sessionResources.Flush(now))
+	for _, id := range owned {
+		got, err := s.server.sessionResources.Read(id, now.Add(-time.Hour), now.Add(time.Hour))
+		s.Require().NoError(err)
+		s.Empty(got, "history of %s recreated", id)
+	}
+	other, err := s.server.sessionResources.Read("ses_elsewhere", now.Add(-time.Hour), now.Add(time.Hour))
+	s.Require().NoError(err)
+	s.Len(other, 1, "another project's history must survive")
 }
 
 func (s *DeleteProjectTasksSuite) TestDeleteProjectAbortsWhenTaskDeleteFails() {
@@ -238,4 +285,28 @@ func (s *DeleteProjectTasksSuite) TestDeleteProjectTearsDownWebService() {
 
 	_, httpErr := s.server.deleteProject(httptest.NewRecorder(), s.request())
 	s.Nil(httpErr)
+}
+
+// Deleting one archived task removes the sandbox resource history of every
+// session it ran, and only theirs. Archiving alone keeps it.
+func (s *DeleteProjectTasksSuite) TestDeleteSpecTaskRemovesItsResourceHistory() {
+	task := &types.SpecTask{ID: "t1", ProjectID: "prj_del", PlanningSessionID: "ses_plan", Archived: true}
+	s.sessions["t1"] = []*types.Session{{ID: "ses_plan"}, {ID: "ses_retry"}}
+	now := time.Now()
+	for _, id := range []string{"ses_plan", "ses_retry", "ses_sibling"} {
+		s.server.sessionResources.Record([]types.SessionResourceSample{{SessionID: id, Timestamp: now.UnixMilli()}})
+	}
+	s.Require().NoError(s.server.sessionResources.Flush(now))
+	s.expectTaskDeleted("t1")
+
+	s.Require().NoError(s.server.deleteSpecTaskCascade(context.Background(), task))
+
+	read := func(id string) int {
+		got, err := s.server.sessionResources.Read(id, now.Add(-time.Hour), now.Add(time.Hour))
+		s.Require().NoError(err)
+		return len(got)
+	}
+	s.Zero(read("ses_plan"))
+	s.Zero(read("ses_retry"))
+	s.Equal(1, read("ses_sibling"), "another task's history must survive")
 }

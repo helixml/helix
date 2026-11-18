@@ -27,11 +27,18 @@ func newSessionResourcesTestServer(t *testing.T) *HelixAPIServer {
 	mockStore := srv.Store.(*store.MockStore)
 	mockStore.EXPECT().GetSession(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, id string) (*types.Session, error) {
-			if id != resourcesSessionA {
-				return nil, store.ErrNotFound
+			switch id {
+			case resourcesSessionA:
+				return &types.Session{ID: id, OrganizationID: tenantAOrg, Owner: tenantAAdmin, SandboxID: resourcesSandboxA}, nil
+			case "ses_taskgone":
+				return &types.Session{ID: id, SandboxID: resourcesSandboxA, Metadata: types.SessionMetadata{SpecTaskID: "spt_gone"}}, nil
+			case "ses_projectgone":
+				return &types.Session{ID: id, SandboxID: resourcesSandboxA, ProjectID: "prj_gone"}, nil
 			}
-			return &types.Session{ID: id, OrganizationID: tenantAOrg, Owner: tenantAAdmin, SandboxID: resourcesSandboxA}, nil
+			return nil, store.ErrNotFound
 		}).AnyTimes()
+	mockStore.EXPECT().GetSpecTask(gomock.Any(), "spt_gone").Return(nil, store.ErrNotFound).AnyTimes()
+	mockStore.EXPECT().GetProject(gomock.Any(), "prj_gone").Return(nil, store.ErrNotFound).AnyTimes()
 	srv.sessionResources = sessionresources.New(t.TempDir(), "test")
 	return srv
 }
@@ -99,4 +106,17 @@ func TestRecordSessionResourcesOnlyFromTheSessionsSandbox(t *testing.T) {
 	require.Len(t, got, 1)
 	require.Equal(t, now.UnixMilli(), got[0].Timestamp, "the API stamps samples on receipt")
 	require.Equal(t, uint64(7), got[0].CPUUsageUsec)
+}
+
+func TestRecordSessionResourcesDropsSessionsOfDeletedTasksAndProjects(t *testing.T) {
+	srv := newSessionResourcesTestServer(t)
+	now := time.Now()
+	srv.recordSessionResources(context.Background(), resourcesSandboxA, []types.SessionResourceSample{
+		{SessionID: "ses_taskgone"}, {SessionID: "ses_projectgone"},
+	}, now)
+	for _, id := range []string{"ses_taskgone", "ses_projectgone"} {
+		got, err := srv.sessionResources.Read(id, now.Add(-time.Hour), now.Add(time.Hour))
+		require.NoError(t, err)
+		require.Empty(t, got, "%s: a desktop outliving its task or project must not recreate history", id)
+	}
 }

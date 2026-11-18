@@ -14,6 +14,12 @@ The sandbox heartbeat, already walking every `helix.session_id` container each 3
 
 The API stamps samples on receipt and keeps only those from the sandbox the session is placed on (`sessions.sandbox_id`), so a runner cannot write another sandbox's history. Samples are buffered and written every five minutes as an immutable Parquet chunk under `<filestore>/.session-resources/<day>/<session>/`. When a session-day reaches 24 chunks they are merged into one. Readers merge files with the unflushed buffer and drop duplicate timestamps, which also covers a merge interrupted between writing its output and removing its inputs. Days older than 30 are removed. File names carry the API node (`HELIX_HOST_HISTORY_NODE`), so API hosts sharing a filestore never write the same file; a node's unflushed samples are visible only to that node for up to five minutes.
 
+## Lifecycle
+
+History follows the task, not the desktop. Archiving a task (which stops its desktop) keeps it, subject to the 30-day retention. Deleting a task removes the history of every session it ran — the planning session even when its row is already gone, and each session listed under the task. Deleting a project does the same for all of its tasks, then for the project's own sessions (exploratory session, project chats), before the project is soft-deleted. A step that fails fails the delete so it can be retried.
+
+Deletion leaves a tombstone per session in `.deleted/`, kept for the retention period. Flushes and new samples skip tombstoned sessions on every API node, so samples buffered on another node, or reported by a desktop still running after its task was deleted, cannot recreate the history. Ingestion also refuses a session whose spec task or project no longer exists, which covers a desktop outliving its tombstone.
+
 ## Reading
 
 The response has a summary (CPU p50/p95/max against the limit, maximum and peak memory against the limit, share of time throttled and stalled on CPU, memory and I/O, I/O totals, `memory.high` hits, OOM kills), up to 360 chart points (rates averaged over time, gauges at their maximum, events summed) and the latest filesystems.

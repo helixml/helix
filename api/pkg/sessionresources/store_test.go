@@ -140,3 +140,50 @@ func TestSummarize(t *testing.T) {
 		t.Fatalf("second point: %+v", p)
 	}
 }
+
+func TestStoreDeleteRemovesEveryDayAndBlocksLateSamples(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir, "node-a")
+	day1 := time.Date(2026, 11, 17, 23, 59, 0, 0, time.UTC)
+	day2 := day1.Add(2 * time.Minute)
+	s.Record([]types.SessionResourceSample{sample("ses_a", day1, 1), sample("ses_a", day2, 2), sample("ses_b", day2, 1)})
+	if err := s.Flush(day2); err != nil {
+		t.Fatal(err)
+	}
+	s.Record([]types.SessionResourceSample{sample("ses_a", day2.Add(time.Second), 3)}) // still buffered
+
+	if err := s.Delete([]string{"ses_a"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"2026-11-17", "2026-11-18"} {
+		if _, err := os.Stat(filepath.Join(dir, d, "ses_a")); !os.IsNotExist(err) {
+			t.Fatalf("%s/ses_a left behind: %v", d, err)
+		}
+	}
+	// Another API node, or a desktop that outlived its task, reports again.
+	other := New(dir, "node-b")
+	other.Record([]types.SessionResourceSample{sample("ses_a", day2.Add(time.Minute), 4)})
+	if err := other.Flush(day2); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Read("ses_a", day1.Add(-time.Hour), day2.Add(time.Hour)); len(got) != 0 {
+		t.Fatalf("deleted history came back: %v", got)
+	}
+	if got, _ := s.Read("ses_b", day1, day2.Add(time.Hour)); len(got) != 1 {
+		t.Fatalf("other session = %v", got)
+	}
+	if err := s.Delete([]string{"../ses_b"}); err == nil {
+		t.Fatal("path-like id accepted")
+	}
+	stone := filepath.Join(dir, tombstones, "ses_a")
+	if _, err := os.Stat(stone); err != nil {
+		t.Fatalf("tombstone missing: %v", err)
+	}
+	// Tombstones expire with the history they guard.
+	if err := s.Flush(time.Now().AddDate(0, 0, Days+2)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stone); !os.IsNotExist(err) {
+		t.Fatalf("expired tombstone kept: %v", err)
+	}
+}

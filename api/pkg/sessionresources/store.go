@@ -7,6 +7,10 @@
 // so a day holds at most compactAt files per session. Readers merge every file
 // with the unflushed buffer and drop duplicate timestamps, which also covers a
 // compaction interrupted between writing its output and removing its inputs.
+//
+// Delete removes a session's history and leaves a tombstone in <dir>/.deleted,
+// so samples still in flight — buffered on any API node, or reported by a
+// desktop that outlived its task — are dropped instead of recreating it.
 package sessionresources
 
 import (
@@ -41,9 +45,14 @@ type Store struct {
 	dir  string
 	node string
 
-	mu  sync.Mutex
-	buf map[string][]types.SessionResourceSample
+	// writeMu serializes flushes and deletions, so a flush that took a
+	// session's buffer cannot write it after the session was deleted.
+	writeMu sync.Mutex
+	mu      sync.Mutex
+	buf     map[string][]types.SessionResourceSample
 }
+
+const tombstones = ".deleted"
 
 func New(dir, node string) *Store {
 	if node == "" {
@@ -52,13 +61,60 @@ func New(dir, node string) *Store {
 	return &Store{dir: dir, node: node, buf: map[string][]types.SessionResourceSample{}}
 }
 
-// Record buffers samples until the next flush.
+func (s *Store) deleted(sessionID string) bool {
+	_, err := os.Stat(filepath.Join(s.dir, tombstones, sessionID))
+	return err == nil
+}
+
+// Record buffers samples until the next flush. Samples of deleted sessions
+// and malformed session ids are dropped.
 func (s *Store) Record(samples []types.SessionResourceSample) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, sample := range samples {
+		if !sessionIDPattern.MatchString(sample.SessionID) || s.deleted(sample.SessionID) {
+			continue
+		}
 		s.buf[sample.SessionID] = append(s.buf[sample.SessionID], sample)
 	}
+}
+
+// Delete removes the sessions' history on every day and keeps them from being
+// recorded again.
+func (s *Store) Delete(sessionIDs []string) error {
+	for _, id := range sessionIDs {
+		if !sessionIDPattern.MatchString(id) {
+			return fmt.Errorf("invalid session id %q", id)
+		}
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := os.MkdirAll(filepath.Join(s.dir, tombstones), 0o700); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	for _, id := range sessionIDs {
+		delete(s.buf, id)
+	}
+	s.mu.Unlock()
+	days, err := os.ReadDir(s.dir)
+	if err != nil {
+		return err
+	}
+	for _, id := range sessionIDs {
+		if err := os.WriteFile(filepath.Join(s.dir, tombstones, id), nil, 0o600); err != nil {
+			return err
+		}
+		for _, d := range days {
+			if _, err := time.Parse(time.DateOnly, d.Name()); err != nil || !d.IsDir() {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(s.dir, d.Name(), id)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Run flushes the buffer periodically and once more on shutdown.
@@ -86,6 +142,8 @@ func day(ms int64) string {
 
 // Flush writes buffered samples and removes days past retention.
 func (s *Store) Flush(now time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	s.mu.Lock()
 	pending := s.buf
 	s.buf = map[string][]types.SessionResourceSample{}
@@ -93,6 +151,9 @@ func (s *Store) Flush(now time.Time) error {
 
 	var errs []error
 	for sessionID, samples := range pending {
+		if s.deleted(sessionID) {
+			continue
+		}
 		byDay := map[string][]types.SessionResourceSample{}
 		for _, sample := range samples {
 			byDay[day(sample.Timestamp)] = append(byDay[day(sample.Timestamp)], sample)
@@ -206,6 +267,23 @@ func (s *Store) prune(now time.Time) error {
 		d, err := time.Parse(time.DateOnly, entry.Name())
 		if err == nil && entry.IsDir() && d.Before(cutoff) {
 			if err := os.RemoveAll(filepath.Join(s.dir, entry.Name())); err != nil {
+				return err
+			}
+		}
+	}
+	// A tombstone only has to outlive samples that could still arrive for a
+	// session, which stop once its desktop is gone; keep it as long as history.
+	stones, err := os.ReadDir(filepath.Join(s.dir, tombstones))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, stone := range stones {
+		info, err := stone.Info()
+		if err == nil && info.ModTime().Before(cutoff) {
+			if err := os.Remove(filepath.Join(s.dir, tombstones, stone.Name())); err != nil {
 				return err
 			}
 		}

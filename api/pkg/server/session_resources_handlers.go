@@ -15,6 +15,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/sessionresources"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -32,7 +33,9 @@ func newSessionResourceStore(cfg *config.ServerConfig) *sessionresources.Store {
 }
 
 // sessionPlacements caches which sandbox each session runs on, so heartbeats
-// every 30 seconds don't each load every session.
+// every 30 seconds don't each load every session. A session whose spec task or
+// project has been deleted has no placement: its desktop may still be running,
+// but its history must not come back.
 var sessionPlacements = struct {
 	sync.Mutex
 	bySession map[string]sessionPlacement
@@ -54,6 +57,16 @@ func (apiServer *HelixAPIServer) sessionSandbox(ctx context.Context, sessionID s
 	if err != nil {
 		return "", err
 	}
+	if id := session.Metadata.SpecTaskID; id != "" {
+		if _, err := apiServer.Store.GetSpecTask(ctx, id); err != nil {
+			return "", fmt.Errorf("spec task %s: %w", id, err)
+		}
+	}
+	if id := session.ProjectID; id != "" {
+		if _, err := apiServer.Store.GetProject(ctx, id); err != nil {
+			return "", fmt.Errorf("project %s: %w", id, err)
+		}
+	}
 	sessionPlacements.Lock()
 	defer sessionPlacements.Unlock()
 	for id, p := range sessionPlacements.bySession {
@@ -68,6 +81,9 @@ func (apiServer *HelixAPIServer) sessionSandbox(ctx context.Context, sessionID s
 // recordSessionResources keeps the samples of sessions placed on the reporting
 // sandbox. A runner cannot write history for a session running elsewhere.
 func (apiServer *HelixAPIServer) recordSessionResources(ctx context.Context, sandboxID string, samples []types.SessionResourceSample, now time.Time) {
+	if len(samples) == 0 {
+		return
+	}
 	accepted := samples[:0:0]
 	for _, sample := range samples {
 		placed, err := apiServer.sessionSandbox(ctx, sample.SessionID, now)
@@ -117,4 +133,36 @@ func (apiServer *HelixAPIServer) getSessionResources(_ http.ResponseWriter, req 
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to read session resources: %s", err))
 	}
 	return sessionresources.Summarize(session.ID, samples, sessionResourcesMaxPoints), nil
+}
+
+// deleteSessionResources removes the resource history of sessions whose spec
+// task or project is being deleted. Archiving keeps it.
+func (apiServer *HelixAPIServer) deleteSessionResources(sessionIDs []string) error {
+	sessionPlacements.Lock()
+	for _, id := range sessionIDs {
+		delete(sessionPlacements.bySession, id)
+	}
+	sessionPlacements.Unlock()
+	return apiServer.sessionResources.Delete(sessionIDs)
+}
+
+// specTaskSessionIDs lists every session a spec task has run, including its
+// planning session even when that row is already gone.
+func (apiServer *HelixAPIServer) specTaskSessionIDs(ctx context.Context, task *types.SpecTask) ([]string, error) {
+	sessions, _, err := apiServer.Store.ListSessions(ctx, store.ListSessionsQuery{
+		SpecTaskID: task.ID, AnyOwner: true, IncludeExternalAgents: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	if task.PlanningSessionID != "" {
+		ids = append(ids, task.PlanningSessionID)
+	}
+	for _, s := range sessions {
+		if s.ID != task.PlanningSessionID {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids, nil
 }
