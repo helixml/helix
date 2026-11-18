@@ -9,6 +9,7 @@ func init() {
 		"GET /api/v1/swagger":                public("OpenAPI document"),
 		"GET /api/v1/organization-domains":   admin(),
 		"GET /api/v1/llm_calls":              admin(),
+		"GET /api/v1/system/host-history":    admin(),
 		"GET /api/v1/system/settings":        admin(),
 		"PUT /api/v1/system/settings":        admin(),
 		"GET /api/v1/license":                admin(),

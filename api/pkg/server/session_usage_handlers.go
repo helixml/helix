@@ -38,9 +38,10 @@ func (s *HelixAPIServer) getSessionUsage(_ http.ResponseWriter, req *http.Reques
 	}
 
 	calls, total, err := s.Store.ListLLMCalls(ctx, &store.ListLLMCallsQuery{
-		SessionID: id,
-		Page:      1,
-		PerPage:   sessionUsageMaxCalls,
+		MetadataOnly: true,
+		SessionID:    id,
+		Page:         1,
+		PerPage:      sessionUsageMaxCalls,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list LLM calls: %s", err))

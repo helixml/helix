@@ -9065,6 +9065,18 @@ const docTemplate = `{
                 "summary": "List LLM calls",
                 "parameters": [
                     {
+                        "type": "boolean",
+                        "description": "Omit request and response bodies",
+                        "name": "metadata_only",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by call ID",
+                        "name": "call_id",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
@@ -23757,6 +23769,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/system/host-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Get API host CPU, memory and data filesystem utilization",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Days of history (1 through 30)",
+                        "name": "days",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/hosthistory.Sample"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/system/settings": {
             "get": {
                 "security": [
@@ -27320,6 +27364,23 @@ const docTemplate = `{
                 "valid": {
                     "description": "Valid is true if Time is not NULL",
                     "type": "boolean"
+                }
+            }
+        },
+        "hosthistory.Sample": {
+            "type": "object",
+            "properties": {
+                "cpu": {
+                    "type": "number"
+                },
+                "disk": {
+                    "type": "number"
+                },
+                "memory": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "integer"
                 }
             }
         },
@@ -44418,6 +44479,9 @@ const docTemplate = `{
                     "description": "Kodit vision embedding model configuration",
                     "type": "string"
                 },
+                "llm_payload_retention_days": {
+                    "type": "integer"
+                },
                 "max_concurrent_desktop_sandboxes": {
                     "type": "integer"
                 },
@@ -44530,6 +44594,9 @@ const docTemplate = `{
                 "kodit_vision_embedding_provider": {
                     "description": "Kodit vision embedding model configuration",
                     "type": "string"
+                },
+                "llm_payload_retention_days": {
+                    "type": "integer"
                 },
                 "max_concurrent_desktop_sandboxes": {
                     "type": "integer"

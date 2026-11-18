@@ -141,9 +141,10 @@ type ServerConfig struct {
 	// across the fleet on next API restart.
 	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"-1"`
 
-	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
-	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
-	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
+	HostHistoryNode       string `envconfig:"HELIX_HOST_HISTORY_NODE" description:"Stable API node name for deployments sharing a local filestore"`
+	DisableLLMCallLogging bool   `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
+	DisableUsageLogging   bool   `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
+	DisableVersionPing    bool   `envconfig:"DISABLE_VERSION_PING" default:"false"`
 
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`

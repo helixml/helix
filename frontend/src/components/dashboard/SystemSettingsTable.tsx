@@ -35,6 +35,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
 import useSnackbar from '../../hooks/useSnackbar'
 import { useGetSystemSettings, useUpdateSystemSettings } from '../../services/systemSettingsService'
+import PayloadRetentionSetting from './PayloadRetentionSetting'
 import AdvancedModelPicker from '../create/AdvancedModelPicker'
 
 const SystemSettingsTable: FC = () => {
@@ -511,6 +512,7 @@ const SystemSettingsTable: FC = () => {
           }
         />
         <CardContent>
+          {settings?.llm_payload_retention_days !== undefined && <PayloadRetentionSetting days={settings.llm_payload_retention_days} />}
           <TableContainer>
             <Table size="small">
               <TableHead>

@@ -12,7 +12,7 @@ import CodeIcon from '@mui/icons-material/Code'
 import QueueIcon from '@mui/icons-material/Queue'
 
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
-import { UsersIcon, BuildingIcon } from 'lucide-react'
+import { Activity, UsersIcon, BuildingIcon } from 'lucide-react'
 
 interface AdminNavSection {
   title: string
@@ -23,6 +23,7 @@ const ADMIN_NAV: AdminNavSection[] = [
   {
     title: 'Analytics & Monitoring',
     items: [
+      { id: 'host_history', label: 'Host resources', icon: <Activity /> },
       { id: 'llm_calls', label: 'LLM Calls', icon: <ApiIcon /> },
     ]
   },
