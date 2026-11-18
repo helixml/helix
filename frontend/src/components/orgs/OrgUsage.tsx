@@ -16,7 +16,7 @@ import Autocomplete from '@mui/material/Autocomplete'
 import LinearProgress from '@mui/material/LinearProgress'
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps, YAxisTickContentProps } from 'recharts'
-import { Cloud, Download, Search, X } from 'lucide-react'
+import { Cloud, Download, Search, SlidersHorizontal, X } from 'lucide-react'
 
 import type { TypesAggregatedUsageMetric, TypesUsageAgentRuntimeTimeSeries, TypesUsageBreakdownRow, TypesUsageFilterOption, TypesUsageModelTimeSeries, TypesUsageProviderTimeSeries } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
@@ -47,7 +47,6 @@ import {
   UsageChartGrid,
   UsageGroup,
   USAGE_RANGE_DAYS,
-  UsageHeadline,
   UsagePageHeader,
   UsageRangeControls,
   UsageRangeKey,
@@ -296,7 +295,7 @@ const UsagePanel: FC<{ children: React.ReactNode }> = ({ children }) => (
 // TableScroll lets wide breakdown tables scroll sideways on narrow screens
 // instead of being clipped by their card.
 const TableScroll: FC<{ children: React.ReactNode }> = ({ children }) => (
-  <Box sx={{ overflowX: 'auto', mx: -2, px: 2, '& th, & td': { whiteSpace: 'nowrap' } }}>{children}</Box>
+  <Box sx={{ overflowX: 'auto', mx: -2, px: 2, '& th, & td': { whiteSpace: 'nowrap' }, '& td:first-of-type': { whiteSpace: 'normal', minWidth: 160 } }}>{children}</Box>
 )
 
 const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = ({ filename, rows }) => (
@@ -601,6 +600,9 @@ const OrgUsage: FC = () => {
   const [sessionIdInput, setSessionIdInput] = useState(() => initialParam('session_id'))
   const [provider, setProvider] = useState(() => initialParam('provider'))
   const [model, setModel] = useState(() => initialParam('model'))
+  // On a phone the filters fold behind one button so the numbers come first.
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const activeFilters = [userId, projectId, taskId, appId, sessionIdInput, provider || model].filter(Boolean).length
   const [userSearchInput, setUserSearchInput] = useState(() => initialParam('user_search'))
   const [userPage, setUserPage] = useState(0)
   const [userRowsPerPage, setUserRowsPerPage] = useState(10)
@@ -1026,7 +1028,24 @@ const OrgUsage: FC = () => {
             )}
 
             <Paper variant="outlined" sx={{ px: 1.5, pt: 1.5, pb: 1, borderRadius: 2 }}>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 1.25 }}>
+              <Button
+                fullWidth
+                variant="text"
+                color="inherit"
+                startIcon={<SlidersHorizontal size={16} />}
+                onClick={() => setFiltersOpen(open => !open)}
+                aria-expanded={filtersOpen}
+                sx={{ display: { xs: 'flex', sm: 'none' }, justifyContent: 'flex-start', textTransform: 'none', mb: filtersOpen ? 1.25 : 0 }}
+              >
+                {activeFilters > 0 ? `Filters · ${activeFilters} active` : 'Filters'}
+              </Button>
+              <Box
+                sx={{
+                  display: { xs: filtersOpen ? 'grid' : 'none', sm: 'grid' },
+                  gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
+                  gap: 1.25,
+                }}
+              >
                 <FilterAutocomplete
                   label="User"
                   options={userOptions}
@@ -1096,7 +1115,7 @@ const OrgUsage: FC = () => {
             ) : (
               <>
                 <OverviewStatStrip columns={6}>
-                  <OverviewStat emphasis label="LLM credits debited" value={formatCost(helixCredits)} detail="Metered token charges" />
+                  <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail="Metered token charges" />
                   <OverviewStat emphasis label="API-rate token cost" value={formatCost(rawTokenCost)} detail="At model list prices" />
                   <OverviewStat
                     emphasis
@@ -1105,7 +1124,7 @@ const OrgUsage: FC = () => {
                     detail={compute ? (compute.billing_enabled ? 'Desktops and containers' : 'Historical, billing off') : 'No compute in this range'}
                   />
                   <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
-                  <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} tokens from cache`} />
+                  <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
                   <OverviewStat emphasis label="Cache savings" value={formatCost(cacheSavings)} detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× API-rate cost` : 'vs full input rates'} />
                 </OverviewStatStrip>
 
@@ -1116,13 +1135,16 @@ const OrgUsage: FC = () => {
                   <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(260px, 0.7fr) minmax(0, 1.6fr)' }, gap: 2 }}>
                     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                       <Stack spacing={2}>
-                        <UsageHeadline
-                          label={overviewMetric === 'cost' ? 'API-rate token cost' : 'Processed tokens'}
-                          value={overviewMetric === 'cost' ? `${formatCost(rawTokenCost)}*` : formatCompact(totals.total)}
-                          detail={overviewMetric === 'cost'
-                            ? '* API-rate equivalent; subscription usage is not charged per token'
-                            : `${formatNumber(totals.requests)} LLM calls in this window`}
-                        />
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {overviewMetric === 'cost' ? 'By provider, at API rates' : 'By provider, processed tokens'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {overviewMetric === 'cost'
+                              ? `${formatCost(rawTokenCost)} API-rate equivalent, not the amount debited; subscription usage is not charged per token.`
+                              : `${formatCompact(totals.total)} tokens across ${formatNumber(totals.requests)} LLM calls.`}
+                          </Typography>
+                        </Box>
                         {providerRows.length ? providerRows.map((row, index) => (
                           <ProviderSummaryRow
                             key={row.id || row.provider || index}
@@ -1153,7 +1175,7 @@ const OrgUsage: FC = () => {
                       data={providerChartData}
                       series={providerChartSeries}
                       valueFormatter={overviewMetric === 'cost' ? formatCost : formatCompact}
-                      stacked={false}
+                      variant="bar"
                       cardHeight="auto"
                     />
                   </Box>
@@ -1184,6 +1206,7 @@ const OrgUsage: FC = () => {
                     data={tokenChartData}
                     series={TOKEN_SERIES}
                     valueFormatter={formatCompact}
+                    variant="bar"
                     cardHeight="auto"
                   />
 
@@ -1243,7 +1266,7 @@ const OrgUsage: FC = () => {
                       data={modelChartData}
                       series={modelChartSeries}
                       valueFormatter={formatCompact}
-                      stacked={false}
+                      variant="bar"
                       cardHeight="auto"
                       chartHeight={200}
                     />
@@ -1287,6 +1310,7 @@ const OrgUsage: FC = () => {
                       series={COMPUTE_SERIES}
                       valueFormatter={formatCost}
                       zeroIsData
+                      variant="bar"
                       cardHeight="auto"
                     />
 

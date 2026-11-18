@@ -163,17 +163,37 @@ export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
   )
 }
 
+// callSpan says when the session's LLM calls happened, so their charts and the
+// sandbox charts (which have their own window) are never read as one timeline.
+export const callSpan = (usage?: SessionUsage | null): string => {
+  const calls = usage?.calls ?? []
+  if (!calls.length) return 'Spend, tokens, latency and prompt-cache hits of this session\'s LLM calls.'
+  const first = new Date(calls[0].created)
+  const last = new Date(calls[calls.length - 1].created)
+  const day: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+  const time: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' }
+  const sameDay = first.toDateString() === last.toDateString()
+  const span = sameDay
+    ? `${first.toLocaleDateString(undefined, day)}, ${first.toLocaleTimeString(undefined, time)} – ${last.toLocaleTimeString(undefined, time)}`
+    : `${first.toLocaleDateString(undefined, day)} – ${last.toLocaleDateString(undefined, day)}`
+  return `All ${usage?.summary.calls ?? calls.length} LLM calls of this session, ${span}.`
+}
+
 const SessionLLMUsage: FC<{ sessionId: string }> = ({ sessionId }) => {
   const { data, isLoading, error } = useSessionUsage(sessionId, { refetchInterval: 15000 })
-  if (isLoading) return <CircularProgress size={18} />
-  if (error || !data) {
-    return (
-      <Typography variant="body2" color="text.secondary">
-        Usage is not available for this session.
-      </Typography>
-    )
-  }
-  return <SessionUsageView usage={data} />
+  return (
+    <UsageGroup title="LLM usage" description={callSpan(data)}>
+      {isLoading ? (
+        <CircularProgress size={18} />
+      ) : error || !data ? (
+        <Typography variant="body2" color="text.secondary">
+          Usage is not available for this session.
+        </Typography>
+      ) : (
+        <SessionUsageView usage={data} />
+      )}
+    </UsageGroup>
+  )
 }
 
 // The panel sizes its grids by its own width: it lives in a side panel as
@@ -181,9 +201,7 @@ const SessionLLMUsage: FC<{ sessionId: string }> = ({ sessionId }) => {
 const SessionUsagePanel: FC<{ sessionId: string }> = ({ sessionId }) => (
   <Box sx={{ containerType: 'inline-size' }}>
     <Stack spacing={4}>
-      <UsageGroup title="LLM usage" description="Spend, tokens, latency and prompt-cache hits of this session's LLM calls.">
-        <SessionLLMUsage sessionId={sessionId} />
-      </UsageGroup>
+      <SessionLLMUsage sessionId={sessionId} />
       <SessionResourcesPanel sessionId={sessionId} />
     </Stack>
   </Box>

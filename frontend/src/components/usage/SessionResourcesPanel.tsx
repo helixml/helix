@@ -26,11 +26,13 @@ const WINDOWS = [
 // draw as a flat line on the axis. The tiles and footer carry them.
 const CPU_SERIES: ShadcnSeries[] = [{ key: 'used', label: 'Used', color: '#3b82f6' }]
 const MEMORY_SERIES: ShadcnSeries[] = [{ key: 'used', label: 'Used', color: '#a855f7' }]
+// I/O stalls are usually the story; CPU and memory stalls and throttling are
+// quieter tints so a series sitting at zero doesn't read as an alarm.
 const STALL_SERIES: ShadcnSeries[] = [
-  { key: 'cpu', label: 'CPU', color: '#3b82f6' },
-  { key: 'memory', label: 'Memory', color: '#a855f7' },
   { key: 'io', label: 'I/O', color: '#f59e0b' },
-  { key: 'throttled', label: 'CPU throttled', color: '#ef4444' },
+  { key: 'cpu', label: 'CPU', color: '#93c5fd' },
+  { key: 'memory', label: 'Memory', color: '#d8b4fe' },
+  { key: 'throttled', label: 'CPU throttled', color: '#94a3b8' },
 ]
 // Disk read is teal so it never reuses cache-read green from the LLM charts.
 const IO_SERIES: ShadcnSeries[] = [
@@ -38,9 +40,21 @@ const IO_SERIES: ShadcnSeries[] = [
   { key: 'write', label: 'Write', color: '#f59e0b' },
 ]
 
-// headroom tops a chart's axis a quarter above its peak, so a steady series
-// sits inside the plot instead of along its upper edge.
-const headroom = (values: number[], floor: number) => Math.max(floor, ...values) * 1.25
+// unitFor picks the 1024-based unit a series is plotted in, so the chart's
+// round decimal ticks land on round values of that unit (1 / 2 / 3 GB).
+const unitFor = (max: number, units: string[]) => {
+  let i = 0
+  while (max >= 1024 && i < units.length - 1) {
+    max /= 1024
+    i++
+  }
+  return { divisor: 1024 ** i, unit: units[i] }
+}
+
+const formatScaled = (v: number) => (Number.isInteger(v) ? `${v}` : v < 10 ? v.toFixed(1) : `${Math.round(v)}`)
+
+const scaleRows = <T extends Record<string, number | string>>(rows: T[], keys: string[], divisor: number) =>
+  rows.map(r => ({ ...r, ...Object.fromEntries(keys.map(k => [k, Number(r[k]) / divisor])) }))
 
 export const formatBytes = (n: number): string => {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -71,6 +85,8 @@ const rowsFor = <K extends 'cpu' | 'memory' | 'stalls' | 'io'>(rows: ReturnType<
 export const SessionResourcesView: FC<{ resources: SessionResources }> = ({ resources }) => {
   const s = resources.summary
   const rows = useMemo(() => buildResourceRows(resources), [resources])
+  const memUnit = unitFor(Math.max(0, ...rows.map(r => r.memory.used)), ['B', 'KB', 'MB', 'GB', 'TB'])
+  const ioUnit = unitFor(Math.max(0, ...rows.map(r => Math.max(r.io.read, r.io.write))), ['B', 'KB', 'MB', 'GB'])
   const dedicated = resources.filesystems.filter(f => f.dedicated)
   const starved = s.oom_kills > 0 ? `${s.oom_kills} OOM kill${s.oom_kills === 1 ? '' : 's'}` : s.memory_high_events > 0 ? `${s.memory_high_events} memory.high hits` : 'no OOM kills'
 
@@ -104,7 +120,6 @@ export const SessionResourcesView: FC<{ resources: SessionResources }> = ({ reso
           stacked={false}
           variant="line"
           zeroIsData
-          yDomain={[0, headroom(rows.map(r => r.cpu.used), 0.1)]}
           cardHeight="auto"
           chartHeight={140}
           yAxisWidth={48}
@@ -113,14 +128,13 @@ export const SessionResourcesView: FC<{ resources: SessionResources }> = ({ reso
         <ShadcnAreaChart
           title="Memory"
           headline={`Max ${formatBytes(s.memory_max_bytes)}${s.memory_limit_bytes > 0 ? ` of ${formatBytes(s.memory_limit_bytes)}` : ''}`}
-          data={rowsFor(rows, 'memory')}
+          data={scaleRows(rowsFor(rows, 'memory'), ['used'], memUnit.divisor)}
           series={MEMORY_SERIES}
           hideLegend
-          valueFormatter={formatBytes}
+          valueFormatter={v => `${formatScaled(v)} ${memUnit.unit}`}
           stacked={false}
           variant="line"
           zeroIsData
-          yDomain={[0, headroom(rows.map(r => r.memory.used), 1024 ** 3)]}
           cardHeight="auto"
           chartHeight={140}
           yAxisWidth={64}
@@ -144,9 +158,9 @@ export const SessionResourcesView: FC<{ resources: SessionResources }> = ({ reso
         <ShadcnAreaChart
           title="Disk I/O"
           headline={`${formatBytes(s.io_read_bytes)} read · ${formatBytes(s.io_write_bytes)} written`}
-          data={rowsFor(rows, 'io')}
+          data={scaleRows(rowsFor(rows, 'io'), ['read', 'write'], ioUnit.divisor)}
           series={IO_SERIES}
-          valueFormatter={v => `${formatBytes(v)}/s`}
+          valueFormatter={v => `${formatScaled(v)} ${ioUnit.unit}/s`}
           stacked={false}
           variant="line"
           zeroIsData

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { SessionUsageView, buildUsageRows, formatCost, formatSeconds, formatTokens } from './SessionUsagePanel'
+import { SessionUsageView, buildUsageRows, callSpan, formatCost, formatSeconds, formatTokens } from './SessionUsagePanel'
 import type { SessionUsage } from '../../services/sessionUsageService'
 
 // Real /api/v1/sessions/{id}/usage response from a DHRE broker bot instance
@@ -174,5 +174,12 @@ describe('SessionUsagePanel', () => {
     expect(formatCost(12.5)).toBe('$12.50')
     expect(formatSeconds(117275)).toBe('1m 57s')
     expect(formatSeconds(2765)).toBe('2.8s')
+  })
+})
+
+describe('callSpan', () => {
+  it('says when the calls happened', () => {
+    expect(callSpan(usage)).toMatch(/^All \d+ LLM calls of this session, /)
+    expect(callSpan(null)).toMatch(/LLM calls\.$/)
   })
 })

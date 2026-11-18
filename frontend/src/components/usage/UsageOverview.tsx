@@ -89,9 +89,20 @@ export const UsageShareRow: FC<{
   </Box>
 )
 
-export const OverviewStat: FC<{ label: string; value: string; detail: string; emphasis?: boolean }> = ({ label, value, detail, emphasis }) => (
-  <Box sx={{ bgcolor: 'background.paper', px: 2, py: 1.5, minWidth: 0 }}>
-    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap>{label}</Typography>
+// primary marks the one figure a strip leads with (Plausible highlights its
+// selected metric the same way).
+export const OverviewStat: FC<{ label: string; value: string; detail: string; emphasis?: boolean; primary?: boolean }> = ({
+  label, value, detail, emphasis, primary,
+}) => (
+  <Box sx={{ bgcolor: primary ? 'action.hover' : 'background.paper', px: 2, py: 1.5, minWidth: 0 }}>
+    <Typography
+      variant="caption"
+      color={primary ? 'text.primary' : 'text.secondary'}
+      sx={{ display: 'block', fontWeight: primary ? 600 : 400 }}
+      noWrap
+    >
+      {label}
+    </Typography>
     <Typography
       sx={{
         fontSize: emphasis ? '1.5rem' : '1.125rem',
@@ -169,7 +180,7 @@ export const UsageChartGrid: FC<{ fit?: UsageFit; children: ReactNode }> = ({ fi
       gap: 2,
       gridTemplateColumns: fit === 'container' ? 'minmax(0, 1fr)' : { xs: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' },
       ...(fit === 'container' && {
-        '@container (min-width: 640px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+        '@container (min-width: 560px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
       }),
     }}
   >

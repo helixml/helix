@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography';
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -46,7 +48,7 @@ export interface ShadcnAreaChartProps {
   /** Treat an explicit zero as data instead of an empty series. */
   zeroIsData?: boolean;
   /** Render unfilled comparison lines instead of filled areas. */
-  variant?: 'area' | 'line';
+  variant?: 'area' | 'line' | 'bar';
   /** Fixed Y-axis bounds for values with a known range. */
   yDomain?: [number, number];
   /** Width reserved for Y-axis tick labels. Default 72. */
@@ -62,6 +64,25 @@ export interface ShadcnAreaChartProps {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+// niceStep rounds a raw tick interval up to 1, 2, 2.5 or 5 × 10ⁿ, so axes read
+// 0 / 10M / 20M / 30M rather than 0 / 7.5M / 15M / 22M.
+export const niceStep = (raw: number): number => {
+  if (!(raw > 0)) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / magnitude;
+  const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+  return nice * magnitude;
+};
+
+// niceTicks spans [0, max] in at most ~5 round ticks.
+export const niceTicks = (max: number): number[] => {
+  const step = niceStep(max / 4);
+  const top = Math.max(step, Math.ceil(max / step - 1e-9) * step);
+  const ticks: number[] = [];
+  for (let t = 0; t <= top + step / 2; t += step) ticks.push(Number(t.toPrecision(12)));
+  return ticks;
+};
 
 const ShadcnTooltip = (
   seriesConfig: ShadcnSeries[],
@@ -150,7 +171,19 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   connectNulls = false,
 }) => {
   const lightTheme = useLightTheme();
-  const Chart = variant === 'line' ? LineChart : AreaChart;
+  const Chart = variant === 'line' ? LineChart : variant === 'bar' ? BarChart : AreaChart;
+  // Few points (sparse days, a provider seen twice) draw as straight segments
+  // between real samples; smoothing them invents shape between dates.
+  const curve = data.length <= 14 ? 'linear' : 'monotone';
+  const yTicks = React.useMemo(() => {
+    if (yDomain) return undefined;
+    const sumSeries = stacked && variant !== 'line';
+    const max = Math.max(0, ...data.map(d => (sumSeries
+      ? series.reduce((acc, s) => acc + (Number(d[s.key]) || 0), 0)
+      : Math.max(0, ...series.map(s => Number(d[s.key]) || 0)))));
+    // A little headroom so a peak that lands on a tick doesn't ride the top edge.
+    return niceTicks(max * 1.08);
+  }, [data, series, stacked, variant, yDomain]);
   // Unique gradient ids so multiple charts on the same page don't collide.
   const gradientPrefix = React.useMemo(() => `shadcn-${uid()}`, []);
 
@@ -228,22 +261,35 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 width={yAxisWidth}
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={valueFormatter}
-                domain={yDomain}
+                domain={yDomain ?? [0, yTicks?.[yTicks.length - 1] ?? 'auto']}
+                ticks={yTicks}
                 // A caller-fixed range (0–100%, 0–1) is the scale; never widen it for stray data.
                 allowDataOverflow={!!yDomain}
               />
               <Tooltip
-                cursor={{ stroke: lightTheme.isLight ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.2)' }}
+                cursor={variant === 'bar'
+                  ? { fill: lightTheme.isLight ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)' }
+                  : { stroke: lightTheme.isLight ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.2)' }}
                 content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData, showTime))}
               />
               {/* Recharts' default legend lays items at whatever order they
                   enter the chart and wraps awkwardly when there are many
                   series — items end up in two ragged rows. We render our own
                   legend below the chart instead (see <ChartLegend/> below). */}
-              {series.map(s => variant === 'line' ? (
+              {series.map(s => variant === 'bar' ? (
+                <Bar
+                  key={s.key}
+                  dataKey={s.key}
+                  name={s.label}
+                  stackId={stacked ? 'stack' : undefined}
+                  fill={s.color}
+                  maxBarSize={36}
+                  isAnimationActive={false}
+                />
+              ) : variant === 'line' ? (
                 <Line
                   key={s.key}
-                  type="monotone"
+                  type={curve}
                   dataKey={s.key}
                   name={s.label}
                   stroke={s.color}
@@ -256,7 +302,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               ) : (
                 <Area
                   key={s.key}
-                  type="monotone"
+                  type={curve}
                   dataKey={s.key}
                   name={s.label}
                   stackId={stacked ? 'stack' : undefined}
@@ -318,7 +364,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               />
               <Typography
                 variant="caption"
-                sx={{ color: lightTheme.isLight ? '#334155' : '#cbd5e1', fontSize: '0.66rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
+                sx={{ color: lightTheme.isLight ? '#334155' : '#cbd5e1', fontSize: '0.75rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
               >
                 {s.label}
               </Typography>
