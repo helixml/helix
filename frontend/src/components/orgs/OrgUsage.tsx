@@ -63,7 +63,7 @@ type LatencyMetric = 'per-request' | 'per-1k-output'
 type UsageChartRow = { date: string; [key: string]: number | string }
 
 const TOKEN_SERIES: ShadcnSeries[] = [
-  { key: 'input', label: 'Input', color: '#2563eb' },
+  { key: 'input', label: 'Uncached input', color: '#2563eb' },
   { key: 'cacheRead', label: 'Cache read', color: '#16a34a' },
   { key: 'cacheWrite', label: 'Cache write', color: '#d97706' },
   { key: 'output', label: 'Output', color: '#9333ea' },
@@ -342,6 +342,8 @@ const TableScroll: FC<{ children: React.ReactNode }> = ({ children }) => (
           radial-gradient(farthest-side at 100% 50%, ${shade}, transparent) right center / 10px 100% no-repeat scroll`,
         '& .MuiTableContainer-root, & .MuiPaper-root, & table': { background: 'transparent', boxShadow: 'none' },
         '& th, & td': { whiteSpace: 'nowrap', px: 1.25 },
+        // Set explicitly: the theme default renders bolder on light than on dark.
+        '& thead th': { fontWeight: 600, color: 'text.secondary' },
         '& td:first-of-type': { maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' },
         '& td:first-of-type p, & td:first-of-type span': { overflow: 'hidden', textOverflow: 'ellipsis' },
       }
@@ -377,11 +379,11 @@ const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = 
 // read for, and on a phone they stay in view before the table scrolls.
 const baseFields: ITableField[] = [
   { name: 'name', title: 'Name' },
-  { name: 'cost', title: 'Cost', numeric: true },
+  { name: 'cost', title: 'API-rate cost', numeric: true },
   { name: 'total', title: 'Tokens', numeric: true },
   { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'sessions', title: 'Sessions', numeric: true },
-  { name: 'input', title: 'Input', numeric: true },
+  { name: 'input', title: 'Total input', numeric: true },
   { name: 'output', title: 'Output', numeric: true },
   { name: 'cache', title: 'Cache read', numeric: true },
   { name: 'cacheHit', title: 'Hit ratio', numeric: true },
@@ -409,16 +411,15 @@ const computeSandboxFields: ITableField[] = [
 
 const sessionFields: ITableField[] = [
   { name: 'name', title: 'Session' },
-  { name: 'cost', title: 'Cost', numeric: true },
+  { name: 'cost', title: 'API-rate cost', numeric: true },
   { name: 'total', title: 'Tokens', numeric: true },
   { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'users', title: 'Users', numeric: true },
   { name: 'projects', title: 'Projects', numeric: true },
-  { name: 'input', title: 'Input', numeric: true },
+  { name: 'input', title: 'Total input', numeric: true },
   { name: 'output', title: 'Output', numeric: true },
   { name: 'cache', title: 'Cache read', numeric: true },
   { name: 'cacheHit', title: 'Hit ratio', numeric: true },
-  { name: 'lastActivity', title: 'Last activity' },
 ]
 
 const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameClick?: (row: TypesUsageBreakdownRow) => void) => ({
@@ -466,7 +467,6 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
   total: <Typography variant="body2" title={formatNumber(row.total_tokens)}>{formatCompact(row.total_tokens)}</Typography>,
   cost: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatCost(row.total_cost)}</Typography>,
   latency: <Typography variant="body2">{formatMs(row.latency_ms)}</Typography>,
-  lastActivity: <Typography variant="body2" color="text.secondary">{formatDateTime(row.last_activity_at)}</Typography>,
 })
 
 const metricValue = (metric: TypesAggregatedUsageMetric | TypesUsageBreakdownRow, kind: ActivityMetric): number => (
@@ -606,13 +606,44 @@ const ProjectModelChart: FC<{
   const hasData = data.some(row => series.some(item => Number(row[item.key] || 0) > 0))
   const tick = { fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }
   const longest = Math.max(0, ...data.map(row => String(row.project).length))
+  const projectMax = Math.max(1, ...data.map(row => series.reduce((sum, item) => sum + (Number(row[item.key]) || 0), 0)))
   return (
     <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2 }}>
       <Box sx={{ mb: 1 }}>
         <Typography variant="body2" sx={{ fontWeight: 600 }}>Project tokens by model</Typography>
         <Typography variant="caption" color="text.secondary">Top projects, split by the models that processed their tokens</Typography>
       </Box>
+      {hasData && (
+        // Phones: each project's name above its own full-width bar, so a long
+        // name never squeezes the bar to a stub.
+        <Stack spacing={1.5} sx={{ display: { xs: 'flex', sm: 'none' }, mt: 1.5 }}>
+          {data.map(row => {
+            const total = series.reduce((sum, item) => sum + (Number(row[item.key]) || 0), 0)
+            return (
+              <Box key={String(row.project)} sx={{ minWidth: 0 }}>
+                <Stack direction="row" justifyContent="space-between" spacing={1} sx={{ fontSize: '0.8125rem', mb: 0.5 }}>
+                  <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={String(row.project)}>{String(row.project)}</Box>
+                  <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatCompact(total)}</Box>
+                </Stack>
+                <Box sx={{ display: 'flex', height: 8, gap: '2px', width: `${Math.max(2, (total / projectMax) * 100)}%` }}>
+                  {series.filter(item => (Number(row[item.key]) || 0) > 0).map(item => (
+                    <Box key={item.key} title={`${item.label} · ${formatCompact(Number(row[item.key]))}`} sx={{ flex: `${Number(row[item.key])} 1 0`, minWidth: 3, bgcolor: item.color, borderRadius: '2px' }} />
+                  ))}
+                </Box>
+              </Box>
+            )
+          })}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.5, fontSize: '0.75rem', color: 'text.secondary' }}>
+            {series.map(item => (
+              <Box key={item.key} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: item.color }} />{item.label}
+              </Box>
+            ))}
+          </Box>
+        </Stack>
+      )}
       {hasData ? (
+        <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
         <ResponsiveContainer width="100%" height={data.length * PROJECT_ROW_HEIGHT + 64}>
           <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 0 }} barCategoryGap={10}>
             <CartesianGrid horizontal={false} stroke={lightTheme.isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)'} />
@@ -649,6 +680,7 @@ const ProjectModelChart: FC<{
             ))}
           </BarChart>
         </ResponsiveContainer>
+        </Box>
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>No project or model usage in this range.</Typography>
       )}
@@ -892,7 +924,7 @@ const OrgUsage: FC = () => {
     }))
     .sort((a, b) => b.value - a.value), [usage.data?.providers, activityMetric, lightTheme.isLight])
   const tokenTypeSegments: UsageSegment[] = [
-    { label: 'Input', value: Math.max(totals.input - totals.cacheRead - totals.cacheWrite, 0), color: TOKEN_SERIES[0].color },
+    { label: 'Uncached input', value: Math.max(totals.input - totals.cacheRead - totals.cacheWrite, 0), color: TOKEN_SERIES[0].color },
     { label: 'Cache read', value: totals.cacheRead, color: TOKEN_SERIES[1].color },
     { label: 'Cache write', value: totals.cacheWrite, color: TOKEN_SERIES[2].color },
     { label: 'Output', value: totals.completion, color: TOKEN_SERIES[3].color },
@@ -900,7 +932,7 @@ const OrgUsage: FC = () => {
   const costTypeSegments = useMemo<UsageSegment[]>(() => {
     const sum = (field: 'prompt_cost' | 'cache_read_cost' | 'cache_write_cost' | 'completion_cost') => metrics.reduce((acc, m) => acc + (m[field] ?? 0), 0)
     return [
-      { label: 'Input', value: sum('prompt_cost'), color: COST_TYPE_SERIES[0].color },
+      { label: 'Uncached input', value: sum('prompt_cost'), color: COST_TYPE_SERIES[0].color },
       { label: 'Cache read', value: sum('cache_read_cost'), color: COST_TYPE_SERIES[1].color },
       { label: 'Cache write', value: sum('cache_write_cost'), color: COST_TYPE_SERIES[2].color },
       { label: 'Output', value: sum('completion_cost'), color: COST_TYPE_SERIES[3].color },
@@ -1075,7 +1107,23 @@ const OrgUsage: FC = () => {
     projects: (usage.data?.projects || []).map(row => rowToTable(row, false, openProject)),
     apps: (usage.data?.apps || []).map(row => rowToTable(row, false, openAgent)),
     tasks: (usage.data?.tasks || []).map(row => rowToTable(row)),
-    sessions: (usage.data?.sessions || []).map(row => rowToTable(row)),
+    // Last activity rides under the session name, so the table fits without a twelfth column.
+    sessions: (usage.data?.sessions || []).map(row => {
+      const cells = rowToTable(row)
+      return {
+        ...cells,
+        name: (
+          <Box>
+            {cells.name}
+            {row.last_activity_at && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Last active {formatDateTime(row.last_activity_at)}
+              </Typography>
+            )}
+          </Box>
+        ),
+      }
+    }),
     users: (usage.data?.users || []).map(row => rowToTable(row)),
   }
   const modelOverviewRows = (usage.data?.models || []).map(row => {
@@ -1276,14 +1324,11 @@ const OrgUsage: FC = () => {
                     <SegmentBar label="API-rate cost by type" segments={costTypeSegments} format={formatCost} />
                   </SegmentBarPanel>
 
-                  <OverviewStatStrip columns={4}>
-                    <OverviewStat label="Tokens per call" value={formatCompact(totals.requests > 0 ? totals.total / totals.requests : 0)} detail={`Across ${formatNumber(totals.requests)} LLM calls`} />
-                    <OverviewStat label="Tokens per active day" value={formatCompact(averageTokens)} detail={`${activeDays} ${activeDays === 1 ? 'day' : 'days'} with LLM calls`} />
-                    <OverviewStat label="API-rate token cost" value={formatCost(rawTokenCost)} detail="At model list prices" />
-                    <OverviewStat label="Cached input tokens" value={formatCompact(totals.cacheRead)} detail={`${formatPercent(cachedShare)} of observed input`} />
-                  </OverviewStatStrip>
-                  <Typography variant="caption" color="text.secondary">
-                    Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
+                  {/* The figures here not already shown above, as one quiet line. */}
+                  <Typography variant="caption" color="text.secondary" component="p" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                    <Box component="span" sx={{ color: 'text.primary' }}>{formatCompact(totals.requests > 0 ? totals.total / totals.requests : 0)}</Box> tokens per call
+                    {' · '}<Box component="span" sx={{ color: 'text.primary' }}>{formatCompact(averageTokens)}</Box> tokens per active day ({activeDays} {activeDays === 1 ? 'day' : 'days'} with LLM calls)
+                    {'. '}Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
                   </Typography>
 
                   <UsagePanel>
@@ -1294,8 +1339,8 @@ const OrgUsage: FC = () => {
 
                   <UsageChartGrid columns={3}>
                     <ShadcnAreaChart
-                      title={latencyMetric === 'per-request' ? 'Latency by provider' : 'Latency per 1k output tokens'}
-                      headline={latencyHeadline}
+                      title="Latency"
+                      headline={`${latencyHeadline} mean ${latencyMetric === 'per-request' ? 'per call' : 'per 1k out'}`}
                       action={(
                         <UsageSwitch<LatencyMetric>
                           label="Latency metric"
@@ -1314,8 +1359,8 @@ const OrgUsage: FC = () => {
                       chartHeight={200}
                     />
                     <ShadcnAreaChart
-                      title="Tool call error rate by provider"
-                      headline={toolCallErrorHeadline}
+                      title="Tool call errors"
+                      headline={`${toolCallErrorHeadline} of tool-calling requests, by provider`}
                       data={toolCallErrorChartData}
                       series={providerChartSeries}
                       valueFormatter={value => (value > 0 && value < 0.01 ? `${(value * 100).toFixed(2)}%` : formatPercent(value))}

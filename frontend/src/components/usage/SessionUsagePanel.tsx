@@ -16,15 +16,15 @@ import { CompactTable, OverviewStat, OverviewStatStrip, SegmentBar, SegmentBarPa
 
 // Same palette as the usage page (TotalCost / TokenUsage).
 const TOKEN_SERIES: ShadcnSeries[] = [
-  { key: 'input', label: 'Input', color: '#3b82f6' },
+  { key: 'input', label: 'Uncached input', color: '#3b82f6' },
   { key: 'cacheRead', label: 'Cache read', color: '#22c55e' },
   { key: 'output', label: 'Output', color: '#a855f7' },
 ]
 const CALL_SERIES: ShadcnSeries[] = [{ key: 'calls', label: 'LLM calls', color: '#3b82f6' }]
 const COST_SERIES: ShadcnSeries[] = [{ key: 'cost', label: 'Cost', color: '#3b82f6' }]
 const LATENCY_SERIES: ShadcnSeries[] = [
-  { key: 'duration', label: 'Call', color: '#3b82f6' },
-  { key: 'ttft', label: 'First token', color: '#f59e0b' },
+  { key: 'duration', label: 'Call', color: '#2563eb' },
+  { key: 'ttft', label: 'First token', color: '#7cb4fa' },
 ]
 const CACHE_SERIES: ShadcnSeries[] = [{ key: 'hit', label: 'Cache hit', color: '#22c55e' }]
 
@@ -136,11 +136,11 @@ export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
         <OverviewStat emphasis label="LLM time" value={formatSeconds(s.llm_ms)} detail={`First token p50 ${formatSeconds(s.ttft_p50_ms)}`} />
       </OverviewStatStrip>
 
-      <SegmentBarPanel fit="container">
+      <SegmentBarPanel fit="container" single>
         <SegmentBar
         label="Tokens by type"
         segments={[
-          { label: 'Input', value: Math.max(s.prompt_tokens - s.cache_read_tokens, 0), color: TOKEN_SERIES[0].color },
+          { label: 'Uncached input', value: Math.max(s.prompt_tokens - s.cache_read_tokens, 0), color: TOKEN_SERIES[0].color },
           { label: 'Cache read', value: s.cache_read_tokens, color: TOKEN_SERIES[1].color },
           { label: 'Output', value: s.completion_tokens, color: TOKEN_SERIES[2].color },
         ]}
@@ -225,6 +225,7 @@ export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
           rows={usage.turns.map(t => ({
             id: t.interaction_id,
             title: t.prompt,
+            muted: !t.calls,
             cells: {
               message: t.prompt || '—',
               // A turn with no LLM calls (a notice, an agent switch) shows dashes, not zeros.

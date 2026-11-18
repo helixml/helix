@@ -214,7 +214,7 @@ export interface CompactColumn {
 export const CompactTable: FC<{
   title: string
   columns: CompactColumn[]
-  rows: Array<{ id: string; title?: string; cells: Record<string, ReactNode> }>
+  rows: Array<{ id: string; title?: string; muted?: boolean; cells: Record<string, ReactNode> }>
   footer?: ReactNode
 }> = ({ title, columns, rows, footer }) => {
   const [nameCol, ...valueCols] = columns
@@ -235,7 +235,7 @@ export const CompactTable: FC<{
         <thead>
           <tr>
             {columns.map((c, i) => (
-              <Box component="th" key={c.key} sx={{ py: 0.75, px: 1, fontWeight: 500, color: 'text.secondary', textAlign: i === 0 ? 'left' : 'right', whiteSpace: 'nowrap' }}>
+              <Box component="th" key={c.key} sx={{ py: 0.75, px: 1, fontWeight: 600, color: 'text.secondary', textAlign: i === 0 ? 'left' : 'right', whiteSpace: 'nowrap' }}>
                 {c.label}
               </Box>
             ))}
@@ -243,7 +243,7 @@ export const CompactTable: FC<{
         </thead>
         <tbody>
           {rows.map(r => (
-            <tr key={r.id}>
+            <Box component="tr" key={r.id} sx={{ color: r.muted ? 'text.secondary' : 'inherit' }}>
               {/* width 100% + maxWidth 0: the name takes the spare width and ellipsizes, values never clip. */}
               <Box component="td" title={r.title} sx={{ ...cellSx, width: '100%', maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {r.cells[nameCol.key]}
@@ -251,13 +251,13 @@ export const CompactTable: FC<{
               {valueCols.map(c => (
                 <Box component="td" key={c.key} sx={{ ...cellSx, textAlign: 'right' }}>{r.cells[c.key]}</Box>
               ))}
-            </tr>
+            </Box>
           ))}
         </tbody>
       </Box>
       <Box sx={{ '@container (min-width: 560px)': { display: 'none' } }}>
         {rows.map(r => (
-          <Box key={r.id} sx={{ py: 1, borderTop: '1px solid', borderColor: 'divider', fontSize: '0.8125rem' }}>
+          <Box key={r.id} sx={{ py: 1, borderTop: '1px solid', borderColor: 'divider', fontSize: '0.8125rem', color: r.muted ? 'text.secondary' : 'inherit' }}>
             <Box title={r.title} sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.cells[nameCol.key]}</Box>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.25, mt: 0.25, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
               {valueCols.map(c => (
@@ -344,7 +344,7 @@ export const SegmentBar: FC<{
 }
 
 // SegmentBarPanel sets SegmentBars side by side in one card.
-export const SegmentBarPanel: FC<{ fit?: UsageFit; children: ReactNode }> = ({ fit = 'viewport', children }) => (
+export const SegmentBarPanel: FC<{ fit?: UsageFit; single?: boolean; children: ReactNode }> = ({ fit = 'viewport', single, children }) => (
   <Box
     sx={{
       bgcolor: 'background.paper',
@@ -356,7 +356,7 @@ export const SegmentBarPanel: FC<{ fit?: UsageFit; children: ReactNode }> = ({ f
       columnGap: 5,
       rowGap: 3,
       gridTemplateColumns: fit === 'container' ? 'minmax(0, 1fr)' : { xs: 'minmax(0, 1fr)', md: 'repeat(3, minmax(0, 1fr))' },
-      ...(fit === 'container' && {
+      ...(fit === 'container' && !single && {
         '@container (min-width: 560px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
       }),
     }}
@@ -386,7 +386,7 @@ export function UsageSwitch<T extends string>({ label, value, options, onChange 
       exclusive
       size="small"
       onChange={(_: React.MouseEvent<HTMLElement>, next: T | null) => next && onChange(next)}
-      sx={{ '& .MuiToggleButton-root': { px: 1.25, py: 0.25, textTransform: 'none', fontSize: '0.8125rem' } }}
+      sx={{ '& .MuiToggleButton-root': { px: 1.25, py: 0.25, textTransform: 'none', fontSize: '0.8125rem', fontWeight: 500 } }}
     >
       {options.map(o => (
         <ToggleButton key={o.value} value={o.value} disabled={o.disabled}>{o.label}</ToggleButton>

@@ -37,7 +37,7 @@ const STALL_SERIES: ShadcnSeries[] = [
 // Disk read is teal so it never reuses cache-read green from the LLM charts.
 const IO_SERIES: ShadcnSeries[] = [
   { key: 'read', label: 'Read', color: '#0891b2' },
-  { key: 'write', label: 'Write', color: '#f59e0b' },
+  { key: 'write', label: 'Write', color: '#22d3ee' },
 ]
 
 // unitFor picks the 1024-based unit a series is plotted in, so the chart's

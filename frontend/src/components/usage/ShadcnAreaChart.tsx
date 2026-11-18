@@ -197,6 +197,12 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
     // A little headroom so a peak that lands on a tick doesn't ride the top edge.
     return niceTicks(max * 1.08);
   }, [data, series, stacked, variant, yDomain]);
+  // A chart within one calendar day labels its ticks with the time alone; the
+  // tooltip keeps the date.
+  const oneDay = React.useMemo(() => {
+    if (!showTime || data.length < 2) return false;
+    return new Date(data[0].date).toDateString() === new Date(data[data.length - 1].date).toDateString();
+  }, [data, showTime]);
   // Unique gradient ids so multiple charts on the same page don't collide.
   const gradientPrefix = React.useMemo(() => `shadcn-${uid()}`, []);
 
@@ -234,7 +240,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
             {headline}
           </Typography>
         </Box>
-        {action && <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{action}</Box>}
+        {action && <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 1 }}>{action}</Box>}
       </Box>
       {/* Phones get shorter plots: most usage charts hold a handful of points. */}
       <Box sx={{ height: { xs: Math.min(chartHeight, 170), sm: chartHeight }, width: '100%' }}>
@@ -264,9 +270,11 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 tickMargin={8}
                 minTickGap={32}
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
-                tickFormatter={(v: string) => new Date(v).toLocaleString(undefined, showTime
-                  ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
-                  : { month: 'short', day: 'numeric' })}
+                tickFormatter={(v: string) => new Date(v).toLocaleString(undefined, !showTime
+                  ? { month: 'short', day: 'numeric' }
+                  : oneDay
+                    ? { hour: 'numeric', minute: '2-digit' }
+                    : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
               />
               <YAxis
                 tickLine={false}
@@ -379,7 +387,8 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               />
               <Typography
                 variant="caption"
-                sx={{ color: lightTheme.isLight ? '#334155' : '#cbd5e1', fontSize: '0.75rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
+                title={s.label}
+                sx={{ color: lightTheme.isLight ? '#334155' : '#cbd5e1', fontSize: '0.75rem', whiteSpace: 'nowrap', lineHeight: 1.4, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}
               >
                 {s.label}
               </Typography>
