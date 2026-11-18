@@ -38,8 +38,8 @@ func TestMigrationFailsFastBehindALock(t *testing.T) {
 	if !strings.Contains(err.Error(), "blocked by a lock after 2 attempts") || !strings.Contains(err.Error(), "LOCK TABLE prompt_history_entries") {
 		t.Fatalf("error doesn't report the lock and its holder: %v", err)
 	}
-	// Two attempts of migrationLockTimeout each, plus slack.
-	if elapsed > 2*migrationLockTimeout+10*time.Second {
+	// Two attempts of MigrationLockTimeout each, plus slack.
+	if elapsed > 2*MigrationLockTimeout+10*time.Second {
 		t.Fatalf("migration took %s to give up", elapsed)
 	}
 

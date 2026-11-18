@@ -110,8 +110,11 @@ func NewServeCmd() *cobra.Command {
 	return serveCmd
 }
 
-// runMigrationsOnly runs database migrations and exits without starting the server.
-// This is used by CI to run migrations once before parallel test steps.
+// runMigrationsOnly runs every database migration (helix, then kodit) and
+// exits without starting the server. CI runs it once before parallel test
+// steps, and blue/green deploys run it in a one-off container with the new
+// image before starting the new colour, which then runs with
+// HELIX_SKIP_AUTOMIGRATE=1.
 func runMigrationsOnly(cfg *config.ServerConfig) error {
 	// Ensure AutoMigrate runs (don't skip it)
 	os.Unsetenv("HELIX_SKIP_AUTOMIGRATE")
@@ -127,6 +130,10 @@ func runMigrationsOnly(cfg *config.ServerConfig) error {
 		return err
 	}
 	defer db.Close()
+
+	if err := server.MigrateKodit(context.Background(), cfg); err != nil {
+		return err
+	}
 
 	log.Info().Msg("migrations completed successfully")
 	return nil

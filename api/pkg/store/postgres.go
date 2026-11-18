@@ -130,7 +130,14 @@ type MigrationScript struct {
 // only covers the public schema: tests that create their own schemas still need
 // migrations.
 func skipAutoMigrate(schema string) bool {
-	return os.Getenv("HELIX_SKIP_AUTOMIGRATE") == "1" && (schema == "" || schema == "public")
+	return AutoMigrateSkipped() && (schema == "" || schema == "public")
+}
+
+// AutoMigrateSkipped reports whether HELIX_SKIP_AUTOMIGRATE=1: migrations ran
+// in a separate step (helix serve --migrate-only) and this process must only
+// use the schema, as blue/green colours and CI test steps do.
+func AutoMigrateSkipped() bool {
+	return os.Getenv("HELIX_SKIP_AUTOMIGRATE") == "1"
 }
 
 func (s *PostgresStore) autoMigrate() error {
@@ -161,7 +168,7 @@ func (s *PostgresStore) autoMigrate() error {
 		maxConns:        4,
 		maxConnIdleTime: s.cfg.MaxConnIdleTime,
 		maxConnLifetime: s.cfg.MaxConnLifetime,
-		lockTimeout:     migrationLockTimeout,
+		lockTimeout:     MigrationLockTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("connect for migrations: %w", err)
@@ -791,7 +798,7 @@ func (s *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 		sqlSettings += fmt.Sprintf("&search_path=%s", s.cfg.Schema)
 	}
 	// lib/pq sends parameters it doesn't know as session settings.
-	sqlSettings += fmt.Sprintf("&lock_timeout=%d", migrationLockTimeout.Milliseconds())
+	sqlSettings += fmt.Sprintf("&lock_timeout=%d", MigrationLockTimeout.Milliseconds())
 
 	connectionString := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?%s",

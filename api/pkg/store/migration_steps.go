@@ -21,7 +21,7 @@ import (
 // that hits it is retried a bounded number of times, and then the migration
 // fails, naming the sessions that held the lock.
 const (
-	migrationLockTimeout = 5 * time.Second
+	MigrationLockTimeout = 5 * time.Second
 	// lockTimeoutSQLState is lock_not_available, raised when lock_timeout expires.
 	lockTimeoutSQLState = "55P03"
 	// backfillBatchSize bounds the rows one backfill statement updates, so no

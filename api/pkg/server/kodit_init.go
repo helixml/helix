@@ -6,8 +6,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -37,6 +39,29 @@ type KoditResult struct {
 
 	// mu serialises Reinit calls.
 	mu sync.Mutex
+}
+
+// MigrateKodit brings the kodit database up to date, for helix serve
+// --migrate-only. Like the helix migrations, every statement runs with a
+// lock_timeout so a long-held lock fails the migration instead of stalling it.
+func MigrateKodit(ctx context.Context, cfg *config.ServerConfig) error {
+	if !cfg.Kodit.Enabled {
+		return nil
+	}
+	if cfg.Kodit.DatabaseURL == "" {
+		return fmt.Errorf("KODIT_DB_URL is required when kodit is enabled")
+	}
+	dbURL, err := url.Parse(cfg.Kodit.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("parse KODIT_DB_URL: %w", err)
+	}
+	q := dbURL.Query()
+	q.Set("lock_timeout", strconv.FormatInt(store.MigrationLockTimeout.Milliseconds(), 10))
+	dbURL.RawQuery = q.Encode()
+	if err := kodit.Migrate(ctx, kodit.WithPostgresVectorchord(dbURL.String())); err != nil {
+		return fmt.Errorf("migrate kodit database: %w", err)
+	}
+	return nil
 }
 
 // InitKodit creates the kodit client, service, and MCP backend. When kodit is
@@ -168,6 +193,10 @@ func (k *KoditResult) Reinit(ctx context.Context) error {
 func buildKoditOpts(cfg *config.ServerConfig, s store.Store) ([]kodit.Option, koditEmbeddingDecision, error) {
 	var koditOpts []kodit.Option
 	koditOpts = append(koditOpts, kodit.WithPostgresVectorchord(cfg.Kodit.DatabaseURL))
+	if store.AutoMigrateSkipped() {
+		// helix serve --migrate-only ran MigrateKodit already.
+		koditOpts = append(koditOpts, kodit.WithSkipMigrations())
+	}
 
 	dataDir := cfg.Kodit.DataDir
 	if dataDir == "" {
