@@ -15,7 +15,7 @@ import Alert from '@mui/material/Alert'
 import Autocomplete from '@mui/material/Autocomplete'
 import LinearProgress from '@mui/material/LinearProgress'
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { TooltipContentProps } from 'recharts'
+import type { TooltipContentProps, YAxisTickContentProps } from 'recharts'
 import { Cloud, Download, Search, X } from 'lucide-react'
 
 import type { TypesAggregatedUsageMetric, TypesUsageAgentRuntimeTimeSeries, TypesUsageBreakdownRow, TypesUsageFilterOption, TypesUsageModelTimeSeries, TypesUsageProviderTimeSeries } from '../../api/api'
@@ -44,6 +44,8 @@ import { formatCompact, formatCost, formatNumber, formatPercent } from '../../ut
 import {
   OverviewStat,
   OverviewStatStrip,
+  UsageChartGrid,
+  UsageGroup,
   USAGE_RANGE_DAYS,
   UsageHeadline,
   UsagePageHeader,
@@ -291,6 +293,12 @@ const UsagePanel: FC<{ children: React.ReactNode }> = ({ children }) => (
   </Paper>
 )
 
+// TableScroll lets wide breakdown tables scroll sideways on narrow screens
+// instead of being clipped by their card.
+const TableScroll: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <Box sx={{ overflowX: 'auto', mx: -2, px: 2, '& th, & td': { whiteSpace: 'nowrap' } }}>{children}</Box>
+)
+
 const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = ({ filename, rows }) => (
   <Stack direction="row" spacing={1}>
     <Button
@@ -483,9 +491,21 @@ const buildProjectModelChart = (rows: TypesUsageBreakdownRow[] = [], projects: T
 }
 
 const ProjectModelTooltip: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
+  const lightTheme = useLightTheme()
   if (!active || !payload?.length) return null
   return (
-    <Box sx={{ bgcolor: 'rgba(10,10,15,0.95)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, px: 1.5, py: 1, minWidth: 220 }}>
+    <Box
+      sx={{
+        bgcolor: lightTheme.isLight ? 'rgba(255,255,255,0.98)' : 'rgba(10,10,15,0.95)',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        boxShadow: lightTheme.isLight ? '0 4px 12px rgba(0,0,0,0.12)' : '0 4px 12px rgba(0,0,0,0.4)',
+        px: 1.5,
+        py: 1,
+        minWidth: 220,
+      }}
+    >
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
         {label}
       </Typography>
@@ -506,45 +526,58 @@ const ProjectModelTooltip: FC<TooltipContentProps<number, string>> = ({ active, 
   )
 }
 
+const PROJECT_ROW_HEIGHT = 40
+
+// ProjectModelChart ranks the top projects as horizontal bars, each split by
+// the models that processed its tokens, so long project names stay readable.
 const ProjectModelChart: FC<{
   data: Array<Record<string, number | string>>,
   series: Array<{ key: string; label: string; color: string }>,
 }> = ({ data, series }) => {
+  const lightTheme = useLightTheme()
   const hasData = data.some(row => series.some(item => Number(row[item.key] || 0) > 0))
+  const tick = { fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }
+  const longest = Math.max(0, ...data.map(row => String(row.project).length))
   return (
-    <Box sx={{ height: 340, bgcolor: 'rgba(0,0,0,0.2)', borderRadius: 2, p: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, letterSpacing: '0.04em' }}>
-          PROJECT TOKENS BY MODEL
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Top projects, stacked by model
-        </Typography>
-      </Stack>
+    <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2 }}>
+      <Box sx={{ mb: 1 }}>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>Project tokens by model</Typography>
+        <Typography variant="caption" color="text.secondary">Top projects, split by the models that processed their tokens</Typography>
+      </Box>
       {hasData ? (
-        <ResponsiveContainer width="100%" height={270}>
-          <BarChart data={data} margin={{ top: 8, right: 12, left: 16, bottom: 0 }}>
-            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-            <XAxis
+        <ResponsiveContainer width="100%" height={data.length * PROJECT_ROW_HEIGHT + 64}>
+          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 0 }} barCategoryGap={10}>
+            <CartesianGrid horizontal={false} stroke={lightTheme.isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)'} />
+            <XAxis type="number" tickLine={false} axisLine={false} tick={tick} tickFormatter={formatCompact} />
+            <YAxis
+              type="category"
               dataKey="project"
               tickLine={false}
               axisLine={false}
-              tickMargin={8}
-              interval={0}
-              tick={{ fill: '#94A3B8', fontSize: 12 }}
+              width={Math.min(240, Math.max(96, longest * 7 + 12))}
+              // A plain <text> tick: recharts' default wraps long names onto two lines.
+              tick={(props: YAxisTickContentProps) => {
+                const name = String(props.payload?.value ?? '')
+                return (
+                  <text x={Number(props.x) - 6} y={Number(props.y)} dy={4} textAnchor="end" fill={tick.fill} fontSize={tick.fontSize}>
+                    <title>{name}</title>
+                    {name.length > 32 ? `${name.slice(0, 31)}…` : name}
+                  </text>
+                )
+              }}
             />
-            <YAxis tickLine={false} axisLine={false} tickMargin={10} width={72} tick={{ fill: '#94A3B8', fontSize: 12 }} tickFormatter={formatCompact} />
-            <Tooltip content={React.createElement(ProjectModelTooltip)} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-            <Legend wrapperStyle={{ fontSize: '0.75rem' }} />
+            <Tooltip
+              content={React.createElement(ProjectModelTooltip)}
+              cursor={{ fill: lightTheme.isLight ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)' }}
+            />
+            <Legend wrapperStyle={{ fontSize: '0.75rem' }} iconType="square" iconSize={8} />
             {series.map(item => (
               <Bar key={item.key} dataKey={item.key} name={item.label} stackId="tokens" fill={item.color} isAnimationActive={false} />
             ))}
           </BarChart>
         </ResponsiveContainer>
       ) : (
-        <Box sx={{ height: 270, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Typography variant="body2" color="text.secondary">No project/model usage data</Typography>
-        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>No project or model usage in this range.</Typography>
       )}
     </Box>
   )
@@ -992,87 +1025,8 @@ const OrgUsage: FC = () => {
               </Alert>
             )}
 
-            {usage.isLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-                <CircularProgress />
-              </Box>
-            ) : (
-              <>
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(260px, 0.72fr) minmax(0, 1.6fr)' }, gap: 3 }}>
-                  <Stack spacing={2.25}>
-                    <UsageHeadline
-                      label={overviewMetric === 'cost' ? 'Raw token cost' : 'Processed tokens'}
-                      value={overviewMetric === 'cost' ? `${formatCost(rawTokenCost)}*` : formatCompact(totals.total)}
-                      detail={overviewMetric === 'cost'
-                        ? '* API-rate equivalent; subscription usage is not charged per token'
-                        : `${formatNumber(totals.requests)} LLM calls in this window`}
-                    />
-
-                    {providerRows.length ? providerRows.map((row, index) => (
-                      <ProviderSummaryRow
-                        key={row.id || row.provider || index}
-                        provider={row}
-                        metric={overviewMetric}
-                        total={providerTotal}
-                        color={providerColor(row.provider || '', index, lightTheme.isLight)}
-                      />
-                    )) : (
-                      <Typography variant="body2" color="text.secondary">No provider activity in this window.</Typography>
-                    )}
-                  </Stack>
-
-                  <Box>
-                    <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
-                      <ToggleButtonGroup
-                        value={overviewMetric}
-                        exclusive
-                        size="small"
-                        onChange={(_, next: OverviewMetric | null) => next && setOverviewMetric(next)}
-                      >
-                        <ToggleButton value="cost">Cost</ToggleButton>
-                        <ToggleButton value="tokens">Tokens</ToggleButton>
-                      </ToggleButtonGroup>
-                    </Stack>
-                    <ShadcnAreaChart
-                      title={`DAILY ${overviewMetric === 'cost' ? 'API-RATE COST' : 'PROCESSED TOKENS'}`}
-                      headline={overviewMetric === 'cost' ? formatCost(rawTokenCost) : formatCompact(totals.total)}
-                      data={providerChartData}
-                      series={providerChartSeries}
-                      valueFormatter={overviewMetric === 'cost' ? formatCost : formatCompact}
-                      stacked={false}
-                    />
-                  </Box>
-                </Box>
-
-                <OverviewStatStrip columns={5}>
-                  <OverviewStat label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatCompact(averageTokens)} per active day`} />
-                  <OverviewStat
-                    label="Subscription savings"
-                    value={formatCost(subscriptionSavings)}
-                    detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost avoided` : 'No subscription usage'}
-                  />
-                  <OverviewStat
-                    label="Cache savings"
-                    value={formatCost(cacheSavings)}
-                    detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× the raw token cost` : 'vs full input rates'}
-                  />
-                  <OverviewStat label="Helix credits" value={formatCost(helixCredits)} detail="Actually debited for paid tokens" />
-                  <OverviewStat label="Cached input" value={formatCompact(totals.cacheRead)} detail={`${formatPercent(cachedShare)} of observed input`} />
-                </OverviewStatStrip>
-
-                <UsageSection title="Model breakdown">
-                  <SimpleTable authenticated fields={modelOverviewFields} data={modelOverviewRows} compact />
-                </UsageSection>
-              </>
-            )}
-
-            <Paper variant="outlined" sx={{ px: 2, pt: 1.25, pb: 2, borderRadius: 2, bgcolor: 'rgba(0,0,0,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}>
-              <Box sx={{ height: 6, mb: 1.5 }}>
-                {isScopedLoading('filters') && (
-                  <LinearProgress sx={{ borderRadius: 1 }} />
-                )}
-              </Box>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }, gap: 1.5 }}>
+            <Paper variant="outlined" sx={{ px: 1.5, pt: 1.5, pb: 1, borderRadius: 2 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 1.25 }}>
                 <FilterAutocomplete
                   label="User"
                   options={userOptions}
@@ -1128,160 +1082,232 @@ const OrgUsage: FC = () => {
                   Clear
                 </Button>
               </Box>
+              <Box sx={{ height: 3, mt: 1 }}>
+                {isScopedLoading('filters') && (
+                  <LinearProgress sx={{ borderRadius: 1, height: 3 }} />
+                )}
+              </Box>
             </Paper>
 
-            <Typography variant="caption" color="text.secondary">
-              Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
-            </Typography>
-
-            {!usage.isLoading && compute && (
-              <Paper variant="outlined" sx={{ p: 0, overflow: 'hidden' }}>
-                <Box sx={{ px: 2, pt: 2, pb: 1.5 }}>
-                  <Typography variant="overline" color="text.secondary">Sandbox compute</Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-                    {formatCost(computeTotals.total)}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {compute.billing_enabled
-                      ? 'Credits debited for running desktops and containers'
-                      : 'Compute billing is disabled — this is historical spend and nothing new is accruing'}
-                  </Typography>
-                </Box>
-
-                <OverviewStatStrip columns={4}>
+            {usage.isLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <>
+                <OverviewStatStrip columns={6}>
+                  <OverviewStat emphasis label="LLM credits debited" value={formatCost(helixCredits)} detail="Metered token charges" />
+                  <OverviewStat emphasis label="API-rate token cost" value={formatCost(rawTokenCost)} detail="At model list prices" />
                   <OverviewStat
-                    label="Desktops"
-                    value={formatCost(computeTotals.desktop)}
-                    detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.desktop / computeTotals.total)} of compute spend` : 'No desktop spend'}
+                    emphasis
+                    label="Sandbox compute"
+                    value={compute ? formatCost(computeTotals.total) : '—'}
+                    detail={compute ? (compute.billing_enabled ? 'Desktops and containers' : 'Historical, billing off') : 'No compute in this range'}
                   />
-                  <OverviewStat
-                    label="Headless"
-                    value={formatCost(computeTotals.headless)}
-                    detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.headless / computeTotals.total)} of compute spend` : 'No headless spend'}
-                  />
-                  <OverviewStat
-                    label="Per active day"
-                    value={formatCost(computeTotals.perActiveDay)}
-                    detail={`${computeTotals.activeDays} ${computeTotals.activeDays === 1 ? 'day' : 'days'} with compute spend`}
-                  />
-                  <OverviewStat
-                    label="Running now"
-                    value={`${compute.running_sandboxes ?? 0}`}
-                    detail="Sandboxes currently billing"
-                  />
+                  <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
+                  <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} tokens from cache`} />
+                  <OverviewStat emphasis label="Cache savings" value={formatCost(cacheSavings)} detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× API-rate cost` : 'vs full input rates'} />
                 </OverviewStatStrip>
 
-                <Box sx={{ p: 2 }}>
-                  <ShadcnAreaChart
-                    title="DAILY COMPUTE SPEND"
-                    headline={formatCost(computeTotals.total)}
-                    data={computeChartData}
-                    series={COMPUTE_SERIES}
-                    valueFormatter={formatCost}
-                    zeroIsData
-                  />
-                </Box>
-
-                {computeSandboxRows.length > 0 && (
-                  <Box sx={{ px: 2, pb: 2 }}>
-                    <UsageSection title="Sandbox breakdown">
-                      <SimpleTable authenticated fields={computeSandboxFields} data={computeSandboxRows} compact />
-                    </UsageSection>
-                  </Box>
-                )}
-
-                <Box sx={{ px: 2, pb: 2 }}>
-                  <Typography variant="caption" color="text.secondary">
-                Compute spend answers the date range, project, and task filters — model, provider, session and user filters describe tokens, not containers.
-                  </Typography>
-                </Box>
-              </Paper>
-            )}
-
-            {!usage.isLoading && (
-              <>
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.35fr) minmax(0, 1fr)' }, gap: 2 }}>
-                  <UsagePanel>
+                <UsageGroup
+                  title="LLM tokens and spend"
+                  description="What each provider and model processed, and its cost at API rates. Every filter applies."
+                >
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(260px, 0.7fr) minmax(0, 1.6fr)' }, gap: 2 }}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                      <Stack spacing={2}>
+                        <UsageHeadline
+                          label={overviewMetric === 'cost' ? 'API-rate token cost' : 'Processed tokens'}
+                          value={overviewMetric === 'cost' ? `${formatCost(rawTokenCost)}*` : formatCompact(totals.total)}
+                          detail={overviewMetric === 'cost'
+                            ? '* API-rate equivalent; subscription usage is not charged per token'
+                            : `${formatNumber(totals.requests)} LLM calls in this window`}
+                        />
+                        {providerRows.length ? providerRows.map((row, index) => (
+                          <ProviderSummaryRow
+                            key={row.id || row.provider || index}
+                            provider={row}
+                            metric={overviewMetric}
+                            total={providerTotal}
+                            color={providerColor(row.provider || '', index, lightTheme.isLight)}
+                          />
+                        )) : (
+                          <Typography variant="body2" color="text.secondary">No provider activity in this window.</Typography>
+                        )}
+                      </Stack>
+                    </Paper>
                     <ShadcnAreaChart
-                      title="TOKENS OVER TIME"
-                      headline={formatCompact(totals.total)}
-                      data={tokenChartData}
-                      series={TOKEN_SERIES}
-                      valueFormatter={formatCompact}
+                      title={overviewMetric === 'cost' ? 'Daily API-rate cost' : 'Daily processed tokens'}
+                      headline={overviewMetric === 'cost' ? `${formatCost(rawTokenCost)} in range` : `${formatCompact(totals.total)} in range`}
+                      action={(
+                        <ToggleButtonGroup
+                          value={overviewMetric}
+                          exclusive
+                          size="small"
+                          onChange={(_, next: OverviewMetric | null) => next && setOverviewMetric(next)}
+                        >
+                          <ToggleButton value="cost">Cost</ToggleButton>
+                          <ToggleButton value="tokens">Tokens</ToggleButton>
+                        </ToggleButtonGroup>
+                      )}
+                      data={providerChartData}
+                      series={providerChartSeries}
+                      valueFormatter={overviewMetric === 'cost' ? formatCost : formatCompact}
+                      stacked={false}
+                      cardHeight="auto"
                     />
-                  </UsagePanel>
+                  </Box>
+
+                  <OverviewStatStrip columns={4}>
+                    <OverviewStat label="Tokens per call" value={formatCompact(totals.requests > 0 ? totals.total / totals.requests : 0)} detail={`Across ${formatNumber(totals.requests)} LLM calls`} />
+                    <OverviewStat label="Tokens per active day" value={formatCompact(averageTokens)} detail={`${activeDays} ${activeDays === 1 ? 'day' : 'days'} with LLM calls`} />
+                    <OverviewStat
+                      label="Subscription savings"
+                      value={formatCost(subscriptionSavings)}
+                      detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost avoided` : 'No subscription usage'}
+                    />
+                    <OverviewStat label="Cached input tokens" value={formatCompact(totals.cacheRead)} detail={`${formatPercent(cachedShare)} of observed input`} />
+                  </OverviewStatStrip>
+                  <Typography variant="caption" color="text.secondary">
+                    Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
+                  </Typography>
+
                   <UsagePanel>
-                    <Stack direction="row" alignItems="center" justifyContent="flex-end" sx={{ mb: 1 }}>
-                      <ToggleButtonGroup
-                        value={latencyMetric}
-                        exclusive
-                        size="small"
-                        onChange={(_, next: LatencyMetric | null) => next && setLatencyMetric(next)}
-                      >
-                        <ToggleButton value="per-request">Per request</ToggleButton>
-                        <ToggleButton value="per-1k-output">Per 1k output</ToggleButton>
-                      </ToggleButtonGroup>
-                    </Stack>
+                    <UsageSection title="Model breakdown">
+                      <TableScroll><SimpleTable authenticated fields={modelOverviewFields} data={modelOverviewRows} compact /></TableScroll>
+                    </UsageSection>
+                  </UsagePanel>
+
+                  <ShadcnAreaChart
+                    title="Tokens over time"
+                    headline={`${formatCompact(totals.total)} tokens`}
+                    data={tokenChartData}
+                    series={TOKEN_SERIES}
+                    valueFormatter={formatCompact}
+                    cardHeight="auto"
+                  />
+
+                  <UsageChartGrid>
                     <ShadcnAreaChart
-                      title={latencyMetric === 'per-request' ? 'LATENCY BY PROVIDER' : 'LATENCY PER 1K OUTPUT TOKENS'}
+                      title={latencyMetric === 'per-request' ? 'Latency by provider' : 'Latency per 1k output tokens'}
                       headline={latencyHeadline}
+                      action={(
+                        <ToggleButtonGroup
+                          value={latencyMetric}
+                          exclusive
+                          size="small"
+                          onChange={(_, next: LatencyMetric | null) => next && setLatencyMetric(next)}
+                        >
+                          <ToggleButton value="per-request">Per call</ToggleButton>
+                          <ToggleButton value="per-1k-output">Per 1k out</ToggleButton>
+                        </ToggleButtonGroup>
+                      )}
                       data={latencyChartData}
                       series={latencyChartSeries}
                       valueFormatter={formatMs}
                       stacked={false}
                       variant="line"
                       connectNulls
+                      cardHeight="auto"
+                      chartHeight={200}
                     />
-                  </UsagePanel>
-                </Box>
+                    <ShadcnAreaChart
+                      title="Tool call error rate by provider"
+                      headline={toolCallErrorHeadline}
+                      data={toolCallErrorChartData}
+                      series={providerChartSeries}
+                      valueFormatter={value => (value > 0 && value < 0.01 ? `${(value * 100).toFixed(2)}%` : formatPercent(value))}
+                      stacked={false}
+                      zeroIsData
+                      variant="line"
+                      connectNulls
+                      cardHeight="auto"
+                      chartHeight={200}
+                    />
+                    <ShadcnAreaChart
+                      title="Cache hit ratio by agent runtime"
+                      headline={`${formatPercent(cacheHitRatio)} overall`}
+                      data={agentCacheChartData}
+                      series={agentCacheChartSeries}
+                      valueFormatter={value => formatPercent(value)}
+                      stacked={false}
+                      zeroIsData
+                      variant="line"
+                      yDomain={[0, 1]}
+                      cardHeight="auto"
+                      chartHeight={200}
+                    />
+                    <ShadcnAreaChart
+                      title="Model usage over time"
+                      headline={`${modelSeries.length} ${modelSeries.length === 1 ? 'model' : 'models'}`}
+                      data={modelChartData}
+                      series={modelChartSeries}
+                      valueFormatter={formatCompact}
+                      stacked={false}
+                      cardHeight="auto"
+                      chartHeight={200}
+                    />
+                  </UsageChartGrid>
+                </UsageGroup>
 
-                <UsagePanel>
-                  <ShadcnAreaChart
-                    title="TOOL CALL ERROR RATE BY PROVIDER"
-                    headline={toolCallErrorHeadline}
-                    data={toolCallErrorChartData}
-                    series={providerChartSeries}
-                    valueFormatter={value => formatPercent(value)}
-                    stacked={false}
-                    zeroIsData
-                    variant="line"
-                    connectNulls
-                  />
-                </UsagePanel>
+                {compute && (
+                  <UsageGroup
+                    title="Sandbox compute"
+                    description={`${compute.billing_enabled
+                      ? 'Credits debited for running desktops and containers.'
+                      : 'Compute billing is disabled — this is historical spend and nothing new is accruing.'} The date range, project and task filters apply; model, provider, session and user filters describe tokens only.`}
+                  >
+                    <OverviewStatStrip columns={4}>
+                      <OverviewStat
+                        label="Desktops"
+                        value={formatCost(computeTotals.desktop)}
+                        detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.desktop / computeTotals.total)} of compute spend` : 'No desktop spend'}
+                      />
+                      <OverviewStat
+                        label="Headless"
+                        value={formatCost(computeTotals.headless)}
+                        detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.headless / computeTotals.total)} of compute spend` : 'No headless spend'}
+                      />
+                      <OverviewStat
+                        label="Per active day"
+                        value={formatCost(computeTotals.perActiveDay)}
+                        detail={`${computeTotals.activeDays} ${computeTotals.activeDays === 1 ? 'day' : 'days'} with compute spend`}
+                      />
+                      <OverviewStat
+                        label="Running now"
+                        value={`${compute.running_sandboxes ?? 0}`}
+                        detail="Sandboxes currently billing"
+                      />
+                    </OverviewStatStrip>
 
-                <UsagePanel>
-                  <ShadcnAreaChart
-                    title="CACHE HIT RATIO BY AGENT RUNTIME"
-                    headline={formatPercent(cacheHitRatio)}
-                    data={agentCacheChartData}
-                    series={agentCacheChartSeries}
-                    valueFormatter={value => formatPercent(value)}
-                    stacked={false}
-                    zeroIsData
-                    variant="line"
-                    yDomain={[0, 1]}
-                  />
-                </UsagePanel>
+                    <ShadcnAreaChart
+                      title="Daily compute spend"
+                      headline={`${formatCost(computeTotals.total)} in range`}
+                      data={computeChartData}
+                      series={COMPUTE_SERIES}
+                      valueFormatter={formatCost}
+                      zeroIsData
+                      cardHeight="auto"
+                    />
 
-                <UsagePanel>
-                  <ShadcnAreaChart
-                    title="MODEL USAGE OVER TIME"
-                    headline={`${modelSeries.length} models`}
-                    data={modelChartData}
-                    series={modelChartSeries}
-                    valueFormatter={formatCompact}
-                    stacked={false}
-                  />
-                </UsagePanel>
+                    {computeSandboxRows.length > 0 && (
+                      <UsagePanel>
+                        <UsageSection title="Sandbox breakdown">
+                          <TableScroll><SimpleTable authenticated fields={computeSandboxFields} data={computeSandboxRows} compact /></TableScroll>
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                  </UsageGroup>
+                )}
 
-                <UsagePanel>
+                <UsageGroup
+                  title="Breakdowns"
+                  description="Tokens, cost and latency attributed to projects, agents, tasks, sessions and users. Export any table as CSV or JSON."
+                >
                   <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
-                </UsagePanel>
-
-                <Stack spacing={3} sx={{ width: '100%' }}>
                   <UsagePanel>
                     <UsageSection title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
-                      <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} />
+                      <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} /></TableScroll>
                       <TablePagination
                         component="div"
                         count={usage.data?.projects_total || 0}
@@ -1303,13 +1329,13 @@ const OrgUsage: FC = () => {
 
                   <UsagePanel>
                     <UsageSection title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
-                      <SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact />
+                      <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact /></TableScroll>
                     </UsageSection>
                   </UsagePanel>
 
                   <UsagePanel>
                     <UsageSection title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
-                      <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} />
+                      <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} /></TableScroll>
                       <TablePagination
                         component="div"
                         count={usage.data?.tasks_total || 0}
@@ -1331,7 +1357,7 @@ const OrgUsage: FC = () => {
 
                   <UsagePanel>
                     <UsageSection title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
-                      <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} />
+                      <TableScroll><SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} /></TableScroll>
                       <TablePagination
                         component="div"
                         count={usage.data?.sessions_total || 0}
@@ -1374,7 +1400,7 @@ const OrgUsage: FC = () => {
                           ),
                         }}
                       />
-                      <SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} />
+                      <TableScroll><SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} /></TableScroll>
                       <TablePagination
                         component="div"
                         count={usage.data?.users_total || 0}
@@ -1393,7 +1419,7 @@ const OrgUsage: FC = () => {
                       />
                     </UsageSection>
                   </UsagePanel>
-                </Stack>
+                </UsageGroup>
               </>
             )}
           </Stack>

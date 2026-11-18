@@ -139,13 +139,17 @@ describe('SessionUsagePanel', () => {
     expect(screen.getAllByText('92%').length).toBeGreaterThan(0)
     expect(screen.getByText('1m 57s')).toBeTruthy()
     expect(screen.getByText('Per turn')).toBeTruthy()
-    expect(screen.getAllByRole('row')).toHaveLength(1 + usage.turns.length)
+    // Each turn renders in both the wide table and the narrow stacked list;
+    // a container query shows one of them.
+    for (const turn of usage.turns) {
+      expect(screen.getAllByTitle(turn.prompt)).toHaveLength(2)
+    }
   })
 
   it('says cost is n/a when the model has no price', () => {
     render(<SessionUsageView usage={{ ...usage, summary: { ...usage.summary, total_cost: 0 } }} />)
     expect(screen.getByText('n/a')).toBeTruthy()
-    expect(screen.getByText('no price for this model')).toBeTruthy()
+    expect(screen.getByText('No price for this model')).toBeTruthy()
   })
 
   it('handles a session with no LLM calls yet', () => {

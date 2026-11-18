@@ -89,30 +89,163 @@ export const UsageShareRow: FC<{
   </Box>
 )
 
-export const OverviewStat: FC<{ label: string; value: string; detail: string }> = ({ label, value, detail }) => (
-  <Box sx={{ bgcolor: 'background.default', px: 2, py: 1.5, minWidth: 0 }}>
-    <Typography variant="caption" color="text.secondary">{label}</Typography>
-    <Typography sx={{ fontSize: '1.1rem', lineHeight: 1.45, fontVariantNumeric: 'tabular-nums' }}>{value}</Typography>
-    <Typography variant="caption" color="text.secondary" noWrap>{detail}</Typography>
+export const OverviewStat: FC<{ label: string; value: string; detail: string; emphasis?: boolean }> = ({ label, value, detail, emphasis }) => (
+  <Box sx={{ bgcolor: 'background.paper', px: 2, py: 1.5, minWidth: 0 }}>
+    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap>{label}</Typography>
+    <Typography
+      sx={{
+        fontSize: emphasis ? '1.5rem' : '1.125rem',
+        fontWeight: emphasis ? 600 : 500,
+        lineHeight: 1.35,
+        fontVariantNumeric: 'tabular-nums',
+      }}
+      noWrap
+    >
+      {value}
+    </Typography>
+    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap title={detail}>{detail}</Typography>
   </Box>
 )
 
 // OverviewStatStrip lays OverviewStats out as a hairline-divided row.
-export const OverviewStatStrip: FC<{ columns: number; children: ReactNode }> = ({ columns, children }) => (
+// Layouts inside a side panel size by the panel, not the window: their
+// root sets `containerType: 'inline-size'` and children use `fit="container"`.
+export type UsageFit = 'viewport' | 'container'
+
+// Columns step down evenly (6 → 3 → 2, 4 → 4 → 2) so a row never ends in
+// an orphan cell.
+export const OverviewStatStrip: FC<{ columns: number; fit?: UsageFit; children: ReactNode }> = ({ columns, fit = 'viewport', children }) => (
   <Box
     sx={{
       display: 'grid',
-      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: `repeat(${columns}, minmax(0, 1fr))` },
+      gridTemplateColumns: fit === 'container' ? 'repeat(2, minmax(0, 1fr))' : {
+        xs: 'repeat(2, minmax(0, 1fr))',
+        md: `repeat(${columns % 3 === 0 ? 3 : columns}, minmax(0, 1fr))`,
+        lg: `repeat(${columns}, minmax(0, 1fr))`,
+      },
+      ...(fit === 'container' && {
+        [`@container (min-width: ${columns * 190}px)`]: { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` },
+      }),
       gap: '1px',
       bgcolor: 'divider',
-      borderTop: '1px solid',
-      borderBottom: '1px solid',
+      border: '1px solid',
       borderColor: 'divider',
+      borderRadius: 2,
+      overflow: 'hidden',
     }}
   >
     {children}
   </Box>
 )
+
+// UsageGroup is one titled section of a usage page (LLM spend, sandbox
+// compute, breakdowns), so related numbers, charts and tables read together.
+export const UsageGroup: FC<{ title: string; description: string; action?: ReactNode; children: ReactNode }> = ({
+  title, description, action, children,
+}) => (
+  <Box component="section" sx={{ pt: 1 }}>
+    <Stack
+      direction={{ xs: 'column', sm: 'row' }}
+      alignItems={{ xs: 'flex-start', sm: 'flex-end' }}
+      justifyContent="space-between"
+      spacing={1}
+      sx={{ mb: 2, pb: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="h6" component="h3" sx={{ fontSize: '1.125rem', fontWeight: 600 }}>{title}</Typography>
+        <Typography variant="body2" color="text.secondary">{description}</Typography>
+      </Box>
+      {action}
+    </Stack>
+    <Stack spacing={2}>{children}</Stack>
+  </Box>
+)
+
+// UsageChartGrid lays charts out two-up on wide screens, one-up on narrow.
+export const UsageChartGrid: FC<{ fit?: UsageFit; children: ReactNode }> = ({ fit = 'viewport', children }) => (
+  <Box
+    sx={{
+      display: 'grid',
+      gap: 2,
+      gridTemplateColumns: fit === 'container' ? 'minmax(0, 1fr)' : { xs: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' },
+      ...(fit === 'container' && {
+        '@container (min-width: 640px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+      }),
+    }}
+  >
+    {children}
+  </Box>
+)
+
+export interface CompactColumn {
+  key: string
+  label: string
+  // The first column is the row's name; the rest are right-aligned values.
+}
+
+// CompactTable is a titled table card that turns each row into a name line
+// plus a line of labelled values when its container is narrow, so no column
+// is ever clipped on a phone.
+export const CompactTable: FC<{
+  title: string
+  columns: CompactColumn[]
+  rows: Array<{ id: string; title?: string; cells: Record<string, ReactNode> }>
+  footer?: ReactNode
+}> = ({ title, columns, rows, footer }) => {
+  const [nameCol, ...valueCols] = columns
+  const cellSx = { py: 0.75, px: 1, borderTop: '1px solid', borderColor: 'divider', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } as const
+  return (
+    <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2, minWidth: 0 }}>
+      <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>{title}</Typography>
+      <Box
+        component="table"
+        sx={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          fontSize: '0.8125rem',
+          display: 'none',
+          '@container (min-width: 560px)': { display: 'table' },
+        }}
+      >
+        <thead>
+          <tr>
+            {columns.map((c, i) => (
+              <Box component="th" key={c.key} sx={{ py: 0.75, px: 1, fontWeight: 500, color: 'text.secondary', textAlign: i === 0 ? 'left' : 'right', whiteSpace: 'nowrap' }}>
+                {c.label}
+              </Box>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              {/* width 100% + maxWidth 0: the name takes the spare width and ellipsizes, values never clip. */}
+              <Box component="td" title={r.title} sx={{ ...cellSx, width: '100%', maxWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {r.cells[nameCol.key]}
+              </Box>
+              {valueCols.map(c => (
+                <Box component="td" key={c.key} sx={{ ...cellSx, textAlign: 'right' }}>{r.cells[c.key]}</Box>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </Box>
+      <Box sx={{ '@container (min-width: 560px)': { display: 'none' } }}>
+        {rows.map(r => (
+          <Box key={r.id} sx={{ py: 1, borderTop: '1px solid', borderColor: 'divider', fontSize: '0.8125rem' }}>
+            <Box title={r.title} sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.cells[nameCol.key]}</Box>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.25, mt: 0.25, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
+              {valueCols.map(c => (
+                <span key={c.key}>{c.label} <Box component="span" sx={{ color: 'text.primary' }}>{r.cells[c.key]}</Box></span>
+              ))}
+            </Box>
+          </Box>
+        ))}
+      </Box>
+      {footer && <Box sx={{ mt: 1 }}>{footer}</Box>}
+    </Box>
+  )
+}
 
 export const UsageSection: FC<{ title: string; action?: ReactNode; children: ReactNode }> = ({ title, action, children }) => (
   <Box sx={{ width: '100%' }}>

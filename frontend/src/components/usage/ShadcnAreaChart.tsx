@@ -27,6 +27,8 @@ export interface ShadcnAreaChartProps {
   title: string;
   /** Headline value (already formatted, e.g. "$12.45" or "1.2M"). */
   headline: string;
+  /** Control rendered in the header beside the headline, e.g. a metric toggle. */
+  action?: React.ReactNode;
   /** Chart data rows; `date` is ISO string, other keys are series values. */
   data: Array<{ date: string; [key: string]: number | string }>;
   /** Series to render as stacked areas, in bottom-to-top order. */
@@ -132,6 +134,7 @@ const ShadcnTooltip = (
 const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   title,
   headline,
+  action,
   data,
   series,
   valueFormatter,
@@ -159,40 +162,33 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
     <Box
       sx={{
         height: cardHeight,
-        bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(0, 0, 0, 0.2)',
+        bgcolor: 'background.paper',
+        border: '1px solid',
+        borderColor: 'divider',
         borderRadius: 2,
         p: 2,
         position: 'relative',
+        minWidth: 0,
       }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography
-          variant="body2"
-          sx={{
-            color: 'text.secondary',
-            fontSize: '0.875rem',
-            fontWeight: 500,
-            letterSpacing: '0.04em',
-          }}
-        >
-          {title}
-        </Typography>
-        <Box
-          sx={{
-            bgcolor: 'transparent',
-            color: 'text.primary',
-            px: 1.5,
-            py: 0.5,
-            borderRadius: '50px',
-            fontSize: '0.75rem',
-            fontWeight: 500,
-            border: '1px solid',
-            borderColor: 'grey.500',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {headline}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 1, minHeight: 30 }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            variant="body2"
+            noWrap
+            sx={{ color: 'text.primary', fontSize: '0.875rem', fontWeight: 600 }}
+          >
+            {title}
+          </Typography>
+          <Typography
+            variant="caption"
+            noWrap
+            sx={{ display: 'block', color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}
+          >
+            {headline}
+          </Typography>
         </Box>
+        {action}
       </Box>
       <Box sx={{ height: chartHeight, width: '100%' }}>
         {hasData ? (
@@ -213,7 +209,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                   </linearGradient>
                 ))}
               </defs>
-              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
+              <CartesianGrid vertical={false} stroke={lightTheme.isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)'} />
               <XAxis
                 dataKey="date"
                 tickLine={false}
@@ -233,9 +229,11 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={valueFormatter}
                 domain={yDomain}
+                // A caller-fixed range (0–100%, 0–1) is the scale; never widen it for stray data.
+                allowDataOverflow={!!yDomain}
               />
               <Tooltip
-                cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
+                cursor={{ stroke: lightTheme.isLight ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.2)' }}
                 content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData, showTime))}
               />
               {/* Recharts' default legend lays items at whatever order they
