@@ -721,9 +721,8 @@ func (apiServer *HelixAPIServer) deleteClaudeSubscription(_ http.ResponseWriter,
 
 // ClaudeModel represents a Claude model available via Claude Code
 type ClaudeModel struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // @Summary List available Claude models
@@ -734,13 +733,10 @@ type ClaudeModel struct {
 // @Security BearerAuth
 // @Router /api/v1/claude-subscriptions/models [get]
 func (apiServer *HelixAPIServer) listClaudeModels(_ http.ResponseWriter, req *http.Request) ([]*ClaudeModel, *system.HTTPError) {
-	models := []*ClaudeModel{
-		{ID: "claude-opus-5-5", Name: "Claude Opus 5.5 (1M context)", Description: "Recommended Opus model with a 1M-token context window"},
-		{ID: "claude-opus-5", Name: "Claude Opus 5 (1M context)", Description: "Previous Opus model with a 1M-token context window"},
-		{ID: "claude-fable-5", Name: "Claude Fable 5 (1M context)", Description: "Most capable generally available Claude model"},
-		{ID: "claude-opus-4-8", Name: "Claude Opus 4.8 (1M context)", Description: "Older Opus model with a 1M-token context window"},
-		{ID: "sonnet", Name: "Claude Sonnet (latest)", Description: "Best balance of speed and capability"},
-		{ID: "haiku", Name: "Claude Haiku (latest)", Description: "Fastest Claude model"},
+	options := types.CodeAgentModels[types.CodeAgentRuntimeClaudeCode]
+	models := make([]*ClaudeModel, 0, len(options))
+	for _, m := range options {
+		models = append(models, &ClaudeModel{ID: m.ID, Name: m.Name})
 	}
 	return models, nil
 }

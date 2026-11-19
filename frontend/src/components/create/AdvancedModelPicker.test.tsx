@@ -5,6 +5,13 @@ import AdvancedModelPicker from './AdvancedModelPicker'
 
 const providerState = vi.hoisted(() => ({ providers: [] as any[] }))
 
+vi.mock('../../hooks/useCodeAgentModelCatalogue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../hooks/useCodeAgentModelCatalogue')>()
+  const { testCodeAgentModels } = await import('../../hooks/useCodeAgentModelCatalogue.fixture')
+  const catalogue = actual.codeAgentModelCatalogue({ code_agent_models: testCodeAgentModels })
+  return { ...actual, useCodeAgentModelCatalogue: () => catalogue }
+})
+
 vi.mock('../../services/providersService', () => ({
   useListProviders: () => ({ data: providerState.providers, isLoading: false }),
 }))
