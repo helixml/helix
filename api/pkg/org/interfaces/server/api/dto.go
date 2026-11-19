@@ -68,6 +68,13 @@ type BotDTO struct {
 	// Bot's chat session before each re-activation, so it accumulates
 	// context across triggers (e.g. Slack). Defaults to false.
 	PreserveContext bool `json:"preserve_context"`
+	// KeepAlive exempts the bot's desktop from idle shutdown. Changed through
+	// PUT /orgs/{org}/bots/{id}/keep-alive.
+	KeepAlive bool `json:"keep_alive"`
+	// AutoApprovePullRequests approves the bot's PR proposals as
+	// AutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.
+	AutoApprovePullRequests   bool   `json:"auto_approve_pull_requests"`
+	AutoApprovePullRequestsBy string `json:"auto_approve_pull_requests_by,omitempty"`
 	// Status is "running" when the bot's desktop sandbox is online,
 	// "stopped" otherwise (no session, paused, never activated). Drives
 	// the green/grey presence dot on the org chart.

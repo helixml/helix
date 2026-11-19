@@ -1057,6 +1057,10 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 		PreserveContext: b.PreserveContext,
 		SandboxRuntime:  types.SandboxRuntime(b.SandboxRuntime),
 		InstanceProfile: b.EffectiveInstanceProfile(),
+
+		KeepAlive:                 b.KeepAlive,
+		AutoApprovePullRequests:   b.AutoApprovePullRequests,
+		AutoApprovePullRequestsBy: b.AutoApprovePullRequestsBy,
 	}
 	if b.SandboxVCPUs > 0 {
 		dto.SandboxResourceOverrides = &types.SandboxResourceOverrides{VCPUs: b.SandboxVCPUs, MemoryMB: b.SandboxMemoryMB}

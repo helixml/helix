@@ -462,6 +462,38 @@ export function useRestartBotAgent(orgIDOverride?: string) {
   })
 }
 
+// useSetBotKeepAlive pins (or unpins) a bot's desktop against idle shutdown.
+export function useSetBotKeepAlive(orgIDOverride?: string) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
+  return useMutation({
+    mutationFn: async ({ botId, keepAlive }: { botId: string; keepAlive: boolean }) => {
+      await api.getApiClient().v1OrgsBotsKeepAliveUpdate(orgID, botId, { keep_alive: keepAlive })
+    },
+    onSuccess: (_data, { botId }) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
+  })
+}
+
+// useSetBotPRAutoApprove turns auto-approval of a bot's PR proposals on or off.
+export function useSetBotPRAutoApprove(orgIDOverride?: string) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
+  return useMutation({
+    mutationFn: async ({ botId, enabled }: { botId: string; enabled: boolean }) => {
+      await api.getApiClient().v1OrgsBotsPrAutoApproveUpdate(orgID, botId, { enabled })
+    },
+    onSuccess: (_data, { botId }) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
+  })
+}
+
 // useBotResetPlan reads what each reset scope erases and keeps, from the
 // server, so the confirmation dialog never drifts from the real contract.
 export function useBotResetPlan(botID?: string, options?: { enabled?: boolean }) {
@@ -550,9 +582,11 @@ export function useListHelixOrgBots(options?: { enabled?: boolean; refetchInterv
   })
 }
 
-export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: boolean; refetchInterval?: number | false }) {
+export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: boolean; refetchInterval?: number | false; orgID?: string }) {
   const api = useApi()
-  const { orgID } = useHelixOrgBase()
+  const { orgID: baseOrgID } = useHelixOrgBase()
+  // Embeds have no :org_id route param, so they name the org explicitly.
+  const orgID = options?.orgID ?? baseOrgID
   return useQuery({
     queryKey: QUERY_KEYS.bot(orgID, botId ?? ''),
     refetchInterval: options?.refetchInterval,

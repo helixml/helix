@@ -331,7 +331,40 @@ func (r *nodesRepo) Update(_ context.Context, b orgchart.Node) error {
 		return fmt.Errorf("bot %q in org %q: %w", b.ID, b.OrganizationID, store.ErrNotFound)
 	}
 	b.PortraitIndex = existing.PortraitIndex
+	// Like the gorm Update, which does not write these columns.
+	b.KeepAlive = existing.KeepAlive
+	b.AutoApprovePullRequests = existing.AutoApprovePullRequests
+	b.AutoApprovePullRequestsBy = existing.AutoApprovePullRequestsBy
 	r.rows[k] = b
+	return nil
+}
+
+func (r *nodesRepo) UpdateKeepAlive(_ context.Context, orgID string, id orgchart.NodeID, keepAlive bool, updatedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := orgKey{OrgID: orgID, ID: string(id)}
+	b, ok := r.rows[k]
+	if !ok {
+		return fmt.Errorf("bot %q in org %q: %w", id, orgID, store.ErrNotFound)
+	}
+	b.KeepAlive = keepAlive
+	r.rows[k] = b.WithUpdatedAt(updatedAt)
+	return nil
+}
+
+func (r *nodesRepo) UpdatePRAutoApprove(_ context.Context, orgID string, id orgchart.NodeID, enabled bool, by string, updatedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := orgKey{OrgID: orgID, ID: string(id)}
+	b, ok := r.rows[k]
+	if !ok {
+		return fmt.Errorf("bot %q in org %q: %w", id, orgID, store.ErrNotFound)
+	}
+	b.AutoApprovePullRequests = enabled
+	if enabled {
+		b.AutoApprovePullRequestsBy = by
+	}
+	r.rows[k] = b.WithUpdatedAt(updatedAt)
 	return nil
 }
 

@@ -9,7 +9,10 @@ const countTriggers = (pattern: RegExp) => triggerSource.match(pattern)?.length 
 
 describe('Helix Org Bot API argument order', () => {
   it('passes Bot and organization IDs in generated-client order', () => {
-    expect(count(/v1OrgsBots[A-Za-z0-9]*\(/g)).toBe(21)
+    expect(count(/v1OrgsBots[A-Za-z0-9]*\(/g)).toBe(23)
+    // Served by the Helix server (shared with spec-task proposals): org first.
+    expect(count(/v1OrgsBotsKeepAliveUpdate\(orgID, botId, \{ keep_alive: keepAlive \}\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsPrAutoApproveUpdate\(orgID, botId, \{ enabled \}\)/g)).toBe(1)
     expect(count(/v1OrgsBotsDetail\(orgID\)/g)).toBe(1)
     expect(count(/v1OrgsBotsCreate\(orgID, payload\)/g)).toBe(1)
     expect(count(/v1OrgsBotsPartialUpdate\(orgID, id, body\)/g)).toBe(1)

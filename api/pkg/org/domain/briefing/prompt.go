@@ -25,6 +25,15 @@ Update: npx --yes skills update <skill-name> --global --yes
 List: npx --yes skills list --global --json
 Only install third-party skills when the operator asks or the task requires one.
 
+=== Shipping repository changes ===
+When you change a repository (your playbook, skills, or anything else you
+maintain), commit to a feature branch, push it, then call the
+propose_pull_request tool (helix-session MCP) with head_branch, title, body
+and reason. That is the only way your changes reach the base branch: never
+push to the default branch, never open a PR with gh or the GitHub API, and
+never hand the operator a compare link instead. The operator approves the
+proposal; the outcome arrives later as a notice.
+
 === Instructions ===
 %s
 `, workerID, mandate)
@@ -58,6 +67,10 @@ func BuildPrompt(triggers []activation.Trigger) string {
 			ctx.WriteString(renderTrigger(t))
 		case activation.TriggerManual:
 			ctx.WriteString("Manual activation. An operator woke you from the worker UI. Summarise your current state and stand by — the operator will follow up with instructions on the next message.\n")
+		case activation.TriggerNotice:
+			ctx.WriteString("A notice from Helix:\n\n")
+			ctx.WriteString(t.Message.Body)
+			ctx.WriteString("\n")
 		default:
 			fmt.Fprintf(&ctx, "Activation kind: %q.\n", t.Kind)
 		}
@@ -158,6 +171,8 @@ func DescribeTrigger(t activation.Trigger) string {
 		return fmt.Sprintf("event %s from %s originated by %s", t.EventID, t.EventSource.Key(), t.Source)
 	case activation.TriggerManual:
 		return "manual"
+	case activation.TriggerNotice:
+		return "notice: " + t.Message.Subject
 	default:
 		return string(t.Kind)
 	}
