@@ -72,6 +72,23 @@ func TestSearch_SendsParamsAndDecodes(t *testing.T) {
 	require.Equal(t, []UnresponsiveEngine{{Name: "startpage", Reason: "Suspended: CAPTCHA"}}, resp.UnresponsiveEngines)
 }
 
+func TestSearch_TimeRangeOnlyWhereEveryEngineHonoursIt(t *testing.T) {
+	var got url.Values
+	srv := serve(t, http.StatusOK, `{"results": []}`, &got)
+
+	_, err := NewClient(srv.URL, []string{"yandex"}).Search(context.Background(), Query{Q: "x", TimeRange: TimeRangeMonth})
+	require.NoError(t, err)
+	require.Empty(t, got.Get("time_range"), "SearXNG would drop yandex and return nothing")
+
+	_, err = NewClient(srv.URL, []string{"google", "yandex"}).Search(context.Background(), Query{Q: "x", TimeRange: TimeRangeMonth})
+	require.NoError(t, err)
+	require.Empty(t, got.Get("time_range"), "yandex's results would be dropped")
+
+	_, err = NewClient(srv.URL, []string{"google", "brave"}).Search(context.Background(), Query{Q: "x", TimeRange: TimeRangeMonth})
+	require.NoError(t, err)
+	require.Equal(t, "month", got.Get("time_range"))
+}
+
 func TestSearch_CategoriesReplaceEngines(t *testing.T) {
 	var got url.Values
 	srv := serve(t, http.StatusOK, `{"results": [], "unresponsive_engines": [["reuters", "HTTP error"]]}`, &got)
