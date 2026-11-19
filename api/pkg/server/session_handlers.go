@@ -3121,6 +3121,10 @@ const autoRestartMaxAttempts = 3
 // wait grows exponentially per consecutive attempt (autoRestartMinBackoff <<
 // count → 15s, 30s, 60s), so a fast crash loop is throttled. It is a var (not a
 // const) only so tests can drop it to zero; production never reassigns it.
+// errDeliveryIDConflict means a caller-supplied delivery id is already bound to
+// a different session or message. Retrying the same delivery can never succeed.
+var errDeliveryIDConflict = errors.New("delivery ID conflict")
+
 var autoRestartMinBackoff = 15 * time.Second
 
 // maybeAutoRestartCrashedAgent automatically recovers a crashed external agent
@@ -3409,7 +3413,7 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		}
 		if existingDelivery != nil {
 			if existingDelivery.SessionID != session.ID || existingDelivery.PromptMessage != message {
-				return nil, fmt.Errorf("interaction delivery ID %s conflicts with another message", req.InteractionID)
+				return nil, fmt.Errorf("%w: interaction delivery ID %s conflicts with another message", errDeliveryIDConflict, req.InteractionID)
 			}
 			if existingDelivery.State != types.InteractionStateWaiting {
 				return session, nil

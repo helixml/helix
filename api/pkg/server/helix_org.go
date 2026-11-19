@@ -1203,6 +1203,7 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		AgentConfigs:  inProcClient,
 		Logger:        logger,
 		AgentDelivery: agentDelivery,
+		Audit:         services.NewOrgAuditLogService(helixStore),
 		// Node-scoped reconcilers: the single topology reconciler (one owner
 		// of activation/team Topic lifecycle across create, reparent, and delete).
 		NodeReconcilers: []lifecycle.NodeReconciler{deps.Reconciler},

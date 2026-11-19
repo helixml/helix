@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -55,7 +57,7 @@ func (t *DeleteBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		return nil, fmt.Errorf("delete_bot: caller has no OrgID")
 	}
 	botID := orgchart.NodeID(args.NodeID)
-	if err := t.deps.Lifecycle.Delete(ctx, orgID, botID); err != nil {
+	if err := t.deps.Lifecycle.Delete(ctx, orgID, botID, lifecycle.Actor{Type: audit.ActorBot, ID: inv.Caller.ID()}); err != nil {
 		return nil, err
 	}
 	return json.Marshal(map[string]string{"id": string(botID)})

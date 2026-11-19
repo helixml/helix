@@ -92,8 +92,8 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	if res.Node.CodeAgentConfig == nil || res.Node.CodeAgentConfig.Model != "gpt-5.6" {
 		t.Fatalf("code agent config = %+v, want independently persisted config", res.Node.CodeAgentConfig)
 	}
-	if !cleaner.restored || cleaner.orgID != "org-test" || cleaner.agentID != "w-new" {
-		t.Fatalf("agent delivery was not restored for recreated worker")
+	if len(cleaner.prepared) != 1 || cleaner.prepared[0] != "w-new" || cleaner.orgID != "org-test" {
+		t.Fatalf("stale deliveries were not cleared for the new worker: prepared %v", cleaner.prepared)
 	}
 	if _, err := st.Nodes.Get(ctx, "org-test", "w-new"); err != nil {
 		t.Fatalf("bot not persisted: %v", err)

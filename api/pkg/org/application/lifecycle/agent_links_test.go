@@ -328,7 +328,7 @@ func TestDeleteArchivesOwnedProjectAndPreservesAllowedProjects(t *testing.T) {
 	runtime := &lifecycleRuntime{store: st}
 	svc := &lifecycle.Service{Store: st, Helix: runtime}
 
-	require.NoError(t, svc.Delete(ctx, "org-test", bot.ID))
+	require.NoError(t, svc.Delete(ctx, "org-test", bot.ID, lifecycle.Actor{}))
 	require.Equal(t, []string{"project-owned"}, runtime.deletedProjects)
 	require.Equal(t, []string{"session-agent"}, runtime.stoppedSessions)
 	if _, err := st.Nodes.Get(ctx, "org-test", bot.ID); err == nil {
@@ -363,7 +363,7 @@ func TestDeleteFailurePreservesGraphAnchorAndRetry(t *testing.T) {
 			runtime := &lifecycleRuntime{store: st, linkedErr: tc.linkedErr, deleteProjectErr: tc.deleteProjectErr}
 			svc := &lifecycle.Service{Store: st, Helix: runtime}
 
-			if err := svc.Delete(ctx, "org-test", bot.ID); err == nil {
+			if err := svc.Delete(ctx, "org-test", bot.ID, lifecycle.Actor{}); err == nil {
 				t.Fatal("delete succeeded despite runtime failure")
 			}
 			got, err := st.Nodes.Get(ctx, "org-test", bot.ID)
@@ -383,7 +383,7 @@ func TestDeleteFailurePreservesGraphAnchorAndRetry(t *testing.T) {
 
 			runtime.linkedErr = nil
 			runtime.deleteProjectErr = nil
-			if err := svc.Delete(ctx, "org-test", bot.ID); err != nil {
+			if err := svc.Delete(ctx, "org-test", bot.ID, lifecycle.Actor{}); err != nil {
 				t.Fatalf("retry delete: %v", err)
 			}
 			recreated := bot.WithAgentID("app-recreated")
@@ -404,7 +404,7 @@ func TestDeleteChiefOfStaffFailureRollsBackDeletionMarker(t *testing.T) {
 	require.NoError(t, runtimehelix.SaveProject(ctx, st, "org-test", bot.ID, "project-agent", "app-agent", "repo-agent"))
 	svc := &lifecycle.Service{Store: st, Helix: &lifecycleRuntime{deleteProjectErr: errors.New("project delete failed")}}
 
-	require.Error(t, svc.Delete(ctx, "org-test", bot.ID))
+	require.Error(t, svc.Delete(ctx, "org-test", bot.ID, lifecycle.Actor{}))
 	marked, err := svc.ChiefOfStaffDeletionMarked(ctx, "org-test")
 	require.NoError(t, err)
 	require.False(t, marked)
@@ -426,10 +426,10 @@ func TestConcurrentChiefOfStaffDeleteFailurePreservesSuccessfulMarker(t *testing
 	svc := &lifecycle.Service{Store: st, Helix: runtime}
 	replica := &lifecycle.Service{Store: st, Helix: runtime}
 	firstDone := make(chan error, 1)
-	go func() { firstDone <- svc.Delete(ctx, "org-test", bot.ID) }()
+	go func() { firstDone <- svc.Delete(ctx, "org-test", bot.ID, lifecycle.Actor{}) }()
 	<-runtime.started
 
-	require.NoError(t, replica.Delete(ctx, "org-test", bot.ID))
+	require.NoError(t, replica.Delete(ctx, "org-test", bot.ID, lifecycle.Actor{}))
 	close(runtime.resume)
 	require.Error(t, <-firstDone)
 	marked, err := svc.ChiefOfStaffDeletionMarked(ctx, "org-test")
@@ -449,10 +449,10 @@ func TestOlderSuccessfulChiefOfStaffDeleteRestoresMarkerAfterNewerFailure(t *tes
 	svc := &lifecycle.Service{Store: st, Helix: runtime}
 	replica := &lifecycle.Service{Store: st, Helix: runtime}
 	olderDone := make(chan error, 1)
-	go func() { olderDone <- svc.Delete(ctx, "org-test", bot.ID) }()
+	go func() { olderDone <- svc.Delete(ctx, "org-test", bot.ID, lifecycle.Actor{}) }()
 	<-runtime.started
 
-	err = replica.Delete(ctx, "org-test", bot.ID)
+	err = replica.Delete(ctx, "org-test", bot.ID, lifecycle.Actor{})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, lifecycle.ErrDeleteInProgress)
 	close(runtime.resume)
@@ -558,7 +558,7 @@ func TestReconcileAgentLinksSkipsBotBeingDeleted(t *testing.T) {
 	creator := &countingAgentCreator{}
 	release := make(chan struct{})
 	svc := &lifecycle.Service{Store: st, Agents: creator, Instances: releaseOnlyInstances{release: release}}
-	require.NoError(t, svc.StartDelete(ctx, "org-test", bot.ID))
+	require.NoError(t, svc.StartDelete(ctx, "org-test", bot.ID, lifecycle.Actor{}))
 	require.True(t, svc.Deleting("org-test", bot.ID))
 
 	require.NoError(t, svc.ReconcileAgentLinks(ctx, "org-test"))
