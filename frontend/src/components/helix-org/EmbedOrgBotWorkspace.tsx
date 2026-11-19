@@ -86,6 +86,10 @@ const EmbedOrgBotWorkspace: FC<EmbedOrgBotWorkspaceProps> = ({ sessionId, projec
           onAppendToChat={appendToChat}
           expandedBotProfile={profileExpanded}
         >
+          {/* Bounded like Session.tsx's chat: the workspace hosts its child in a
+              block box, so without this the chat grows to its full content
+              height and pushes the composer off-screen. */}
+          <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <AgentChat
             sessionId={sessionId}
             projectId={projectId}
@@ -101,6 +105,7 @@ const EmbedOrgBotWorkspace: FC<EmbedOrgBotWorkspaceProps> = ({ sessionId, projec
             }
             placeholder={`Message ${bot?.name || botId}...`}
           />
+          </Box>
         </OrgAgentSessionWorkspace>
       </Box>
     </Box>
