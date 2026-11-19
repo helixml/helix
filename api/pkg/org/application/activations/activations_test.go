@@ -542,14 +542,14 @@ func (f *fakeRestarter) RestartRuntime(_ context.Context, _ string, _ orgchart.N
 }
 
 type fakeHomes struct {
-	established bool
-	retired     int
-	err         error
-	events      *[]string
+	inSession bool
+	retired   int
+	err       error
+	events    *[]string
 }
 
-func (f *fakeHomes) HomeEstablished(context.Context, string, orgchart.NodeID) (bool, error) {
-	return f.established, nil
+func (f *fakeHomes) HomeMayBeInSession(context.Context, string, orgchart.NodeID) (bool, error) {
+	return f.inSession, nil
 }
 
 func (f *fakeHomes) RetireHome(context.Context, string, orgchart.NodeID) (HomeErasure, error) {
@@ -691,7 +691,7 @@ func TestReset_SessionScopeKeepsHome(t *testing.T) {
 	t.Parallel()
 	events := []string{}
 	aud := &fakeAudit{}
-	homes := &fakeHomes{established: true}
+	homes := &fakeHomes{}
 	svc, disp, resetter, _ := newResetSvc(&events, "ses_old", homes, aud)
 	res, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{
 		Scope: ResetSession, Confirm: "b-bird", Actor: audit.ActorUser, ActorID: "usr_1",
@@ -722,7 +722,7 @@ func TestReset_SessionAndHomeRetiresHomeAfterSession(t *testing.T) {
 	t.Parallel()
 	events := []string{}
 	aud := &fakeAudit{}
-	homes := &fakeHomes{established: true}
+	homes := &fakeHomes{}
 	svc, _, _, _ := newResetSvc(&events, "ses_old", homes, aud)
 	res, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSessionAndHome, Confirm: "b-bird", Actor: audit.ActorBot, ActorID: "b-owner"})
 	if err != nil {
@@ -746,7 +746,7 @@ func TestReset_RequiresScopeAndConfirmation(t *testing.T) {
 	} {
 		events := []string{}
 		aud := &fakeAudit{}
-		svc, _, resetter, canceller := newResetSvc(&events, "ses_old", &fakeHomes{established: true}, aud)
+		svc, _, resetter, canceller := newResetSvc(&events, "ses_old", &fakeHomes{}, aud)
 		_, err := svc.Reset(context.Background(), "org-test", "b-bird", req)
 		if !errors.Is(err, ErrInvalidReset) {
 			t.Fatalf("%+v: err = %v, want ErrInvalidReset", req, err)
@@ -758,21 +758,37 @@ func TestReset_RequiresScopeAndConfirmation(t *testing.T) {
 }
 
 // Until the home has moved out of the session workspace, deleting the
-// session deletes the home, so a session-only reset is refused.
-func TestReset_SessionScopeRefusedWhileHomeLivesInSession(t *testing.T) {
+// session deletes it. Every scope is refused before anything is touched:
+// session_and_home would otherwise delete the session first and then
+// report that no home existed, with no rollback copy.
+func TestReset_RefusedForEveryScopeWhileHomeLivesInSession(t *testing.T) {
+	t.Parallel()
+	for _, scope := range []ResetScope{ResetSession, ResetSessionAndHome} {
+		events := []string{}
+		aud := &fakeAudit{}
+		homes := &fakeHomes{inSession: true}
+		svc, disp, resetter, canceller := newResetSvc(&events, "ses_old", homes, aud)
+		_, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: scope, Confirm: "b-bird"})
+		if !errors.Is(err, ErrResetRefused) {
+			t.Fatalf("%s: err = %v, want ErrResetRefused", scope, err)
+		}
+		if canceller.called || resetter.called != "" || homes.retired != 0 || disp.manualCalls != 0 || len(events) != 0 {
+			t.Fatalf("%s: refused reset had side effects %v", scope, events)
+		}
+		if len(aud.entries) != 2 || aud.entries[1].Status != audit.StatusFailed || aud.entries[1].Metadata.Error == "" {
+			t.Fatalf("%s: refusal not audited as failed: %+v", scope, aud.entries)
+		}
+	}
+}
+
+// A bot with no session has nothing in a session to lose; reset proceeds
+// even before its home has been created.
+func TestReset_AllowedWithoutSessionEvenBeforeMigration(t *testing.T) {
 	t.Parallel()
 	events := []string{}
-	aud := &fakeAudit{}
-	svc, _, resetter, canceller := newResetSvc(&events, "ses_old", &fakeHomes{established: false}, aud)
-	_, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSession, Confirm: "b-bird"})
-	if !errors.Is(err, ErrResetRefused) {
-		t.Fatalf("err = %v, want ErrResetRefused", err)
-	}
-	if canceller.called || resetter.called != "" {
-		t.Fatal("refused reset had side effects")
-	}
-	if len(aud.entries) != 2 || aud.entries[1].Status != audit.StatusFailed || aud.entries[1].Metadata.Error == "" {
-		t.Fatalf("refusal not audited as failed: %+v", aud.entries)
+	svc, _, _, _ := newResetSvc(&events, "", &fakeHomes{inSession: true}, &fakeAudit{})
+	if _, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSessionAndHome, Confirm: "b-bird"}); err != nil {
+		t.Fatalf("Reset: %v", err)
 	}
 }
 
@@ -780,7 +796,7 @@ func TestReset_HomeEraseFailureStopsBeforeActivation(t *testing.T) {
 	t.Parallel()
 	events := []string{}
 	aud := &fakeAudit{}
-	homes := &fakeHomes{established: true, err: errors.New("runner offline")}
+	homes := &fakeHomes{err: errors.New("runner offline")}
 	svc, disp, _, _ := newResetSvc(&events, "ses_old", homes, aud)
 	_, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSessionAndHome, Confirm: "b-bird"})
 	if err == nil {
@@ -802,7 +818,7 @@ func TestRestartAndResetOfOneBotAreSerialised(t *testing.T) {
 	r := &blockingRestarter{block: block, entered: entered}
 	events := []string{}
 	aud := &fakeAudit{}
-	homes := &fakeHomes{established: true}
+	homes := &fakeHomes{}
 	svc, _, resetter, _ := newResetSvc(&events, "ses_old", homes, aud)
 	svc.restarter = r
 	done := make(chan struct{})
@@ -856,7 +872,7 @@ func TestReset_ClosesActivationRowsItPurged(t *testing.T) {
 	if err := repo.Create(context.Background(), stale); err != nil {
 		t.Fatal(err)
 	}
-	svc, disp, _, _ := newResetSvc(&events, "ses_old", &fakeHomes{established: true}, &fakeAudit{})
+	svc, disp, _, _ := newResetSvc(&events, "ses_old", &fakeHomes{}, &fakeAudit{})
 	svc.repo = repo
 	if _, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSession, Confirm: "b-bird"}); err != nil {
 		t.Fatalf("Reset: %v", err)

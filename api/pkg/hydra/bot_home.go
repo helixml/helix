@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	dockertypes "github.com/docker/docker/api/types"
@@ -635,8 +636,7 @@ func (dm *DevContainerManager) bindBotHome(ctx context.Context, dockerClient *cl
 	}
 	key := BotHomeKey(spec.OrganizationID, spec.BotID)
 
-	dm.botHomeMu.Lock()
-	defer dm.botHomeMu.Unlock()
+	// The caller holds reserveBotHome(key) until the container is started.
 	sessions, err := runningBotHomeSessions(ctx, dockerClient, key)
 	if err != nil {
 		return nil, err
@@ -695,8 +695,8 @@ func (dm *DevContainerManager) DestroyBotHome(ctx context.Context, req *DestroyB
 	}
 	defer dockerClient.Close()
 	key := BotHomeKey(req.OrganizationID, req.BotID)
-	dm.botHomeMu.Lock()
-	defer dm.botHomeMu.Unlock()
+	release := dm.reserveBotHome(key)
+	defer release()
 	sessions, err := runningBotHomeSessions(ctx, dockerClient, key)
 	if err != nil {
 		return nil, err
@@ -717,7 +717,11 @@ func (dm *DevContainerManager) DestroyBotHome(ctx context.Context, req *DestroyB
 // grace), retired homes older than retention, and leftover trash. It does
 // nothing to live bots' homes and nothing at all unless the caller supplied
 // an authoritative live set.
-func ReconcileOrphanBotHomes(live map[string]bool, inUse func(key string) bool, grace, retention time.Duration, dryRun bool, now time.Time) (reaped []string, skipped []GCSkip) {
+//
+// reserve takes the same per-home reservation CreateDevContainer holds; a
+// home is removed only under it and only if inUse, asked again under it,
+// says no container mounts the home.
+func ReconcileOrphanBotHomes(live map[string]bool, inUse func(key string) bool, reserve func(key string) func(), grace, retention time.Duration, dryRun bool, now time.Time) (reaped []string, skipped []GCSkip) {
 	base := filepath.Join(workspacesBaseDir, botHomesDirName)
 	orgs, err := os.ReadDir(base)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -734,6 +738,7 @@ func ReconcileOrphanBotHomes(live map[string]bool, inUse func(key string) bool, 
 			continue
 		}
 		liveNames := map[string]bool{}
+		keys := map[string]string{}
 		for _, bot := range bots {
 			if !bot.IsDir() {
 				continue
@@ -752,11 +757,21 @@ func ReconcileOrphanBotHomes(live map[string]bool, inUse func(key string) bool, 
 				continue
 			}
 			key := BotHomeKey(owner.OrganizationID, owner.BotID)
+			keys[filepath.Join(orgBase, bot.Name())] = key
 			if live[key] || inUse(key) {
 				liveNames[bot.Name()] = true
 			}
 		}
-		r, s := reconcileIDDirs(orgBase, botHomesDirName+"-"+org.Name(), "", liveNames, grace, dryRun, os.RemoveAll)
+		remove := func(dir string) error {
+			key := keys[dir]
+			release := reserve(key)
+			defer release()
+			if inUse(key) {
+				return fmt.Errorf("%w: %s", ErrBotHomeInUse, key)
+			}
+			return os.RemoveAll(dir)
+		}
+		r, s := reconcileIDDirs(orgBase, botHomesDirName+"-"+org.Name(), "", liveNames, grace, dryRun, remove)
 		for _, sk := range s {
 			if sk.Reason != "live" {
 				skipped = append(skipped, sk)
@@ -828,23 +843,33 @@ func retiredAtFromName(name string) (time.Time, bool) {
 	return time.Unix(0, nanos), true
 }
 
+// reserveBotHome blocks until no other create, destroy or reap holds the
+// home, then holds it until the returned release is called.
+func (dm *DevContainerManager) reserveBotHome(key string) func() {
+	dm.botHomeLocksMu.Lock()
+	if dm.botHomeLocks == nil {
+		dm.botHomeLocks = make(map[string]*sync.Mutex)
+	}
+	mu, ok := dm.botHomeLocks[key]
+	if !ok {
+		mu = &sync.Mutex{}
+		dm.botHomeLocks[key] = mu
+	}
+	dm.botHomeLocksMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
+
 // botHomeInUseChecker reports whether a running container mounts a bot home.
 // When Docker cannot be asked, every home counts as in use.
 func (dm *DevContainerManager) botHomeInUseChecker(ctx context.Context) func(string) bool {
-	dockerClient, err := dm.getDockerClient("")
-	if err != nil {
-		return func(string) bool { return true }
+	return func(key string) bool {
+		dockerClient, err := dm.getDockerClient("")
+		if err != nil {
+			return true
+		}
+		defer dockerClient.Close()
+		sessions, err := runningBotHomeSessions(ctx, dockerClient, key)
+		return err != nil || len(sessions) > 0
 	}
-	list, err := dockerClient.ContainerList(ctx, container.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("label", containerBotHomeLabel)),
-	})
-	dockerClient.Close()
-	if err != nil {
-		return func(string) bool { return true }
-	}
-	used := map[string]bool{}
-	for _, c := range list {
-		used[c.Labels[containerBotHomeLabel]] = true
-	}
-	return func(key string) bool { return used[key] }
 }

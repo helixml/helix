@@ -75,9 +75,15 @@ type GoldenBuildResult struct {
 // DevContainerManager manages dev container lifecycle (Zed+agent environments)
 // This manages container launching functionality
 type DevContainerManager struct {
-	// botHomeMu serialises bot-home binding and erasure so two sessions
-	// cannot claim the same home between the in-use check and the start.
-	botHomeMu sync.Mutex
+	// botHomeLocks holds one reservation per bot home. CreateDevContainer
+	// keeps it from the ownership check until the container is started and
+	// its mount verified; destroy and GC take the same reservation, so no
+	// second session or erase can act on a home in between.
+	// defaultDockerSocket overrides /var/run/docker.sock; tests only.
+	defaultDockerSocket string
+
+	botHomeLocksMu sync.Mutex
+	botHomeLocks   map[string]*sync.Mutex
 
 	// Docker client for the sandbox's dockerd (sandbox Docker or isolated Hydra dockerd)
 	docker *client.Client
@@ -166,6 +172,9 @@ func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer)
 // getDockerClient returns a Docker client for the specified socket
 // If socketPath is empty, uses the default Docker socket
 func (dm *DevContainerManager) getDockerClient(socketPath string) (*client.Client, error) {
+	if socketPath == "" {
+		socketPath = dm.defaultDockerSocket
+	}
 	if socketPath == "" {
 		socketPath = "/var/run/docker.sock"
 	}
@@ -670,6 +679,10 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 
 	var botHome *BotHomeResult
 	if req.BotHome != nil {
+		// Held until this function returns: the container is then running
+		// (so the in-use check sees it) or creation failed.
+		release := dm.reserveBotHome(BotHomeKey(req.BotHome.OrganizationID, req.BotHome.BotID))
+		defer release()
 		// Before prepareMountSources: that creates missing bind sources,
 		// which must never stand in for a missing bot home.
 		botHome, err = dm.bindBotHome(ctx, dockerClient, req)
@@ -2603,7 +2616,7 @@ func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileR
 		if req.BotHomeRetentionSeconds > 0 {
 			retention = time.Duration(req.BotHomeRetentionSeconds) * time.Second
 		}
-		resp.BotHomesReaped, resp.BotHomesSkipped = ReconcileOrphanBotHomes(liveHomes, dm.botHomeInUseChecker(ctx), grace, retention, req.DryRun, time.Now())
+		resp.BotHomesReaped, resp.BotHomesSkipped = ReconcileOrphanBotHomes(liveHomes, dm.botHomeInUseChecker(ctx), dm.reserveBotHome, grace, retention, req.DryRun, time.Now())
 	}
 
 	if !req.DryRun {

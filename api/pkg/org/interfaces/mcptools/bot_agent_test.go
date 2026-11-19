@@ -35,8 +35,8 @@ func (f *botLifecycleFakes) ResetSession(context.Context, string, orgchart.NodeI
 	f.resets++
 	return nil
 }
-func (f *botLifecycleFakes) HomeEstablished(context.Context, string, orgchart.NodeID) (bool, error) {
-	return true, nil
+func (f *botLifecycleFakes) HomeMayBeInSession(context.Context, string, orgchart.NodeID) (bool, error) {
+	return false, nil
 }
 func (f *botLifecycleFakes) RetireHome(context.Context, string, orgchart.NodeID) (activations.HomeErasure, error) {
 	f.retires++

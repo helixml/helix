@@ -44,7 +44,11 @@ placement to its runner.
   (`migration.json`, resumable at every step), or create an empty home.
 - Both legacy and home populated, home without owner record, owner of another
   bot/org, journal for another generation: **fail**, touch neither side.
-- One running container per home (label `helix.bot_home`); a stopped container
+- One running container per home (label `helix.bot_home`). Hydra holds a
+  per-home reservation from the ownership check until the container is started
+  and its mount verified; destroy and the GC reaper take the same reservation
+  (the reaper re-checks use under it), so no second session, erase or reap can
+  act in between. A stopped container
   still bound to the legacy path is recreated; after start Hydra verifies the
   container really mounts the home at `/home/retro/work`.
 - An older Hydra that ignores `bot_home` → the API stops the desktop and fails.
@@ -54,7 +58,8 @@ placement to its runner.
 | Operation | Surface | Effect |
 |---|---|---|
 | Restart | `POST /bots/{id}/runtime-restart`, `restart_bot`, `helix org bots restart`, every UI control labelled Restart (bot menu, sidebar, chart, chat panel, session workspace, config banners) | Same session. Stop container (fence) → settle waiting turns as `External agent stopped…` → recreate. Queue untouched; the interrupted activation is redelivered and SendMessage recovers the **same prompt id**. No session yet → first activation. |
-| Reset `session` | `POST /bots/{id}/reset`, `reset_bot`, `helix org bots reset`, Bot settings › Advanced › Danger zone | Purge queue + in-flight, close their open activation rows, delete session (+ desktop, session data), new session. Home kept. Refused (409) while the home still lives in the session. |
+| Reset `session` | `POST /bots/{id}/reset`, `reset_bot`, `helix org bots reset`, Bot settings › Advanced › Danger zone | Purge queue + in-flight, close their open activation rows, delete session (+ desktop, session data), new session. Home kept. |
+| Any Reset while the home may still be in the session (state none/pending with a session) | same | Refused (409) for **every** scope before anything is touched: deleting the session would destroy the home without the declared rollback copy. One Restart migrates it. |
 | Reset `session_and_home` | same | Also retire the home to `org-bots-retired/<org>/<bot>/<gen>-<ns>`; reaper purges after 7 days. Next start gets a new generation. |
 | Legacy `POST /bots/{id}/restart` | deprecated, `Deprecation: true` | Keeps its documented contract (fresh session, queue purged) as an audited session-scope Reset; never erases the home. No first-party caller. |
 | Stop | unchanged | Purges queue; not a recovery tool. |
@@ -88,7 +93,7 @@ page title through DevTools `/json` (cookie contents never read).
 | Idle-stop path then start | container removed; all kept |
 | Sandbox container recreated (stack restart) | homes on volume; all kept on both bots |
 | In-flight + queued (cron `e-68e7` in flight on black-holed LLM, `e-0c53` queued) → Restart | old container gone before settle; turn settled; same event and prompt id replayed → ok; queued event ran next |
-| Legacy layout (data in `sessions/<ses>`, no record) | session reset and legacy `/restart` refused 409; Restart migrated (`origin: migrated`), all kept |
+| Legacy layout (data in `sessions/<ses>`, no record) | `session` and `session_and_home` resets and legacy `/restart` refused 409 with data intact; Restart migrated (`origin: migrated`), all kept; full reset then retired it with canaries intact |
 | Established home missing | start fails visibly, nothing seeded |
 | Legacy and home both populated | start fails, both unchanged; works after operator moves one aside |
 | Reset `session` (CLI and UI) | new session, same generation, all kept; old session data and container gone; audited with user and scope |

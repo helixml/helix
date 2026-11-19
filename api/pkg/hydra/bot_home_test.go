@@ -342,7 +342,7 @@ func TestDestroyBotHome_FailedPurgeReportsWhereDataRemains(t *testing.T) {
 
 	// The reaper retries the trash.
 	_ = filepath.Walk(filepath.Join(base, botHomesTrashDirName), func(p string, _ os.FileInfo, _ error) error { return os.Chmod(p, 0o755) })
-	reaped, _ := ReconcileOrphanBotHomes(map[string]bool{}, func(string) bool { return false }, time.Hour, time.Hour, false, time.Now())
+	reaped, _ := ReconcileOrphanBotHomes(map[string]bool{}, func(string) bool { return false }, noReserve, time.Hour, time.Hour, false, time.Now())
 	require.Len(t, reaped, 1)
 	entries, _ := os.ReadDir(filepath.Join(base, botHomesTrashDirName))
 	require.Empty(t, entries)
@@ -371,11 +371,11 @@ func TestReconcileOrphanBotHomes(t *testing.T) {
 	isInUse := func(key string) bool { return key == BotHomeKey("org_b", "inuse") }
 
 	// Dry run removes nothing.
-	reaped, _ := ReconcileOrphanBotHomes(liveSet, isInUse, 0, 24*time.Hour, true, now)
+	reaped, _ := ReconcileOrphanBotHomes(liveSet, isInUse, noReserve, 0, 24*time.Hour, true, now)
 	require.ElementsMatch(t, []string{dead, oldRetired}, reaped)
 	require.DirExists(t, dead)
 
-	reaped, skipped := ReconcileOrphanBotHomes(liveSet, isInUse, 0, 24*time.Hour, false, now)
+	reaped, skipped := ReconcileOrphanBotHomes(liveSet, isInUse, noReserve, 0, 24*time.Hour, false, now)
 	require.ElementsMatch(t, []string{dead, oldRetired}, reaped)
 	require.DirExists(t, live)
 	require.DirExists(t, inUse)
@@ -391,7 +391,7 @@ func TestReconcileOrphanBotHomes(t *testing.T) {
 
 	// Within grace a dead bot's home stays.
 	dead2 := mk(testOrg, "dead2")
-	reaped, _ = ReconcileOrphanBotHomes(liveSet, isInUse, time.Hour, 24*time.Hour, false, now)
+	reaped, _ = ReconcileOrphanBotHomes(liveSet, isInUse, noReserve, time.Hour, 24*time.Hour, false, now)
 	require.Empty(t, reaped)
 	require.DirExists(t, dead2)
 }
@@ -400,3 +400,5 @@ func itoa(n int64) string {
 	b, _ := json.Marshal(n)
 	return string(b)
 }
+
+func noReserve(string) func() { return func() {} }

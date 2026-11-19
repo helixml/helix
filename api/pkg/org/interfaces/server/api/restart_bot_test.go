@@ -57,12 +57,12 @@ func (f *fakeCanceller) CancelOutstanding(context.Context, string, orgchart.Node
 }
 
 type fakeHomeEraser struct {
-	established bool
-	retired     int
+	inSession bool
+	retired   int
 }
 
-func (f *fakeHomeEraser) HomeEstablished(context.Context, string, orgchart.NodeID) (bool, error) {
-	return f.established, nil
+func (f *fakeHomeEraser) HomeMayBeInSession(context.Context, string, orgchart.NodeID) (bool, error) {
+	return f.inSession, nil
 }
 
 func (f *fakeHomeEraser) RetireHome(context.Context, string, orgchart.NodeID) (activations.HomeErasure, error) {
@@ -92,7 +92,7 @@ func wireLifecycle(t *testing.T, deps orgapi.Deps, st interface{}, sessionID str
 		resetter:  &fakeResetter{},
 		restarter: &fakeRuntimeRestarter{},
 		canceller: &fakeCanceller{},
-		homes:     &fakeHomeEraser{established: true},
+		homes:     &fakeHomeEraser{},
 		audit:     &fakeAuditRecorder{},
 		disp:      &fakeDispatcher{},
 	}
@@ -244,13 +244,15 @@ func TestResetBot_RefusesSessionScopeWhileHomeLivesInSession(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	seedBot(t, st, context.Background(), "b-gail", "# Gail")
 	deps, f := wireLifecycle(t, deps, st, "ses_gail")
-	f.homes.established = false
+	f.homes.inSession = true
 
-	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-gail/reset", orgapi.BotResetRequestDTO{Scope: "session", Confirm: "b-gail"})
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body)
+	for _, scope := range []string{"session", "session_and_home"} {
+		rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-gail/reset", orgapi.BotResetRequestDTO{Scope: scope, Confirm: "b-gail"})
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("%s: status = %d, want 409; body=%s", scope, rec.Code, rec.Body)
+		}
 	}
-	if f.canceller.calls != 0 || f.resetter.calls != 0 {
+	if f.canceller.calls != 0 || f.resetter.calls != 0 || f.homes.retired != 0 || f.disp.manualCalls != 0 {
 		t.Fatal("refused reset had side effects")
 	}
 }
@@ -333,7 +335,7 @@ func TestLegacyRestartBot_RefusesWhileHomeLivesInSession(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	seedBot(t, st, context.Background(), "b-jo", "# Jo")
 	deps, f := wireLifecycle(t, deps, st, "ses_jo")
-	f.homes.established = false
+	f.homes.inSession = true
 
 	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-jo/restart", nil)
 	if rec.Code != http.StatusConflict {
@@ -348,7 +350,7 @@ func TestGetBotResetPlan(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	seedBot(t, st, context.Background(), "b-kim", "# Kim")
 	deps, f := wireLifecycle(t, deps, st, "ses_kim")
-	f.homes.established = false
+	f.homes.inSession = true
 
 	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-kim/reset", nil)
 	if rec.Code != http.StatusOK {
@@ -359,8 +361,10 @@ func TestGetBotResetPlan(t *testing.T) {
 	if len(plan.Scopes) != 2 || plan.Scopes[0].Scope != "session" || plan.Scopes[1].Scope != "session_and_home" {
 		t.Fatalf("plan = %+v", plan)
 	}
-	if plan.Scopes[0].Available || plan.Scopes[0].UnavailableReason == "" || !plan.Scopes[1].Available {
-		t.Fatalf("session scope must be unavailable while the home lives in the session: %+v", plan)
+	for _, sc := range plan.Scopes {
+		if sc.Available || sc.UnavailableReason == "" {
+			t.Fatalf("scope %s must be unavailable while the home lives in the session: %+v", sc.Scope, plan)
+		}
 	}
 	for _, sc := range plan.Scopes {
 		if len(sc.Erases) == 0 || len(sc.Keeps) == 0 {

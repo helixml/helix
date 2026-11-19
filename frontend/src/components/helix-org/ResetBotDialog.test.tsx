@@ -91,6 +91,24 @@ describe('ResetBotDialog', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  it('offers no reset while the bot home still lives in the session', () => {
+    const reason = 'bot b-bird still keeps its home in session ses_1, so deleting the session would destroy it without the declared rollback copy; restart the bot once to move the home out of the session, then reset'
+    plan.value = {
+      scopes: [
+        { ...SESSION, available: false, unavailable_reason: reason },
+        { ...HOME, available: false, unavailable_reason: reason },
+      ],
+    }
+    const { onReset } = renderDialog()
+    expect(screen.getByLabelText('Reset session')).toBeDisabled()
+    expect(screen.getByLabelText('Reset session and bot home')).toBeDisabled()
+    fireEvent.change(screen.getByTestId('reset-confirm-input'), { target: { value: 'Birding Promoter' } })
+    expect(screen.getByTestId('reset-confirm')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('reset-confirm'))
+    expect(onReset).not.toHaveBeenCalled()
+    expect(screen.getAllByText(/restart the bot once/).length).toBeGreaterThan(0)
+  })
+
   it('offers no reset when the plan cannot be loaded', () => {
     plan.value = undefined
     renderDialog()

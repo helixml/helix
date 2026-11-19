@@ -487,12 +487,14 @@ type botHomeEraser struct {
 	homes    orgBotHomeRegistry
 }
 
-func (e botHomeEraser) HomeEstablished(ctx context.Context, orgID string, botID orgchart.NodeID) (bool, error) {
+func (e botHomeEraser) HomeMayBeInSession(ctx context.Context, orgID string, botID orgchart.NodeID) (bool, error) {
 	rec, err := e.homes.LoadBotHome(ctx, orgID, string(botID))
 	if err != nil {
 		return false, err
 	}
-	return rec.State == external_agent.BotHomeEstablished, nil
+	// None: never moved out of the session. Pending: Hydra may not have
+	// moved it yet. Erasing/erase_failed homes are already outside it.
+	return rec.State == external_agent.BotHomeNone || rec.State == external_agent.BotHomePending, nil
 }
 
 func (e botHomeEraser) RetireHome(ctx context.Context, orgID string, botID orgchart.NodeID) (activations.HomeErasure, error) {

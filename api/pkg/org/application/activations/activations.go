@@ -75,9 +75,11 @@ type RuntimeRestarter interface {
 
 // BotHomeEraser manages the bot-owned home (/home/retro/work) for Reset.
 type BotHomeEraser interface {
-	// HomeEstablished reports whether the bot home has been moved out of
-	// the session workspace. Until then, deleting the session deletes it.
-	HomeEstablished(ctx context.Context, orgID string, workerID orgchart.NodeID) (bool, error)
+	// HomeMayBeInSession reports whether the bot home may still live in
+	// the session workspace (not yet migrated, or migration not confirmed).
+	// While it does, deleting the session would delete the home, so no
+	// reset scope can honour its declaration and every reset is refused.
+	HomeMayBeInSession(ctx context.Context, orgID string, workerID orgchart.NodeID) (bool, error)
 	// RetireHome moves the home to rollback storage, purged after retention.
 	RetireHome(ctx context.Context, orgID string, workerID orgchart.NodeID) (HomeErasure, error)
 }
@@ -491,14 +493,15 @@ func (a *Activations) Reset(ctx context.Context, orgID string, workerID orgchart
 		}
 	}()
 
-	if req.Scope == ResetSession {
-		reason, err := a.sessionResetRefusal(ctx, orgID, workerID)
-		if err != nil {
-			return res, err
-		}
-		if reason != "" {
-			return res, fmt.Errorf("%w: %s", ErrResetRefused, reason)
-		}
+	// Checked before anything is touched, for every scope: deleting the
+	// session first would destroy an unmigrated home, and session_and_home
+	// would then report it as never existing instead of retiring it.
+	reason, err := a.unmigratedHomeRefusal(ctx, orgID, workerID)
+	if err != nil {
+		return res, err
+	}
+	if reason != "" {
+		return res, fmt.Errorf("%w: %s", ErrResetRefused, reason)
 	}
 
 	if err := a.canceller.CancelOutstanding(ctx, orgID, workerID); err != nil {
@@ -550,7 +553,7 @@ func (a *Activations) ResetPlan(ctx context.Context, orgID string, workerID orgc
 	if a.homes == nil || a.sessions == nil {
 		return nil, ErrResetUnavailable
 	}
-	reason, err := a.sessionResetRefusal(ctx, orgID, workerID)
+	reason, err := a.unmigratedHomeRefusal(ctx, orgID, workerID)
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +561,7 @@ func (a *Activations) ResetPlan(ctx context.Context, orgID string, workerID orgc
 	for _, scope := range []ResetScope{ResetSession, ResetSessionAndHome} {
 		decl, _ := DeclareReset(scope)
 		p := ScopePlan{Scope: scope, Declaration: decl, Available: true}
-		if scope == ResetSession && reason != "" {
+		if reason != "" {
 			p.Available = false
 			p.UnavailableReason = reason
 		}
@@ -567,14 +570,14 @@ func (a *Activations) ResetPlan(ctx context.Context, orgID string, workerID orgc
 	return plans, nil
 }
 
-// sessionResetRefusal explains why a session-only reset would delete the
-// bot home, or returns "" when it is safe.
-func (a *Activations) sessionResetRefusal(ctx context.Context, orgID string, workerID orgchart.NodeID) (string, error) {
-	established, err := a.homes.HomeEstablished(ctx, orgID, workerID)
+// unmigratedHomeRefusal explains why no reset can run yet, or returns ""
+// when the home is safely outside the session.
+func (a *Activations) unmigratedHomeRefusal(ctx context.Context, orgID string, workerID orgchart.NodeID) (string, error) {
+	inSession, err := a.homes.HomeMayBeInSession(ctx, orgID, workerID)
 	if err != nil {
 		return "", fmt.Errorf("check bot home: %w", err)
 	}
-	if established {
+	if !inSession {
 		return "", nil
 	}
 	sessionID, err := a.sessions.SessionID(ctx, orgID, workerID)
@@ -584,8 +587,8 @@ func (a *Activations) sessionResetRefusal(ctx context.Context, orgID string, wor
 	if sessionID == "" {
 		return "", nil
 	}
-	return fmt.Sprintf("bot %s still keeps its home in session %s, so a session reset would delete it; restart the bot once to move the home out of the session, or reset with scope %q",
-		workerID, sessionID, ResetSessionAndHome), nil
+	return fmt.Sprintf("bot %s still keeps its home in session %s, so deleting the session would destroy it without the declared rollback copy; restart the bot once to move the home out of the session, then reset",
+		workerID, sessionID), nil
 }
 
 // errPurgedByReset closes activation rows whose delivery Reset purged.
