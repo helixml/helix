@@ -366,7 +366,10 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
 
   const content = (singlePanel = false) => (
     <Box sx={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {bot && view === 'desktop' && (
+      {/* Only when the desktop has the screen to itself: beside the chat, the
+          chat's own profile header already names the bot, and a second,
+          larger copy of a long bot name just pushes the desktop down. */}
+      {bot && view === 'desktop' && (singlePanel || !isBigScreen) && (
         <Box
           sx={{
             minHeight: 64,
