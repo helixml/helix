@@ -191,6 +191,12 @@ type CreateDevContainerRequest struct {
 	// cache intact — instead of the slow provision-fresh-sandbox + full
 	// rebuild recovery path.
 	Persistent bool `json:"persistent,omitempty"`
+
+	// BotHome, when set, binds the container's workspace to the Org Bot's
+	// durable home instead of a session-keyed directory. Hydra resolves the
+	// path itself, refuses any workspace mount that does not match it, and
+	// never seeds an empty home unless Expect allows it. See bot_home.go.
+	BotHome *BotHomeSpec `json:"bot_home,omitempty"`
 }
 
 // DevContainerResponse is the response after creating/querying a dev container
@@ -214,6 +220,9 @@ type DevContainerResponse struct {
 	VCPUs          int    `json:"vcpus,omitempty"`
 	MemoryMB       int    `json:"memory_mb,omitempty"`
 	IsGoldenBuild  bool   `json:"is_golden_build,omitempty"`
+
+	// BotHome reports how the bot home was bound, when the request had one.
+	BotHome *BotHomeResult `json:"bot_home,omitempty"`
 }
 
 type UpdateDevContainerResourcesRequest struct {
@@ -301,6 +310,16 @@ type GCReconcileRequest struct {
 
 	// DryRun reports what WOULD be reaped without destroying anything.
 	DryRun bool `json:"dry_run"`
+
+	// BotHomesAuthoritative says LiveBotHomes is the complete set of Org Bots
+	// that still exist. Without it (older API) bot homes are never reaped.
+	BotHomesAuthoritative bool `json:"bot_homes_authoritative,omitempty"`
+	// LiveBotHomes lists existing Org Bots as BotHomeKey values. Homes of
+	// bots outside the set are reaped after the grace period.
+	LiveBotHomes []string `json:"live_bot_homes,omitempty"`
+	// BotHomeRetentionSeconds is how long a home retired by an explicit
+	// reset is kept for rollback before it is purged. 0 keeps the default.
+	BotHomeRetentionSeconds int `json:"bot_home_retention_seconds,omitempty"`
 }
 
 // GCSkip records a resource the reconciler chose NOT to reap, with the reason.
@@ -320,6 +339,8 @@ type GCReconcileResponse struct {
 	FileCopyDirsSkipped  []GCSkip `json:"file_copy_dirs_skipped"`
 	InstanceDisksReaped  []string `json:"instance_disks_reaped"`
 	InstanceDisksSkipped []GCSkip `json:"instance_disks_skipped"`
+	BotHomesReaped       []string `json:"bot_homes_reaped,omitempty"`
+	BotHomesSkipped      []GCSkip `json:"bot_homes_skipped,omitempty"`
 	ContainersReaped     []string `json:"containers_reaped"`
 	VolumesReaped        []string `json:"volumes_reaped"`
 	GoldensFlattened     []string `json:"goldens_flattened"`

@@ -312,6 +312,16 @@ func (r *nodesRepo) List(_ context.Context, orgID string) ([]orgchart.Node, erro
 	return out, nil
 }
 
+func (r *nodesRepo) ListAllIDs(_ context.Context) ([]store.OrgScopedID, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]store.OrgScopedID, 0, len(r.rows))
+	for k := range r.rows {
+		out = append(out, store.OrgScopedID{OrgID: k.OrgID, ID: k.ID})
+	}
+	return out, nil
+}
+
 func (r *nodesRepo) Update(_ context.Context, b orgchart.Node) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -808,6 +818,20 @@ func (a *activationsRepo) ListForWorker(_ context.Context, orgID string, botID o
 	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (a *activationsRepo) ListOpenForWorker(ctx context.Context, orgID string, botID orgchart.NodeID) ([]*activation.Activation, error) {
+	all, err := a.ListForWorker(ctx, orgID, botID, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := all[:0]
+	for _, act := range all {
+		if !act.IsCompleted() {
+			out = append(out, act)
+		}
 	}
 	return out, nil
 }

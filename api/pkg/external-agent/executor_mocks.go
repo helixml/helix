@@ -23,7 +23,6 @@ import (
 type MockExecutor struct {
 	ctrl     *gomock.Controller
 	recorder *MockExecutorMockRecorder
-	isgomock struct{}
 }
 
 // MockExecutorMockRecorder is the mock recorder for MockExecutor.
@@ -81,6 +80,21 @@ func (m *MockExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandbo
 func (mr *MockExecutorMockRecorder) DiscoverContainersFromSandbox(ctx, sandboxID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscoverContainersFromSandbox", reflect.TypeOf((*MockExecutor)(nil).DiscoverContainersFromSandbox), ctx, sandboxID)
+}
+
+// EraseBotHome mocks base method.
+func (m *MockExecutor) EraseBotHome(ctx context.Context, orgID, botID string, mode hydra.BotHomeDestroyMode) (*hydra.DestroyBotHomeResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EraseBotHome", ctx, orgID, botID, mode)
+	ret0, _ := ret[0].(*hydra.DestroyBotHomeResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EraseBotHome indicates an expected call of EraseBotHome.
+func (mr *MockExecutorMockRecorder) EraseBotHome(ctx, orgID, botID, mode any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EraseBotHome", reflect.TypeOf((*MockExecutor)(nil).EraseBotHome), ctx, orgID, botID, mode)
 }
 
 // FindContainerBySessionID mocks base method.

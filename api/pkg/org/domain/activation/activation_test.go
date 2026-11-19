@@ -166,6 +166,9 @@ func (fakeRepo) Complete(_ context.Context, _ string, _ activation.ID, _ activat
 func (fakeRepo) Get(_ context.Context, _ string, _ activation.ID) (*activation.Activation, error) {
 	return nil, errors.New("not found")
 }
+func (fakeRepo) ListOpenForWorker(_ context.Context, _ string, _ orgchart.NodeID) ([]*activation.Activation, error) {
+	return nil, nil
+}
 func (fakeRepo) ListForWorker(_ context.Context, _ string, _ orgchart.NodeID, _ int) ([]*activation.Activation, error) {
 	return nil, nil
 }

@@ -177,6 +177,21 @@ func (r *nodesRepo) List(ctx context.Context, orgID string) ([]orgchart.Node, er
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
 
+func (r *nodesRepo) ListAllIDs(ctx context.Context) ([]store.OrgScopedID, error) {
+	var rows []struct {
+		OrgID string
+		ID    string
+	}
+	if err := r.db.WithContext(ctx).Model(&OrgBot{}).Select("org_id, id").Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list all bot ids: %w", err)
+	}
+	out := make([]store.OrgScopedID, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, store.OrgScopedID{OrgID: row.OrgID, ID: row.ID})
+	}
+	return out, nil
+}
+
 func (r *nodesRepo) Update(ctx context.Context, node orgchart.Node) error {
 	row, err := nodeMapper{}.ToRow(node)
 	if err != nil {

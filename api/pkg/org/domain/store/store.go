@@ -65,6 +65,9 @@ type Nodes interface {
 	UpdateCodeAgentConfig(ctx context.Context, orgID string, id orgchart.NodeID, config *types.CodeAgentExecutionConfig, updatedAt time.Time) error
 	ClaimLegacyApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string, config *types.CodeAgentExecutionConfig) (bool, error)
 	Delete(ctx context.Context, orgID string, id orgchart.NodeID) error
+	// ListAllIDs deliberately crosses tenant boundaries: the orphan reaper
+	// needs every existing Node so it never reclaims a live bot's home.
+	ListAllIDs(ctx context.Context) ([]OrgScopedID, error)
 }
 
 // ReportingLines persists the org's many-to-many reporting graph:

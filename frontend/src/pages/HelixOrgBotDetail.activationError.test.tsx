@@ -48,7 +48,8 @@ vi.mock('../services/helixOrgService', () => ({
   useActivateBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRestartBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useApplyBotConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useResetBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useBotResetPlan: () => ({ data: undefined, isLoading: false }),
   useListHelixOrgTools: () => ({ data: [] }),
   useListHelixOrgProcessors: () => ({ data: [] }),
 }))

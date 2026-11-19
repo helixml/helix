@@ -114,7 +114,6 @@ vi.mock('../services/helixOrgService', () => ({
     mutateAsync: mocks.restartMutateAsync,
     isPending: mocks.restartIsPending,
   }),
-  useApplyBotConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useActivateBot: () => ({ mutateAsync: mocks.activateMutateAsync, isPending: false }),
   useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
