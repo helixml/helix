@@ -393,11 +393,25 @@ const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = 
   </Stack>
 )
 
-// Cost and total tokens sit next to the name: they are what a breakdown is
-// read for, and on a phone they stay in view before the table scrolls.
+// How the page reads its numbers. 'billed' leads with what was charged;
+// 'usage' — nothing charged in range, as on a self-hosted install or an org on
+// its own providers — leads with tokens, calls and runtime, and shows API-rate
+// cost last, and only when some of the usage has a price at all.
+type UsageCostMode = 'billed' | 'usage' | 'unpriced'
+
+const COST_FIELD: ITableField = { name: 'cost', title: 'API-rate cost', numeric: true }
+
+// The figures a breakdown is read for sit next to the name, so on a phone they
+// stay in view before the table scrolls.
+const withCostField = (mode: UsageCostMode, fields: ITableField[]): ITableField[] => {
+  const [name, ...rest] = fields
+  if (mode === 'billed') return [name, COST_FIELD, ...rest]
+  if (mode === 'usage') return [name, ...rest, COST_FIELD]
+  return fields
+}
+
 const baseFields: ITableField[] = [
   { name: 'name', title: 'Name' },
-  { name: 'cost', title: 'API-rate cost', numeric: true },
   { name: 'total', title: 'Tokens', numeric: true },
   { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'sessions', title: 'Sessions', numeric: true },
@@ -408,12 +422,19 @@ const baseFields: ITableField[] = [
   { name: 'latency', title: 'Latency', numeric: true },
 ]
 
-const modelOverviewFields: ITableField[] = [
-  { name: 'name', title: 'Model' },
-  { name: 'cost', title: 'API-rate cost', numeric: true },
-  { name: 'share', title: 'Share', numeric: true },
-  { name: 'tokens', title: 'Tokens', numeric: true },
-]
+// Billed, the share is of cost; otherwise it is of tokens.
+const modelOverviewFields = (mode: UsageCostMode): ITableField[] => mode === 'billed'
+  ? [
+    { name: 'name', title: 'Model' },
+    COST_FIELD,
+    { name: 'share', title: 'Share', numeric: true },
+    { name: 'tokens', title: 'Tokens', numeric: true },
+  ]
+  : withCostField(mode, [
+    { name: 'name', title: 'Model' },
+    { name: 'tokens', title: 'Tokens', numeric: true },
+    { name: 'share', title: 'Share', numeric: true },
+  ])
 
 // The cost column only appears when something was actually debited; with
 // billing off it would be a column of $0.00.
@@ -432,7 +453,6 @@ const computeSandboxFields = (withCost: boolean): ITableField[] => [
 
 const sessionFields: ITableField[] = [
   { name: 'name', title: 'Session' },
-  { name: 'cost', title: 'API-rate cost', numeric: true },
   { name: 'total', title: 'Tokens', numeric: true },
   { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'users', title: 'Users', numeric: true },
@@ -442,6 +462,22 @@ const sessionFields: ITableField[] = [
   { name: 'cache', title: 'Cache read', numeric: true },
   { name: 'cacheHit', title: 'Hit ratio', numeric: true },
 ]
+
+// Tokens with no cost were served by a model with no price (a self-hosted or
+// custom endpoint). "$0.00" would read as free; a dash reads as unknown.
+const CostCell: FC<{ cost?: number; tokens?: number; bold?: boolean }> = ({ cost, tokens, bold }) => {
+  const unpriced = (cost ?? 0) === 0 && (tokens ?? 0) > 0
+  return (
+    <Typography
+      variant="body2"
+      color={unpriced ? 'text.secondary' : undefined}
+      title={unpriced ? 'No price for this model' : undefined}
+      sx={{ fontWeight: bold && !unpriced ? 600 : undefined }}
+    >
+      {unpriced ? '—' : formatCost(cost)}
+    </Typography>
+  )
+}
 
 const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameClick?: (row: TypesUsageBreakdownRow) => void) => ({
   id: row.id,
@@ -486,7 +522,7 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
   cache: <Typography variant="body2" title={formatNumber(row.cache_read_tokens)}>{formatCompact(row.cache_read_tokens)}</Typography>,
   cacheHit: <Typography variant="body2">{formatPercent(getCacheHitRatio(row))}</Typography>,
   total: <Typography variant="body2" title={formatNumber(row.total_tokens)}>{formatCompact(row.total_tokens)}</Typography>,
-  cost: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatCost(row.total_cost)}</Typography>,
+  cost: <CostCell cost={row.total_cost} tokens={row.total_tokens} bold />,
   latency: <Typography variant="body2">{formatMs(row.latency_ms)}</Typography>,
 })
 
@@ -744,7 +780,8 @@ const OrgUsage: FC = () => {
   const [taskRowsPerPage, setTaskRowsPerPage] = useState(10)
   const [sessionPage, setSessionPage] = useState(0)
   const [sessionRowsPerPage, setSessionRowsPerPage] = useState(10)
-  const [activityMetric, setActivityMetric] = useState<ActivityMetric>('cost')
+  // Null until the user picks one: the default follows the page's cost mode.
+  const [activityMetricChoice, setActivityMetric] = useState<ActivityMetric | null>(null)
   const [activitySplit, setActivitySplit] = useState<ActivitySplit>('provider')
   const [latencyMetric, setLatencyMetric] = useState<LatencyMetric>('per-request')
   const [loadingScope, setLoadingScope] = useState<UsageLoadingScope | null>(null)
@@ -851,6 +888,18 @@ const OrgUsage: FC = () => {
     headless: point.headless ?? 0,
   })), [compute])
   const computeHasSpend = computeTotals.total > 0
+  // Whether this range was charged for at all decides what the page leads
+  // with. A global billing flag can't: one install can bill an org's
+  // OpenRouter calls while its self-hosted endpoint is free and unpriced.
+  const costMode: UsageCostMode = helixCredits > 0 || computeHasSpend || compute?.billing_enabled
+    ? 'billed'
+    : rawTokenCost > 0 ? 'usage' : 'unpriced'
+  const activityMetricOptions = costMode === 'unpriced'
+    ? ACTIVITY_METRIC_OPTIONS.filter(option => option.value !== 'cost')
+    : ACTIVITY_METRIC_OPTIONS
+  const activityMetric: ActivityMetric = activityMetricChoice && activityMetricOptions.some(option => option.value === activityMetricChoice)
+    ? activityMetricChoice
+    : costMode === 'billed' ? 'cost' : 'tokens'
   // Project names come from the filter options the same response already
   // carries, so no extra request is needed to attribute a sandbox.
   const projectNames = useMemo(() => {
@@ -948,6 +997,14 @@ const OrgUsage: FC = () => {
       series: providerChartSeries,
     }
   })()
+  // Tokens served by models with no price add nothing to API-rate cost, so a
+  // cost chart alone would show those days as idle.
+  const unpricedTokens = (usage.data?.models || [])
+    .filter(row => (row.total_cost ?? 0) === 0)
+    .reduce((sum, row) => sum + (row.total_tokens ?? 0), 0)
+  const activityHeadlineDetail = activityMetric === 'cost'
+    ? ` at API rates${unpricedTokens > 0 ? ` · ${formatCompact(unpricedTokens)} tokens on unpriced models` : ''}`
+    : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''
   const activityFormat = activityMetric === 'cost' ? formatCost : activityMetric === 'tokens' ? formatCompact : formatNumber
   const activityTotal = activityMetric === 'cost' ? rawTokenCost : activityMetric === 'tokens' ? totals.total : totals.requests
   const activityTitle = {
@@ -1166,8 +1223,12 @@ const OrgUsage: FC = () => {
     }),
     users: (usage.data?.users || []).map(row => rowToTable(row)),
   }
+  const breakdownFields = withCostField(costMode, baseFields)
+  const sessionBreakdownFields = withCostField(costMode, sessionFields)
   const modelOverviewRows = (usage.data?.models || []).map(row => {
-    const costShare = rawTokenCost > 0 ? (row.total_cost ?? 0) / rawTokenCost : 0
+    const share = costMode === 'billed'
+      ? (rawTokenCost > 0 ? (row.total_cost ?? 0) / rawTokenCost : 0)
+      : (totals.total > 0 ? (row.total_tokens ?? 0) / totals.total : 0)
     return {
       id: row.id,
       _data: row,
@@ -1177,9 +1238,9 @@ const OrgUsage: FC = () => {
           <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.model || row.name || 'Unknown'}</Typography>
         </Stack>
       ),
-      cost: <Typography variant="body2">{formatCost(row.total_cost)}</Typography>,
-      share: <Typography variant="body2" color="text.secondary">{formatPercent(costShare)}</Typography>,
-      tokens: <Typography variant="body2" color="text.secondary">{formatCompact(row.total_tokens)}</Typography>,
+      cost: <CostCell cost={row.total_cost} tokens={row.total_tokens} />,
+      share: <Typography variant="body2" color="text.secondary">{formatPercent(share)}</Typography>,
+      tokens: <Typography variant="body2" color={costMode === 'billed' ? 'text.secondary' : undefined}>{formatCompact(row.total_tokens)}</Typography>,
     }
   })
 
@@ -1315,30 +1376,51 @@ const OrgUsage: FC = () => {
               <>
                 {section.key === 'overview' && (
                   <>
-                    <OverviewStatStrip columns={6}>
-                      <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail={`≈ ${formatCost(rawTokenCost)} at API rates`} />
-                      <OverviewStat
-                        emphasis
-                        label="Sandbox runtime"
-                        value={compute ? formatHours(computeTotals.hours) : '—'}
-                        detail={compute ? computeSpendDetail(compute.billing_enabled ?? false, computeTotals.total) : 'No compute in this range'}
-                      />
-                      <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
-                      <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
-                      <OverviewStat emphasis label="Cache savings" value={formatCost(cacheSavings)} detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× API-rate cost` : 'vs full input rates'} />
-                      <OverviewStat
-                        emphasis
-                        label="Subscription savings"
-                        value={formatCost(subscriptionSavings)}
-                        detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost` : 'No subscription usage'}
-                      />
-                    </OverviewStatStrip>
+                    {costMode === 'billed' ? (
+                      <OverviewStatStrip columns={6}>
+                        <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail={`≈ ${formatCost(rawTokenCost)} at API rates`} />
+                        <OverviewStat
+                          emphasis
+                          label="Sandbox runtime"
+                          value={compute ? formatHours(computeTotals.hours) : '—'}
+                          detail={compute ? computeSpendDetail(compute.billing_enabled ?? false, computeTotals.total) : 'No compute in this range'}
+                        />
+                        <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
+                        <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
+                        <OverviewStat emphasis label="Cache savings" value={formatCost(cacheSavings)} detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× API-rate cost` : 'vs full input rates'} />
+                        <OverviewStat
+                          emphasis
+                          label="Subscription savings"
+                          value={formatCost(subscriptionSavings)}
+                          detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost` : 'No subscription usage'}
+                        />
+                      </OverviewStatStrip>
+                    ) : (
+                      <OverviewStatStrip columns={6}>
+                        <OverviewStat emphasis primary label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatCompact(totals.completion)} output`} />
+                        <OverviewStat emphasis label="LLM calls" value={formatNumber(totals.requests)} detail={`${activeDays} ${activeDays === 1 ? 'day' : 'days'} with LLM calls`} />
+                        <OverviewStat
+                          emphasis
+                          label="Sandbox runtime"
+                          value={compute ? formatHours(computeTotals.hours) : '—'}
+                          detail={compute ? `${compute.running_sandboxes ?? 0} running now` : 'No compute in this range'}
+                        />
+                        <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
+                        <OverviewStat emphasis label="Sessions" value={formatNumber(usage.data?.active_sessions)} detail={`${formatNumber(usage.data?.active_projects)} projects`} />
+                        <OverviewStat
+                          emphasis
+                          label="API-rate cost"
+                          value={costMode === 'usage' ? formatCost(rawTokenCost) : '—'}
+                          detail={costMode === 'usage' ? 'Not charged; reference only' : 'No priced models used'}
+                        />
+                      </OverviewStatStrip>
+                    )}
                     <ShadcnAreaChart
                       title={activityTitle}
-                      headline={`${activityFormat(activityTotal)} in range${activityMetric === 'cost' ? ' at API rates' : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''}`}
+                      headline={`${activityFormat(activityTotal)} in range${activityHeadlineDetail}`}
                       action={(
                         <>
-                          <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={ACTIVITY_METRIC_OPTIONS} onChange={setActivityMetric} />
+                          <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={activityMetricOptions} onChange={setActivityMetric} />
                           <UsageSwitch<ActivitySplit>
                             label="Split by"
                             value={split}
@@ -1377,10 +1459,10 @@ const OrgUsage: FC = () => {
                   <>
                     <ShadcnAreaChart
                       title={activityTitle}
-                      headline={`${activityFormat(activityTotal)} in range${activityMetric === 'cost' ? ' at API rates' : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''}`}
+                      headline={`${activityFormat(activityTotal)} in range${activityHeadlineDetail}`}
                       action={(
                         <>
-                          <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={ACTIVITY_METRIC_OPTIONS} onChange={setActivityMetric} />
+                          <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={activityMetricOptions} onChange={setActivityMetric} />
                           <UsageSwitch<ActivitySplit>
                             label="Split by"
                             value={split}
@@ -1407,7 +1489,7 @@ const OrgUsage: FC = () => {
                         format={activityFormat}
                       />
                       <SegmentBar label="Tokens by type" segments={tokenTypeSegments} format={formatCompact} />
-                      <SegmentBar label="API-rate cost by type" segments={costTypeSegments} format={formatCost} />
+                      {costMode !== 'unpriced' && <SegmentBar label="API-rate cost by type" segments={costTypeSegments} format={formatCost} />}
                     </SegmentBarPanel>
                     {/* The figures here not already shown above, as one quiet line. */}
                     <Typography variant="caption" color="text.secondary" component="p" sx={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -1417,7 +1499,7 @@ const OrgUsage: FC = () => {
                     </Typography>
                     <UsagePanel>
                       <UsageSection title="Model breakdown">
-                        <ResponsiveTable fields={modelOverviewFields} data={modelOverviewRows} />
+                        <ResponsiveTable fields={modelOverviewFields(costMode)} data={modelOverviewRows} />
                       </UsageSection>
                     </UsagePanel>
                   </>
@@ -1557,7 +1639,7 @@ const OrgUsage: FC = () => {
                         <UsagePanel>
                           <UsageSection title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
                             <BreakdownTable empty="No projects in this range." loading={isScopedLoading('projects')} rows={tableRows.projects}>
-                              <ResponsiveTable fields={baseFields} data={tableRows.projects} loading={isScopedLoading('projects')} />
+                              <ResponsiveTable fields={breakdownFields} data={tableRows.projects} loading={isScopedLoading('projects')} />
                             </BreakdownTable>
                             {(usage.data?.projects_total || 0) > projectRowsPerPage && (<TablePagination
                               component="div"
@@ -1583,7 +1665,7 @@ const OrgUsage: FC = () => {
                       <UsagePanel>
                         <UsageSection title="Agents" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
                           <BreakdownTable empty="No agents in this range." rows={tableRows.apps}>
-                            <ResponsiveTable fields={baseFields} data={tableRows.apps} />
+                            <ResponsiveTable fields={breakdownFields} data={tableRows.apps} />
                           </BreakdownTable>
                         </UsageSection>
                       </UsagePanel>
@@ -1592,7 +1674,7 @@ const OrgUsage: FC = () => {
                       <UsagePanel>
                         <UsageSection title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
                           <BreakdownTable empty="No tasks in this range." loading={isScopedLoading('tasks')} rows={tableRows.tasks}>
-                            <ResponsiveTable fields={baseFields} data={tableRows.tasks} loading={isScopedLoading('tasks')} />
+                            <ResponsiveTable fields={breakdownFields} data={tableRows.tasks} loading={isScopedLoading('tasks')} />
                           </BreakdownTable>
                           {(usage.data?.tasks_total || 0) > taskRowsPerPage && (<TablePagination
                             component="div"
@@ -1617,7 +1699,7 @@ const OrgUsage: FC = () => {
                       <UsagePanel>
                         <UsageSection title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
                           <BreakdownTable empty="No sessions in this range." loading={isScopedLoading('sessions')} rows={tableRows.sessions}>
-                            <ResponsiveTable fields={sessionFields} data={tableRows.sessions} loading={isScopedLoading('sessions')} />
+                            <ResponsiveTable fields={sessionBreakdownFields} data={tableRows.sessions} loading={isScopedLoading('sessions')} />
                           </BreakdownTable>
                           {(usage.data?.sessions_total || 0) > sessionRowsPerPage && (<TablePagination
                             component="div"
@@ -1663,7 +1745,7 @@ const OrgUsage: FC = () => {
                             }}
                           />
                           <BreakdownTable empty="No users in this range." loading={isScopedLoading('users')} rows={tableRows.users}>
-                            <ResponsiveTable fields={baseFields} data={tableRows.users} loading={isScopedLoading('users')} />
+                            <ResponsiveTable fields={breakdownFields} data={tableRows.users} loading={isScopedLoading('users')} />
                           </BreakdownTable>
                           {(usage.data?.users_total || 0) > userRowsPerPage && (<TablePagination
                             component="div"
