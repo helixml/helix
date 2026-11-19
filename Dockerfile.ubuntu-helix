@@ -1623,6 +1623,13 @@ ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
 ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
 ADD desktop/shared/helix-git-mtime.py /usr/local/bin/helix-git-mtime
 ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
+ADD desktop/shared/helix-browser.sh /usr/local/bin/helix-browser
+# The desktop's Chrome launcher and link handler go through helix-browser, so a
+# browser opened by hand is the same single browser on the configured profile
+# as the one the agent drives.
+RUN for f in /usr/share/applications/google-chrome.desktop /usr/share/applications/chromium.desktop; do \
+        [ ! -f "$f" ] || sed -i -E 's#^Exec=[^ ]+#Exec=/usr/local/bin/helix-browser open#' "$f"; \
+    done
 # arm64 only: Chromium launcher (amd64 ships Google Chrome, which has no chromium.real)
 RUN --mount=type=bind,source=desktop/shared/helix-chromium.sh,target=/tmp/helix-chromium.sh \
     if [ -x /usr/bin/chromium.real ]; then install -m 755 /tmp/helix-chromium.sh /usr/bin/chromium; fi

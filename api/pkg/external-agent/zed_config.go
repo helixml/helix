@@ -333,11 +333,10 @@ func GenerateZedMCPConfig(
 	// request timeout` (180s).
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
 		Command: "/usr/local/bin/helix-chrome-devtools-mcp",
-		// Persist the browser profile on the workspace volume. chrome-devtools-mcp
-		// otherwise passes an explicit user-data-dir under $HOME/.cache, which is
-		// part of the container overlay and is lost on recreation. Only
-		// /home/retro/work is bind-mounted persistently; the default Chrome path
-		// symlinks in helix-workspace-setup.sh cannot cover an explicit override.
+		// The shared browser is owned by helix-browser (desktop/shared/helix-browser.sh):
+		// it starts Chrome on the first browser tool call, on the profile declared in
+		// the workspace's .helix/browser.json, or on this default on the persistent
+		// workspace volume when nothing is declared.
 		// --viewport sets the rendered page size (Chrome window ends up viewport + ~80px
 		// of decorations). 1280x800 sits at the canonical desktop-vs-mobile breakpoint
 		// so sites still render in desktop mode, and the resulting Chrome window leaves

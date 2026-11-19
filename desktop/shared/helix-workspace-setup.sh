@@ -853,11 +853,14 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
     link_project_skills
 fi
 
-# Browser profile (Chrome / Chromium): chrome-devtools-mcp uses this persistent
-# directory explicitly via --user-data-dir. Symlink the normal Chrome and
-# Chromium config paths to the same profile so a browser opened from the desktop
-# hands off to the MCP-controlled instance instead of creating a second profile.
+# Browser profile (Chrome / Chromium). helix-browser owns the browser: the
+# profile is .helix/browser.json's declared directory in the workspace, or
+# .chrome-state. The desktop's Chrome launcher and chrome-devtools-mcp both go
+# through it, so there is one browser on one profile. The default Chrome and
+# Chromium config paths are symlinked to the same profile so a Chrome started
+# by hand hands off to that browser instead of opening a second profile.
 # Only $WORK_DIR is bind-mounted persistent — see api/pkg/sandbox/controller_provision.go.
+# Nothing here starts Chrome.
 #
 # Note: arm64 uses Chromium (apt) and amd64 uses Google Chrome (deb). Both write
 # to a profile directory under ~/.config/, but the directory name differs. We
@@ -865,33 +868,45 @@ fi
 # pointer into the same state dir, which is harmless and keeps the script
 # arch-agnostic.
 CHROME_STATE_DIR=$WORK_DIR/.chrome-state
-mkdir -p $CHROME_STATE_DIR
-
-# Seed first-run sentinels so Chrome's welcome dialog stays suppressed on first
-# launch with a fresh persistent profile (mirrors /etc/skel setup in the
-# Dockerfile, which the symlink bypasses).
-if [ ! -f $CHROME_STATE_DIR/"First Run" ]; then
-    touch $CHROME_STATE_DIR/"First Run"
-    mkdir -p $CHROME_STATE_DIR/Default
-    if [ ! -f $CHROME_STATE_DIR/Default/Preferences ]; then
-        echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' > $CHROME_STATE_DIR/Default/Preferences
+if [ -e "$WORK_DIR/.helix/browser.json" ]; then
+    # A declared profile is never created or seeded here: if it is missing or
+    # not the declared one, browser requests fail until it is restored.
+    if CHROME_PROFILE_DIR=$(helix-browser profile-path 2>/tmp/helix-browser-setup.err); then
+        echo "  Chrome: declared profile $CHROME_PROFILE_DIR"
+    else
+        echo "  Chrome: $(cat /tmp/helix-browser-setup.err)"
+        CHROME_PROFILE_DIR=""
     fi
+else
+    CHROME_PROFILE_DIR=$CHROME_STATE_DIR
+    mkdir -p $CHROME_STATE_DIR
+    # Seed first-run sentinels so Chrome's welcome dialog stays suppressed on
+    # first launch with a fresh persistent profile (mirrors /etc/skel setup in
+    # the Dockerfile, which the symlink bypasses).
+    if [ ! -f $CHROME_STATE_DIR/"First Run" ]; then
+        touch $CHROME_STATE_DIR/"First Run"
+        mkdir -p $CHROME_STATE_DIR/Default
+        if [ ! -f $CHROME_STATE_DIR/Default/Preferences ]; then
+            echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' > $CHROME_STATE_DIR/Default/Preferences
+        fi
+    fi
+    # Preserve any ephemeral profile data written before this script ran
+    # (rare, but matches the careful pattern from the Claude block above).
+    for ephemeral_dir in ~/.config/google-chrome ~/.config/chromium; do
+        if [ -d "$ephemeral_dir" ] && [ ! -L "$ephemeral_dir" ]; then
+            cp -a "$ephemeral_dir/." $CHROME_STATE_DIR/ 2>/dev/null || true
+        fi
+    done
 fi
-
-# Preserve any ephemeral profile data written before this script ran
-# (rare, but matches the careful pattern from the Claude block above).
-for ephemeral_dir in ~/.config/google-chrome ~/.config/chromium; do
-    if [ -d "$ephemeral_dir" ] && [ ! -L "$ephemeral_dir" ]; then
-        cp -a "$ephemeral_dir/." $CHROME_STATE_DIR/ 2>/dev/null || true
-    fi
-done
 
 mkdir -p ~/.config
 rm -rf ~/.config/google-chrome ~/.config/chromium
-ln -sfn $CHROME_STATE_DIR ~/.config/google-chrome
-ln -sfn $CHROME_STATE_DIR ~/.config/chromium
-echo "  Chrome: ~/.config/google-chrome -> $CHROME_STATE_DIR"
-echo "  Chromium: ~/.config/chromium -> $CHROME_STATE_DIR"
+if [ -n "$CHROME_PROFILE_DIR" ]; then
+    ln -sfn "$CHROME_PROFILE_DIR" ~/.config/google-chrome
+    ln -sfn "$CHROME_PROFILE_DIR" ~/.config/chromium
+    echo "  Chrome: ~/.config/google-chrome -> $CHROME_PROFILE_DIR"
+    echo "  Chromium: ~/.config/chromium -> $CHROME_PROFILE_DIR"
+fi
 
 # Initialize workspace with README if empty
 if [ ! -f "$WORK_DIR/README.md" ] && [ -z "$(ls -A "$WORK_DIR" 2>/dev/null | grep -v '^\.')" ]; then
