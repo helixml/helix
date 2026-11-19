@@ -17,6 +17,8 @@ import (
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/crypto"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	assetapp "github.com/helixml/helix/api/pkg/org/application/assets"
@@ -438,10 +440,69 @@ func (s *HelixAPIServer) restartOrgBotSessionWithPreservedThread(ctx context.Con
 	if user == nil {
 		return errors.New("session owner not found")
 	}
-	if _, herr := s.restartSessionContainer(ctx, user, session, false); herr != nil {
+	settle := func(ctx context.Context) error { return s.settleInterruptedTurns(ctx, sessionID) }
+	if _, herr := s.restartSessionContainerWith(ctx, user, session, false, settle); herr != nil {
 		return errors.New(herr.Error())
 	}
 	return nil
+}
+
+// settleInterruptedTurns marks turns the removed container was running as
+// stopped. An org activation whose turn is settled this way fails its poll
+// and is redelivered under the same delivery id, and SendMessage then
+// recovers the same prompt on the same session instead of creating a new
+// one. Runs only after the old container is gone, so it cannot race a turn
+// that is still completing.
+func (s *HelixAPIServer) settleInterruptedTurns(ctx context.Context, sessionID string) error {
+	waiting, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    sessionID,
+		GenerationID: -1,
+		State:        types.InteractionStateWaiting,
+	})
+	if err != nil {
+		return fmt.Errorf("list in-flight turns: %w", err)
+	}
+	for _, interaction := range waiting {
+		if _, err := s.Store.MarkStaleInteractionErrorIfWaiting(ctx, interaction.ID, interaction.GenerationID, interaction.Updated, externalAgentStoppedTurnError); err != nil {
+			return fmt.Errorf("settle in-flight turn %s: %w", interaction.ID, err)
+		}
+	}
+	return nil
+}
+
+// botRuntimeRestarter is the non-destructive Restart: apply the bot's
+// current profile and recreate its container on the same session.
+type botRuntimeRestarter struct {
+	applier botConfigApplier
+}
+
+func (r botRuntimeRestarter) RestartRuntime(ctx context.Context, orgID string, botID orgchart.NodeID) error {
+	return r.applier.ApplyConfig(ctx, orgID, botID)
+}
+
+// botHomeEraser serves Reset over the executor and the home registry.
+type botHomeEraser struct {
+	executor external_agent.Executor
+	homes    orgBotHomeRegistry
+}
+
+func (e botHomeEraser) HomeEstablished(ctx context.Context, orgID string, botID orgchart.NodeID) (bool, error) {
+	rec, err := e.homes.LoadBotHome(ctx, orgID, string(botID))
+	if err != nil {
+		return false, err
+	}
+	return rec.State == external_agent.BotHomeEstablished, nil
+}
+
+func (e botHomeEraser) RetireHome(ctx context.Context, orgID string, botID orgchart.NodeID) (activations.HomeErasure, error) {
+	if e.executor == nil {
+		return activations.HomeErasure{}, external_agent.ErrBotHomeUnavailable
+	}
+	resp, err := e.executor.EraseBotHome(ctx, orgID, string(botID), hydra.BotHomeRetire)
+	if err != nil {
+		return activations.HomeErasure{}, err
+	}
+	return activations.HomeErasure{Existed: resp.Existed, Generation: resp.Generation, RetiredPath: resp.RetiredPath}, nil
 }
 
 // StopDesktop stops the external-agent container for a session without
@@ -701,6 +762,11 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	st, err := openOrgStore(helixStore)
 	if err != nil {
 		return nil, err
+	}
+	if homes, ok := cfg.APIServer.externalAgentExecutor.(interface {
+		SetBotHomeRegistry(external_agent.BotHomeRegistry)
+	}); ok {
+		homes.SetBotHomeRegistry(orgBotHomeRegistry{st: st})
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -1288,6 +1354,9 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 	// service instance as POST /bots/{id}/activate|stop|restart.
 	sessionResetter := botSessionResetter{client: inProcClient, st: st}
 	workerRuntime := orgWorkerRuntime{st: st, sessions: helixStore, configs: configReg}
+	configApplier := botConfigApplier{
+		client: inProcClient, store: st, configs: configReg, restart: cfg.APIServer.restartOrgBotSessionWithPreservedThread,
+	}
 	svc.Activations = activations.New(activations.Deps{
 		Repo:       st.Activations,
 		Now:        deps.Now,
@@ -1299,6 +1368,9 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		Stopper:    sessionResetter,
 		Resetter:   sessionResetter,
 		Canceller:  activationCanceller,
+		Restarter:  botRuntimeRestarter{applier: configApplier},
+		Homes:      botHomeEraser{executor: cfg.APIServer.externalAgentExecutor, homes: orgBotHomeRegistry{st: st}},
+		Audit:      services.NewOrgAuditLogService(helixStore),
 	})
 	deps.Activations = svc.Activations
 	deps.Instances = instances
@@ -1390,10 +1462,8 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		// work; REST stop/restart now go through Activations.
 		BotSessionResetter: sessionResetter,
 		BotDesktopStopper:  sessionResetter,
-		BotConfigApplier: botConfigApplier{
-			client: inProcClient, store: st, configs: configReg, restart: cfg.APIServer.restartOrgBotSessionWithPreservedThread,
-		},
-		BotInstances: instances,
+		BotConfigApplier:   configApplier,
+		BotInstances:       instances,
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.

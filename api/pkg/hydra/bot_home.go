@@ -152,6 +152,17 @@ func validateBotHomeIDs(orgID, botID string) (orgDir, botDir string, err error) 
 	return orgDir, botDir, nil
 }
 
+// BotHomeRelDir returns the home's path relative to the workspaces base, so
+// the API can build the mount source with its own base path. Hydra rejects
+// any source that differs from its own BotHomeDir.
+func BotHomeRelDir(orgID, botID string) (string, error) {
+	orgDir, botDir, err := validateBotHomeIDs(orgID, botID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(botHomesDirName, orgDir, botDir, botHomeDataDir), nil
+}
+
 // BotHomeRoot returns org-bots/<org>/<bot> for the given ids.
 func BotHomeRoot(orgID, botID string) (string, error) {
 	orgDir, botDir, err := validateBotHomeIDs(orgID, botID)

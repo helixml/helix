@@ -999,6 +999,13 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 			return fmt.Errorf("destroy linked agent desktop %s: %w", sessionID, err)
 		}
 	}
+	if c.server.externalAgentExecutor != nil {
+		// Every desktop of the bot is destroyed by now, so nothing mounts
+		// the home. Purge it before the runtime state that records it.
+		if err := purgeBotHomeUnlessHostGone(ctx, c.server.externalAgentExecutor, orgID, string(botID)); err != nil {
+			return fmt.Errorf("purge bot home of %s: %w", botID, err)
+		}
+	}
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
 	if !ok {
 		return fmt.Errorf("delete linked agent: store %T has no shared database", c.server.Store)

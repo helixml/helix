@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
+	"github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
@@ -717,13 +719,15 @@ func (a *apiHandler) stopBot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// restartBot gives the bot a genuinely fresh session. Delegates to activations.Restart (reset
-// session then Activate) — same path as the MCP restart_bot tool.
+// restartBot is the ordinary, non-destructive restart: it recreates the
+// bot's container on its current session. Queued work, the conversation
+// thread and the bot home are kept; an interrupted activation is replayed
+// under its delivery id. Use resetBot for a fresh session.
 //
-// @Summary Helix-org: restart a bot (fresh session + desktop)
+// @Summary Helix-org: restart a bot's runtime (keeps session, home and queue)
 // @Tags HelixOrg
 // @Param id path string true "Bot ID"
-// @Success 202 {object} api.BotActivateDTO
+// @Success 202 {object} api.BotRestartDTO
 // @Failure 404 {object} api.ErrorResponse
 // @Failure 500 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
@@ -755,19 +759,102 @@ func (a *apiHandler) restartBot(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := a.deps.Activations.Restart(ctx, orgID, id)
 	if err != nil {
-		if errors.Is(err, activations.ErrActivateUnavailable) {
+		if errors.Is(err, activations.ErrActivateUnavailable) || errors.Is(err, activations.ErrRestartUnavailable) {
 			writeError(w, http.StatusNotImplemented, err)
 			return
 		}
 		writeError(w, errStatus(err), err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, BotActivateDTO{
-		ActivationID: string(res.ActivationID),
-		ProjectID:    res.ProjectID,
-		LegacyAppID:  res.AgentID,
+	writeJSON(w, http.StatusAccepted, BotRestartDTO{
+		Mode:         string(res.Mode),
 		SessionID:    res.SessionID,
+		Preserves:    res.Preserves,
+		ActivationID: string(res.Activation.ActivationID),
+		ProjectID:    res.Activation.ProjectID,
+		LegacyAppID:  res.Activation.AgentID,
 	})
+}
+
+// resetBot is the explicit, destructive reset. It purges queued and
+// in-flight activations, deletes the current session and, for scope
+// session_and_home, retires the bot home; then it starts a fresh session.
+// The body must name the scope and repeat the bot id as confirmation. Every
+// attempt is written to the organization audit log.
+//
+// @Summary Helix-org: reset a bot (destructive; erases the declared scope)
+// @Tags HelixOrg
+// @Param id path string true "Bot ID"
+// @Param request body api.BotResetRequestDTO true "Scope and confirmation"
+// @Success 202 {object} api.BotResetDTO
+// @Failure 400 {object} api.ErrorResponse
+// @Failure 403 {object} api.ErrorResponse
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
+// @Failure 500 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/bots/{id}/reset [post]
+func (a *apiHandler) resetBot(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if a.deps.Activations == nil {
+		writeError(w, http.StatusNotImplemented, activations.ErrResetUnavailable)
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.NodeID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
+		return
+	}
+	bot, err := a.deps.Queries.GetBot(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if !a.authorizeLoadedBotEdit(w, r, orgID, bot, "data") {
+		return
+	}
+	var body BotResetRequestDTO
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("decode reset request: %w", err))
+		return
+	}
+	res, err := a.deps.Activations.Reset(ctx, orgID, id, activations.ResetRequest{
+		Scope:   activations.ResetScope(body.Scope),
+		Confirm: body.Confirm,
+		Actor:   audit.ActorUser,
+		ActorID: helixorgserver.ActorUserIDFromContext(ctx),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, activations.ErrInvalidReset):
+			writeError(w, http.StatusBadRequest, err)
+		case errors.Is(err, activations.ErrResetRefused):
+			writeError(w, http.StatusConflict, err)
+		case errors.Is(err, activations.ErrResetUnavailable), errors.Is(err, activations.ErrActivateUnavailable):
+			writeError(w, http.StatusNotImplemented, err)
+		default:
+			writeError(w, errStatus(err), err)
+		}
+		return
+	}
+	dto := BotResetDTO{
+		Scope:             string(res.Scope),
+		Erases:            res.Declaration.Erases,
+		Keeps:             res.Declaration.Keeps,
+		PreviousSessionID: res.PreviousSessionID,
+		ActivationID:      string(res.Activation.ActivationID),
+		SessionID:         res.Activation.SessionID,
+	}
+	if res.Home != nil {
+		dto.Home = &BotResetHomeDTO{Existed: res.Home.Existed, Generation: res.Home.Generation, RetiredPath: res.Home.RetiredPath}
+	}
+	writeJSON(w, http.StatusAccepted, dto)
 }
 
 // applyBotConfig recreates the Bot's existing container with its latest

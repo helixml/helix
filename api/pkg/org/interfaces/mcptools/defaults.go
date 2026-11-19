@@ -98,6 +98,7 @@ func OwnerBotTools() []tool.Name {
 		StartBotName,
 		StopBotName,
 		RestartBotName,
+		ResetBotName,
 		// Bot instances: extra sessions with a bot's identity.
 		CreateBotInstanceName,
 		ListBotInstancesName,
@@ -216,7 +217,7 @@ func IsSpecTaskAgentTool(name tool.Name) bool {
 var SpecTaskBlockedTools = []tool.Name{
 	CreateBotName, DeleteBotName, SetBotContentName,
 	AttachToolName, DetachToolName,
-	StartBotName, StopBotName, RestartBotName,
+	StartBotName, StopBotName, RestartBotName, ResetBotName,
 	AttachWorkerName, DetachWorkerName, CreateTriggerName,
 	CreateProcessorName, UpdateProcessorName, DeleteProcessorName,
 	ConfigureBotProjectName,

@@ -312,6 +312,16 @@ func (r *nodesRepo) List(_ context.Context, orgID string) ([]orgchart.Node, erro
 	return out, nil
 }
 
+func (r *nodesRepo) ListAllIDs(_ context.Context) ([]store.OrgScopedID, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]store.OrgScopedID, 0, len(r.rows))
+	for k := range r.rows {
+		out = append(out, store.OrgScopedID{OrgID: k.OrgID, ID: k.ID})
+	}
+	return out, nil
+}
+
 func (r *nodesRepo) Update(_ context.Context, b orgchart.Node) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

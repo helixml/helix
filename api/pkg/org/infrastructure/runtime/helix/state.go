@@ -38,6 +38,19 @@ type WorkerState struct {
 	// sandbox at the moment a restart-sensitive config change was saved.
 	// Empty when nothing is pending or the sandbox was down at save time.
 	RestartRequiredContainer string
+	// Home is the record of the Worker's durable bot home (its
+	// /home/retro/work), which outlives any one session.
+	Home HomeRecord
+}
+
+// HomeRecord is the persisted state of a Worker's bot home. Hydra owns the
+// data; this record says which runner and generation it is, so a missing
+// home is an error instead of a fresh one.
+type HomeRecord struct {
+	State      string
+	Generation string
+	SandboxID  string
+	Detail     string
 }
 
 const (
@@ -52,6 +65,11 @@ const (
 	// flag self-clear on every container recreate — there is deliberately
 	// no code anywhere that clears this key.
 	keyRestartContainer = "restart_required_container"
+
+	keyHomeState      = "home_state"
+	keyHomeGeneration = "home_generation"
+	keyHomeSandboxID  = "home_sandbox_id"
+	keyHomeDetail     = "home_detail"
 )
 
 // LoadState returns the Helix-backend state for a Worker.
@@ -70,6 +88,12 @@ func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgc
 		SessionID:                kv[keySessionID],
 		HiringUserID:             kv[keyHiringUserID],
 		RestartRequiredContainer: kv[keyRestartContainer],
+		Home: HomeRecord{
+			State:      kv[keyHomeState],
+			Generation: kv[keyHomeGeneration],
+			SandboxID:  kv[keyHomeSandboxID],
+			Detail:     kv[keyHomeDetail],
+		},
 	}, nil
 }
 
@@ -127,4 +151,17 @@ func SaveRestartRequiredContainer(ctx context.Context, st *store.Store, orgID st
 		return errors.New("helix state: store is nil")
 	}
 	return st.NodeRuntimeState.Set(ctx, orgID, workerID, Backend, keyRestartContainer, containerID)
+}
+
+// SaveHome replaces the Worker's bot home record. An empty record clears it.
+func SaveHome(ctx context.Context, st *store.Store, orgID string, workerID orgchart.NodeID, home HomeRecord) error {
+	if st == nil || st.NodeRuntimeState == nil {
+		return errors.New("helix state: store is nil")
+	}
+	return st.NodeRuntimeState.SetMany(ctx, orgID, workerID, Backend, map[string]string{
+		keyHomeState:      home.State,
+		keyHomeGeneration: home.Generation,
+		keyHomeSandboxID:  home.SandboxID,
+		keyHomeDetail:     home.Detail,
+	})
 }

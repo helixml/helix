@@ -385,6 +385,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /bots/{id}/activate", Handler: http.HandlerFunc(a.activateBot)},
 		{Pattern: "POST /bots/{id}/stop", Handler: http.HandlerFunc(a.stopBot)},
 		{Pattern: "POST /bots/{id}/restart", Handler: http.HandlerFunc(a.restartBot)},
+		{Pattern: "POST /bots/{id}/reset", Handler: http.HandlerFunc(a.resetBot)},
 		{Pattern: "POST /bots/{id}/apply-config", Handler: http.HandlerFunc(a.applyBotConfig)},
 		{Pattern: "GET /bots/{id}/instances", Handler: http.HandlerFunc(a.listBotInstances)},
 		{Pattern: "POST /bots/{id}/instances", Handler: http.HandlerFunc(a.createBotInstance)},

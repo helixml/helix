@@ -8,11 +8,14 @@ package activations
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 )
@@ -60,6 +63,31 @@ type OutstandingCanceller interface {
 	CancelOutstanding(ctx context.Context, orgID string, workerID orgchart.NodeID) error
 }
 
+// RuntimeRestarter recreates a bot's desktop container on its existing
+// session: the old container is removed first, turns it was running are
+// settled as interrupted so their activations replay under the same delivery
+// id, and the new container mounts the same bot home and resumes the thread.
+// Queued activations are untouched.
+type RuntimeRestarter interface {
+	RestartRuntime(ctx context.Context, orgID string, workerID orgchart.NodeID) error
+}
+
+// BotHomeEraser manages the bot-owned home (/home/retro/work) for Reset.
+type BotHomeEraser interface {
+	// HomeEstablished reports whether the bot home has been moved out of
+	// the session workspace. Until then, deleting the session deletes it.
+	HomeEstablished(ctx context.Context, orgID string, workerID orgchart.NodeID) (bool, error)
+	// RetireHome moves the home to rollback storage, purged after retention.
+	RetireHome(ctx context.Context, orgID string, workerID orgchart.NodeID) (HomeErasure, error)
+}
+
+// HomeErasure reports what happened to the bot home.
+type HomeErasure struct {
+	Existed     bool   `json:"existed"`
+	Generation  string `json:"generation,omitempty"`
+	RetiredPath string `json:"retired_path,omitempty"`
+}
+
 // ErrActivateUnavailable is returned by Activate when the project
 // ensurer or dispatcher isn't wired. Adapters map it to 501.
 var ErrActivateUnavailable = errors.New("activate is not wired in this deployment")
@@ -67,6 +95,22 @@ var ErrActivateUnavailable = errors.New("activate is not wired in this deploymen
 // ErrStopUnavailable is returned by Stop when the desktop stopper isn't
 // wired. Adapters map it to 501.
 var ErrStopUnavailable = errors.New("stop is not wired in this deployment")
+
+// ErrRestartUnavailable is returned by Restart when no runtime restarter is
+// wired. Adapters map it to 501.
+var ErrRestartUnavailable = errors.New("restart is not wired in this deployment")
+
+// ErrResetUnavailable is returned by Reset when its collaborators are not
+// wired. Adapters map it to 501.
+var ErrResetUnavailable = errors.New("reset is not wired in this deployment")
+
+// ErrInvalidReset is returned for an unknown scope or a missing
+// confirmation. Adapters map it to 400.
+var ErrInvalidReset = errors.New("invalid reset request")
+
+// ErrResetRefused is returned when a session-only reset would also delete a
+// bot home that still lives in the session workspace. Adapters map it to 409.
+var ErrResetRefused = errors.New("reset refused")
 
 // Activations owns the host-driven agent lifecycle commands: Activate
 // (start), Stop, and Restart — shared by the REST endpoints and the MCP
@@ -82,6 +126,13 @@ type Activations struct {
 	stopper    DesktopStopper
 	resetter   SessionResetter
 	canceller  OutstandingCanceller
+	restarter  RuntimeRestarter
+	homes      BotHomeEraser
+	audit      audit.Recorder
+
+	// botLocks serialises Stop, Restart and Reset of one bot in this
+	// process, so a reset cannot interleave with a restart of the same bot.
+	botLocks sync.Map
 }
 
 // Deps are the constructor-injected collaborators for New. Repo may be
@@ -101,6 +152,9 @@ type Deps struct {
 	Stopper    DesktopStopper
 	Resetter   SessionResetter
 	Canceller  OutstandingCanceller
+	Restarter  RuntimeRestarter
+	Homes      BotHomeEraser
+	Audit      audit.Recorder
 }
 
 // New constructs the Activations service.
@@ -120,7 +174,17 @@ func New(deps Deps) *Activations {
 		stopper:    deps.Stopper,
 		resetter:   deps.Resetter,
 		canceller:  deps.Canceller,
+		restarter:  deps.Restarter,
+		homes:      deps.Homes,
+		audit:      deps.Audit,
 	}
+}
+
+func (a *Activations) lockBot(orgID string, workerID orgchart.NodeID) func() {
+	v, _ := a.botLocks.LoadOrStore(orgID+"\x00"+string(workerID), &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // ActivateResult is what an activation returns to the caller: the
@@ -244,6 +308,7 @@ func (a *Activations) Stop(ctx context.Context, orgID string, workerID orgchart.
 	if err := orgchart.ValidID(string(workerID)); err != nil {
 		return StopResult{}, fmt.Errorf("worker id: %w", err)
 	}
+	defer a.lockBot(orgID, workerID)()
 	if a.canceller != nil {
 		if err := a.canceller.CancelOutstanding(ctx, orgID, workerID); err != nil {
 			return StopResult{}, fmt.Errorf("cancel outstanding activations: %w", err)
@@ -262,30 +327,245 @@ func (a *Activations) Stop(ctx context.Context, orgID string, workerID orgchart.
 	return StopResult{Stopped: true, SessionID: sessionID}, nil
 }
 
-// Restart fully tears down the current session (when one exists) and
-// then Activates, so the bot gets a brand-new session, desktop and
-// thread with its current tools / MCP services. If the bot has never
-// activated, the reset is skipped and Activate alone handles first start.
-func (a *Activations) Restart(ctx context.Context, orgID string, workerID orgchart.NodeID) (ActivateResult, error) {
+// RestartMode says what Restart did.
+type RestartMode string
+
+const (
+	// RestartRuntime recreated the container on the existing session.
+	RestartRuntime RestartMode = "runtime"
+	// RestartFirstStart activated a bot that had no session yet.
+	RestartFirstStart RestartMode = "first_start"
+)
+
+// RestartPreserves lists what an ordinary restart keeps. It is part of the
+// API response so callers never have to guess.
+var RestartPreserves = []string{
+	"session and conversation thread",
+	"bot home (/home/retro/work, including Chrome profiles)",
+	"queued activations",
+	"in-flight activation (replayed under the same delivery id)",
+}
+
+// RestartResult reports an ordinary restart.
+type RestartResult struct {
+	Mode      RestartMode
+	SessionID string
+	Preserves []string
+	// Activation is set for RestartFirstStart.
+	Activation ActivateResult
+}
+
+// Restart is the ordinary, non-destructive restart: it recreates the bot's
+// desktop container on its current session with its current tools and
+// sandbox config. It never cancels queued work, deletes the session or
+// touches the bot home. A bot that has never started is activated instead.
+// The destructive operation is Reset.
+func (a *Activations) Restart(ctx context.Context, orgID string, workerID orgchart.NodeID) (RestartResult, error) {
 	if err := orgchart.ValidID(string(workerID)); err != nil {
-		return ActivateResult{}, fmt.Errorf("worker id: %w", err)
+		return RestartResult{}, fmt.Errorf("worker id: %w", err)
 	}
-	if a.canceller != nil {
-		if err := a.canceller.CancelOutstanding(ctx, orgID, workerID); err != nil {
-			return ActivateResult{}, fmt.Errorf("cancel outstanding activations: %w", err)
-		}
+	if a.restarter == nil {
+		return RestartResult{}, ErrRestartUnavailable
 	}
+	unlock := a.lockBot(orgID, workerID)
+	defer unlock()
 	var sessionID string
 	if a.sessions != nil {
-		sessionID, _ = a.sessions.SessionID(ctx, orgID, workerID)
-	}
-	if sessionID != "" && a.resetter != nil {
-		if err := a.resetter.ResetSession(ctx, orgID, workerID, sessionID); err != nil {
-			return ActivateResult{}, fmt.Errorf("reset session: %w", err)
+		var err error
+		if sessionID, err = a.sessions.SessionID(ctx, orgID, workerID); err != nil {
+			return RestartResult{}, fmt.Errorf("resolve session: %w", err)
 		}
-		return a.activate(ctx, orgID, workerID, true)
 	}
-	return a.Activate(ctx, orgID, workerID)
+	if sessionID == "" {
+		res, err := a.Activate(ctx, orgID, workerID)
+		if err != nil {
+			return RestartResult{}, err
+		}
+		return RestartResult{Mode: RestartFirstStart, SessionID: res.SessionID, Preserves: RestartPreserves, Activation: res}, nil
+	}
+	if err := a.restarter.RestartRuntime(ctx, orgID, workerID); err != nil {
+		return RestartResult{}, fmt.Errorf("restart runtime of %s: %w", workerID, err)
+	}
+	return RestartResult{Mode: RestartRuntime, SessionID: sessionID, Preserves: RestartPreserves}, nil
+}
+
+// ResetScope names exactly what an explicit reset erases.
+type ResetScope string
+
+const (
+	// ResetSession erases the bot's work queue and session; the bot home
+	// is kept.
+	ResetSession ResetScope = "session"
+	// ResetSessionAndHome also retires the bot home.
+	ResetSessionAndHome ResetScope = "session_and_home"
+)
+
+// ResetDeclaration is the fixed contract of a reset scope.
+type ResetDeclaration struct {
+	Erases []string `json:"erases"`
+	Keeps  []string `json:"keeps"`
+}
+
+var resetSessionErases = []string{
+	"queued and in-flight activations (purged, not replayed)",
+	"current session, its conversation thread and desktop container",
+	"session runtime data (inner Docker data, /data/sessions/<session>)",
+}
+
+var resetKeepsAlways = []string{
+	"bot configuration, tools, secrets and triggers",
+	"transcript events and activation audit history",
+	"other bots and other organizations",
+}
+
+// DeclareReset returns what a scope erases and keeps.
+func DeclareReset(scope ResetScope) (ResetDeclaration, error) {
+	switch scope {
+	case ResetSession:
+		return ResetDeclaration{
+			Erases: resetSessionErases,
+			Keeps:  append([]string{"bot home (/home/retro/work, including Chrome profiles)"}, resetKeepsAlways...),
+		}, nil
+	case ResetSessionAndHome:
+		return ResetDeclaration{
+			Erases: append(append([]string{}, resetSessionErases...),
+				"bot home (/home/retro/work, including Chrome profiles and logins), retired to rollback storage and purged after the retention period"),
+			Keeps: resetKeepsAlways,
+		}, nil
+	}
+	return ResetDeclaration{}, fmt.Errorf("%w: unknown scope %q (want %q or %q)", ErrInvalidReset, scope, ResetSession, ResetSessionAndHome)
+}
+
+// ResetRequest is an explicit, confirmed reset.
+type ResetRequest struct {
+	Scope ResetScope
+	// Confirm must equal the bot id.
+	Confirm string
+	Actor   audit.ActorType
+	ActorID string
+}
+
+// ResetResult reports a completed reset.
+type ResetResult struct {
+	Scope             ResetScope
+	Declaration       ResetDeclaration
+	PreviousSessionID string
+	Home              *HomeErasure
+	Activation        ActivateResult
+}
+
+// Reset is the explicit, destructive reset. It cancels queued and in-flight
+// work, deletes the current session and, for ResetSessionAndHome, retires
+// the bot home, then activates a fresh session. Every attempt is audited
+// with its scope and outcome.
+func (a *Activations) Reset(ctx context.Context, orgID string, workerID orgchart.NodeID, req ResetRequest) (res ResetResult, err error) {
+	if err := orgchart.ValidID(string(workerID)); err != nil {
+		return ResetResult{}, fmt.Errorf("worker id: %w", err)
+	}
+	decl, err := DeclareReset(req.Scope)
+	if err != nil {
+		return ResetResult{}, err
+	}
+	if req.Confirm != string(workerID) {
+		return ResetResult{}, fmt.Errorf("%w: confirm must equal the bot id %q", ErrInvalidReset, workerID)
+	}
+	if a.resetter == nil || a.canceller == nil || a.sessions == nil || a.homes == nil || a.audit == nil {
+		return ResetResult{}, ErrResetUnavailable
+	}
+	unlock := a.lockBot(orgID, workerID)
+	defer unlock()
+
+	res = ResetResult{Scope: req.Scope, Declaration: decl}
+	if err := a.recordReset(ctx, orgID, workerID, req, audit.StatusAttempted, res, nil); err != nil {
+		return ResetResult{}, fmt.Errorf("audit reset: %w", err)
+	}
+	defer func() {
+		status := audit.StatusSucceeded
+		if err != nil {
+			status = audit.StatusFailed
+		}
+		if auditErr := a.recordReset(context.WithoutCancel(ctx), orgID, workerID, req, status, res, err); auditErr != nil && err == nil {
+			err = fmt.Errorf("audit reset outcome: %w", auditErr)
+		}
+	}()
+
+	if req.Scope == ResetSession {
+		established, err := a.homes.HomeEstablished(ctx, orgID, workerID)
+		if err != nil {
+			return res, fmt.Errorf("check bot home: %w", err)
+		}
+		if !established {
+			sessionID, err := a.sessions.SessionID(ctx, orgID, workerID)
+			if err != nil {
+				return res, fmt.Errorf("resolve session: %w", err)
+			}
+			if sessionID != "" {
+				return res, fmt.Errorf("%w: bot %s still keeps its home in session %s, so a session reset would delete it; restart the bot once to move the home out of the session, or reset with scope %q",
+					ErrResetRefused, workerID, sessionID, ResetSessionAndHome)
+			}
+		}
+	}
+
+	if err := a.canceller.CancelOutstanding(ctx, orgID, workerID); err != nil {
+		return res, fmt.Errorf("cancel outstanding activations: %w", err)
+	}
+	sessionID, err := a.sessions.SessionID(ctx, orgID, workerID)
+	if err != nil {
+		return res, fmt.Errorf("resolve session: %w", err)
+	}
+	res.PreviousSessionID = sessionID
+	if sessionID != "" {
+		if err := a.resetter.ResetSession(ctx, orgID, workerID, sessionID); err != nil {
+			return res, fmt.Errorf("reset session: %w", err)
+		}
+	}
+	if req.Scope == ResetSessionAndHome {
+		erased, err := a.homes.RetireHome(ctx, orgID, workerID)
+		if err != nil {
+			return res, fmt.Errorf("retire bot home: %w", err)
+		}
+		res.Home = &erased
+	}
+	activated, err := a.activate(ctx, orgID, workerID, true)
+	if err != nil {
+		return res, fmt.Errorf("activate after reset: %w", err)
+	}
+	res.Activation = activated
+	return res, nil
+}
+
+const resetAuditAction = "reset_bot"
+
+func (a *Activations) recordReset(ctx context.Context, orgID string, workerID orgchart.NodeID, req ResetRequest, status audit.Status, res ResetResult, resetErr error) error {
+	args, err := json.Marshal(struct {
+		BotID             orgchart.NodeID  `json:"bot_id"`
+		Scope             ResetScope       `json:"scope"`
+		Declaration       ResetDeclaration `json:"declaration"`
+		PreviousSessionID string           `json:"previous_session_id,omitempty"`
+		Home              *HomeErasure     `json:"home,omitempty"`
+		NewSessionID      string           `json:"new_session_id,omitempty"`
+		ActivationID      activation.ID    `json:"activation_id,omitempty"`
+	}{workerID, req.Scope, res.Declaration, res.PreviousSessionID, res.Home, res.Activation.SessionID, res.Activation.ActivationID})
+	if err != nil {
+		return err
+	}
+	entry := audit.Entry{
+		OrganizationID: orgID,
+		ActorID:        req.ActorID,
+		ActorType:      req.Actor,
+		AssetID:        string(workerID),
+		EventType:      audit.EventBotLifecycle,
+		Action:         resetAuditAction,
+		Status:         status,
+		Metadata:       audit.Metadata{Arguments: args},
+	}
+	if req.Actor == audit.ActorUser {
+		entry.UserID = req.ActorID
+	}
+	if resetErr != nil {
+		entry.Metadata.Error = resetErr.Error()
+	}
+	return a.audit.Record(ctx, entry)
 }
 
 // prepare pre-allocates an activation audit row for the Worker and
