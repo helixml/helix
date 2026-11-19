@@ -842,3 +842,38 @@ func (b *blockingRestarter) RestartRuntime(context.Context, string, orgchart.Nod
 	<-b.block
 	return nil
 }
+
+// An activation whose process died stays open; Reset purges its delivery,
+// so it must close the row or Activate would report it in flight forever.
+func TestReset_ClosesActivationRowsItPurged(t *testing.T) {
+	t.Parallel()
+	events := []string{}
+	repo := memory.New().Activations
+	stale, err := activation.New("a-stale", "b-bird", []activation.Trigger{{Kind: activation.TriggerManual}}, time.Date(2026, 6, 10, 11, 0, 0, 0, time.UTC), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Create(context.Background(), stale); err != nil {
+		t.Fatal(err)
+	}
+	svc, disp, _, _ := newResetSvc(&events, "ses_old", &fakeHomes{established: true}, &fakeAudit{})
+	svc.repo = repo
+	if _, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSession, Confirm: "b-bird"}); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	got, err := repo.Get(context.Background(), "org-test", "a-stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsCompleted() || got.Outcome.Status != activation.StatusError {
+		t.Fatalf("stale row not closed: %+v", got)
+	}
+	// The newest open activation is now the reset's own, never the purged one.
+	res, err := svc.Activate(context.Background(), "org-test", "b-bird")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ActivationID == "a-stale" || disp.manualCalls != 1 {
+		t.Fatalf("start still bound to the purged row: %+v (dispatches %d)", res, disp.manualCalls)
+	}
+}

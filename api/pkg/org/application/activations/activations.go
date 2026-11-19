@@ -504,6 +504,9 @@ func (a *Activations) Reset(ctx context.Context, orgID string, workerID orgchart
 	if err := a.canceller.CancelOutstanding(ctx, orgID, workerID); err != nil {
 		return res, fmt.Errorf("cancel outstanding activations: %w", err)
 	}
+	if err := a.closePurgedActivations(ctx, orgID, workerID); err != nil {
+		return res, err
+	}
 	sessionID, err := a.sessions.SessionID(ctx, orgID, workerID)
 	if err != nil {
 		return res, fmt.Errorf("resolve session: %w", err)
@@ -583,6 +586,33 @@ func (a *Activations) sessionResetRefusal(ctx context.Context, orgID string, wor
 	}
 	return fmt.Sprintf("bot %s still keeps its home in session %s, so a session reset would delete it; restart the bot once to move the home out of the session, or reset with scope %q",
 		workerID, sessionID, ResetSessionAndHome), nil
+}
+
+// errPurgedByReset closes activation rows whose delivery Reset purged.
+var errPurgedByReset = errors.New("activation purged by an explicit reset")
+
+// closePurgedActivations closes audit rows left open for deliveries that
+// CancelOutstanding just purged. A row stays open when the process running
+// it died (for example an API restart); the queue would have redelivered
+// it, but Reset purges the queue, so nothing else would ever close it and
+// Activate would keep returning it as in flight.
+func (a *Activations) closePurgedActivations(ctx context.Context, orgID string, workerID orgchart.NodeID) error {
+	if a.repo == nil {
+		return nil
+	}
+	rows, err := a.repo.ListForWorker(ctx, orgID, workerID, 50)
+	if err != nil {
+		return fmt.Errorf("list activations to close: %w", err)
+	}
+	for _, row := range rows {
+		if row.IsCompleted() {
+			continue
+		}
+		if err := a.repo.Complete(ctx, orgID, row.ID, activation.OutcomeFromError(errPurgedByReset), a.now()); err != nil {
+			return fmt.Errorf("close purged activation %s: %w", row.ID, err)
+		}
+	}
+	return nil
 }
 
 const resetAuditAction = "reset_bot"
