@@ -627,7 +627,7 @@ export type SidebarBot = {
 export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
   bots
     .filter((bot) => !!bot.id)
-    .map((bot) => ({
+    .map<SidebarBot>((bot) => ({
       id: bot.id!,
       name: bot.name || bot.id!,
       portraitIndex: bot.portrait_index,
