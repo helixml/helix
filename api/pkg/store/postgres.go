@@ -464,7 +464,8 @@ func (s *PostgresStore) runMigrations() error {
 		             ELSE GREATEST(sb.started_at, COALESCE(sb.stopped_at, sb.deleted_at, sb.updated_at, sb.started_at)) END
 		 FROM sandboxes sb
 		 WHERE sb.started_at IS NOT NULL
-		   AND NOT EXISTS (SELECT 1 FROM sandbox_runs r WHERE r.sandbox_id = sb.id)`,
+		   AND NOT EXISTS (SELECT 1 FROM sandbox_runs r WHERE r.sandbox_id = sb.id)
+		 ON CONFLICT (id) DO NOTHING`,
 		types.SandboxStatusRunning,
 	).Error; err != nil {
 		return fmt.Errorf("failed to backfill sandbox_runs: %w", err)

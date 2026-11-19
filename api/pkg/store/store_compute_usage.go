@@ -100,13 +100,17 @@ func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgCompute
 		  AND transactions.created_at >= @from AND transactions.created_at <= @to` + filters
 
 	// Each run is clipped to the range and, for the daily series, to each day
-	// it overlaps; a run still open counts up to now.
+	// it overlaps; a run still open counts up to now. Days are naive UTC
+	// timestamps, like the charge days, so neither the UNION nor the day
+	// arithmetic depends on the server's TimeZone or its DST rules.
 	runs := `FROM sandbox_runs r
 		LEFT JOIN sandboxes ON sandboxes.id = r.sandbox_id
 		WHERE r.organization_id = @org
 		  AND r.started_at < @to
 		  AND COALESCE(r.stopped_at, @now) > @from` + filters
 	runPricingType := `CASE WHEN r.runtime = @desktop THEN 'desktop' ELSE 'headless' END`
+	dayStart := `(d.day AT TIME ZONE 'UTC')`
+	dayEnd := `((d.day + interval '1 day') AT TIME ZONE 'UTC')`
 
 	var daily []computeDailyRow
 	if err := s.gdb.WithContext(ctx).Raw(`
@@ -115,13 +119,13 @@ func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgCompute
 		GROUP BY date, pricing_type
 		UNION ALL
 		SELECT d.day AS date, `+runPricingType+` AS pricing_type, 0 AS credits,
-			SUM(EXTRACT(EPOCH FROM
-				LEAST(COALESCE(r.stopped_at, @now), d.day + interval '1 day', @to) -
-				GREATEST(r.started_at, d.day, @from))) / 3600 AS hours
-		FROM generate_series(CAST(@start AS timestamptz), CAST(@to AS timestamptz), interval '1 day') AS d(day)
+			SUM(GREATEST(0, EXTRACT(EPOCH FROM
+				LEAST(COALESCE(r.stopped_at, @now), `+dayEnd+`, @to) -
+				GREATEST(r.started_at, `+dayStart+`, @from)))) / 3600 AS hours
+		FROM generate_series(CAST(@start AS timestamptz) AT TIME ZONE 'UTC', CAST(@to AS timestamptz) AT TIME ZONE 'UTC', interval '1 day') AS d(day)
 		JOIN sandbox_runs r
-		  ON r.started_at < LEAST(d.day + interval '1 day', @to)
-		 AND COALESCE(r.stopped_at, @now) > GREATEST(d.day, @from)
+		  ON r.started_at < LEAST(`+dayEnd+`, @to)
+		 AND COALESCE(r.stopped_at, @now) > GREATEST(`+dayStart+`, @from)
 		LEFT JOIN sandboxes ON sandboxes.id = r.sandbox_id
 		WHERE r.organization_id = @org`+filters+`
 		GROUP BY d.day, 2`, args).
@@ -151,14 +155,18 @@ func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgCompute
 	}
 	if err := s.gdb.WithContext(ctx).Raw(`
 		WITH charged AS (
-			SELECT sandbox_id, MAX(pricing_type) AS pricing_type, SUM(credits) AS credits
+			SELECT sandbox_id, (array_agg(pricing_type ORDER BY credits DESC))[1] AS pricing_type, SUM(credits) AS credits
 			FROM (`+charges+`) c
 			GROUP BY sandbox_id
-		), ran AS (
-			SELECT r.sandbox_id, MAX(`+runPricingType+`) AS pricing_type, MAX(r.runtime) AS runtime,
-				SUM(EXTRACT(EPOCH FROM LEAST(COALESCE(r.stopped_at, @now), @to) - GREATEST(r.started_at, @from))) / 3600 AS hours
+		), run_hours AS (
+			SELECT r.sandbox_id, `+runPricingType+` AS pricing_type, r.runtime,
+				GREATEST(0, EXTRACT(EPOCH FROM LEAST(COALESCE(r.stopped_at, @now), @to) - GREATEST(r.started_at, @from))) / 3600 AS hours
 			`+runs+`
-			GROUP BY r.sandbox_id
+		), ran AS (
+			SELECT sandbox_id, (array_agg(pricing_type ORDER BY hours DESC))[1] AS pricing_type,
+				(array_agg(runtime ORDER BY hours DESC))[1] AS runtime, SUM(hours) AS hours
+			FROM run_hours
+			GROUP BY sandbox_id
 		)
 		SELECT COALESCE(ran.sandbox_id, charged.sandbox_id) AS sandbox_id,
 			COALESCE(sandboxes.name, '') AS name,

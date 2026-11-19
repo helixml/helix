@@ -432,9 +432,20 @@ func syncSandboxRun(tx *gorm.DB, sandboxID string, now time.Time) error {
 	if open > 0 {
 		return nil
 	}
+	// The row only remembers when the sandbox last started. A run already
+	// closed since then (a resize closes one) covers that time, so the new run
+	// starts where the last one ended rather than overlapping it.
 	startedAt := now
 	if sb.StartedAt != nil && sb.StartedAt.Before(now) {
 		startedAt = *sb.StartedAt
+	}
+	var last []types.SandboxRun
+	if err := tx.Where("sandbox_id = ? AND stopped_at IS NOT NULL", sandboxID).
+		Order("stopped_at DESC").Limit(1).Find(&last).Error; err != nil {
+		return fmt.Errorf("find last run of sandbox %s: %w", sandboxID, err)
+	}
+	if len(last) == 1 && last[0].StoppedAt.After(startedAt) {
+		startedAt = *last[0].StoppedAt
 	}
 	vcpus := sb.VCPUs
 	if vcpus < 1 {

@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
+	"gorm.io/gorm"
 )
 
 func TestUsageMetricsTestSuite(t *testing.T) {
@@ -715,6 +716,62 @@ func (suite *UsageMetricsTestSuite) TestGetOrgComputeUsage_ReportsRuntimeWithout
 	suite.Require().Len(filtered.Sandboxes, 1)
 	suite.Equal(headless.ID, filtered.Sandboxes[0].SandboxID)
 	suite.Equal(1, filtered.RunningSandboxes)
+}
+
+// Days are UTC whatever the server's TimeZone. The query runs on a connection
+// set to a non-UTC zone, where timestamptz day arithmetic follows local DST and
+// a naive UTC charge day is reread as local midnight.
+func (suite *UsageMetricsTestSuite) TestGetOrgComputeUsage_DaysAreUTCInAnyServerTimeZone() {
+	orgID := "org_" + system.GenerateID()
+	at := func(month time.Month, day, hour int) time.Time {
+		return time.Date(2026, month, day, hour, 0, 0, 0, time.UTC)
+	}
+	ptr := func(t time.Time) *time.Time { return &t }
+
+	sb := &types.Sandbox{
+		ID: "sbx_" + system.GenerateID(), Name: "Desktop", OrganizationID: orgID, Owner: "user_" + system.GenerateID(),
+		Runtime: types.SandboxRuntimeUbuntuDesktop, Status: types.SandboxStatusStopped,
+	}
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(sb).Error)
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(&types.SandboxRun{
+		ID: system.GenerateSandboxRunID(), SandboxID: sb.ID, OrganizationID: orgID, Runtime: sb.Runtime, VCPUs: 1,
+		StartedAt: at(time.October, 31, 12), StoppedAt: ptr(at(time.November, 3, 12)),
+	}).Error)
+	wallet := &types.Wallet{ID: "wal_" + system.GenerateID(), OrgID: orgID}
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(wallet).Error)
+	charged := at(time.November, 1, 3) // still Oct 31 in Los Angeles
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(&types.Transaction{
+		ID: "txn_" + system.GenerateID(), CreatedAt: charged, UpdatedAt: charged, WalletID: wallet.ID, Amount: -1.25,
+		Type: types.TransactionTypeUsage, SandboxID: sb.ID, SandboxPricingType: sandboxPricingTypeDesktop,
+	}).Error)
+
+	// Los Angeles crosses its DST change in the range; Berlin is ahead of UTC,
+	// so a charge day read back as local midnight lands on the day before.
+	for _, zone := range []string{"America/Los_Angeles", "Europe/Berlin"} {
+		var usage *types.OrgComputeUsage
+		suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Connection(func(conn *gorm.DB) error {
+			if err := conn.Exec("SELECT set_config('TimeZone', ?, false)", zone).Error; err != nil {
+				return err
+			}
+			defer conn.Exec("RESET TIME ZONE")
+			var err error
+			usage, err = (&PostgresStore{gdb: conn}).GetOrgComputeUsage(suite.ctx, &GetOrgComputeUsageQuery{
+				OrganizationID: orgID, From: at(time.October, 31, 0), To: at(time.November, 4, 0),
+			})
+			return err
+		}), zone)
+
+		suite.InDelta(1.25, usage.TotalCredits, 1e-9, zone)
+		suite.InDelta(72, usage.DesktopHours, 1e-6, zone)
+		suite.Require().Len(usage.Daily, 5, zone)
+		for i, want := range []struct {
+			credits, hours float64
+		}{{0, 12}, {1.25, 24}, {0, 24}, {0, 12}, {0, 0}} {
+			suite.Equal(at(time.October, 31, 0).AddDate(0, 0, i), usage.Daily[i].Date, "%s day %d", zone, i)
+			suite.InDelta(want.credits, usage.Daily[i].Desktop, 1e-9, "%s credits on day %d", zone, i)
+			suite.InDelta(want.hours, usage.Daily[i].DesktopHours, 1e-6, "%s hours on day %d", zone, i)
+		}
+	}
 }
 
 func (suite *UsageMetricsTestSuite) TestGetUserMonthlyTokenUsage_User() {

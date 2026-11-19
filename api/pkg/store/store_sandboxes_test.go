@@ -293,6 +293,8 @@ func TestSandboxRunLedgerFollowsLifecycle(t *testing.T) {
 	require.NotNil(t, runs[0].StoppedAt)
 	require.Nil(t, runs[1].StoppedAt)
 	require.Equal(t, 8, runs[1].VCPUs)
+	require.True(t, runs[1].StartedAt.Equal(*runs[0].StoppedAt),
+		"the run at the new size starts at the resize, not back at the sandbox start")
 
 	require.NoError(t, store.SetSandboxStatus(ctx, sb.ID, types.SandboxStatusStopped, ""))
 	for _, run := range sandboxRuns(t, store, sb.ID) {
@@ -314,8 +316,12 @@ func TestSandboxRunLedgerFollowsLifecycle(t *testing.T) {
 	require.Nil(t, runs[2].StoppedAt)
 
 	require.NoError(t, store.DeleteSandbox(ctx, sb.ID))
-	for _, run := range sandboxRuns(t, store, sb.ID) {
+	runs = sandboxRuns(t, store, sb.ID)
+	for i, run := range runs {
 		require.NotNil(t, run.StoppedAt, "delete closes the open run")
+		if i > 0 {
+			require.False(t, run.StartedAt.Before(*runs[i-1].StoppedAt), "runs never overlap, so no hour is counted twice")
+		}
 	}
 }
 
