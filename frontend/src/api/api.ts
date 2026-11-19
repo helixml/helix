@@ -1434,7 +1434,6 @@ export interface ServerClaudeLoginStartResponse {
 }
 
 export interface ServerClaudeModel {
-  description?: string;
   id?: string;
   name?: string;
 }
@@ -2540,14 +2539,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
-  KindHelixEvents = "helix_events",
-  KindSlack = "slack",
-  KindGitLab = "gitlab",
-  KindGitHub = "github",
-  KindWebhook = "webhook",
-  KindEmail = "email",
   KindLocal = "local",
+  KindGitLab = "gitlab",
+  KindHelixEvents = "helix_events",
+  KindCron = "cron",
+  KindGitHub = "github",
+  KindEmail = "email",
+  KindSlack = "slack",
+  KindWebhook = "webhook",
 }
 
 export interface TransportResolvedActivation {
@@ -2964,7 +2963,7 @@ export interface TypesAssistantConfig {
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
    * model — otherwise Claude Code defaults to Sonnet. Empty means
-   * "claude-opus-5-5" (the current 1M-context Opus model).
+   * DefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.
    */
   claude_subscription_model?: string;
   /**
@@ -3755,6 +3754,16 @@ export interface TypesCodeAgentExecutionConfig {
 export interface TypesCodeAgentGooseRecipe {
   name?: string;
   path?: string;
+}
+
+export interface TypesCodeAgentModelOption {
+  /**
+   * Current marks a current-generation model. Pickers list current models
+   * first and group the rest as legacy.
+   */
+  current?: boolean;
+  id?: string;
+  name?: string;
 }
 
 export interface TypesCodeAgentOverrides {
@@ -7293,6 +7302,12 @@ export interface TypesServerConfigForFrontend {
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
+  /**
+   * CodeAgentModels is the vendor model catalogue per coding-agent harness,
+   * best first (see CodeAgentModels). The UI pickers and their defaults read it
+   * from here so the backend list is the only place it is maintained.
+   */
+  code_agent_models?: Record<string, TypesCodeAgentModelOption[]>;
   /**
    * DefaultChatSystemPrompt is the system prompt the platform applies to
    * direct model chats when the user has not customised one. Surfaced to

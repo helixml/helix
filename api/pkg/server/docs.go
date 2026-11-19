@@ -29012,9 +29012,6 @@ const docTemplate = `{
         "server.ClaudeModel": {
             "type": "object",
             "properties": {
-                "description": {
-                    "type": "string"
-                },
                 "id": {
                     "type": "string"
                 },
@@ -31587,24 +31584,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
-                "helix_events",
-                "slack",
+                "local",
                 "gitlab",
+                "helix_events",
+                "cron",
                 "github",
-                "webhook",
                 "email",
-                "local"
+                "slack",
+                "webhook"
             ],
             "x-enum-varnames": [
-                "KindCron",
-                "KindHelixEvents",
-                "KindSlack",
+                "KindLocal",
                 "KindGitLab",
+                "KindHelixEvents",
+                "KindCron",
                 "KindGitHub",
-                "KindWebhook",
                 "KindEmail",
-                "KindLocal"
+                "KindSlack",
+                "KindWebhook"
             ]
         },
         "transport.ResolvedActivation": {
@@ -32570,7 +32567,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "claude_subscription_model": {
-                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5-5\" (the current 1M-context Opus model).",
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\nDefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.",
                     "type": "string"
                 },
                 "code_agent_credential_type": {
@@ -34117,6 +34114,21 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CodeAgentModelOption": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "description": "Current marks a current-generation model. Pickers list current models\nfirst and group the rest as legacy.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -41636,6 +41648,16 @@ const docTemplate = `{
                 "billing_enabled": {
                     "description": "Charging for usage",
                     "type": "boolean"
+                },
+                "code_agent_models": {
+                    "description": "CodeAgentModels is the vendor model catalogue per coding-agent harness,\nbest first (see CodeAgentModels). The UI pickers and their defaults read it\nfrom here so the backend list is the only place it is maintained.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/types.CodeAgentModelOption"
+                        }
+                    }
                 },
                 "default_chat_system_prompt": {
                     "description": "DefaultChatSystemPrompt is the system prompt the platform applies to\ndirect model chats when the user has not customised one. Surfaced to\nthe frontend so the chat-settings page can prefill the textbox.",
