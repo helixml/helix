@@ -453,7 +453,7 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 	// Note: column is named 'config' for backward compatibility but contains SessionMetadata
 	err := s.gdb.WithContext(ctx).
 		Where("config->>'project_id' = ?", projectID).
-		Where("config->>'session_role' = ?", "exploratory").
+		Where("config->>'session_role' = ?", types.SessionRoleExploratory).
 		Order("created DESC").
 		First(&session).Error
 

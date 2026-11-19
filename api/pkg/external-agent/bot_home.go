@@ -74,7 +74,7 @@ func (h *HydraExecutor) resolveBotHome(ctx context.Context, agent *types.Desktop
 	if err != nil {
 		return nil, fmt.Errorf("load session for bot home: %w", err)
 	}
-	if session.Metadata.BotInstance != nil || session.Metadata.SessionRole != "exploratory" {
+	if session.Metadata.BotInstance != nil || session.Metadata.SessionRole != types.SessionRoleExploratory {
 		return nil, nil
 	}
 	orgID := session.OrganizationID

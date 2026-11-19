@@ -923,8 +923,10 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
 	if botHome != nil && !containerMountsSource(inspect.Mounts, botHome.Path, "/home/retro/work") {
-		dockerClient.ContainerRemove(dockerCtx, resp.ID, container.RemoveOptions{Force: true})
-		return nil, fmt.Errorf("container did not mount bot home %s at /home/retro/work; removed it", botHome.Path)
+		if rmErr := dockerClient.ContainerRemove(dockerCtx, resp.ID, container.RemoveOptions{Force: true}); rmErr != nil {
+			return nil, fmt.Errorf("container %s did not mount bot home %s at /home/retro/work, and removing it failed (it may still be running): %w", resp.ID, botHome.Path, rmErr)
+		}
+		return nil, fmt.Errorf("container %s did not mount bot home %s at /home/retro/work; removed it", resp.ID, botHome.Path)
 	}
 
 	// Get IP address based on network mode

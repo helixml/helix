@@ -6,6 +6,11 @@ import (
 	"slices"
 )
 
+// SessionRoleExploratory marks a project's exploratory session. For an org
+// bot it is the bot's main session: the one that mounts the bot home, gets
+// triggers and is mirrored to the transcript.
+const SessionRoleExploratory = "exploratory"
+
 // SessionRoleOrgBotInstance marks a session as an instance of an org bot: an
 // extra session with the bot's identity and its own sandbox. It is never the
 // bot's main (exploratory) session, so triggers and the transcript mirror

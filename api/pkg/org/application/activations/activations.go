@@ -603,14 +603,11 @@ func (a *Activations) closePurgedActivations(ctx context.Context, orgID string, 
 	if a.repo == nil {
 		return nil
 	}
-	rows, err := a.repo.ListForWorker(ctx, orgID, workerID, 50)
+	rows, err := a.repo.ListOpenForWorker(ctx, orgID, workerID)
 	if err != nil {
 		return fmt.Errorf("list activations to close: %w", err)
 	}
 	for _, row := range rows {
-		if row.IsCompleted() {
-			continue
-		}
 		if err := a.repo.Complete(ctx, orgID, row.ID, activation.OutcomeFromError(errPurgedByReset), a.now()); err != nil {
 			return fmt.Errorf("close purged activation %s: %w", row.ID, err)
 		}

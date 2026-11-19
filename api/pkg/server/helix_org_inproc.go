@@ -1159,7 +1159,7 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		AgentType:      params.AgentType,
 		Provider:       types.Provider(params.Provider),
 		Model:          params.Model,
-		SessionRole:    "exploratory",
+		SessionRole:    types.SessionRoleExploratory,
 		// Org workers are fully autonomous — nobody is watching to click the
 		// in-chat Restart button — so recover the agent automatically on crash.
 		AutoRestartOnCrash:  true,

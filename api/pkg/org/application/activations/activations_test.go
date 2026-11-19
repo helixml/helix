@@ -3,6 +3,7 @@ package activations
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -871,6 +872,21 @@ func TestReset_ClosesActivationRowsItPurged(t *testing.T) {
 	}
 	if err := repo.Create(context.Background(), stale); err != nil {
 		t.Fatal(err)
+	}
+	// More completed activations than any page size, all newer than the
+	// stale row: closing must not depend on a window of recent rows.
+	for i := 0; i < 60; i++ {
+		at := time.Date(2026, 6, 10, 11, 0, 1+i, 0, time.UTC)
+		done, err := activation.New(activation.ID(fmt.Sprintf("a-done-%02d", i)), "b-bird", []activation.Trigger{{Kind: activation.TriggerManual}}, at, "org-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.Create(context.Background(), done); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.Complete(context.Background(), "org-test", done.ID, activation.OutcomeFromError(nil), at.Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	svc, disp, _, _ := newResetSvc(&events, "ses_old", &fakeHomes{}, &fakeAudit{})
 	svc.repo = repo

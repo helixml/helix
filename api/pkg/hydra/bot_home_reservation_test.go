@@ -27,6 +27,10 @@ type fakeDocker struct {
 	creates     []string
 	blockCreate map[string]chan struct{}
 	createdCh   chan string
+	// dropMounts creates containers without their bind mounts; failRemove
+	// makes container removal fail.
+	dropMounts bool
+	failRemove bool
 }
 
 type fakeContainer struct {
@@ -76,6 +80,11 @@ func (f *fakeDocker) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasSuffix(p, "/json"):
 		f.inspect(w, strings.TrimSuffix(strings.TrimPrefix(p, "/containers/"), "/json"))
 	case r.Method == http.MethodDelete && strings.HasPrefix(p, "/containers/"):
+		if f.failRemove {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"device or resource busy"}`))
+			return
+		}
 		f.mu.Lock()
 		delete(f.containers, strings.TrimPrefix(p, "/containers/"))
 		f.mu.Unlock()
@@ -136,6 +145,9 @@ func (f *fakeDocker) create(w http.ResponseWriter, r *http.Request) {
 		<-block
 	}
 	c := &fakeContainer{name: name, labels: body.Labels}
+	if f.dropMounts {
+		body.HostConfig.Mounts, body.HostConfig.Binds = nil, nil
+	}
 	for _, m := range body.HostConfig.Mounts {
 		c.mounts = append(c.mounts, map[string]string{"Type": "bind", "Source": m.Source, "Destination": m.Target})
 	}
@@ -292,4 +304,28 @@ func TestReconcileOrphanBotHomesSkipsHomeMountedAfterSnapshot(t *testing.T) {
 	reaped, _ := ReconcileOrphanBotHomes(map[string]bool{}, inUse, reserve, 0, time.Hour, false, time.Now())
 	require.Empty(t, reaped)
 	require.DirExists(t, res.Path)
+}
+
+// A container that does not really mount the home is removed; if removal
+// fails the error says the container may still be running.
+func TestBotHomeMountVerificationReportsRemoveFailure(t *testing.T) {
+	for _, failRemove := range []bool{false, true} {
+		useTempWorkspaces(t)
+		fd, socket := newFakeDocker(t)
+		fd.dropMounts = true
+		fd.failRemove = failRemove
+		dm := newReservationManager(t, socket)
+		_, err := prepareBotHome(&BotHomeSpec{OrganizationID: testOrg, BotID: testBot, Generation: testGen, Expect: BotHomeExpectNew}, "ses_seed")
+		require.NoError(t, err)
+
+		_, err = dm.CreateDevContainer(context.Background(), botHomeRequest(t, "ses_a", socket, BotHomeExpectExisting))
+		require.ErrorContains(t, err, "did not mount bot home")
+		if failRemove {
+			require.ErrorContains(t, err, "removing it failed (it may still be running)")
+			require.ErrorContains(t, err, "device or resource busy")
+		} else {
+			require.ErrorContains(t, err, "removed it")
+			require.NotContains(t, err.Error(), "removing it failed")
+		}
+	}
 }

@@ -822,6 +822,20 @@ func (a *activationsRepo) ListForWorker(_ context.Context, orgID string, botID o
 	return out, nil
 }
 
+func (a *activationsRepo) ListOpenForWorker(ctx context.Context, orgID string, botID orgchart.NodeID) ([]*activation.Activation, error) {
+	all, err := a.ListForWorker(ctx, orgID, botID, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := all[:0]
+	for _, act := range all {
+		if !act.IsCompleted() {
+			out = append(out, act)
+		}
+	}
+	return out, nil
+}
+
 // ---- helpers ----------------------------------------------------------
 
 func startsWith(s, prefix string) bool {

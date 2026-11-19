@@ -241,7 +241,7 @@ func (s *HelixAPIServer) keyDefaultsToProjectAgent(ctx context.Context, user *ty
 		return true
 	}
 	switch session.Metadata.SessionRole {
-	case "exploratory", types.SessionRoleOrgBotInstance:
+	case types.SessionRoleExploratory, types.SessionRoleOrgBotInstance:
 		return true
 	}
 	return session.Metadata.SpecTaskID != ""
