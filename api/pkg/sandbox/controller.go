@@ -192,7 +192,7 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 	}
 
 	sandbox := &types.Sandbox{
-		Name:           req.Name,
+		Name:           types.TruncateRunes(req.Name, types.SandboxNameMaxLen, true),
 		OrganizationID: orgID,
 		ProjectID:      req.ProjectID,
 		Owner:          owner,
@@ -392,7 +392,7 @@ func (c *Controller) Update(ctx context.Context, id string, req *types.UpdateSan
 		return sandbox, nil
 	}
 	if req.Name != nil {
-		sandbox.Name = *req.Name
+		sandbox.Name = types.TruncateRunes(*req.Name, types.SandboxNameMaxLen, true)
 	}
 	if req.TimeoutSeconds != nil && *req.TimeoutSeconds > 0 {
 		sandbox.TimeoutSeconds = *req.TimeoutSeconds
