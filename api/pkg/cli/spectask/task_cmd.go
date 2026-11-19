@@ -2,12 +2,14 @@ package spectask
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -421,15 +423,24 @@ Examples:
 			}
 			request.ConfineAgentKey = confineAgentKey
 
+			// Send attachments inline with the create request so they are stored
+			// before the task becomes dispatchable. Uploading them afterwards races
+			// with --auto-start: planning can begin first and the agent then gets
+			// an "attachment added after this session started" note.
+			for _, f := range attachFiles {
+				data, err := os.ReadFile(f)
+				if err != nil {
+					return fmt.Errorf("failed to read --attach %q: %w", f, err)
+				}
+				request.Attachments = append(request.Attachments, types.SpecTaskInlineAttachment{
+					Name:          filepath.Base(f),
+					ContentBase64: base64.StdEncoding.EncodeToString(data),
+				})
+			}
+
 			var task types.SpecTask
 			if err := taskRequest(http.MethodPost, "/api/v1/spec-tasks/from-prompt", request, &task); err != nil {
 				return fmt.Errorf("failed to create task: %w", err)
-			}
-
-			if len(attachFiles) > 0 {
-				if err := uploadSpecTaskAttachments(getAPIURL(), getToken(), task.ID, attachFiles); err != nil {
-					return fmt.Errorf("task %s created but attachments failed: %w", task.ID, err)
-				}
 			}
 
 			if quiet {
@@ -439,7 +450,7 @@ Examples:
 			fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
 			fmt.Printf("   Status: %s\n", task.Status)
 			if len(attachFiles) > 0 {
-				fmt.Printf("   📎 %d attachment(s) uploaded\n", len(attachFiles))
+				fmt.Printf("   📎 %d attachment(s) attached\n", len(attachFiles))
 			}
 			fmt.Printf("\n💡 Start planning: helix spectask start %s\n", task.ID)
 			return nil

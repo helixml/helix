@@ -2,9 +2,13 @@ package spectask
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -163,5 +167,52 @@ func TestSendWaitTimeoutIsSuccessfulDelivery(t *testing.T) {
 	close(release)
 	if !output.Delivered || !output.StillRunning {
 		t.Fatalf("unexpected output: %#v", output)
+	}
+}
+
+func TestCreateWithAttachSendsAttachmentsInCreateRequest(t *testing.T) {
+	dir := t.TempDir()
+	attachPath := filepath.Join(dir, "scope.json")
+	content := []byte(`{"scope":"x"}`)
+	if err := os.WriteFile(attachPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var requests []string
+	var created map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		if r.URL.Path == "/api/v1/spec-tasks/from-prompt" {
+			_ = json.NewDecoder(r.Body).Decode(&created)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"spt_test","project_id":"prj_test","status":"backlog"}`))
+	}))
+	defer server.Close()
+	t.Setenv("HELIX_URL", server.URL)
+	t.Setenv("HELIX_API_KEY", "test-token")
+
+	command := newCreateCommand()
+	command.SetArgs([]string{"--project", "prj_test", "--prompt", "do it", "--auto-start", "--attach", attachPath, "--quiet"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requests) != 1 || requests[0] != "POST /api/v1/spec-tasks/from-prompt" {
+		t.Fatalf("expected a single create request, got %v", requests)
+	}
+	attachments, _ := created["attachments"].([]any)
+	if len(attachments) != 1 {
+		t.Fatalf("create request has no inline attachment: %#v", created)
+	}
+	first, _ := attachments[0].(map[string]any)
+	if first["name"] != "scope.json" || first["content_base64"] != base64.StdEncoding.EncodeToString(content) {
+		t.Fatalf("unexpected inline attachment: %#v", first)
 	}
 }
