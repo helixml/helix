@@ -47,8 +47,12 @@ export interface ShadcnAreaChartProps {
   cardHeight?: number | 'auto';
   /** Treat an explicit zero as data instead of an empty series. */
   zeroIsData?: boolean;
-  /** Render unfilled comparison lines instead of filled areas. */
-  variant?: 'area' | 'line' | 'bar';
+  /**
+   * 'area' stacks filled areas; 'line' draws unfilled comparison lines;
+   * 'trend' draws each series as its own smooth line over a faint fill;
+   * 'bar' stacks bars.
+   */
+  variant?: 'area' | 'line' | 'trend' | 'bar';
   /** Fixed Y-axis bounds for values with a known range. */
   yDomain?: [number, number];
   /** Width reserved for Y-axis tick labels. Default 72. */
@@ -185,18 +189,25 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
 }) => {
   const lightTheme = useLightTheme();
   const Chart = variant === 'line' ? LineChart : variant === 'bar' ? BarChart : AreaChart;
+  // Trend lines are drawn side by side, so the axis scales to the largest
+  // single series, not their sum.
+  const stackSeries = stacked && variant !== 'line' && variant !== 'trend';
+  // Unstacked trend lines would draw an all-zero series as a flat line along
+  // the axis, a series the legend already leaves out.
+  const drawn = variant === 'trend'
+    ? series.filter(s => data.some(d => (Number(d[s.key]) || 0) > 0))
+    : series;
   // Few points (sparse days, a provider seen twice) draw as straight segments
   // between real samples; smoothing them invents shape between dates.
-  const curve = data.length <= 14 ? 'linear' : 'monotone';
+  const curve = data.length <= 14 && variant !== 'trend' ? 'linear' : 'monotone';
   const yTicks = React.useMemo(() => {
     if (yDomain) return undefined;
-    const sumSeries = stacked && variant !== 'line';
-    const max = Math.max(0, ...data.map(d => (sumSeries
+    const max = Math.max(0, ...data.map(d => (stackSeries
       ? series.reduce((acc, s) => acc + (Number(d[s.key]) || 0), 0)
       : Math.max(0, ...series.map(s => Number(d[s.key]) || 0)))));
     // A little headroom so a peak that lands on a tick doesn't ride the top edge.
     return niceTicks(max * 1.08);
-  }, [data, series, stacked, variant, yDomain]);
+  }, [data, series, stackSeries, yDomain]);
   const dense = data.length > 40;
   // A chart within one calendar day labels its ticks with the time alone; the
   // tooltip keeps the date.
@@ -258,8 +269,8 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                     x2="0"
                     y2="1"
                   >
-                    <stop offset="5%" stopColor={s.color} stopOpacity={0.8} />
-                    <stop offset="95%" stopColor={s.color} stopOpacity={0.1} />
+                    <stop offset="5%" stopColor={s.color} stopOpacity={variant === 'trend' ? 0.22 : 0.8} />
+                    <stop offset="95%" stopColor={s.color} stopOpacity={variant === 'trend' ? 0 : 0.1} />
                   </linearGradient>
                 ))}
               </defs>
@@ -299,7 +310,7 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                   enter the chart and wraps awkwardly when there are many
                   series — items end up in two ragged rows. We render our own
                   legend below the chart instead (see <ChartLegend/> below). */}
-              {series.map(s => variant === 'bar' ? (
+              {drawn.map(s => variant === 'bar' ? (
                 <Bar
                   key={s.key}
                   dataKey={s.key}
@@ -329,10 +340,13 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                   type={curve}
                   dataKey={s.key}
                   name={s.label}
-                  stackId={stacked ? 'stack' : undefined}
+                  stackId={stackSeries ? 'stack' : undefined}
                   stroke={s.color}
-                  strokeWidth={1.5}
+                  strokeWidth={variant === 'trend' ? 2 : 1.5}
                   fill={`url(#${gradientPrefix}-${s.key})`}
+                  // A one- or two-sample trend has no line to speak of; mark the samples.
+                  dot={variant === 'trend' && data.length <= 2 ? { r: 3, fill: s.color, strokeWidth: 0 } : false}
+                  activeDot={{ r: 4, fill: s.color, strokeWidth: 0 }}
                   isAnimationActive={false}
                 />
               ))}

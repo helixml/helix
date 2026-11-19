@@ -66,7 +66,7 @@ const MINUTE = 60_000
 const BUCKETS = [1, 5, 15, 30, 60, 180, 360, 720, 1440].map(m => m * MINUTE)
 
 // bucketCalls sums the session's calls into even time buckets, sized so the
-// span fits in about 40 bars: a ten-minute run reads per minute, a week-long
+// span fits in about 40 points: a ten-minute run reads per minute, a week-long
 // task per day. Empty buckets stay, so idle time shows as a gap.
 export interface CallBucket {
   date: string
@@ -172,7 +172,7 @@ export const SessionUsageView: FC<{ usage: SessionUsage }> = ({ usage }) => {
         data={metric === 'per-call' ? rows.tokens : buckets.rows}
         series={metric === 'calls' ? CALL_SERIES : metric === 'cost' ? COST_SERIES : TOKEN_SERIES}
         valueFormatter={metric === 'calls' ? (v => `${Math.round(v)}`) : metric === 'cost' ? formatCost : formatTokens}
-        variant={metric === 'per-call' ? 'area' : 'bar'}
+        variant={metric === 'per-call' ? 'area' : 'trend'}
         hideLegend={metric === 'calls' || metric === 'cost'}
         cardHeight="auto"
         chartHeight={170}

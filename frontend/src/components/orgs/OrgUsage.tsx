@@ -1328,7 +1328,7 @@ const OrgUsage: FC = () => {
                       data={activity.data}
                       series={activity.series}
                       valueFormatter={activityFormat}
-                      variant="bar"
+                      variant="trend"
                       cardHeight="auto"
                       chartHeight={260}
                     />
@@ -1340,7 +1340,7 @@ const OrgUsage: FC = () => {
                         series={COMPUTE_SERIES}
                         valueFormatter={formatCost}
                         zeroIsData
-                        variant="bar"
+                        variant="trend"
                         cardHeight="auto"
                       />
                     )}
@@ -1370,7 +1370,7 @@ const OrgUsage: FC = () => {
                       data={activity.data}
                       series={activity.series}
                       valueFormatter={activityFormat}
-                      variant="bar"
+                      variant="trend"
                       cardHeight="auto"
                       chartHeight={260}
                     />
@@ -1485,7 +1485,7 @@ const OrgUsage: FC = () => {
                       series={COMPUTE_SERIES}
                       valueFormatter={formatCost}
                       zeroIsData
-                      variant="bar"
+                      variant="trend"
                       cardHeight="auto"
                     />
 
