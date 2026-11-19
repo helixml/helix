@@ -130,6 +130,65 @@ func (suite *PostgresStoreTestSuite) TestProjectDeletionMakesLegacyPlanningSessi
 	suite.NotContains(live, session.ID)
 }
 
+// Only a desktop that is up or booting is active. A desktop stopped a moment
+// ago is not, however recently its row changed: the reaper relies on that to
+// keep a finished task's workspace for one grace period, not two.
+func (suite *PostgresStoreTestSuite) TestListActiveDesktopSessionIDs() {
+	ctx := context.Background()
+	project := suite.createTestProject()
+
+	ids := map[string]string{}
+	for _, status := range []string{"running", "starting", "restarting", "stopped", "terminated_idle", ""} {
+		session := types.Session{
+			ID:        system.GenerateSessionID(),
+			Owner:     "test-user",
+			ModelName: "external_agent",
+			ProjectID: project.ID,
+			Created:   time.Now(),
+			Updated:   time.Now(),
+			Metadata:  types.SessionMetadata{ExternalAgentStatus: status},
+		}
+		_, err := suite.db.CreateSession(ctx, session)
+		suite.Require().NoError(err)
+		ids[status] = session.ID
+	}
+	// A running chat session that is not a desktop is never active.
+	chat := types.Session{
+		ID:        system.GenerateSessionID(),
+		Owner:     "test-user",
+		ModelName: "some-llm",
+		Created:   time.Now(),
+		Updated:   time.Now(),
+		Metadata:  types.SessionMetadata{ExternalAgentStatus: "running"},
+	}
+	_, err := suite.db.CreateSession(ctx, chat)
+	suite.Require().NoError(err)
+
+	active, err := suite.db.ListActiveDesktopSessionIDs(ctx)
+	suite.Require().NoError(err)
+	for _, status := range []string{"running", "starting", "restarting"} {
+		suite.Contains(active, ids[status], status)
+	}
+	for _, status := range []string{"stopped", "terminated_idle", ""} {
+		suite.NotContains(active, ids[status], status)
+	}
+	suite.NotContains(active, chat.ID)
+
+	// A deleted session, or any session of a deleted project, is not active.
+	_, err = suite.db.DeleteSession(ctx, ids["starting"])
+	suite.Require().NoError(err)
+	active, err = suite.db.ListActiveDesktopSessionIDs(ctx)
+	suite.Require().NoError(err)
+	suite.NotContains(active, ids["starting"])
+	suite.Contains(active, ids["running"])
+
+	suite.Require().NoError(suite.db.DeleteProject(ctx, project.ID))
+	active, err = suite.db.ListActiveDesktopSessionIDs(ctx)
+	suite.Require().NoError(err)
+	suite.NotContains(active, ids["running"])
+	suite.NotContains(active, ids["restarting"])
+}
+
 func (suite *PostgresStoreTestSuite) TestClaimSessionAutoRestartHonorsGracePeriod() {
 	ctx := context.Background()
 	session := types.Session{

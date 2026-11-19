@@ -667,14 +667,7 @@ ORDER BY s.config->>'dev_container_id', s.created ASC`
 // updated_at).
 func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error) {
 	var ids []string
-	err := s.gdb.WithContext(ctx).
-		Model(&types.Session{}).
-		Where("deleted_at IS NULL").
-		// Desktop sessions: spec-task sessions carry model_name external_agent;
-		// org bot and exploratory sessions carry their real model name.
-		Where("(model_name = ? OR config->>'agent_type' = ?)", "external_agent", "zed_external").
-		// A deleted project's desktops are gone; its leftovers are orphans.
-		Where("NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = sessions.project_id AND p.deleted_at IS NOT NULL)").
+	err := s.desktopSessions(ctx).
 		Where(s.gdb.
 			Where("config->>'external_agent_status' = ?", "running").
 			Or("updated >= ?", cutoff).
@@ -688,6 +681,38 @@ func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff 
 		return nil, fmt.Errorf("failed to list external agent session ids: %w", err)
 	}
 	return ids, nil
+}
+
+// ListActiveDesktopSessionIDs returns the IDs of desktop sessions whose
+// desktop is up or being (re)started right now — external_agent_status
+// "running", "starting" or "restarting" — outside a deleted project.
+//
+// Unlike ListExternalAgentSessionIDs it has no recency window: a desktop that
+// stopped a minute ago is not active. The orphan reaper uses it to decide
+// whether a finished task's workspace is still somebody's cwd; padding that
+// with recency would add a second grace period on top of hydra's own.
+func (s *PostgresStore) ListActiveDesktopSessionIDs(ctx context.Context) ([]string, error) {
+	var ids []string
+	err := s.desktopSessions(ctx).
+		Where("config->>'external_agent_status' IN ?", []string{"running", "starting", "restarting"}).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active desktop session ids: %w", err)
+	}
+	return ids, nil
+}
+
+// desktopSessions scopes a query to the desktop sessions the orphan reaper
+// reasons about.
+func (s *PostgresStore) desktopSessions(ctx context.Context) *gorm.DB {
+	return s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("deleted_at IS NULL").
+		// Desktop sessions: spec-task sessions carry model_name external_agent;
+		// org bot and exploratory sessions carry their real model name.
+		Where("(model_name = ? OR config->>'agent_type' = ?)", "external_agent", "zed_external").
+		// A deleted project's desktops are gone; its leftovers are orphans.
+		Where("NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = sessions.project_id AND p.deleted_at IS NOT NULL)")
 }
 
 func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {
