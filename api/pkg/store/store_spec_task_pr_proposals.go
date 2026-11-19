@@ -43,6 +43,12 @@ func (s *PostgresStore) ListSpecTaskPRProposals(ctx context.Context, f *types.Sp
 		if f.SpecTaskID != "" {
 			q = q.Where("spec_task_id = ?", f.SpecTaskID)
 		}
+		if f.OrgBotID != "" {
+			if f.OrganizationID == "" {
+				return nil, fmt.Errorf("list pr proposals: an org bot filter needs its organization")
+			}
+			q = q.Where("org_bot_id = ? AND organization_id = ?", f.OrgBotID, f.OrganizationID)
+		}
 		if f.ProjectID != "" {
 			q = q.Where("project_id = ?", f.ProjectID)
 		}

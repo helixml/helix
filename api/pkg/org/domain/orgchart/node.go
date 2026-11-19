@@ -79,7 +79,14 @@ type Node struct {
 	// PortraitIndex is the server-assigned identity artwork slot. nil is
 	// limited to rows that predate the portrait allocation migration.
 	PortraitIndex *int
-	CreatedAt     time.Time
+	// KeepAlive exempts the Node's desktop from idle shutdown, like a spec
+	// task's Keep Alive. Set only through its own endpoint.
+	KeepAlive bool
+	// AutoApprovePullRequests approves the Node's pull request proposals as
+	// AutoApprovePullRequestsBy, like a spec task's setting of the same name.
+	AutoApprovePullRequests   bool
+	AutoApprovePullRequestsBy string
+	CreatedAt                 time.Time
 	UpdatedAt     time.Time
 }
 

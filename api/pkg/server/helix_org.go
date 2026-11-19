@@ -711,6 +711,14 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	authRouter.HandleFunc("/orgs/{org}/slack/workspaces", s.connectSlackWorkspace).Methods(http.MethodPost)
 	authRouter.HandleFunc("/orgs/{org}/slack/workspaces/{id}", s.deleteSlackWorkspace).Methods(http.MethodDelete)
 
+	// An org bot's pull request proposals and Keep Alive. Served here, not by
+	// the org API, so they share the spec-task proposal service and its
+	// project authorization.
+	authRouter.HandleFunc("/orgs/{org}/bots/{id}/pr-proposals", s.listOrgBotPRProposals).Methods(http.MethodGet)
+	authRouter.HandleFunc("/orgs/{org}/bots/{id}/pr-proposals/{proposal_id}/decide", s.decideOrgBotPRProposal).Methods(http.MethodPost)
+	authRouter.HandleFunc("/orgs/{org}/bots/{id}/pr-auto-approve", s.setOrgBotPRAutoApprove).Methods(http.MethodPut)
+	authRouter.HandleFunc("/orgs/{org}/bots/{id}/keep-alive", s.setOrgBotKeepAlive).Methods(http.MethodPut)
+
 	s.registerHelixOrgAuthenticatedRoutes(authRouter, orgHandlers)
 
 	// Expose helix-org's owner MCP through the standard Helix MCP gateway.
@@ -1024,6 +1032,9 @@ func initHelixOrgHandler(ctx context.Context, cfg helixOrgConfig, helixStore hel
 		dispatcher.RegisterActivationQueue(durableQueue)
 		agentDelivery = durableQueue
 		activationCanceller = durableQueue
+	}
+	if cfg.APIServer.prProposals != nil {
+		cfg.APIServer.prProposals.SetOrgBotHost(orgBotPRHost{st: st, dispatcher: dispatcher, now: time.Now})
 	}
 	// slackWS resolves the encrypted workspace install, both for inbound
 	// team-id resolution and for Worker secret bindings (a Worker replying

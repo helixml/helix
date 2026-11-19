@@ -45,7 +45,11 @@ type OrgBot struct {
 	SandboxMemoryMB int                             `json:"sandbox_memory_mb,omitempty" gorm:"column:sandbox_memory_mb;not null;default:0"`
 	InstanceProfile *types.BotInstanceProfile       `json:"instance_profile,omitempty" gorm:"column:instance_profile;type:jsonb;serializer:json"`
 	PortraitIndex   *int                            `json:"portrait_index,omitempty" gorm:"column:portrait_index"`
-	CreatedAt       time.Time                       `json:"created_at" gorm:"column:created_at"`
+	// Set only through their own repo methods, never the general Update.
+	KeepAlive                 bool      `json:"keep_alive" gorm:"column:keep_alive;not null;default:false"`
+	AutoApprovePullRequests   bool      `json:"auto_approve_pull_requests" gorm:"column:auto_approve_pull_requests;not null;default:false"`
+	AutoApprovePullRequestsBy string    `json:"auto_approve_pull_requests_by,omitempty" gorm:"column:auto_approve_pull_requests_by;not null;default:''"`
+	CreatedAt                 time.Time `json:"created_at" gorm:"column:created_at"`
 	UpdatedAt       time.Time                       `json:"updated_at" gorm:"column:updated_at"`
 }
 
@@ -81,8 +85,11 @@ func (nodeMapper) ToRow(node orgchart.Node) (OrgBot, error) {
 		SandboxMemoryMB: node.SandboxMemoryMB,
 		InstanceProfile: node.InstanceProfile,
 		PortraitIndex:   node.PortraitIndex,
-		CreatedAt:       node.CreatedAt,
-		UpdatedAt:       node.UpdatedAt,
+		KeepAlive:                 node.KeepAlive,
+		AutoApprovePullRequests:   node.AutoApprovePullRequests,
+		AutoApprovePullRequestsBy: node.AutoApprovePullRequestsBy,
+		CreatedAt:                 node.CreatedAt,
+		UpdatedAt:                 node.UpdatedAt,
 	}, nil
 }
 
@@ -113,8 +120,11 @@ func (nodeMapper) ToDomain(row OrgBot) (orgchart.Node, error) {
 		SandboxMemoryMB: row.SandboxMemoryMB,
 		InstanceProfile: row.InstanceProfile,
 		PortraitIndex:   row.PortraitIndex,
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
+		KeepAlive:                 row.KeepAlive,
+		AutoApprovePullRequests:   row.AutoApprovePullRequests,
+		AutoApprovePullRequestsBy: row.AutoApprovePullRequestsBy,
+		CreatedAt:                 row.CreatedAt,
+		UpdatedAt:                 row.UpdatedAt,
 	}, nil
 }
 
@@ -253,6 +263,24 @@ func (r *nodesRepo) UpdateCodeAgentConfig(ctx context.Context, orgID string, id 
 			"updated_at":        updatedAt,
 		}),
 	)
+}
+
+func (r *nodesRepo) UpdateKeepAlive(ctx context.Context, orgID string, id orgchart.NodeID, keepAlive bool, updatedAt time.Time) error {
+	return r.Repository.Update(ctx,
+		store.WithOrg(orgID),
+		store.WithID(string(id)),
+		store.WithUpdates(map[string]any{"keep_alive": keepAlive, "updated_at": updatedAt}),
+	)
+}
+
+// UpdatePRAutoApprove records by as the approver only when turning it on, so
+// turning it off keeps who last enabled it for the audit trail.
+func (r *nodesRepo) UpdatePRAutoApprove(ctx context.Context, orgID string, id orgchart.NodeID, enabled bool, by string, updatedAt time.Time) error {
+	updates := map[string]any{"auto_approve_pull_requests": enabled, "updated_at": updatedAt}
+	if enabled {
+		updates["auto_approve_pull_requests_by"] = by
+	}
+	return r.Repository.Update(ctx, store.WithOrg(orgID), store.WithID(string(id)), store.WithUpdates(updates))
 }
 
 func (r *nodesRepo) ClaimLegacyApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string, config *types.CodeAgentExecutionConfig) (bool, error) {
