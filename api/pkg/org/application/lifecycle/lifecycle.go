@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/org/application/nodes"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
 	"github.com/helixml/helix/api/pkg/org/domain/eventsource"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -127,6 +128,10 @@ type InstanceDeleter interface {
 type AgentDeliveryLifecycle interface {
 	CleanupAgent(ctx context.Context, orgID string, agentID orgchart.NodeID) error
 	RestoreAgent(orgID string, agentID orgchart.NodeID)
+	// PrepareNewAgent discards anything still queued or running under the
+	// agent id before a create dispatches its hire, so a re-created bot never
+	// inherits its previous incarnation's deliveries.
+	PrepareNewAgent(ctx context.Context, orgID string, agentID orgchart.NodeID) error
 }
 
 // Service composes the node-lifecycle operations the REST/MCP layers
@@ -139,6 +144,8 @@ type Service struct {
 	AgentConfigs  AgentConfigReader
 	Logger        *slog.Logger
 	AgentDelivery AgentDeliveryLifecycle
+	// Audit records explicit deletes in the org audit log. nil is a no-op.
+	Audit audit.Recorder
 
 	// Nodes is the node-mutation service Create delegates the row creation
 	// to, so the base-tool union and id minting are shared with the
@@ -372,7 +379,9 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		}
 	}
 	if s.AgentDelivery != nil {
-		s.AgentDelivery.RestoreAgent(orgID, id)
+		if err := s.AgentDelivery.PrepareNewAgent(ctx, orgID, id); err != nil {
+			return rollback(fmt.Errorf("clear stale deliveries for %q: %w", id, err))
+		}
 	}
 	if p.DeferActivation {
 		if err := clearChiefOfStaffDeletionMarker(); err != nil {
@@ -513,12 +522,17 @@ func (s *Service) reconcileAgentLink(ctx context.Context, orgID string, node org
 // Delete holds the same in-flight claim as StartDelete, so the Node is hidden
 // from reads while it runs, and it returns ErrDeleteInProgress when another
 // delete of the Node is already running.
-func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID) error {
+func (s *Service) Delete(ctx context.Context, orgID string, id orgchart.NodeID, actor Actor) error {
 	if !s.claimDelete(orgID, id) {
 		return fmt.Errorf("delete %q: %w", id, ErrDeleteInProgress)
 	}
 	defer s.releaseDelete(orgID, id)
-	return s.deleteDetached(ctx, orgID, id)
+	if err := s.recordDelete(ctx, orgID, id, actor, audit.StatusAttempted, nil); err != nil {
+		return fmt.Errorf("audit delete: %w", err)
+	}
+	err := s.deleteDetached(ctx, orgID, id)
+	s.recordDeleteOutcome(context.WithoutCancel(ctx), orgID, id, actor, err)
+	return err
 }
 
 func (s *Service) deleteDetached(ctx context.Context, orgID string, id orgchart.NodeID) error {

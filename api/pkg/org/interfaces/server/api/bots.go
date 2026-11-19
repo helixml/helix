@@ -452,7 +452,7 @@ func (a *apiHandler) deleteBot(w http.ResponseWriter, r *http.Request) {
 	if !a.authorizeBotEditAccess(w, r, orgID, id, "deletion") {
 		return
 	}
-	if err := a.deps.Lifecycle.StartDelete(r.Context(), orgID, id); err != nil {
+	if err := a.deps.Lifecycle.StartDelete(r.Context(), orgID, id, lifecycle.Actor{Type: audit.ActorUser, ID: helixorgserver.ActorUserIDFromContext(r.Context())}); err != nil {
 		writeError(w, errStatus(err), err)
 		return
 	}

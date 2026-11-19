@@ -1182,7 +1182,11 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	}
 	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID, types.SystemTurn(types.SystemTurnOrgActivation))
 	if err != nil {
-		return runtimehelix.DeliveryResult{}, fmt.Errorf("start external agent session: %w", err)
+		err = fmt.Errorf("start external agent session: %w", err)
+		if errors.Is(err, errDeliveryIDConflict) {
+			return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(err)
+		}
+		return runtimehelix.DeliveryResult{}, err
 	}
 	result := runtimehelix.DeliveryResult{SessionID: session.ID, InteractionID: req.InteractionID}
 	if req.InteractionID != "" {
@@ -1221,7 +1225,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		interaction, err := c.server.Store.GetInteraction(ctx, interactionID)
 		if err == nil {
 			if interaction.SessionID != sessionID || interaction.PromptMessage != prompt {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("activation interaction %s does not match delivery", interactionID)
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("%w: activation interaction %s does not match delivery", errDeliveryIDConflict, interactionID))
 			}
 			if interaction.State != types.InteractionStateError {
 				return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interactionID, Completed: interactionCompleted(interaction)}, nil
@@ -1238,7 +1242,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		}
 		if entry != nil {
 			if entry.SessionID != sessionID || entry.Content != prompt {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("prompt delivery ID %s conflicts with another message", promptID)
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("%w: prompt delivery ID %s conflicts with another message", errDeliveryIDConflict, promptID))
 			}
 			if entry.DeletedAt != nil {
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("%w: activation prompt %s was deleted", orgactivation.ErrNonRetryable, promptID)
@@ -1293,7 +1297,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("reload activation prompt: %w", err)
 			}
 			if entry == nil || entry.SessionID != sessionID || entry.Content != prompt {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("prompt delivery ID %s conflicts with another message", promptID)
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("%w: prompt delivery ID %s conflicts with another message", errDeliveryIDConflict, promptID))
 			}
 			if entry.DeletedAt != nil {
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("%w: activation prompt %s was deleted", orgactivation.ErrNonRetryable, promptID)
