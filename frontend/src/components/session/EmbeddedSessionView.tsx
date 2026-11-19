@@ -805,7 +805,12 @@ const EmbeddedSessionView = forwardRef<
                 assistantName={assistantName}
                 assistantPortraitIndex={assistantPortraitIndex}
               >
-                {isLive && (isOwner || account.admin) && (
+                {/* Every viewer who may read the session sees the reply stream
+                    in, with its spinner — not just the owner. The server
+                    already authorized them, and streaming.tsx subscribes them
+                    to the owner's updates; without this they saw the reply
+                    arrive in jumps on each poll, with no sign of activity. */}
+                {isLive && (
                   <InteractionLiveStream
                     session_id={sessionId}
                     interaction={interaction}
