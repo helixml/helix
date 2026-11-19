@@ -136,6 +136,18 @@ func (m *MemoryStore) UpdateSession(_ context.Context, session types.Session) (*
 	return &cp, nil
 }
 
+func (m *MemoryStore) UpdateSessionMetadata(_ context.Context, sessionID string, metadata types.SessionMetadata) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, ok := m.sessions[sessionID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	session.Metadata = metadata
+	session.Updated = time.Now()
+	return nil
+}
+
 func (m *MemoryStore) SetSessionProviderRecovery(_ context.Context, sessionID string, recovery *types.ProviderRecovery) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -921,6 +933,29 @@ func (m *MemoryStore) GetAnyPendingPrompt(_ context.Context, sessionID string) (
 func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
 	yes := true
 	return m.claimNextPrompt(sessionID, &yes), nil
+}
+
+func (m *MemoryStore) GetNextSteerPrompt(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var best *types.PromptHistoryEntry
+	for _, p := range m.prompts {
+		if p.SessionID != sessionID || p.DeletedAt != nil || !p.Steer || p.Interrupt {
+			continue
+		}
+		if p.Status != "pending" && p.Status != "failed" {
+			continue
+		}
+		if best == nil || p.CreatedAt.Before(best.CreatedAt) {
+			best = p
+		}
+	}
+	if best == nil {
+		return nil, nil
+	}
+	best.Status = "sending"
+	cp := *best
+	return &cp, nil
 }
 
 func (m *MemoryStore) setPromptStatus(id, status string) {

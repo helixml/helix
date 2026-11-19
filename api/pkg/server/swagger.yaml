@@ -3991,24 +3991,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - slack
     - github
-    - email
+    - helix_events
+    - local
+    - cron
     - gitlab
     - webhook
-    - cron
-    - local
-    - helix_events
+    - slack
+    - email
     type: string
     x-enum-varnames:
-    - KindSlack
     - KindGitHub
-    - KindEmail
+    - KindHelixEvents
+    - KindLocal
+    - KindCron
     - KindGitLab
     - KindWebhook
-    - KindCron
-    - KindLocal
-    - KindHelixEvents
+    - KindSlack
+    - KindEmail
   transport.ResolvedActivation:
     properties:
       address:
@@ -10050,6 +10050,12 @@ definitions:
           Status tracks whether this was successfully sent
           Values: "pending", "sent", "failed"
         type: string
+      steer:
+        description: |-
+          Steer delivers this message into the agent's running turn without
+          cancelling it, when the agent supports steering. Otherwise it waits for
+          the turn to finish like a queued message. Mutually exclusive with Interrupt.
+        type: boolean
       updated_at:
         type: string
       user_id:
@@ -10071,6 +10077,10 @@ definitions:
         type: string
       status:
         type: string
+      steer:
+        description: If true, delivered into the running turn when the agent supports
+          it
+        type: boolean
       timestamp:
         description: Unix timestamp in milliseconds
         type: integer
@@ -12036,6 +12046,12 @@ definitions:
         type: string
       agent_handoff_delivered_at:
         type: string
+      agent_steering_supported:
+        description: |-
+          AgentSteeringSupported is reported by Zed for the session's thread: true
+          when the agent can take a message into its running turn. Without it a
+          steer prompt waits for the turn to finish.
+        type: boolean
       agent_switched_at:
         description: |-
           AgentSwitchedAt is set when the agent framework is switched IN PLACE on

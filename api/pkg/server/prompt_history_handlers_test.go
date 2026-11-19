@@ -422,3 +422,66 @@ func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_Alr
 
 	s.server.markCanonicalSessionStartingForSync(context.Background(), specTaskID)
 }
+
+func (s *PromptHistoryHandlersSuite) expectBusySteerSession(sessionID string, steeringSupported bool) {
+	entry := &types.PromptHistoryEntry{ID: "p-steer", SessionID: sessionID, Status: "pending", Steer: true}
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).
+		Return([]*types.PromptHistoryEntry{entry}, nil)
+	session := &types.Session{ID: sessionID}
+	session.Metadata.ZedThreadID = "thread-steer"
+	session.Metadata.AgentSteeringSupported = steeringSupported
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{{ID: "int1", State: types.InteractionStateWaiting, Updated: time.Now()}}, int64(1), nil)
+}
+
+// A steer for a busy session whose agent can steer is delivered into the
+// running turn: processSteerPrompt claims it. Nothing is cancelled.
+func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForSession_BusySteer_Supported_DeliversMidTurn() {
+	sessionID := "ses_steer_ok"
+	s.expectBusySteerSession(sessionID, true)
+	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
+		SessionID: sessionID,
+		SendChan:  make(chan types.ExternalAgentCommand, 1),
+	})
+	s.store.EXPECT().GetNextSteerPrompt(gomock.Any(), sessionID).Return(nil, nil)
+	s.server.processPendingPromptsForSession(context.Background(), sessionID)
+}
+
+// Without the agent's steering capability a steer waits for the turn to end,
+// exactly like a queued prompt: GetNextSteerPrompt must not be called.
+func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForSession_BusySteer_Unsupported_WaitsForTurn() {
+	sessionID := "ses_steer_unsupported"
+	s.expectBusySteerSession(sessionID, false)
+	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
+		SessionID: sessionID,
+		SendChan:  make(chan types.ExternalAgentCommand, 1),
+	})
+	s.server.processPendingPromptsForSession(context.Background(), sessionID)
+}
+
+// With no live agent connection there is no running turn to steer into.
+func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForSession_BusySteer_NoConnection_Waits() {
+	sessionID := "ses_steer_nows"
+	s.expectBusySteerSession(sessionID, true)
+	s.server.processPendingPromptsForSession(context.Background(), sessionID)
+}
+
+func (s *PromptHistoryHandlersSuite) TestHandleAgentCapabilities_RecordsSteeringOnSession() {
+	sessionID := "ses_caps"
+	s.server.contextMappings[routeKey("agent-ses", "thread-caps")] = sessionID
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(&types.Session{ID: sessionID}, nil)
+	var recorded types.SessionMetadata
+	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), sessionID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, metadata types.SessionMetadata) error {
+			recorded = metadata
+			return nil
+		})
+
+	err := s.server.handleAgentCapabilities("agent-ses", &types.SyncMessage{Data: map[string]interface{}{
+		"acp_thread_id":      "thread-caps",
+		"steering_supported": true,
+	}})
+	s.Require().NoError(err)
+	s.True(recorded.AgentSteeringSupported)
+}

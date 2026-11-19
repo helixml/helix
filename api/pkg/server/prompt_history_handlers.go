@@ -275,18 +275,22 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 		return
 	}
 	interruptCount := 0
+	steerCount := 0
 	queueCount := 0
 	for _, entry := range entries {
 		if entry.Status != "pending" && entry.Status != "failed" {
 			continue
 		}
-		if entry.Interrupt {
+		switch {
+		case entry.Interrupt:
 			interruptCount++
-		} else {
+		case entry.Steer:
+			steerCount++
+		default:
 			queueCount++
 		}
 	}
-	if interruptCount == 0 && queueCount == 0 {
+	if interruptCount == 0 && steerCount == 0 && queueCount == 0 {
 		return
 	}
 
@@ -405,6 +409,12 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 					apiServer.processPromptQueue(ctx, sessionID)
 				}
 			}
+		} else if steerCount > 0 && wsLive && canSteerMidTurn(session) {
+			log.Info().
+				Str("session_id", sessionID).
+				Int("steer_count", steerCount).
+				Msg("🧭 [QUEUE] Session is busy and the agent can steer, delivering steer prompt into the running turn")
+			apiServer.processSteerPrompt(ctx, sessionID)
 		} else {
 			log.Debug().
 				Str("session_id", sessionID).
@@ -621,6 +631,42 @@ func (apiServer *HelixAPIServer) persistQueuedPrompt(ctx context.Context, sessio
 // Detached context so it survives the caller's request context being cancelled.
 func (apiServer *HelixAPIServer) nudgeSessionQueue(sessionID string) {
 	go apiServer.processPendingPromptsForSession(context.Background(), sessionID)
+}
+
+// canSteerMidTurn reports whether a steer prompt may be delivered into the
+// session's running turn. Without the agent's steering capability a steer
+// waits for message_completed exactly like a queued prompt. The thread must
+// exist for the same boot-race reason as interrupts: a message dispatched with
+// an empty acp_thread_id forks a second thread.
+func canSteerMidTurn(session *types.Session) bool {
+	return session.Metadata.AgentSteeringSupported && session.Metadata.ZedThreadID != ""
+}
+
+// processSteerPrompt delivers the next steer prompt into the running turn.
+// Unlike an interrupt nothing is cancelled: Zed injects the message and splits
+// the turn, completing the steered-from interaction at that point.
+func (apiServer *HelixAPIServer) processSteerPrompt(ctx context.Context, sessionID string) {
+	defer apiServer.lockPromptDrain(sessionID)()
+
+	nextPrompt, err := apiServer.Store.GetNextSteerPrompt(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get next steer prompt")
+		return
+	}
+	if nextPrompt == nil {
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", nextPrompt.ID).
+		Str("content_preview", truncateString(nextPrompt.Content, 50)).
+		Msg("🧭 [STEER] Processing steer prompt")
+
+	if err := apiServer.sendQueuedPromptToSession(ctx, sessionID, nextPrompt); err != nil {
+		apiServer.requeueUndispatchedPrompt(ctx, sessionID, nextPrompt, err)
+		return
+	}
 }
 
 // processInterruptPrompt processes ONLY interrupt prompts (interrupt=true)

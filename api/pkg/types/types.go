@@ -563,6 +563,10 @@ type SessionMetadata struct {
 	SessionRole             string               `json:"session_role,omitempty"`              // "planning", "implementation", "coordination", "exploratory"
 	ImplementationTaskIndex int                  `json:"implementation_task_index,omitempty"` // Index of implementation task this session handles
 	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
+	// AgentSteeringSupported is reported by Zed for the session's thread: true
+	// when the agent can take a message into its running turn. Without it a
+	// steer prompt waits for the turn to finish.
+	AgentSteeringSupported bool `json:"agent_steering_supported,omitempty"`
 	ZedAgentName            string               `json:"zed_agent_name,omitempty"`            // Agent name used when thread was created (e.g., "zed-agent", "claude", "qwen")
 	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents

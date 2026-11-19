@@ -10,7 +10,7 @@ import { TypesInteractionState } from '../../api/api'
 import { useStreaming } from '../../contexts/streaming'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
-import { useListInteractions } from '../../services/sessionService'
+import { useGetSession, useListInteractions } from '../../services/sessionService'
 import { useRefreshSpecTaskStatus } from '../../services/specTaskService'
 import { SESSION_TYPE_TEXT } from '../../types'
 import RobustPromptInput from '../common/RobustPromptInput'
@@ -136,6 +136,14 @@ const AgentChatContent: FC<AgentChatProps> = ({
       TypesInteractionState.InteractionStateWaiting,
     [latestInteractionsResponse?.data?.interactions?.[0]?.state],
   )
+  // Whether the agent can take a message mid-turn. Zed reports it once the
+  // agent's thread exists, so it is re-read while a turn is running.
+  const { data: steeringSessionResponse } = useGetSession(sessionId, {
+    enabled: !!sessionId && !!specTaskId && !minimal,
+    skipInteractions: true,
+    refetchInterval: isAgentBusy ? 10000 : false,
+  })
+  const steeringSupported = !!steeringSessionResponse?.data?.config?.agent_steering_supported
   // Session-keyed queue for sessions without a spec task; the spec-task
   // composer carries its own backend-backed queue instead.
   const sessionQueue = useSessionPromptQueue(showSessionPromptQueue ? sessionId : '', isAgentBusy)
@@ -258,6 +266,7 @@ const AgentChatContent: FC<AgentChatProps> = ({
       onFileUpload={handleFileUpload}
       onCancel={handleCancel}
       isAgentBusy={isAgentBusy}
+      steeringSupported={steeringSupported}
       isCancelling={isCancelling}
       leadingActions={leadingActions}
       showContextUsage={!minimal}

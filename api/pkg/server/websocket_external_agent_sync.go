@@ -784,6 +784,8 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		err = apiServer.handleThreadCreated(sessionID, syncMsg)
 	case "user_created_thread":
 		err = apiServer.handleUserCreatedThread(sessionID, syncMsg)
+	case "agent_capabilities":
+		return apiServer.handleAgentCapabilities(sessionID, syncMsg)
 	case "thread_title_changed":
 		err = apiServer.handleThreadTitleChanged(sessionID, syncMsg)
 	case "context_created": // Legacy support - redirect to thread_created
@@ -3862,8 +3864,13 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// barrier in prompt_history_handlers.go stops the interrupt path; this guards
 	// the processAnyPendingPrompt / readiness path that funnels here too.
 	// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+	//
+	// Steer prompts are exempt on the same terms when the agent can take a
+	// message mid-turn (canSteerMidTurn); otherwise they wait like a queued
+	// prompt.
 	threadNotEstablished := session.Metadata.ZedThreadID == ""
-	if !prompt.Interrupt || threadNotEstablished {
+	deliversMidTurn := prompt.Interrupt || (prompt.Steer && canSteerMidTurn(session))
+	if !deliversMidTurn || threadNotEstablished {
 		latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
@@ -4003,6 +4010,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			"agent_name":                agentName,
 			"from_queue":                true,             // Indicate this came from the queue
 			"interrupt":                 prompt.Interrupt, // Tell Zed to cancel the current turn before sending
+			"steer":                     prompt.Steer,     // Deliver into the running turn; Zed ignores it when idle
 			"interaction_id":            createdInteraction.ID,
 			"interaction_generation_id": createdInteraction.GenerationID,
 			"track_code_changes":        session.Metadata.SpecTaskID != "",
@@ -5340,6 +5348,51 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 
 // handleThreadTitleChanged processes thread title change event from Zed
 // Updates the corresponding Helix session name
+// handleAgentCapabilities records what the agent behind a thread can do. The
+// queue reads AgentSteeringSupported to decide whether a steer prompt may be
+// delivered mid-turn; the composer reads it to say what Enter will do.
+func (apiServer *HelixAPIServer) handleAgentCapabilities(agentSessionID string, syncMsg *types.SyncMessage) error {
+	acpThreadID, _ := syncMsg.Data["acp_thread_id"].(string)
+	if acpThreadID == "" {
+		return fmt.Errorf("missing acp_thread_id in agent_capabilities event")
+	}
+	steeringSupported, ok := syncMsg.Data["steering_supported"].(bool)
+	if !ok {
+		return fmt.Errorf("missing steering_supported in agent_capabilities event")
+	}
+
+	apiServer.contextMappingsMutex.RLock()
+	helixSessionID, exists := apiServer.contextMappings[routeKey(agentSessionID, acpThreadID)]
+	apiServer.contextMappingsMutex.RUnlock()
+	if !exists {
+		log.Warn().
+			Str("agent_session_id", agentSessionID).
+			Str("acp_thread_id", acpThreadID).
+			Msg("agent_capabilities for a thread with no Helix session")
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to load session %s: %w", helixSessionID, err)
+	}
+	if session.Metadata.AgentSteeringSupported == steeringSupported {
+		return nil
+	}
+	session.Metadata.AgentSteeringSupported = steeringSupported
+	if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(ctx, helixSessionID, session.Metadata); err != nil {
+		return fmt.Errorf("failed to record agent capabilities for session %s: %w", helixSessionID, err)
+	}
+	log.Info().
+		Str("session_id", helixSessionID).
+		Str("acp_thread_id", acpThreadID).
+		Bool("steering_supported", steeringSupported).
+		Msg("🧭 [HELIX] Recorded agent steering capability")
+	return nil
+}
+
 func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string, syncMsg *types.SyncMessage) error {
 	log.Info().
 		Str("agent_session_id", agentSessionID).

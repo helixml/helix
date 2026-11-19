@@ -31847,24 +31847,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "slack",
                 "github",
-                "email",
+                "helix_events",
+                "local",
+                "cron",
                 "gitlab",
                 "webhook",
-                "cron",
-                "local",
-                "helix_events"
+                "slack",
+                "email"
             ],
             "x-enum-varnames": [
-                "KindSlack",
                 "KindGitHub",
-                "KindEmail",
+                "KindHelixEvents",
+                "KindLocal",
+                "KindCron",
                 "KindGitLab",
                 "KindWebhook",
-                "KindCron",
-                "KindLocal",
-                "KindHelixEvents"
+                "KindSlack",
+                "KindEmail"
             ]
         },
         "transport.ResolvedActivation": {
@@ -40071,6 +40071,10 @@ const docTemplate = `{
                     "description": "Status tracks whether this was successfully sent\nValues: \"pending\", \"sent\", \"failed\"",
                     "type": "string"
                 },
+                "steer": {
+                    "description": "Steer delivers this message into the agent's running turn without\ncancelling it, when the agent supports steering. Otherwise it waits for\nthe turn to finish like a queued message. Mutually exclusive with Interrupt.",
+                    "type": "boolean"
+                },
                 "updated_at": {
                     "type": "string"
                 },
@@ -40101,6 +40105,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "steer": {
+                    "description": "If true, delivered into the running turn when the agent supports it",
+                    "type": "boolean"
                 },
                 "timestamp": {
                     "description": "Unix timestamp in milliseconds",
@@ -42596,6 +42604,10 @@ const docTemplate = `{
                 },
                 "agent_handoff_delivered_at": {
                     "type": "string"
+                },
+                "agent_steering_supported": {
+                    "description": "AgentSteeringSupported is reported by Zed for the session's thread: true\nwhen the agent can take a message into its running turn. Without it a\nsteer prompt waits for the turn to finish.",
+                    "type": "boolean"
                 },
                 "agent_switched_at": {
                     "description": "AgentSwitchedAt is set when the agent framework is switched IN PLACE on\nthis same session (no fork / new container) — see\ndesign/tasks/002111_so-we-recently-added-a/design.md. It marks that a\nfork_seed interaction carrying the prior thread's transcript exists on\nTHIS session, so maybePrependTranscript seeds the new Zed thread even\nthough ParentSessionID is empty (the session continues from itself).",

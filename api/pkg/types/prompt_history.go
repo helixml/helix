@@ -46,6 +46,11 @@ type PromptHistoryEntry struct {
 	// Default is false: queue mode is the default, interrupt is explicit
 	Interrupt bool `json:"interrupt" gorm:"not null;default:false"`
 
+	// Steer delivers this message into the agent's running turn without
+	// cancelling it, when the agent supports steering. Otherwise it waits for
+	// the turn to finish like a queued message. Mutually exclusive with Interrupt.
+	Steer bool `json:"steer" gorm:"not null;default:false"`
+
 	// QueuePosition tracks ordering for drag-and-drop reordering
 	// Lower values = earlier in queue. Null for sent messages.
 	QueuePosition *int `json:"queue_position,omitempty" gorm:"index"`
@@ -89,6 +94,7 @@ type PromptHistoryEntrySync struct {
 	Status        string `json:"status"`
 	Timestamp     int64  `json:"timestamp"`                // Unix timestamp in milliseconds
 	Interrupt     *bool  `json:"interrupt,omitempty"`      // If true, interrupts current conversation
+	Steer         *bool  `json:"steer,omitempty"`          // If true, delivered into the running turn when the agent supports it
 	QueuePosition *int   `json:"queue_position,omitempty"` // Position in queue for drag-and-drop ordering
 }
 
