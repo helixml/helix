@@ -7,6 +7,9 @@ import {
   ApiAssetHealthDTO,
   ApiCreateAssetRequest,
   ApiBotActivateDTO,
+  ApiBotResetDTO,
+  ApiBotResetPlanDTO,
+  ApiBotRestartDTO,
   ApiBotBadge,
   ApiBotChatDTO,
   ApiBotDTO,
@@ -39,6 +42,10 @@ export type BotInstanceDTO = ApiBotInstanceDTO
 export type BotInstanceProfile = TypesBotInstanceProfile
 export type BotDetailDTO = Omit<ApiBotDetailDTO, 'bot'> & { bot?: BotDTO }
 export type BotActivateDTO = ApiBotActivateDTO
+export type BotRestartDTO = ApiBotRestartDTO
+export type BotResetDTO = ApiBotResetDTO
+export type BotResetPlanDTO = ApiBotResetPlanDTO
+export type BotResetScope = 'session' | 'session_and_home'
 export type BotChatDTO = ApiBotChatDTO
 export type ToolDTO = ApiToolDTO
 export type SettingsSpecDTO = ApiSettingsSpecDTO
@@ -85,6 +92,7 @@ export const QUERY_KEYS = {
   workerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id, 'secrets'] as const,
   availableWorkerSecrets: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id, 'available-secrets'] as const,
   botInstances: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id, 'instances'] as const,
+  botResetPlan: (orgID: string, id: string) => ['helix-org', orgID, 'bots', id, 'reset-plan'] as const,
 }
 
 export function useWorkerSecrets(botID?: string) {
@@ -431,9 +439,12 @@ export function useStopBotAgent(orgIDOverride?: string) {
   })
 }
 
-// useRestartBotAgent fully tears down the current session and starts a
-// brand-new one (fresh desktop + thread). When there is no session it
-// just activates.
+// useRestartBotAgent is the non-destructive Restart: it recreates the bot's
+// runtime on its current session, keeping its home (files, browser profiles
+// and logins), conversation and queued work; an interrupted activation is
+// settled and replayed. A bot with no session is started instead. Every
+// control labelled "Restart" uses this; the destructive operation is
+// useResetBot.
 export function useRestartBotAgent(orgIDOverride?: string) {
   const api = useApi()
   const qc = useQueryClient()
@@ -441,8 +452,8 @@ export function useRestartBotAgent(orgIDOverride?: string) {
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
     mutationFn: async (botId: string) => {
-      const res = await api.getApiClient().v1OrgsBotsRestartCreate(botId, orgID)
-      return res.data as BotActivateDTO
+      const res = await api.getApiClient().v1OrgsBotsRuntimeRestartCreate(botId, orgID)
+      return res.data as BotRestartDTO
     },
     onSuccess: (_data, botId) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
@@ -451,20 +462,35 @@ export function useRestartBotAgent(orgIDOverride?: string) {
   })
 }
 
-// Applies restart-sensitive Bot config by recreating its existing container.
-// The apply-config endpoint preserves the healthy ACP thread and sends no activation.
-export function useApplyBotConfig(orgIDOverride?: string) {
+// useBotResetPlan reads what each reset scope erases and keeps, from the
+// server, so the confirmation dialog never drifts from the real contract.
+export function useBotResetPlan(botID?: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.botResetPlan(orgID, botID ?? ''),
+    queryFn: async () => (await api.getApiClient().v1OrgsBotsResetDetail(botID!, orgID)).data as BotResetPlanDTO,
+    enabled: !!orgID && !!botID && (options?.enabled ?? true),
+  })
+}
+
+// useResetBot is the explicit, destructive Reset. It purges queued work,
+// deletes the current session and, for session_and_home, retires the bot
+// home, then starts a fresh session. confirm must equal the bot id.
+export function useResetBot(orgIDOverride?: string) {
   const api = useApi()
   const qc = useQueryClient()
   const { orgID: baseOrgID } = useHelixOrgBase()
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
-    mutationFn: async (botId: string) => {
-      await api.getApiClient().v1OrgsBotsApplyConfigCreate(botId, orgID)
+    mutationFn: async ({ botId, scope }: { botId: string; scope: BotResetScope }) => {
+      const res = await api.getApiClient().v1OrgsBotsResetCreate(botId, orgID, { scope, confirm: botId })
+      return res.data as BotResetDTO
     },
-    onSuccess: (_data, botId) => {
+    onSettled: (_data, _err, { botId }) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.botResetPlan(orgID, botId) })
     },
   })
 }

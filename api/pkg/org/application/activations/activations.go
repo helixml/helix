@@ -53,8 +53,9 @@ type DesktopStopper interface {
 }
 
 // SessionResetter fully tears down a bot's current session (stop desktop
-// → delete session row → clear the persisted pointer) so Restart's
-// follow-up Activate provisions a brand-new session.
+// → delete session row → clear the persisted pointer) so Reset's
+// follow-up Activate provisions a brand-new session. The bot home is not
+// part of the session and survives it.
 type SessionResetter interface {
 	ResetSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionID string) error
 }
@@ -113,8 +114,9 @@ var ErrInvalidReset = errors.New("invalid reset request")
 var ErrResetRefused = errors.New("reset refused")
 
 // Activations owns the host-driven agent lifecycle commands: Activate
-// (start), Stop, and Restart — shared by the REST endpoints and the MCP
-// start_bot / stop_bot / restart_bot tools.
+// (start), Stop, Restart (non-destructive) and Reset (explicit,
+// destructive) — shared by the REST endpoints and the MCP start_bot /
+// stop_bot / restart_bot / reset_bot tools.
 type Activations struct {
 	repo       activation.Repository
 	now        func() time.Time
@@ -490,19 +492,12 @@ func (a *Activations) Reset(ctx context.Context, orgID string, workerID orgchart
 	}()
 
 	if req.Scope == ResetSession {
-		established, err := a.homes.HomeEstablished(ctx, orgID, workerID)
+		reason, err := a.sessionResetRefusal(ctx, orgID, workerID)
 		if err != nil {
-			return res, fmt.Errorf("check bot home: %w", err)
+			return res, err
 		}
-		if !established {
-			sessionID, err := a.sessions.SessionID(ctx, orgID, workerID)
-			if err != nil {
-				return res, fmt.Errorf("resolve session: %w", err)
-			}
-			if sessionID != "" {
-				return res, fmt.Errorf("%w: bot %s still keeps its home in session %s, so a session reset would delete it; restart the bot once to move the home out of the session, or reset with scope %q",
-					ErrResetRefused, workerID, sessionID, ResetSessionAndHome)
-			}
+		if reason != "" {
+			return res, fmt.Errorf("%w: %s", ErrResetRefused, reason)
 		}
 	}
 
@@ -532,6 +527,62 @@ func (a *Activations) Reset(ctx context.Context, orgID string, workerID orgchart
 	}
 	res.Activation = activated
 	return res, nil
+}
+
+// ScopePlan is one reset scope as it applies to a bot right now.
+type ScopePlan struct {
+	Scope             ResetScope
+	Declaration       ResetDeclaration
+	Available         bool
+	UnavailableReason string
+}
+
+// ResetPlan describes every reset scope for the bot, including whether a
+// session-only reset would be refused because the home still lives inside
+// the session.
+func (a *Activations) ResetPlan(ctx context.Context, orgID string, workerID orgchart.NodeID) ([]ScopePlan, error) {
+	if err := orgchart.ValidID(string(workerID)); err != nil {
+		return nil, fmt.Errorf("worker id: %w", err)
+	}
+	if a.homes == nil || a.sessions == nil {
+		return nil, ErrResetUnavailable
+	}
+	reason, err := a.sessionResetRefusal(ctx, orgID, workerID)
+	if err != nil {
+		return nil, err
+	}
+	var plans []ScopePlan
+	for _, scope := range []ResetScope{ResetSession, ResetSessionAndHome} {
+		decl, _ := DeclareReset(scope)
+		p := ScopePlan{Scope: scope, Declaration: decl, Available: true}
+		if scope == ResetSession && reason != "" {
+			p.Available = false
+			p.UnavailableReason = reason
+		}
+		plans = append(plans, p)
+	}
+	return plans, nil
+}
+
+// sessionResetRefusal explains why a session-only reset would delete the
+// bot home, or returns "" when it is safe.
+func (a *Activations) sessionResetRefusal(ctx context.Context, orgID string, workerID orgchart.NodeID) (string, error) {
+	established, err := a.homes.HomeEstablished(ctx, orgID, workerID)
+	if err != nil {
+		return "", fmt.Errorf("check bot home: %w", err)
+	}
+	if established {
+		return "", nil
+	}
+	sessionID, err := a.sessions.SessionID(ctx, orgID, workerID)
+	if err != nil {
+		return "", fmt.Errorf("resolve session: %w", err)
+	}
+	if sessionID == "" {
+		return "", nil
+	}
+	return fmt.Sprintf("bot %s still keeps its home in session %s, so a session reset would delete it; restart the bot once to move the home out of the session, or reset with scope %q",
+		workerID, sessionID, ResetSessionAndHome), nil
 }
 
 const resetAuditAction = "reset_bot"

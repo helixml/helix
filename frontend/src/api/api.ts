@@ -219,6 +219,51 @@ export interface ApiBotInstanceDTO {
   updated_at?: string;
 }
 
+export interface ApiBotResetDTO {
+  activation_id?: string;
+  erases?: string[];
+  home?: ApiBotResetHomeDTO;
+  keeps?: string[];
+  previous_session_id?: string;
+  scope?: string;
+  session_id?: string;
+}
+
+export interface ApiBotResetHomeDTO {
+  existed?: boolean;
+  generation?: string;
+  retired_path?: string;
+}
+
+export interface ApiBotResetPlanDTO {
+  scopes?: ApiBotResetScopeDTO[];
+}
+
+export interface ApiBotResetRequestDTO {
+  /** Confirm must equal the bot id. */
+  confirm?: string;
+  /** Scope is "session" or "session_and_home". */
+  scope?: string;
+}
+
+export interface ApiBotResetScopeDTO {
+  /** Available is false when the scope would be refused right now. */
+  available?: boolean;
+  erases?: string[];
+  keeps?: string[];
+  scope?: string;
+  unavailable_reason?: string;
+}
+
+export interface ApiBotRestartDTO {
+  activation_id?: string;
+  legacy_app_id?: string;
+  mode?: string;
+  preserves?: string[];
+  project_id?: string;
+  session_id?: string;
+}
+
 export interface ApiChartPositionDTO {
   id?: string;
   /** Kind is bot | topic | processor | asset (matches the ReactFlow node id prefix). */
@@ -754,6 +799,33 @@ export interface HosthistorySample {
   disk?: number;
   memory?: number;
   timestamp?: number;
+}
+
+export interface HydraBotHomeInventory {
+  chrome_profiles?: HydraChromeProfileStatus[];
+  top_level_entries?: number;
+}
+
+export enum HydraBotHomeOutcome {
+  BotHomeOutcomeExisting = "existing",
+  BotHomeOutcomeCreated = "created",
+  BotHomeOutcomeMigrated = "migrated",
+}
+
+export interface HydraBotHomeResult {
+  generation?: string;
+  inventory?: HydraBotHomeInventory;
+  migrated_from_session?: string;
+  outcome?: HydraBotHomeOutcome;
+  path?: string;
+}
+
+export interface HydraChromeProfileStatus {
+  cookies_db_present?: boolean;
+  default_prefs_valid?: boolean;
+  local_state_valid?: boolean;
+  path?: string;
+  singleton_lock?: boolean;
 }
 
 export interface HydraContainerBlkioStats {
@@ -1418,6 +1490,8 @@ export interface ServerDeployWebServiceRequest {
 }
 
 export interface ServerDevContainerWithClients {
+  /** BotHome reports how the bot home was bound, when the request had one. */
+  bot_home?: HydraBotHomeResult;
   clients?: GithubComHelixmlHelixApiPkgServerClientInfo[];
   container_id?: string;
   container_name?: string;
@@ -2466,14 +2540,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitHub = "github",
-  KindGitLab = "gitlab",
   KindEmail = "email",
   KindSlack = "slack",
-  KindCron = "cron",
   KindHelixEvents = "helix_events",
+  KindGitLab = "gitlab",
   KindLocal = "local",
   KindWebhook = "webhook",
+  KindCron = "cron",
+  KindGitHub = "github",
 }
 
 export interface TransportResolvedActivation {
@@ -4630,13 +4704,6 @@ export interface TypesGitRepository {
   status?: TypesGitRepositoryStatus;
   /** Set while an upstream operation is running */
   sync_in_progress_since?: string;
-  /**
-   * TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
-   * .helix/startup.sh from. Only a human write moves it (a push with a human
-   * credential, or a startup-script save in the UI/API); agent pushes never
-   * do. Written only via SetGitRepositoryTrustedStartupSHA.
-   */
-  trusted_startup_sha?: string;
   updated_at?: string;
   /** Authentication fields */
   username?: string;
@@ -6852,6 +6919,7 @@ export interface TypesSandbox {
   id?: string;
   image?: string;
   memory_mb?: number;
+  /** SandboxNameMaxLen */
   name?: string;
   /**
    * OrgBotID is the helix-org bot whose session owns this container, when
@@ -16784,14 +16852,68 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsBotsResetDetail
+     * @summary Helix-org: describe what resetting a bot would erase
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/reset
+     * @secure
+     */
+    v1OrgsBotsResetDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotResetPlanDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/reset`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsResetCreate
+     * @summary Helix-org: reset a bot (destructive; erases the declared scope)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/reset
+     * @secure
+     */
+    v1OrgsBotsResetCreate: (id: string, org: string, request: ApiBotResetRequestDTO, params: RequestParams = {}) =>
+      this.request<ApiBotResetDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/reset`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsBotsRestartCreate
-     * @summary Helix-org: restart a bot (fresh session + desktop)
+     * @summary Helix-org: DEPRECATED fresh-session restart (use runtime-restart or reset)
      * @request POST:/api/v1/orgs/{org}/bots/{id}/restart
+     * @deprecated
      * @secure
      */
     v1OrgsBotsRestartCreate: (id: string, org: string, params: RequestParams = {}) =>
       this.request<ApiBotActivateDTO, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/bots/${id}/restart`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsRuntimeRestartCreate
+     * @summary Helix-org: restart a bot's runtime (keeps session, home and queue)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/runtime-restart
+     * @secure
+     */
+    v1OrgsBotsRuntimeRestartCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotRestartDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/runtime-restart`,
         method: "POST",
         secure: true,
         ...params,

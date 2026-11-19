@@ -719,7 +719,7 @@ func (a *apiHandler) stopBot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// restartBot is the ordinary, non-destructive restart: it recreates the
+// runtimeRestartBot is the ordinary, non-destructive restart: it recreates the
 // bot's container on its current session. Queued work, the conversation
 // thread and the bot home are kept; an interrupted activation is replayed
 // under its delivery id. Use resetBot for a fresh session.
@@ -732,8 +732,8 @@ func (a *apiHandler) stopBot(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} api.ErrorResponse
 // @Failure 501 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/bots/{id}/restart [post]
-func (a *apiHandler) restartBot(w http.ResponseWriter, r *http.Request) {
+// @Router /api/v1/orgs/{org}/bots/{id}/runtime-restart [post]
+func (a *apiHandler) runtimeRestartBot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if a.deps.Activations == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("restart is not wired in this deployment"))
@@ -774,6 +774,119 @@ func (a *apiHandler) restartBot(w http.ResponseWriter, r *http.Request) {
 		ProjectID:    res.Activation.ProjectID,
 		LegacyAppID:  res.Activation.AgentID,
 	})
+}
+
+// restartBot is the original destructive restart, kept with its documented
+// contract (a fresh session and desktop; queued and in-flight work purged)
+// for existing API callers. It now runs as an audited session-scope Reset,
+// so it never erases the bot home, and it refuses (409) while the home still
+// lives inside the session. First-party callers use runtime-restart (the
+// non-destructive Restart) or reset.
+//
+// @Summary Helix-org: DEPRECATED fresh-session restart (use runtime-restart or reset)
+// @Tags HelixOrg
+// @Deprecated
+// @Param id path string true "Bot ID"
+// @Success 202 {object} api.BotActivateDTO
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 409 {object} api.ErrorResponse
+// @Failure 500 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/bots/{id}/restart [post]
+func (a *apiHandler) restartBot(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if a.deps.Activations == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("restart is not wired in this deployment"))
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.NodeID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
+		return
+	}
+	bot, err := a.deps.Queries.GetBot(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if !a.authorizeLoadedBotEdit(w, r, orgID, bot, "sandbox") {
+		return
+	}
+	w.Header().Set("Deprecation", "true")
+	w.Header().Set("Link", "</bots/"+string(id)+"/runtime-restart>; rel=\"successor-version\"")
+	res, err := a.deps.Activations.Reset(ctx, orgID, id, activations.ResetRequest{
+		Scope:   activations.ResetSession,
+		Confirm: string(id),
+		Actor:   audit.ActorUser,
+		ActorID: helixorgserver.ActorUserIDFromContext(ctx),
+	})
+	if err != nil {
+		writeResetError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, BotActivateDTO{
+		ActivationID: string(res.Activation.ActivationID),
+		ProjectID:    res.Activation.ProjectID,
+		LegacyAppID:  res.Activation.AgentID,
+		SessionID:    res.Activation.SessionID,
+	})
+}
+
+// getBotResetPlan returns what each reset scope erases and keeps, and
+// whether a session-only reset is currently allowed, so the confirmation
+// dialog shows the server's contract rather than a copy of it.
+//
+// @Summary Helix-org: describe what resetting a bot would erase
+// @Tags HelixOrg
+// @Param id path string true "Bot ID"
+// @Success 200 {object} api.BotResetPlanDTO
+// @Failure 403 {object} api.ErrorResponse
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/bots/{id}/reset [get]
+func (a *apiHandler) getBotResetPlan(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if a.deps.Activations == nil {
+		writeError(w, http.StatusNotImplemented, activations.ErrResetUnavailable)
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.NodeID(r.PathValue("id"))
+	bot, err := a.deps.Queries.GetBot(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if !a.authorizeLoadedBotEdit(w, r, orgID, bot, "data") {
+		return
+	}
+	plan, err := a.deps.Activations.ResetPlan(ctx, orgID, id)
+	if err != nil {
+		if errors.Is(err, activations.ErrResetUnavailable) {
+			writeError(w, http.StatusNotImplemented, err)
+			return
+		}
+		writeError(w, errStatus(err), err)
+		return
+	}
+	dto := BotResetPlanDTO{}
+	for _, sp := range plan {
+		dto.Scopes = append(dto.Scopes, BotResetScopeDTO{
+			Scope: string(sp.Scope), Erases: sp.Declaration.Erases, Keeps: sp.Declaration.Keeps,
+			Available: sp.Available, UnavailableReason: sp.UnavailableReason,
+		})
+	}
+	writeJSON(w, http.StatusOK, dto)
 }
 
 // resetBot is the explicit, destructive reset. It purges queued and
@@ -831,16 +944,7 @@ func (a *apiHandler) resetBot(w http.ResponseWriter, r *http.Request) {
 		ActorID: helixorgserver.ActorUserIDFromContext(ctx),
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, activations.ErrInvalidReset):
-			writeError(w, http.StatusBadRequest, err)
-		case errors.Is(err, activations.ErrResetRefused):
-			writeError(w, http.StatusConflict, err)
-		case errors.Is(err, activations.ErrResetUnavailable), errors.Is(err, activations.ErrActivateUnavailable):
-			writeError(w, http.StatusNotImplemented, err)
-		default:
-			writeError(w, errStatus(err), err)
-		}
+		writeResetError(w, err)
 		return
 	}
 	dto := BotResetDTO{
@@ -901,6 +1005,19 @@ func (a *apiHandler) applyBotConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- helpers ------------------------------------------------------------
+
+func writeResetError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, activations.ErrInvalidReset):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, activations.ErrResetRefused):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, activations.ErrResetUnavailable), errors.Is(err, activations.ErrActivateUnavailable):
+		writeError(w, http.StatusNotImplemented, err)
+	default:
+		writeError(w, errStatus(err), err)
+	}
+}
 
 // managerIDs returns the ids of the managers the given bot reports to,
 // as strings, for embedding in a BotDTO. Returns nil on any store error

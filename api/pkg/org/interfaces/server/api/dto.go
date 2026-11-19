@@ -179,6 +179,21 @@ type BotResetDTO struct {
 	SessionID         string           `json:"session_id,omitempty"`
 }
 
+// BotResetScopeDTO describes one reset scope.
+type BotResetScopeDTO struct {
+	Scope  string   `json:"scope"`
+	Erases []string `json:"erases"`
+	Keeps  []string `json:"keeps"`
+	// Available is false when the scope would be refused right now.
+	Available         bool   `json:"available"`
+	UnavailableReason string `json:"unavailable_reason,omitempty"`
+}
+
+// BotResetPlanDTO is the GET /bots/{id}/reset response.
+type BotResetPlanDTO struct {
+	Scopes []BotResetScopeDTO `json:"scopes"`
+}
+
 // BotDetailDTO is the full GET /bots/{id} response — the Bot plus the
 // surrounding runtime context the UI's detail pane needs.
 type BotDetailDTO struct {

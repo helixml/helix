@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -225,6 +226,41 @@ func TestInProcClient_DeleteLinkedAgentPreservesRowsWhenDesktopDestroyFails(t *t
 }
 
 // A bot whose desktop ran on a sandbox host that is gone is still deleted.
+// A failed bot home purge on a reachable host keeps the bot and its
+// runtime state, so the home is not orphaned without a record.
+func TestInProcClient_DeleteLinkedAgentPreservesRowsWhenBotHomePurgeFails(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&types.Project{}, &types.App{}, &types.Knowledge{}, &types.KnowledgeVersion{}))
+	for _, statement := range []string{
+		`CREATE TABLE org_bot_runtime_state (org_id TEXT, bot_id TEXT)`,
+		`CREATE TABLE org_bots (org_id TEXT, id TEXT, agent_app_id TEXT)`,
+	} {
+		require.NoError(t, db.Exec(statement).Error)
+	}
+	app := &types.App{ID: "app-agent"}
+	require.NoError(t, db.Create(app).Error)
+	require.NoError(t, db.Exec(`INSERT INTO org_bots (org_id, id, agent_app_id) VALUES (?, ?, ?)`, "org-test", "b-agent", app.ID).Error)
+	require.NoError(t, db.Exec(`INSERT INTO org_bot_runtime_state (org_id, bot_id) VALUES (?, ?)`, "org-test", "b-agent").Error)
+
+	executor := external_agent.NewMockExecutor(gomock.NewController(t))
+	executor.EXPECT().EraseBotHome(gomock.Any(), "org-test", "b-agent", hydra.BotHomePurge).
+		Return(nil, fmt.Errorf("erase bot home: %w", hydra.ErrBotHomeInUse))
+	store := &gormBackedInProcStore{Store: memorystore.New(), db: db}
+	client := NewInProcHelixClient(&HelixAPIServer{Store: store, externalAgentExecutor: executor})
+
+	require.ErrorContains(t, client.DeleteLinkedAgent(context.Background(), "org-test", "b-agent", app.ID, ""), "purge bot home")
+
+	var botCount, stateCount int64
+	require.NoError(t, db.Table("org_bots").Where("org_id = ? AND id = ?", "org-test", "b-agent").Count(&botCount).Error)
+	require.NoError(t, db.Table("org_bot_runtime_state").Where("org_id = ? AND bot_id = ?", "org-test", "b-agent").Count(&stateCount).Error)
+	require.EqualValues(t, 1, botCount)
+	require.EqualValues(t, 1, stateCount)
+}
+
 func TestInProcClient_DeleteLinkedAgentDeletesRowsWhenHostGone(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -251,6 +287,10 @@ func TestInProcClient_DeleteLinkedAgentDeletesRowsWhenHostGone(t *testing.T) {
 	executor := external_agent.NewMockExecutor(gomock.NewController(t))
 	executor.EXPECT().DestroyDesktop(gomock.Any(), "ses_old_pod", "").
 		Return(fmt.Errorf("failed to dial Hydra via RevDial: %w", connman.ErrNoConnection))
+	// The home lives on the same gone host; the reaper reclaims it once the
+	// bot row is gone.
+	executor.EXPECT().EraseBotHome(gomock.Any(), "org-test", "b-agent", hydra.BotHomePurge).
+		Return(nil, fmt.Errorf("erase bot home: failed to dial Hydra via RevDial: %w", connman.ErrNoConnection))
 	store := &gormBackedInProcStore{Store: memorystore.New(), db: db}
 	client := NewInProcHelixClient(&HelixAPIServer{Store: store, externalAgentExecutor: executor})
 

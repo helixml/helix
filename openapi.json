@@ -15173,6 +15173,167 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/reset": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: describe what resetting a bot would erase",
+                "parameters": [
+                    {
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BotResetPlanDTO"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: reset a bot (destructive; erases the declared scope)",
+                "parameters": [
+                    {
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.BotResetRequestDTO"
+                            }
+                        }
+                    },
+                    "description": "Scope and confirmation",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BotResetDTO"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/restart": {
             "post": {
                 "security": [
@@ -15183,7 +15344,8 @@
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: restart a bot (fresh session + desktop)",
+                "summary": "Helix-org: DEPRECATED fresh-session restart (use runtime-restart or reset)",
+                "deprecated": true,
                 "parameters": [
                     {
                         "description": "Bot ID",
@@ -15202,6 +15364,82 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/api.BotActivateDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/runtime-restart": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: restart a bot's runtime (keeps session, home and queue)",
+                "parameters": [
+                    {
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BotRestartDTO"
                                 }
                             }
                         }
@@ -31426,6 +31664,129 @@
                     }
                 }
             },
+            "api.BotResetDTO": {
+                "type": "object",
+                "properties": {
+                    "activation_id": {
+                        "type": "string"
+                    },
+                    "erases": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "home": {
+                        "$ref": "#/components/schemas/api.BotResetHomeDTO"
+                    },
+                    "keeps": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "previous_session_id": {
+                        "type": "string"
+                    },
+                    "scope": {
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.BotResetHomeDTO": {
+                "type": "object",
+                "properties": {
+                    "existed": {
+                        "type": "boolean"
+                    },
+                    "generation": {
+                        "type": "string"
+                    },
+                    "retired_path": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.BotResetPlanDTO": {
+                "type": "object",
+                "properties": {
+                    "scopes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.BotResetScopeDTO"
+                        }
+                    }
+                }
+            },
+            "api.BotResetRequestDTO": {
+                "type": "object",
+                "properties": {
+                    "confirm": {
+                        "description": "Confirm must equal the bot id.",
+                        "type": "string"
+                    },
+                    "scope": {
+                        "description": "Scope is \"session\" or \"session_and_home\".",
+                        "type": "string"
+                    }
+                }
+            },
+            "api.BotResetScopeDTO": {
+                "type": "object",
+                "properties": {
+                    "available": {
+                        "description": "Available is false when the scope would be refused right now.",
+                        "type": "boolean"
+                    },
+                    "erases": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "keeps": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "scope": {
+                        "type": "string"
+                    },
+                    "unavailable_reason": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.BotRestartDTO": {
+                "type": "object",
+                "properties": {
+                    "activation_id": {
+                        "type": "string"
+                    },
+                    "legacy_app_id": {
+                        "type": "string"
+                    },
+                    "mode": {
+                        "type": "string"
+                    },
+                    "preserves": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
+                    }
+                }
+            },
             "api.ChartPositionDTO": {
                 "type": "object",
                 "properties": {
@@ -32547,6 +32908,73 @@
                     },
                     "timestamp": {
                         "type": "integer"
+                    }
+                }
+            },
+            "hydra.BotHomeInventory": {
+                "type": "object",
+                "properties": {
+                    "chrome_profiles": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/hydra.ChromeProfileStatus"
+                        }
+                    },
+                    "top_level_entries": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "hydra.BotHomeOutcome": {
+                "type": "string",
+                "enum": [
+                    "existing",
+                    "created",
+                    "migrated"
+                ],
+                "x-enum-varnames": [
+                    "BotHomeOutcomeExisting",
+                    "BotHomeOutcomeCreated",
+                    "BotHomeOutcomeMigrated"
+                ]
+            },
+            "hydra.BotHomeResult": {
+                "type": "object",
+                "properties": {
+                    "generation": {
+                        "type": "string"
+                    },
+                    "inventory": {
+                        "$ref": "#/components/schemas/hydra.BotHomeInventory"
+                    },
+                    "migrated_from_session": {
+                        "type": "string"
+                    },
+                    "outcome": {
+                        "$ref": "#/components/schemas/hydra.BotHomeOutcome"
+                    },
+                    "path": {
+                        "type": "string"
+                    }
+                }
+            },
+            "hydra.ChromeProfileStatus": {
+                "type": "object",
+                "properties": {
+                    "cookies_db_present": {
+                        "type": "boolean"
+                    },
+                    "default_prefs_valid": {
+                        "type": "boolean"
+                    },
+                    "local_state_valid": {
+                        "type": "boolean"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "singleton_lock": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -33911,6 +34339,14 @@
             "server.DevContainerWithClients": {
                 "type": "object",
                 "properties": {
+                    "bot_home": {
+                        "description": "BotHome reports how the bot home was bound, when the request had one.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/hydra.BotHomeResult"
+                            }
+                        ]
+                    },
                     "clients": {
                         "type": "array",
                         "items": {
@@ -36348,24 +36784,24 @@
             "transport.Kind": {
                 "type": "string",
                 "enum": [
-                    "github",
-                    "gitlab",
                     "email",
                     "slack",
-                    "cron",
                     "helix_events",
+                    "gitlab",
                     "local",
-                    "webhook"
+                    "webhook",
+                    "cron",
+                    "github"
                 ],
                 "x-enum-varnames": [
-                    "KindGitHub",
-                    "KindGitLab",
                     "KindEmail",
                     "KindSlack",
-                    "KindCron",
                     "KindHelixEvents",
+                    "KindGitLab",
                     "KindLocal",
-                    "KindWebhook"
+                    "KindWebhook",
+                    "KindCron",
+                    "KindGitHub"
                 ]
             },
             "transport.ResolvedActivation": {
@@ -40894,10 +41330,6 @@
                     },
                     "sync_in_progress_since": {
                         "description": "Set while an upstream operation is running",
-                        "type": "string"
-                    },
-                    "trusted_startup_sha": {
-                        "description": "TrustedStartupSHA is the helix-specs commit whose tree sandboxes run\n.helix/startup.sh from. Only a human write moves it (a push with a human\ncredential, or a startup-script save in the UI/API); agent pushes never\ndo. Written only via SetGitRepositoryTrustedStartupSHA.",
                         "type": "string"
                     },
                     "updated_at": {
@@ -45833,6 +46265,7 @@
                         "type": "integer"
                     },
                     "name": {
+                        "description": "SandboxNameMaxLen",
                         "type": "string"
                     },
                     "org_bot_id": {

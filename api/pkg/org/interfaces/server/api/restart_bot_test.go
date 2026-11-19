@@ -118,7 +118,7 @@ func TestRestartBot_RecreatesRuntimeWithoutDestroyingState(t *testing.T) {
 	seedBot(t, st, context.Background(), "b-alice", "# Alice")
 	deps, f := wireLifecycle(t, deps, st, "ses_alice")
 
-	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-alice/restart", nil)
+	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-alice/runtime-restart", nil)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body)
 	}
@@ -141,7 +141,7 @@ func TestRestartBot_FirstStartActivates(t *testing.T) {
 	seedBot(t, st, context.Background(), "b-bob", "# Bob")
 	deps, f := wireLifecycle(t, deps, st, "")
 
-	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-bob/restart", nil)
+	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-bob/runtime-restart", nil)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body)
 	}
@@ -161,7 +161,7 @@ func TestRestartBot_FailureSurfacesWithoutReset(t *testing.T) {
 	deps, f := wireLifecycle(t, deps, st, "ses_carol")
 	f.restarter.err = errors.New("hydra down")
 
-	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-carol/restart", nil)
+	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-carol/runtime-restart", nil)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body)
 	}
@@ -173,7 +173,7 @@ func TestRestartBot_FailureSurfacesWithoutReset(t *testing.T) {
 func TestRestartBot_404OnUnknownBot(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	deps, f := wireLifecycle(t, deps, st, "ses_ghost")
-	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-ghost/restart", nil)
+	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-ghost/runtime-restart", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body)
 	}
@@ -262,7 +262,7 @@ func TestResetBot_RefusesMemberWithoutEditRights(t *testing.T) {
 	seedBot(t, st, context.Background(), "b-hank", "# Hank")
 	deps, f := wireLifecycle(t, deps, st, "ses_hank")
 
-	for _, path := range []string{"/bots/b-hank/reset", "/bots/b-hank/restart"} {
+	for _, path := range []string{"/bots/b-hank/reset", "/bots/b-hank/restart", "/bots/b-hank/runtime-restart"} {
 		rec := doAsRole(t, orgapi.Handler(deps), "POST", path, orgapi.BotResetRequestDTO{Scope: "session_and_home", Confirm: "b-hank"}, types.OrganizationRoleMember, false)
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("%s: status = %d, want 403; body=%s", path, rec.Code, rec.Body)
@@ -285,7 +285,7 @@ func TestResetBot_CrossTenantBotIsNotFound(t *testing.T) {
 	}
 	deps, f := wireLifecycle(t, deps, st, "ses_other")
 
-	for _, path := range []string{"/bots/b-other/reset", "/bots/b-other/restart"} {
+	for _, path := range []string{"/bots/b-other/reset", "/bots/b-other/restart", "/bots/b-other/runtime-restart"} {
 		rec := do(t, orgapi.Handler(deps), "POST", path, orgapi.BotResetRequestDTO{Scope: "session_and_home", Confirm: "b-other"})
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s: status = %d, want 404; body=%s", path, rec.Code, rec.Body)
@@ -296,5 +296,87 @@ func TestResetBot_CrossTenantBotIsNotFound(t *testing.T) {
 	}
 	if _, err := st.Nodes.Get(context.Background(), "org-other", "b-other"); err != nil {
 		t.Fatalf("other tenant's bot changed: %v", err)
+	}
+}
+
+// The legacy endpoint keeps its documented contract (fresh session, queue
+// purged) but runs as an audited session-scope reset that keeps the home.
+func TestLegacyRestartBot_KeepsFreshSessionContractWithoutErasingHome(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	seedBot(t, st, context.Background(), "b-ivy", "# Ivy")
+	deps, f := wireLifecycle(t, deps, st, "ses_ivy")
+
+	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-ivy/restart", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body)
+	}
+	if rec.Header().Get("Deprecation") != "true" {
+		t.Fatal("legacy restart must announce its deprecation")
+	}
+	var got orgapi.BotActivateDTO
+	decode(t, rec, &got)
+	if got.ProjectID != "prj_1" {
+		t.Fatalf("response = %+v", got)
+	}
+	if f.canceller.calls != 1 || f.resetter.lastSID != "ses_ivy" || f.disp.manualCalls != 1 {
+		t.Fatalf("legacy contract broken: cancel=%d reset=%q dispatch=%d", f.canceller.calls, f.resetter.lastSID, f.disp.manualCalls)
+	}
+	if f.homes.retired != 0 || f.restarter.calls != 0 {
+		t.Fatal("legacy restart must not erase the bot home")
+	}
+	if len(f.audit.entries) != 2 || f.audit.entries[1].Action != "reset_bot" {
+		t.Fatalf("legacy restart not audited: %+v", f.audit.entries)
+	}
+}
+
+func TestLegacyRestartBot_RefusesWhileHomeLivesInSession(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	seedBot(t, st, context.Background(), "b-jo", "# Jo")
+	deps, f := wireLifecycle(t, deps, st, "ses_jo")
+	f.homes.established = false
+
+	rec := do(t, orgapi.Handler(deps), "POST", "/bots/b-jo/restart", nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body)
+	}
+	if f.resetter.calls != 0 || f.canceller.calls != 0 {
+		t.Fatal("refused legacy restart had side effects")
+	}
+}
+
+func TestGetBotResetPlan(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	seedBot(t, st, context.Background(), "b-kim", "# Kim")
+	deps, f := wireLifecycle(t, deps, st, "ses_kim")
+	f.homes.established = false
+
+	rec := do(t, orgapi.Handler(deps), "GET", "/bots/b-kim/reset", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body)
+	}
+	var plan orgapi.BotResetPlanDTO
+	decode(t, rec, &plan)
+	if len(plan.Scopes) != 2 || plan.Scopes[0].Scope != "session" || plan.Scopes[1].Scope != "session_and_home" {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if plan.Scopes[0].Available || plan.Scopes[0].UnavailableReason == "" || !plan.Scopes[1].Available {
+		t.Fatalf("session scope must be unavailable while the home lives in the session: %+v", plan)
+	}
+	for _, sc := range plan.Scopes {
+		if len(sc.Erases) == 0 || len(sc.Keeps) == 0 {
+			t.Fatalf("scope %s has no declaration", sc.Scope)
+		}
+	}
+	if f.canceller.calls != 0 || f.resetter.calls != 0 || len(f.audit.entries) != 0 {
+		t.Fatal("reading the plan had side effects")
+	}
+
+	rec = doAsRole(t, orgapi.Handler(deps), "GET", "/bots/b-kim/reset", nil, types.OrganizationRoleMember, false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("member: status = %d, want 403", rec.Code)
+	}
+	rec = do(t, orgapi.Handler(deps), "GET", "/bots/b-nobody/reset", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown bot: status = %d, want 404", rec.Code)
 	}
 }

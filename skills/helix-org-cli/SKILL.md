@@ -26,12 +26,20 @@ cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin .
 helix org bots list [--org NAME]
 helix org bots get <bot-id> [--org NAME]
 helix org bots start|stop|restart <bot-id> [--org NAME]
+helix org bots reset <bot-id> --scope session|session_and_home --confirm <bot-id> [--org NAME]
 helix org bots chat <bot-id> "message…" [--org NAME] [--timeout 300] [--no-start] [--session ses_…]
 
 # Topics / processors
 helix org topics list [--org NAME]
 helix org processors list [--org NAME]
 ```
+
+`bots restart` is non-destructive: it recreates the bot's runtime on the same
+session and keeps its home (`/home/retro/work`, browser profiles and logins),
+conversation and queued work. `bots stop` purges queued work; don't use it as
+recovery. `bots reset` is the destructive operation: it purges queued work and
+starts a fresh session, and with `--scope session_and_home` also retires the
+bot home. It prints exactly what was erased and kept, and is audited.
 
 `bots chat` resolves the bot’s project exploratory session (starts the agent if needed), sends the message to `/sessions/{id}/chat`, and prints the assistant reply.
 

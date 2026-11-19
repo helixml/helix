@@ -378,8 +378,9 @@ func (o orgWorkerRuntime) LatestSuccessfulTurnStartedAt(ctx context.Context, org
 }
 
 // botSessionResetter implements helixorgapi.BotSessionResetter: it fully
-// removes a bot's current session so restartBotAgent's follow-up Activate
-// provisions a genuinely fresh one. Composed of two existing high-level
+// removes a bot's current session so an explicit Reset's follow-up Activate
+// provisions a genuinely fresh one. Deleting the session destroys only
+// session-scoped data; the bot home lives outside it. Composed of two existing high-level
 // ops on the in-proc client (stop desktop + delete session) plus clearing
 // the persisted session pointer in the org runtime-state store — no
 // container/workspace internals.

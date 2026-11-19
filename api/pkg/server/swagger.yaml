@@ -307,6 +307,87 @@ definitions:
       updated_at:
         type: string
     type: object
+  api.BotResetDTO:
+    properties:
+      activation_id:
+        type: string
+      erases:
+        items:
+          type: string
+        type: array
+      home:
+        $ref: '#/definitions/api.BotResetHomeDTO'
+      keeps:
+        items:
+          type: string
+        type: array
+      previous_session_id:
+        type: string
+      scope:
+        type: string
+      session_id:
+        type: string
+    type: object
+  api.BotResetHomeDTO:
+    properties:
+      existed:
+        type: boolean
+      generation:
+        type: string
+      retired_path:
+        type: string
+    type: object
+  api.BotResetPlanDTO:
+    properties:
+      scopes:
+        items:
+          $ref: '#/definitions/api.BotResetScopeDTO'
+        type: array
+    type: object
+  api.BotResetRequestDTO:
+    properties:
+      confirm:
+        description: Confirm must equal the bot id.
+        type: string
+      scope:
+        description: Scope is "session" or "session_and_home".
+        type: string
+    type: object
+  api.BotResetScopeDTO:
+    properties:
+      available:
+        description: Available is false when the scope would be refused right now.
+        type: boolean
+      erases:
+        items:
+          type: string
+        type: array
+      keeps:
+        items:
+          type: string
+        type: array
+      scope:
+        type: string
+      unavailable_reason:
+        type: string
+    type: object
+  api.BotRestartDTO:
+    properties:
+      activation_id:
+        type: string
+      legacy_app_id:
+        type: string
+      mode:
+        type: string
+      preserves:
+        items:
+          type: string
+        type: array
+      project_id:
+        type: string
+      session_id:
+        type: string
+    type: object
   api.ChartPositionDTO:
     properties:
       id:
@@ -1118,6 +1199,51 @@ definitions:
         type: number
       timestamp:
         type: integer
+    type: object
+  hydra.BotHomeInventory:
+    properties:
+      chrome_profiles:
+        items:
+          $ref: '#/definitions/hydra.ChromeProfileStatus'
+        type: array
+      top_level_entries:
+        type: integer
+    type: object
+  hydra.BotHomeOutcome:
+    enum:
+    - existing
+    - created
+    - migrated
+    type: string
+    x-enum-varnames:
+    - BotHomeOutcomeExisting
+    - BotHomeOutcomeCreated
+    - BotHomeOutcomeMigrated
+  hydra.BotHomeResult:
+    properties:
+      generation:
+        type: string
+      inventory:
+        $ref: '#/definitions/hydra.BotHomeInventory'
+      migrated_from_session:
+        type: string
+      outcome:
+        $ref: '#/definitions/hydra.BotHomeOutcome'
+      path:
+        type: string
+    type: object
+  hydra.ChromeProfileStatus:
+    properties:
+      cookies_db_present:
+        type: boolean
+      default_prefs_valid:
+        type: boolean
+      local_state_valid:
+        type: boolean
+      path:
+        type: string
+      singleton_lock:
+        type: boolean
     type: object
   hydra.ContainerBlkioStats:
     properties:
@@ -2122,6 +2248,11 @@ definitions:
     type: object
   server.DevContainerWithClients:
     properties:
+      bot_home:
+        allOf:
+        - $ref: '#/definitions/hydra.BotHomeResult'
+        description: BotHome reports how the bot home was bound, when the request
+          had one.
       clients:
         items:
           $ref: '#/definitions/github_com_helixml_helix_api_pkg_server.ClientInfo'
@@ -3810,24 +3941,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - github
-    - gitlab
     - email
     - slack
-    - cron
     - helix_events
+    - gitlab
     - local
     - webhook
+    - cron
+    - github
     type: string
     x-enum-varnames:
-    - KindGitHub
-    - KindGitLab
     - KindEmail
     - KindSlack
-    - KindCron
     - KindHelixEvents
+    - KindGitLab
     - KindLocal
     - KindWebhook
+    - KindCron
+    - KindGitHub
   transport.ResolvedActivation:
     properties:
       address:
@@ -7202,13 +7333,6 @@ definitions:
         $ref: '#/definitions/types.GitRepositoryStatus'
       sync_in_progress_since:
         description: Set while an upstream operation is running
-        type: string
-      trusted_startup_sha:
-        description: |-
-          TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
-          .helix/startup.sh from. Only a human write moves it (a push with a human
-          credential, or a startup-script save in the UI/API); agent pushes never
-          do. Written only via SetGitRepositoryTrustedStartupSHA.
         type: string
       updated_at:
         type: string
@@ -10804,6 +10928,7 @@ definitions:
       memory_mb:
         type: integer
       name:
+        description: SandboxNameMaxLen
         type: string
       org_bot_id:
         description: |-
@@ -24847,8 +24972,82 @@ paths:
       summary: 'Helix-org: remove a bot reporting line (manager)'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/reset:
+    get:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BotResetPlanDTO'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: describe what resetting a bot would erase'
+      tags:
+      - HelixOrg
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Scope and confirmation
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.BotResetRequestDTO'
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.BotResetDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: reset a bot (destructive; erases the declared scope)'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/restart:
     post:
+      deprecated: true
       parameters:
       - description: Bot ID
         in: path
@@ -24864,6 +25063,10 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -24874,7 +25077,38 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: restart a bot (fresh session + desktop)'
+      summary: 'Helix-org: DEPRECATED fresh-session restart (use runtime-restart or
+        reset)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/runtime-restart:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.BotRestartDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: restart a bot''s runtime (keeps session, home and queue)'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/secrets:
