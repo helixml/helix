@@ -66,7 +66,7 @@ func TestDeclaredBrowserProfile(t *testing.T) {
 				require.NoError(t, os.Symlink(filepath.Join(outside, "chrome-profile"), filepath.Join(home, "chrome-profile")))
 				writeFile(t, filepath.Join(home, ".helix", "browser.json"), decl, 0o644)
 			},
-			want: &DeclaredBrowserProfile{Path: "chrome-profile", State: DeclaredBrowserProfileInvalidDeclaration},
+			want: &DeclaredBrowserProfile{Path: "chrome-profile", State: DeclaredBrowserProfileOutsideWorkspace},
 		},
 		"unparseable declaration": {
 			setup: func(t *testing.T, home string) {

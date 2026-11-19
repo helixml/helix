@@ -32,12 +32,14 @@ existing lazy relay (e62cc1724). Every path goes through it:
 
 ```json
 {"profile": "chrome-profile", "profile_id": "<uuid>",
- "login_check": {"url": "https://site/home", "logged_out_url_contains": ["/login"]}}
+ "login_check": {"url": "https://site/home", "logged_out_url_contains": ["/login"],
+                 "logged_in_title_contains": "Inbox"}}
 ```
 
-`helix-browser declare chrome-profile [--login-url URL --logged-out-match TEXT]`
+`helix-browser declare chrome-profile [--login-url URL --logged-out-match TEXT --logged-in-title TEXT [--logged-in-match TEXT]]`
 writes it, and `chrome-profile/.helix-profile.json` with the same id. Declare
-refuses a directory that is missing, outside the workspace, or not a Chrome
+refuses a directory that is missing, outside the workspace (after resolving
+every symlink), or not a Chrome
 profile (no valid `Local State`), and switching to another profile needs
 `--replace`. No declaration → `.chrome-state` (the old behaviour). A declared
 profile wins over the MCP server's `--user-data-dir` (logged).
@@ -68,6 +70,7 @@ profile wins over the MCP server's `--user-data-dir` (logged).
 | Condition | Result |
 |---|---|
 | declared profile missing | `missing`; nothing created |
+| profile (declared or default) resolves, through any symlink, outside the workspace | `outside_workspace`, checked at declare and every status/launch/setup |
 | directory without the declared identity / with another id | `wrong_identity` |
 | no or unparseable `Local State` | `inconsistent` |
 | workspace not its own mount (container overlay) | refused for a declared profile; warning for the default |
@@ -89,9 +92,16 @@ Browser death or a refusal never deletes anything.
 - `login`: not_configured / not_checked
 
 `helix-browser login-check` opens the declared URL in a new tab through
-DevTools' HTTP API, waits for redirects to settle, closes the tab and reports
-`logged_in` / `logged_out` / `unknown` with the landing origin and path only
-(query and fragment stripped). No cookie or login database is read.
+DevTools' HTTP API, waits for redirects to settle and closes the tab. It reads
+only the tab's URL and title. `logged_in` needs positive evidence: an http(s)
+page at the declared URL (or a declared `--logged-in-match` URL) **and** a
+title containing the declared `--logged-in-title`. The URL alone is not
+evidence, because Chrome's network-error pages keep the requested URL and are
+titled with the bare host. A declared logged-out URL gives `logged_out`.
+Error pages (`chrome-error://`, or a title equal to the host), other
+destinations and a missing title give `unknown`. Only `logged_in` exits 0.
+The output is the state, the landing origin and path (query and fragment
+stripped) and a reason. No cookie or login database is read.
 
 Hydra's bot-home bind inventory adds `browser_profile {path, state}` (same
 checks, symlinks confined to the home, warning log when not ok). It only
@@ -100,7 +110,7 @@ work; its browser requests fail with the reason.
 
 ## Verification (2026-11-19)
 
-**Unit:** `desktop/shared/test-helix-browser.sh` (51 checks, fake Chrome with
+**Unit:** `desktop/shared/test-helix-browser.sh` (66 checks, fake Chrome with
 singleton hand-off and DevTools HTTP API; runs in CI `shell-script-tests`,
 also passes on alpine:3.21). `TestDeclaredBrowserProfile` (hydra).
 
@@ -120,6 +130,9 @@ also passes on alpine:3.21). `TestDeclaredBrowserProfile` (hydra).
 | Copy without identity in its place | refused; real profile restored → resumes |
 | Desktop `open` twice (headful, Wayland) | first starts Chrome, second "Opening in existing browser session"; same owner, one process |
 | Workspace-setup block: none / declared / declared-missing | link to `.chrome-state` / to `chrome-profile` / no link, nothing created |
+| Review fix: profile reached through a symlink to other storage | `declare` refused; swapped-in symlink to a full copy → `ensure` exit 1, status `outside_workspace`, no Chrome |
+| Review fix: login URL with nothing listening (real Chrome error page, URL unchanged, title `127.0.0.1`) | `unknown`, exit 1 (was `logged_in`) |
+| Review fix: logged in after stop/resume, declared title present / wrong title declared | `logged_in` exit 0 / `unknown` exit 1 |
 
 Chrome writes new cookies to disk on its ~30 s commit timer. A login less than
 about 30 s old is lost if Chrome is killed, and SIGTERM did not flush
@@ -136,7 +149,7 @@ idle stops as well.
 - Tabs, drafts and form contents are not durable (journal work, OBR-04/05).
 - Birding Promoter is **not** migrated. That needs an operator, inside its
   desktop: `helix-browser status`, then
-  `helix-browser declare chrome-profile --login-url <url> --logged-out-match <text>`,
+  `helix-browser declare chrome-profile --login-url <url> --logged-out-match <text> --logged-in-title <text>`,
   then retire the guard script (once the relay holds 9222, the guard sees a
   live port, and its probes start the configured browser). This is a live
   profile mutation, so it is not done here.

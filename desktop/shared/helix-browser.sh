@@ -62,7 +62,8 @@ log() {
 # Profile resolution and integrity
 
 # Only the workspace survives a container recreate, so a declared profile must
-# be a directory inside it. Prints the absolute path.
+# be a directory inside it. Prints the absolute path; inside_workspace checks
+# where it really is.
 workspace_path() {
     local rel="$1"
     case "$rel" in
@@ -71,12 +72,25 @@ workspace_path() {
     printf '%s/%s\n' "$WORK_DIR" "${rel%/}"
 }
 
+# Whether a path, with every symlink resolved, is inside the workspace: a
+# profile reached through a symlink to the container overlay or another
+# volume would keep its login on storage that does not survive.
+inside_workspace() {
+    local root real
+    root=$(readlink -f "$WORK_DIR") || return 1
+    real=$(readlink -m "$1") || return 1
+    [[ "$real" == "$root"/* ]]
+}
+
 # Sets PROFILE, PROFILE_SOURCE (declared/default), PROFILE_ID (declared only)
-# and LOGIN_URL / LOGGED_OUT_MATCH from the declaration.
+# and the login check (LOGIN_URL, LOGGED_OUT_MATCH, LOGGED_IN_MATCH,
+# LOGGED_IN_TITLE) from the declaration.
 resolve_profile() {
     PROFILE_ID=""
     LOGIN_URL=""
     LOGGED_OUT_MATCH=()
+    LOGGED_IN_MATCH=()
+    LOGGED_IN_TITLE=""
     if [ -e "$DECLARATION" ]; then
         local rel
         jq -e 'type == "object"' "$DECLARATION" >/dev/null 2>&1 \
@@ -88,6 +102,8 @@ resolve_profile() {
         [ -n "$PROFILE_ID" ] || die "$DECLARATION has no profile_id; run: helix-browser declare $rel"
         LOGIN_URL=$(jq -r '.login_check.url // ""' "$DECLARATION")
         mapfile -t LOGGED_OUT_MATCH < <(jq -r '.login_check.logged_out_url_contains // [] | .[]' "$DECLARATION")
+        mapfile -t LOGGED_IN_MATCH < <(jq -r '.login_check.logged_in_url_contains // [] | .[]' "$DECLARATION")
+        LOGGED_IN_TITLE=$(jq -r '.login_check.logged_in_title_contains // ""' "$DECLARATION")
         PROFILE_SOURCE=declared
     else
         PROFILE="${1:-$DEFAULT_PROFILE}"
@@ -99,10 +115,16 @@ json_file_valid() {
     jq -e . "$1" >/dev/null 2>&1
 }
 
-# Sets PROFILE_STATE (ok, new, missing, inconsistent, wrong_identity) and
-# PROFILE_DETAIL. Only "ok" and, for the default profile, "new" may launch.
+# Sets PROFILE_STATE (ok, new, missing, outside_workspace, inconsistent,
+# wrong_identity) and PROFILE_DETAIL. Only "ok" and, for the default profile,
+# "new" may launch.
 check_profile() {
     PROFILE_DETAIL=""
+    if ! inside_workspace "$PROFILE"; then
+        PROFILE_STATE=outside_workspace
+        PROFILE_DETAIL="$PROFILE resolves to $(readlink -m "$PROFILE"), outside the persistent workspace $WORK_DIR; its login would not survive a container recreate"
+        return
+    fi
     if [ ! -e "$PROFILE" ] && [ ! -L "$PROFILE" ]; then
         if [ "$PROFILE_SOURCE" = declared ]; then
             PROFILE_STATE=missing
@@ -489,24 +511,38 @@ write_json_atomic() {
 }
 
 cmd_declare() {
-    local rel="" login_url="" replace=false matches=() path id current_rel
+    local rel="" replace=false path current_rel
+    DECLARE_LOGIN_URL="" DECLARE_LOGGED_IN_TITLE=""
+    DECLARE_LOGGED_OUT=() DECLARE_LOGGED_IN=()
     while [ $# -gt 0 ]; do
         case "$1" in
-            --login-url) login_url="$2"; shift ;;
-            --logged-out-match) matches+=("$2"); shift ;;
+            --login-url) DECLARE_LOGIN_URL="$2"; shift ;;
+            --logged-out-match) DECLARE_LOGGED_OUT+=("$2"); shift ;;
+            --logged-in-match) DECLARE_LOGGED_IN+=("$2"); shift ;;
+            --logged-in-title) DECLARE_LOGGED_IN_TITLE="$2"; shift ;;
             --replace) replace=true ;;
             -*) die "unknown option $1" ;;
             *) [ -z "$rel" ] || die "one profile directory"; rel="$1" ;;
         esac
         shift
     done
-    [ -n "$rel" ] || die "usage: helix-browser declare DIR [--login-url URL --logged-out-match TEXT...] [--replace]"
+    [ -n "$rel" ] || die "usage: helix-browser declare DIR [--login-url URL --logged-out-match TEXT... --logged-in-title TEXT [--logged-in-match TEXT...]] [--replace]"
     rel="${rel#"$WORK_DIR"/}"
     path=$(workspace_path "$rel") || die "$rel must be a directory inside $WORK_DIR"
     [ -d "$path" ] || die "$path does not exist; declare an existing profile (Helix never creates one here)"
+    inside_workspace "$path" \
+        || die "$path resolves to $(readlink -m "$path"), outside the persistent workspace $WORK_DIR"
     json_file_valid "$path/Local State" || die "$path is not a Chrome profile (no valid Local State)"
-    if [ -n "$login_url" ] && [ ${#matches[@]} -eq 0 ]; then
-        die "--login-url needs at least one --logged-out-match (text in the URL a logged-out visit lands on)"
+    if [ -n "$DECLARE_LOGIN_URL" ]; then
+        [[ "$DECLARE_LOGIN_URL" =~ ^https?:// ]] || die "--login-url must be an http(s) URL"
+        [ ${#DECLARE_LOGGED_OUT[@]} -gt 0 ] \
+            || die "--login-url needs at least one --logged-out-match (text in the URL a logged-out visit lands on)"
+        # The URL alone is not evidence: Chrome's error pages keep the
+        # requested URL. The title comes from the page the site served.
+        [ -n "$DECLARE_LOGGED_IN_TITLE" ] \
+            || die "--login-url needs --logged-in-title (text in the title of the page a logged-in visit shows)"
+    elif [ ${#DECLARE_LOGGED_OUT[@]} -gt 0 ] || [ ${#DECLARE_LOGGED_IN[@]} -gt 0 ] || [ -n "$DECLARE_LOGGED_IN_TITLE" ]; then
+        die "login matches need --login-url"
     fi
     if [ -e "$DECLARATION" ]; then
         current_rel=$(jq -r '.profile // ""' "$DECLARATION" 2>/dev/null || true)
@@ -515,12 +551,11 @@ cmd_declare() {
         fi
     fi
 
-    with_lock declare_locked "$rel" "$path" "$login_url" "${matches[@]}"
+    with_lock declare_locked "$rel" "$path"
 }
 
 declare_locked() {
-    local rel="$1" path="$2" login_url="$3" id
-    shift 3
+    local rel="$1" path="$2" id
     # Keep an existing identity: re-declaring the same profile is a no-op for
     # anything that already recorded it.
     if [ -f "$path/$IDENTITY_FILE" ]; then
@@ -532,12 +567,22 @@ declare_locked() {
             '{profile_id: $id, declared_at: $at}' | write_json_atomic "$path/$IDENTITY_FILE"
     fi
     mkdir -p "$(dirname "$DECLARATION")"
-    jq -n --arg profile "$rel" --arg id "$id" --arg url "$login_url" \
-        --args '{profile: $profile, profile_id: $id}
-            + (if $url == "" then {} else {login_check: {url: $url, logged_out_url_contains: $ARGS.positional}} end)' \
-        "$@" | write_json_atomic "$DECLARATION"
+    jq -n --arg profile "$rel" --arg id "$id" --arg url "$DECLARE_LOGIN_URL" \
+        --arg title "$DECLARE_LOGGED_IN_TITLE" \
+        --argjson out "$(json_array "${DECLARE_LOGGED_OUT[@]}")" \
+        --argjson in "$(json_array "${DECLARE_LOGGED_IN[@]}")" \
+        '{profile: $profile, profile_id: $id}
+            + (if $url == "" then {} else {login_check: (
+                {url: $url, logged_out_url_contains: $out}
+                + (if ($in | length) > 0 then {logged_in_url_contains: $in} else {} end)
+                + (if $title != "" then {logged_in_title_contains: $title} else {} end))} end)' \
+        | write_json_atomic "$DECLARATION"
     echo "configured browser profile: $path (id $id)"
     echo "a running browser on another profile keeps running until: helix-browser stop"
+}
+
+json_array() {
+    jq -n '$ARGS.positional' --args "$@"
 }
 
 # Origin and path only: query strings and fragments can carry tokens.
@@ -546,18 +591,27 @@ redact_url() {
 }
 
 # Opens the declared login URL in a new tab, waits for redirects to settle and
-# classifies where it landed. Reads URLs from DevTools' HTTP target list only.
+# classifies where it landed. Reads URL and title from DevTools' HTTP target
+# list only. logged_in needs positive evidence: an http(s) page at the
+# declared URL (or a declared logged-in URL) whose title contains the
+# declared logged-in title. Chrome's error pages keep the requested URL and
+# are titled with the bare host, so they, and anywhere unexpected, are
+# unknown.
 cmd_login_check() {
-    local target id url="" prev="" stable=0 state i match
+    local target id url="" title="" prev="" stable=0 state reason i match landed expected entry
     resolve_profile
-    [ -n "$LOGIN_URL" ] || die "no login check declared; run: helix-browser declare <profile> --login-url URL --logged-out-match TEXT"
+    [ -n "$LOGIN_URL" ] || die "no login check declared; run: helix-browser declare <profile> --login-url URL --logged-out-match TEXT --logged-in-title TEXT"
+    [ -n "$LOGGED_IN_TITLE" ] || die "the login check has no logged-in title, so it cannot prove a login; re-declare with --logged-in-title TEXT"
     cmd_ensure
     target=$(curl -fsS --max-time 10 -X PUT "$CHROME_INTERNAL_URL/json/new?$LOGIN_URL") \
         || die "could not open a tab for the login check"
     id=$(jq -r '.id' <<< "$target")
     for i in $(seq 1 30); do
         sleep 1
-        url=$(curl -fsS --max-time 2 "$CHROME_INTERNAL_URL/json/list" | jq -r --arg id "$id" '.[] | select(.id == $id) | .url')
+        entry=$(curl -fsS --max-time 2 "$CHROME_INTERNAL_URL/json/list" | jq -c --arg id "$id" '.[] | select(.id == $id)')
+        [ -n "$entry" ] || entry='{}'
+        url=$(jq -r '.url // ""' <<< "$entry")
+        title=$(jq -r '.title // ""' <<< "$entry")
         if [ -n "$url" ] && [ "$url" = "$prev" ] && [ "$url" != "about:blank" ]; then
             stable=$((stable + 1))
             [ $stable -ge 2 ] && break
@@ -567,15 +621,40 @@ cmd_login_check() {
         prev="$url"
     done
     curl -fsS --max-time 5 "$CHROME_INTERNAL_URL/json/close/$id" >/dev/null 2>&1 || true
-    state=logged_in
+
+    landed=$(redact_url "$url")
+    expected=$(redact_url "$LOGIN_URL")
+    state=unknown
     if [ -z "$url" ] || [ $stable -lt 2 ]; then
-        state=unknown
+        reason="the page did not settle"
+    elif ! [[ "$url" =~ ^https?:// ]] || [ "$title" = "$(sed -E 's#^https?://([^/:]+).*#\1#' <<< "$url")" ]; then
+        reason="landed on a browser or error page, not the site"
     else
+        reason="landed somewhere the declaration does not expect"
         for match in "${LOGGED_OUT_MATCH[@]}"; do
-            [[ "$url" == *"$match"* ]] && state=logged_out
+            if [[ "$url" == *"$match"* ]]; then
+                state=logged_out
+                reason="landed on the declared logged-out page"
+            fi
         done
+        if [ "$state" = unknown ]; then
+            local at_expected=false
+            [ "${landed%/}" = "${expected%/}" ] && at_expected=true
+            for match in "${LOGGED_IN_MATCH[@]}"; do
+                [[ "$url" == *"$match"* ]] && at_expected=true
+            done
+            if ! $at_expected; then
+                :
+            elif [[ "$title" != *"$LOGGED_IN_TITLE"* ]]; then
+                reason="at the expected page without the declared logged-in title"
+            else
+                state=logged_in
+                reason="at the expected page with the declared logged-in title"
+            fi
+        fi
     fi
-    jq -n --arg state "$state" --arg landed "$(redact_url "$url")" '{login: {state: $state, landed: $landed}}'
+    jq -n --arg state "$state" --arg landed "$landed" --arg reason "$reason" \
+        '{login: {state: $state, landed: $landed, reason: $reason}}'
     [ "$state" = logged_in ]
 }
 

@@ -36,7 +36,8 @@ unmounted() { printf '1 0 0:1 / / rw - overlay overlay rw\n' > "$HELIX_BROWSER_M
 mounted
 
 # DevTools HTTP endpoints. /json/new remembers the URL; /json/list reports it,
-# or a login page when the fake site has no session.
+# or a login page when the fake site has no session, or the landing page and
+# title a test sets.
 cat > "$TMP/bin/fake-devtools" <<'EOF'
 #!/bin/bash
 read -r _ path _
@@ -49,7 +50,9 @@ case "$path" in
     /json/list)
         url=$(cat "$FAKE_DIR/tab" 2>/dev/null || echo about:blank)
         [ -f "$FAKE_DIR/session" ] || url="https://site.test/login?next=secret-token"
-        reply "[{\"id\":\"T1\",\"url\":\"$url\"}]" ;;
+        [ ! -f "$FAKE_DIR/landing" ] || url=$(cat "$FAKE_DIR/landing")
+        title=$(cat "$FAKE_DIR/title" 2>/dev/null || echo Home)
+        reply "[{\"id\":\"T1\",\"url\":\"$url\",\"title\":\"$title\"}]" ;;
     /json/close/*) rm -f "$FAKE_DIR/tab"; reply '{}' ;;
     *) reply '{}' ;;
 esac
@@ -190,10 +193,20 @@ if "$BROWSER" declare chrome-profile 2>/dev/null; then echo "FAIL: declared a no
 echo '{"profile":{"info_cache":{}}}' > "$CUSTOM/Local State"
 echo profile-canary > "$CUSTOM/canary.txt"
 if "$BROWSER" declare ../outside 2>/dev/null; then echo "FAIL: declared outside the workspace"; exit 1; fi
-"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login >/dev/null
+# A symlink in the workspace that leads off it (container overlay, another
+# volume) is outside, whatever its name says.
+OUTSIDE="$TMP/overlay/profile"
+mkdir -p "$OUTSIDE"; cp "$CUSTOM/Local State" "$OUTSIDE/"
+ln -s "$OUTSIDE" "$HELIX_BROWSER_WORK_DIR/linked-profile"
+if "$BROWSER" declare linked-profile 2>"$TMP/err"; then echo "FAIL: declared a profile linked off the workspace"; exit 1; fi
+contains "declare refuses a symlink out of the workspace" "outside the persistent workspace" "$(cat "$TMP/err")"
+check "nothing written for it" "no no" \
+    "$([ -e "$HELIX_BROWSER_WORK_DIR/.helix/browser.json" ] && echo yes || echo no) $([ -e "$OUTSIDE/.helix-profile.json" ] && echo yes || echo no)"
+rm "$HELIX_BROWSER_WORK_DIR/linked-profile"
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login --logged-in-title Home >/dev/null
 id=$(jq -r .profile_id "$HELIX_BROWSER_WORK_DIR/.helix/browser.json")
 check "identity written into the profile" "$id" "$(jq -r .profile_id "$CUSTOM/.helix-profile.json")"
-"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login >/dev/null
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login --logged-in-title Home >/dev/null
 check "re-declaring keeps the identity" "$id" "$(jq -r .profile_id "$CUSTOM/.helix-profile.json")"
 if "$BROWSER" declare .chrome-state 2>"$TMP/err"; then echo "FAIL: switched profile without --replace"; exit 1; fi
 contains "switching needs --replace" "pass --replace" "$(cat "$TMP/err")"
@@ -212,6 +225,43 @@ check "logged out: landed on the login page" "logged_out https://site.test/login
 check "no token in the output" "no" "$([[ "$out" == *secret-token* ]] && echo yes || echo no)"
 touch "$FAKE_DIR/session"
 check "logged in" "logged_in https://site.test/home" "$("$BROWSER" login-check | jq -r '"\(.login.state) \(.login.landed)"')"
+
+# logged_in needs positive evidence; anything else is unknown and fails.
+login_state() {
+    local out code=0
+    out=$("$BROWSER" login-check 2>/dev/null) || code=$?
+    echo "$(jq -r .login.state <<< "$out") $code"
+}
+echo "chrome-error://chromewebdata/" > "$FAKE_DIR/landing"
+check "browser error page is unknown, not logged in" "unknown 1" "$(login_state)"
+# Real Chrome keeps the requested URL on a network error page and titles it
+# with the host.
+rm "$FAKE_DIR/landing"; echo "site.test" > "$FAKE_DIR/title"
+check "error page at the requested URL is unknown" "unknown 1" "$(login_state)"
+rm "$FAKE_DIR/title"
+if "$BROWSER" declare chrome-profile --login-url "https://site.test/home" --logged-out-match /login 2>"$TMP/err"; then
+    echo "FAIL: declared a login check without a logged-in title"; exit 1
+fi
+contains "a login check needs a logged-in title" "needs --logged-in-title" "$(cat "$TMP/err")"
+echo "https://other.test/home" > "$FAKE_DIR/landing"
+check "another origin is unknown" "unknown 1" "$(login_state)"
+echo "https://site.test/somewhere-else" > "$FAKE_DIR/landing"
+check "an unexpected page on the site is unknown" "unknown 1" "$(login_state)"
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login \
+    --logged-in-title Home --logged-in-match /somewhere-else >/dev/null
+check "a declared logged-in page counts" "logged_in 0" "$(login_state)"
+rm "$FAKE_DIR/landing"
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login \
+    --logged-in-title "Inbox" >/dev/null
+check "expected page without the declared title is unknown" "unknown 1" "$(login_state)"
+echo "Inbox (3)" > "$FAKE_DIR/title"
+check "expected page with the declared title is logged in" "logged_in 0" "$(login_state)"
+rm "$FAKE_DIR/title"
+if "$BROWSER" declare chrome-profile --login-url "file:///etc/passwd" --logged-out-match x 2>/dev/null; then
+    echo "FAIL: accepted a non-http login URL"; exit 1
+fi
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login --logged-in-title Home >/dev/null
+check "re-declaring the login check keeps the identity" "$id" "$(jq -r .profile_id "$HELIX_BROWSER_WORK_DIR/.helix/browser.json")"
 
 # Open from the desktop: hand-off to the owner, never a second browser.
 before=$(launches)
@@ -260,6 +310,16 @@ if "$BROWSER" ensure 2>"$TMP/err"; then echo "FAIL: started a damaged profile"; 
 contains "damaged Local State fails" "not valid JSON" "$(cat "$TMP/err")"
 cp "$TMP/ls" "$CUSTOM/Local State"
 
+# The declared profile swapped for a symlink to a full copy (identity
+# included) on other storage: refused at every launch, not only at declare.
+mv "$CUSTOM" "$TMP/real-profile"; cp -a "$TMP/real-profile" "$TMP/overlay/copy"
+ln -s "$TMP/overlay/copy" "$CUSTOM"
+if "$BROWSER" ensure 2>"$TMP/err"; then echo "FAIL: launched a profile linked off the workspace"; exit 1; fi
+contains "symlinked-out profile fails at launch" "outside the persistent workspace" "$(cat "$TMP/err")"
+check "status: outside_workspace, still mounted" "outside_workspace mounted" "$(status '"\(.profile.state) \(.mount.state)"')"
+if "$BROWSER" profile-path 2>/dev/null; then echo "FAIL: profile-path for a profile off the workspace"; exit 1; fi
+rm "$CUSTOM"; mv "$TMP/real-profile" "$CUSTOM"
+
 unmounted
 if "$BROWSER" ensure 2>"$TMP/err"; then echo "FAIL: declared profile used off the workspace mount"; exit 1; fi
 contains "unmounted workspace fails for a declared profile" "not the persistent workspace mount" "$(cat "$TMP/err")"
@@ -279,6 +339,16 @@ check "status: other profile" "other_profile" "$(status .cdp.state)"
 "$BROWSER" stop
 "$BROWSER" ensure 2>/dev/null
 check "after stop the declared profile starts" "$((before + 1)) $CUSTOM" "$(launches) $(tail -1 "$FAKE_DIR/launches")"
+
+# --- the default profile is held to the same rule --------------------------------
+"$BROWSER" stop
+mv "$HELIX_BROWSER_WORK_DIR/.helix/browser.json" "$TMP/browser.json"
+mv "$DEFAULT" "$TMP/default-real"; ln -s "$TMP/overlay/default" "$DEFAULT"
+before=$(launches)
+if "$BROWSER" ensure 2>"$TMP/err"; then echo "FAIL: launched .chrome-state linked off the workspace"; exit 1; fi
+contains "default profile linked off the workspace fails" "outside the persistent workspace" "$(cat "$TMP/err")"
+check "nothing launched or created" "$before no" "$(launches) $([ -e "$TMP/overlay/default" ] && echo yes || echo no)"
+rm "$DEFAULT"; mv "$TMP/default-real" "$DEFAULT"; mv "$TMP/browser.json" "$HELIX_BROWSER_WORK_DIR/.helix/browser.json"
 
 # --- only Helix's relay may hold the debugging port --------------------------------
 pkill -f "TCP-LISTEN:$HELIX_CHROME_DEBUG_PORT" || true

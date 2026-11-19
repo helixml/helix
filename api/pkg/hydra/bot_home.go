@@ -109,6 +109,7 @@ type DeclaredBrowserProfileState string
 const (
 	DeclaredBrowserProfileOK                 DeclaredBrowserProfileState = "ok"
 	DeclaredBrowserProfileMissing            DeclaredBrowserProfileState = "missing"
+	DeclaredBrowserProfileOutsideWorkspace   DeclaredBrowserProfileState = "outside_workspace"
 	DeclaredBrowserProfileWrongIdentity      DeclaredBrowserProfileState = "wrong_identity"
 	DeclaredBrowserProfileInconsistent       DeclaredBrowserProfileState = "inconsistent"
 	DeclaredBrowserProfileInvalidDeclaration DeclaredBrowserProfileState = "invalid_declaration"
@@ -530,7 +531,7 @@ func declaredBrowserProfile(home string) *DeclaredBrowserProfile {
 		return status
 	}
 	if inside, relErr := filepath.Rel(realHome, dir); relErr != nil || !filepath.IsLocal(inside) {
-		status.State = DeclaredBrowserProfileInvalidDeclaration
+		status.State = DeclaredBrowserProfileOutsideWorkspace
 		return status
 	}
 	var localState map[string]any

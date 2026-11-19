@@ -848,6 +848,7 @@ export interface HydraDeclaredBrowserProfile {
 export enum HydraDeclaredBrowserProfileState {
   DeclaredBrowserProfileOK = "ok",
   DeclaredBrowserProfileMissing = "missing",
+  DeclaredBrowserProfileOutsideWorkspace = "outside_workspace",
   DeclaredBrowserProfileWrongIdentity = "wrong_identity",
   DeclaredBrowserProfileInconsistent = "inconsistent",
   DeclaredBrowserProfileInvalidDeclaration = "invalid_declaration",

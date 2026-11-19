@@ -27819,6 +27819,7 @@ const docTemplate = `{
             "enum": [
                 "ok",
                 "missing",
+                "outside_workspace",
                 "wrong_identity",
                 "inconsistent",
                 "invalid_declaration"
@@ -27826,6 +27827,7 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "DeclaredBrowserProfileOK",
                 "DeclaredBrowserProfileMissing",
+                "DeclaredBrowserProfileOutsideWorkspace",
                 "DeclaredBrowserProfileWrongIdentity",
                 "DeclaredBrowserProfileInconsistent",
                 "DeclaredBrowserProfileInvalidDeclaration"

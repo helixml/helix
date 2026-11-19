@@ -33016,6 +33016,7 @@
                 "enum": [
                     "ok",
                     "missing",
+                    "outside_workspace",
                     "wrong_identity",
                     "inconsistent",
                     "invalid_declaration"
@@ -33023,6 +33024,7 @@
                 "x-enum-varnames": [
                     "DeclaredBrowserProfileOK",
                     "DeclaredBrowserProfileMissing",
+                    "DeclaredBrowserProfileOutsideWorkspace",
                     "DeclaredBrowserProfileWrongIdentity",
                     "DeclaredBrowserProfileInconsistent",
                     "DeclaredBrowserProfileInvalidDeclaration"

@@ -1272,6 +1272,7 @@ definitions:
     enum:
     - ok
     - missing
+    - outside_workspace
     - wrong_identity
     - inconsistent
     - invalid_declaration
@@ -1279,6 +1280,7 @@ definitions:
     x-enum-varnames:
     - DeclaredBrowserProfileOK
     - DeclaredBrowserProfileMissing
+    - DeclaredBrowserProfileOutsideWorkspace
     - DeclaredBrowserProfileWrongIdentity
     - DeclaredBrowserProfileInconsistent
     - DeclaredBrowserProfileInvalidDeclaration
