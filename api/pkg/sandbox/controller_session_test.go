@@ -2,12 +2,16 @@ package sandbox
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -403,4 +407,131 @@ func (s *ControllerSessionSuite) TestBeginSessionReopenFollowsBotRuntimeChange()
 	sb, err := s.controller.BeginSession(s.ctx, req)
 	s.Require().NoError(err)
 	s.Require().Equal("sbx_bot", sb.ID)
+}
+
+// HelixOS names hypothesis bots after the full hypothesis statement plus
+// " — <owner>", which can exceed the old varchar(128) name column.
+func longBotName(n int) string {
+	return strings.Repeat("Helix Cyber Statement: pen-testing with AI agents ", n)[:n-len(" — luke")] + " — luke"
+}
+
+func (s *ControllerSessionSuite) TestBeginSessionCreatesRowForOrgBotWithLongName() {
+	req := s.beginRequest()
+	req.SpecTaskID = ""
+	req.OrgBotID = "hyp-hyp_04b4aba24867486eb0fc3c0489c1e572-luke"
+	req.Name = longBotName(200)
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(nil, store.ErrNotFound)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().CreateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, sb *types.Sandbox) (*types.Sandbox, error) {
+			// 200 fits the widened column, so the name is kept intact.
+			s.Require().Equal(req.Name, sb.Name)
+			s.Require().Equal(req.OrgBotID, sb.OrgBotID)
+			return sb, nil
+		},
+	)
+
+	_, err := s.controller.BeginSession(s.ctx, req)
+	s.Require().NoError(err)
+}
+
+func (s *ControllerSessionSuite) TestBeginSessionTruncatesOverlongNameAndBotIDOnCreate() {
+	req := s.beginRequest()
+	req.Name = strings.Repeat("漢", 600)
+	req.OrgBotID = strings.Repeat("b", 200)
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(nil, store.ErrNotFound)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().CreateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, sb *types.Sandbox) (*types.Sandbox, error) {
+			s.Require().True(utf8.ValidString(sb.Name))
+			s.Require().Equal(types.SandboxNameMaxLen, utf8.RuneCountInString(sb.Name))
+			s.Require().True(strings.HasSuffix(sb.Name, "…"))
+			s.Require().Equal(types.SandboxOrgBotIDMaxLen, utf8.RuneCountInString(sb.OrgBotID))
+			return sb, nil
+		},
+	)
+
+	_, err := s.controller.BeginSession(s.ctx, req)
+	s.Require().NoError(err)
+}
+
+func (s *ControllerSessionSuite) TestBeginSessionReopenTruncatesOverlongName() {
+	existing := &types.Sandbox{
+		ID:             "sbx_existing",
+		OrganizationID: "org_1",
+		SessionID:      "ses_1",
+		Name:           "old",
+		Runtime:        types.SandboxRuntimeUbuntuDesktop,
+		Status:         types.SandboxStatusStopped,
+	}
+	req := s.beginRequest()
+	req.SpecTaskID = ""
+	req.OrgBotID = "hyp-luke"
+	req.Name = strings.Repeat("🚀", 600)
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(existing, nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().UpdateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, sb *types.Sandbox) (*types.Sandbox, error) {
+			s.Require().True(utf8.ValidString(sb.Name))
+			s.Require().Equal(types.SandboxNameMaxLen, utf8.RuneCountInString(sb.Name))
+			s.Require().Equal("hyp-luke", sb.OrgBotID)
+			return sb, nil
+		},
+	)
+
+	_, err := s.controller.BeginSession(s.ctx, req)
+	s.Require().NoError(err)
+}
+
+func (s *ControllerSessionSuite) TestBeginSessionReopenKeeps200CharBotName() {
+	existing := &types.Sandbox{
+		ID:             "sbx_existing",
+		OrganizationID: "org_1",
+		SessionID:      "ses_1",
+		Runtime:        types.SandboxRuntimeUbuntuDesktop,
+		Status:         types.SandboxStatusStopped,
+	}
+	req := s.beginRequest()
+	req.Name = longBotName(200)
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(existing, nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().UpdateSandbox(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, sb *types.Sandbox) (*types.Sandbox, error) {
+			s.Require().Equal(req.Name, sb.Name)
+			return sb, nil
+		},
+	)
+
+	_, err := s.controller.BeginSession(s.ctx, req)
+	s.Require().NoError(err)
+}
+
+func (s *ControllerSessionSuite) TestBeginSessionWrapsDataErrorsAsRowRejected() {
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(nil, store.ErrNotFound)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().CreateSandbox(gomock.Any(), gomock.Any()).Return(nil,
+		&pgconn.PgError{Code: "22001", Message: "value too long for type character varying(128)"})
+
+	_, err := s.controller.BeginSession(s.ctx, s.beginRequest())
+	s.Require().ErrorIs(err, ErrSandboxRowRejected)
+}
+
+func (s *ControllerSessionSuite) TestBeginSessionDoesNotWrapTransientErrors() {
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil)
+	s.store.EXPECT().GetSandboxBySession(gomock.Any(), "ses_1").Return(nil, store.ErrNotFound)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().CreateSandbox(gomock.Any(), gomock.Any()).Return(nil, errors.New("connection reset"))
+
+	_, err := s.controller.BeginSession(s.ctx, s.beginRequest())
+	s.Require().Error(err)
+	s.Require().NotErrorIs(err, ErrSandboxRowRejected)
 }
