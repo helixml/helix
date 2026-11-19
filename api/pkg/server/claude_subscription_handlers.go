@@ -721,9 +721,8 @@ func (apiServer *HelixAPIServer) deleteClaudeSubscription(_ http.ResponseWriter,
 
 // ClaudeModel represents a Claude model available via Claude Code
 type ClaudeModel struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // @Summary List available Claude models
