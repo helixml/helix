@@ -14,6 +14,7 @@ import {
   filterProjectChatGroups,
   getSandboxControl,
   getSidebarPullRequestIcon,
+  getSidebarTaskActivity,
   getSidebarTaskStatus,
   getChatShortcutNumber,
   isChatShortcutModifier,
@@ -329,11 +330,12 @@ describe('ProjectChatSidebar logic', () => {
     expect(getSidebarTaskStatus({ status: TypesSpecTaskStatus.TaskStatusSpecGeneration })?.label).toBe('Planning')
     expect(getSidebarTaskStatus({ status: TypesSpecTaskStatus.TaskStatusImplementationReview })?.label).toBe('Review')
     expect(getSidebarTaskStatus({ status: TypesSpecTaskStatus.TaskStatusImplementation })).toMatchObject({
-      label: 'Implementation',
+      label: 'Coding',
       color: '#34d399',
     })
+    expect(getSidebarTaskStatus({ status: TypesSpecTaskStatus.TaskStatusPullRequest })?.label).toBe('PR')
     expect(getSidebarTaskStatus({ status: TypesSpecTaskStatus.TaskStatusDone })).toMatchObject({
-      label: 'Completed',
+      label: 'Done',
       color: '#a78bfa',
     })
     expect(compactRelativeTime('2026-08-05T11:59:01Z', Date.parse('2026-08-05T12:00:00Z'))).toBe('now')
@@ -342,49 +344,45 @@ describe('ProjectChatSidebar logic', () => {
     expect(compactRelativeTime('2026-08-05T06:00:00Z', Date.parse('2026-08-05T12:00:00Z'))).toBe('6h')
   })
 
-  it('shows runtime state ahead of the workflow phase', () => {
-    expect(getSidebarTaskStatus({
-      status: TypesSpecTaskStatus.TaskStatusImplementation,
+  it('keeps runtime activity separate from the workflow phase', () => {
+    expect(getSidebarTaskActivity({
       sandbox_state: 'running',
       agent_work_state: TypesAgentWorkState.AgentWorkStateWorking,
-    })).toEqual({ label: 'Working', color: '#34d399' })
+    })).toEqual({ label: 'Working', color: '#34d399', working: true })
 
-    expect(getSidebarTaskStatus({
-      status: TypesSpecTaskStatus.TaskStatusImplementation,
+    expect(getSidebarTaskActivity({
       sandbox_state: 'running',
       agent_work_state: TypesAgentWorkState.AgentWorkStateIdle,
-    })).toEqual({ label: 'Idle', color: '#fbbf24' })
-
-    expect(getSidebarTaskStatus({
-      status: TypesSpecTaskStatus.TaskStatusDone,
-      sandbox_state: 'running',
-      agent_work_state: TypesAgentWorkState.AgentWorkStateDone,
-    })).toEqual({ label: 'Idle', color: '#fbbf24' })
+    })).toEqual({ label: 'Idle', color: '#a1a1aa', working: false })
 
     expect(getSidebarTaskStatus({
       status: TypesSpecTaskStatus.TaskStatusSpecGeneration,
       sandbox_state: 'running',
       agent_work_state: TypesAgentWorkState.AgentWorkStateWorking,
     })?.label).toBe('Planning')
+    expect(getSidebarTaskStatus({
+      status: TypesSpecTaskStatus.TaskStatusImplementation,
+      sandbox_state: 'running',
+      agent_work_state: TypesAgentWorkState.AgentWorkStateIdle,
+    })?.label).toBe('Coding')
+    expect(getSidebarTaskActivity({
+      sandbox_state: 'running',
+      agent_work_state: TypesAgentWorkState.AgentWorkStateDone,
+    })?.label).toBe('Idle')
+    expect(getSidebarTaskActivity({ sandbox_state: 'running' })).toBeNull()
   })
 
-  it('greys offline tasks and explains their state', () => {
+  it('keeps the workflow phase while marking an absent sandbox offline', () => {
     expect(getSidebarTaskStatus({
       status: TypesSpecTaskStatus.TaskStatusImplementation,
       sandbox_state: 'absent',
       agent_work_state: TypesAgentWorkState.AgentWorkStateWorking,
-    })?.label).toBe('Implementation')
+    })?.label).toBe('Coding')
 
-    expect(getSidebarTaskStatus({
-      status: TypesSpecTaskStatus.TaskStatusDone,
+    expect(getSidebarTaskActivity({
       sandbox_state: 'absent',
-      agent_work_state: TypesAgentWorkState.AgentWorkStateIdle,
-    })).toEqual({
-      label: 'Completed',
-      color: '#a1a1aa',
-      tooltip: 'Sandbox and agent are offline',
-    })
-    expect(getSidebarTaskStatus({ sandbox_state: 'absent' })?.label).toBe('Offline')
+      agent_work_state: TypesAgentWorkState.AgentWorkStateWorking,
+    })).toEqual({ label: 'Offline', color: '#a1a1aa', working: false })
   })
 
   it('colors pull request icons independently from sandbox state', () => {
@@ -613,8 +611,8 @@ describe('ProjectChatSidebar bots and people', () => {
     const { botHomeProjectIds, toSidebarBots, withoutBotProjects } = await import('./ProjectChatSidebar.logic')
     const bots = toSidebarBots([
       { id: 'b-mira', name: 'Mira', portrait_index: 3, status: 'running', agent_work_state: TypesAgentWorkState.AgentWorkStateWorking, project_id: 'prj_mira', session_id: 'ses_mira', legacy_app_id: 'app_mira' },
-      { id: 'chief-of-staff', name: 'Chief of Staff', status: 'stopped', project_id: 'prj_chief' },
-      { id: 'b-aaron', name: 'Aaron', status: 'running' },
+      { id: 'chief-of-staff', name: 'Chief of Staff', status: 'stopped', agent_work_state: TypesAgentWorkState.AgentWorkStateWorking, project_id: 'prj_chief' },
+      { id: 'b-aaron', name: 'Aaron', status: 'running', agent_work_state: TypesAgentWorkState.AgentWorkStateIdle },
       { id: 'b-alice', name: 'Alice', status: 'stopped' },
       { id: 'b-zoe', name: 'Zoe', status: 'stopped' },
       { id: '', name: 'Broken' },
@@ -626,8 +624,9 @@ describe('ProjectChatSidebar bots and people', () => {
       'b-alice',
       'b-zoe',
     ])
-    expect(bots[0]).toMatchObject({ running: false, projectId: 'prj_chief' })
-    expect(bots[2]).toMatchObject({ portraitIndex: 3, running: true, working: true, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
+    expect(bots[0]).toMatchObject({ running: false, activity: { label: 'Offline', working: false }, projectId: 'prj_chief' })
+    expect(bots[1]).toMatchObject({ running: true, activity: { label: 'Idle', working: false } })
+    expect(bots[2]).toMatchObject({ portraitIndex: 3, running: true, activity: { label: 'Working', working: true }, agentAppId: 'app_mira', projectId: 'prj_mira', sessionId: 'ses_mira' })
     expect([...botHomeProjectIds(bots)]).toEqual(['prj_chief', 'prj_mira'])
     expect(withoutBotProjects([
       { id: 'prj_chief', name: 'chief-of-staff @ org' },

@@ -35,12 +35,11 @@ import {
 import { useSpecTasks } from '../../services/specTaskService'
 import { getSidebarColors } from '../../styles/themeTokens'
 import { TYPOGRAPHY } from '../../styles/typography'
-import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
+import { ActivityStatusDot } from './ProjectChatItemBadges'
 import ProjectChatShowMore from './ProjectChatShowMore'
 import {
   botInstanceSidebarItem,
-  SIDEBAR_WORKING_COLOR,
   buildPersonChatItems,
   filterProjectChatGroups,
   pinnedAtByItemKeyFrom,
@@ -328,11 +327,6 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
   const hasMore = filteredItems.length > pagination.visibleCount || tasks.length >= pagination.requestCount
   const active = bot.id === activeItemId || (!!bot.sessionId && bot.sessionId === activeItemId)
-  const showWorkingIndicator = bot.working && !active
-  const statusTitle = bot.running
-    ? (bot.restartRequired ? 'Running · restart required to apply changes' : 'Agent running')
-    : 'Agent stopped'
-
   if (searching && !tasksQuery.isLoading && !instancesQuery.isLoading && filteredItems.length === 0 && !sidebarBotMatchesQuery(bot, query)) {
     return null
   }
@@ -375,10 +369,8 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             backgroundColor: active ? sidebarColors.rowSelected : sidebarColors.rowHover,
           },
           '&:hover .sidebar-bot-actions, &:focus-within .sidebar-bot-actions': { opacity: 1 },
-          '&:hover .sidebar-bot-working, &:focus-within .sidebar-bot-working': { opacity: 0 },
           '@media (hover: none)': {
             '& .sidebar-bot-actions': { opacity: 1 },
-            '& .sidebar-bot-working': { opacity: 1 },
           },
         }}
       >
@@ -414,21 +406,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         >
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </Box>
-        <Tooltip title={statusTitle}>
-          <Box
-            component="span"
-            data-bot-status={bot.running ? 'running' : 'stopped'}
-            onMouseOver={(event) => event.stopPropagation()}
-            sx={{
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              flexShrink: 0,
-              backgroundColor: bot.running ? PRESENCE_ONLINE_COLOR : PRESENCE_OFFLINE_COLOR,
-              boxShadow: bot.running && bot.restartRequired ? '0 0 0 2px rgba(251,191,36,0.55)' : 'none',
-            }}
-          />
-        </Tooltip>
+        <ActivityStatusDot activity={bot.activity} restartRequired={bot.running && bot.restartRequired} />
         <BotPortrait portraitIndex={bot.portraitIndex} size={22} sx={{ filter: 'grayscale(1)' }} />
         <Typography
           component="span"
@@ -479,37 +457,12 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
           <Box
             data-testid="sidebar-bot-trailing-slot"
             sx={{
-              width: showWorkingIndicator ? 64 : 24,
+              width: 24,
               height: 24,
               position: 'relative',
               flexShrink: 0,
-              '@media (hover: none)': { width: showWorkingIndicator ? 88 : 24 },
             }}
           >
-            {showWorkingIndicator && (
-              <Tooltip title="Working">
-                <Typography
-                  className="sidebar-bot-working"
-                  component="span"
-                  role="status"
-                  aria-label="Working"
-                  sx={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: SIDEBAR_WORKING_COLOR,
-                    fontSize: TYPOGRAPHY.sidebar.statusFontSize,
-                    lineHeight: TYPOGRAPHY.sidebar.statusLineHeight,
-                    transition: 'opacity 100ms ease',
-                    '@media (hover: none)': { right: 24 },
-                  }}
-                >
-                  Working
-                </Typography>
-              </Tooltip>
-            )}
             <Tooltip title="More actions">
               <Box
                 component="span"
