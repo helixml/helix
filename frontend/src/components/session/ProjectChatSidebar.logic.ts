@@ -8,10 +8,16 @@ import { matchesAllTokens } from '../../utils/searchUtils'
 export type SidebarStatus = {
   label: string
   color: string
-  tooltip?: string
 }
 
 export const SIDEBAR_WORKING_COLOR = '#34d399'
+export const SIDEBAR_IDLE_COLOR = '#a1a1aa'
+
+export type SidebarActivity = {
+  label: 'Working' | 'Idle' | 'Offline'
+  color: string
+  working: boolean
+}
 
 export type SidebarItem = {
   id: string
@@ -364,7 +370,7 @@ export const getChatShortcutNumber = (
   return codeMatch ? Number(codeMatch[1]) : null
 }
 
-const getSidebarWorkflowStatus = (task?: SpecTask): SidebarStatus | null => {
+export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
   switch (task?.status) {
     case 'queued_spec_generation':
     case 'queued_implementation':
@@ -378,51 +384,34 @@ const getSidebarWorkflowStatus = (task?: SpecTask): SidebarStatus | null => {
     case 'spec_approved':
       return { label: 'Approved', color: '#34d399' }
     case 'implementation':
-      return {
-        label: task.agent_work_state === 'working' && task.sandbox_state !== 'absent'
-          ? 'Working'
-          : 'Implementation',
-        color: SIDEBAR_WORKING_COLOR,
-      }
+      return { label: 'Coding', color: SIDEBAR_WORKING_COLOR }
     case 'implementation_review':
       return { label: 'Review', color: '#fb923c' }
     case 'pull_request':
-      return { label: 'Pull request', color: '#22d3ee' }
+      return { label: 'PR', color: '#22d3ee' }
     case 'done':
-      return { label: 'Completed', color: '#a78bfa' }
+      return { label: 'Done', color: '#a78bfa' }
     case 'spec_failed':
     case 'implementation_failed':
       return { label: 'Failed', color: '#f87171' }
     case 'backlog':
       return { label: 'Backlog', color: '#94a3b8' }
     default:
-      if (task?.agent_work_state === 'working') {
-        return { label: 'Working', color: '#38bdf8' }
-      }
       return null
   }
 }
 
-export const getSidebarTaskStatus = (task?: SpecTask): SidebarStatus | null => {
-  const workflowStatus = getSidebarWorkflowStatus(task)
-
+export const getSidebarTaskActivity = (task?: SpecTask): SidebarActivity | null => {
   if (task?.sandbox_state === 'absent') {
-    return {
-      ...(workflowStatus || {}),
-      label: workflowStatus?.label || 'Offline',
-      color: '#a1a1aa',
-      tooltip: 'Sandbox and agent are offline',
-    }
+    return { label: 'Offline', color: SIDEBAR_IDLE_COLOR, working: false }
   }
-
-  if (
-    task?.sandbox_state === 'running'
-    && (task.agent_work_state === 'idle' || task.agent_work_state === 'done')
-  ) {
-    return { label: 'Idle', color: '#fbbf24' }
+  if (task?.agent_work_state === 'working') {
+    return { label: 'Working', color: SIDEBAR_WORKING_COLOR, working: true }
   }
-
-  return workflowStatus
+  if (task?.agent_work_state === 'idle' || task?.agent_work_state === 'done') {
+    return { label: 'Idle', color: SIDEBAR_IDLE_COLOR, working: false }
+  }
+  return null
 }
 
 const PULL_REQUEST_ICON_COLORS: Record<string, string> = {
@@ -625,7 +614,7 @@ export type SidebarBot = {
   name: string
   portraitIndex?: number
   running: boolean
-  working: boolean
+  activity: SidebarActivity | null
   restartRequired: boolean
   agentAppId?: string
   projectId?: string
@@ -643,7 +632,13 @@ export const toSidebarBots = (bots: BotDTO[]): SidebarBot[] => (
       name: bot.name || bot.id!,
       portraitIndex: bot.portrait_index,
       running: bot.status === 'running',
-      working: bot.status === 'running' && bot.agent_work_state === 'working',
+      activity: bot.status !== 'running'
+        ? { label: 'Offline', color: SIDEBAR_IDLE_COLOR, working: false }
+        : bot.agent_work_state === 'working'
+          ? { label: 'Working', color: SIDEBAR_WORKING_COLOR, working: true }
+          : bot.agent_work_state === 'idle' || bot.agent_work_state === 'done'
+            ? { label: 'Idle', color: SIDEBAR_IDLE_COLOR, working: false }
+            : null,
       restartRequired: !!bot.restart_required,
       agentAppId: bot.legacy_app_id || undefined,
       projectId: bot.project_id || undefined,

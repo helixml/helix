@@ -111,6 +111,6 @@ describe('ProjectChatItemRow', () => {
     renderRow(quietTask)
     // Both are static row content on a phone — no hover exists to reveal them.
     expect(screen.getByText('2d')).toBeInTheDocument()
-    expect(screen.getByText('Completed')).toBeInTheDocument()
+    expect(screen.getByText('Done')).toBeInTheDocument()
   })
 })
