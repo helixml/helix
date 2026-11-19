@@ -144,7 +144,9 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       isAdmin={props.isAdmin}
       session_id={props.session_id}
     >
-      {isLive && (props.isOwner || props.isAdmin) && (
+      {/* Every viewer who may read the session, not just the owner — see
+          EmbeddedSessionView. */}
+      {isLive && (
         <InteractionLiveStream
           session_id={props.session_id}
           interaction={props.interaction}
