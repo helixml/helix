@@ -8,6 +8,8 @@ import { botSandboxIndicatorState } from './BotProfile'
 const mocks = vi.hoisted(() => ({
   isBigScreen: true,
   resizedTo: vi.fn(),
+  setKeepAlive: vi.fn(),
+  prProposals: [] as Array<{ id: string; title: string; status: string }>,
 }))
 
 vi.mock('../../hooks/useIsBigScreen', () => ({ default: () => mocks.isBigScreen }))
@@ -27,6 +29,17 @@ vi.mock('../tasks/SandboxBrowser', () => ({
 }))
 vi.mock('../tasks/SpecTaskTerminalDrawer', () => ({
   default: ({ sessionId }: { sessionId: string }) => <div>Terminal for {sessionId}</div>,
+}))
+vi.mock('../../services/helixOrgService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/helixOrgService')>()),
+  useSetBotKeepAlive: () => ({ mutate: mocks.setKeepAlive, isPending: false }),
+}))
+vi.mock('../../services/specTaskPRProposalService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/specTaskPRProposalService')>()),
+  usePRProposals: () => ({ data: mocks.prProposals }),
+}))
+vi.mock('../tasks/PRProposalCard', () => ({
+  default: ({ proposal }: { proposal: { id: string; title: string } }) => <div data-testid={`pr-proposal-${proposal.id}`}>{proposal.title}</div>,
 }))
 vi.mock('./OrgAgentSettingsPane', () => ({
   default: ({ sessionId, bot, instance }: { sessionId: string; bot: { id: string }; instance?: { runtime?: string } }) => (
@@ -78,6 +91,8 @@ describe('OrgAgentSessionWorkspace', () => {
   beforeEach(() => {
     mocks.isBigScreen = true
     mocks.resizedTo.mockReset()
+    mocks.setKeepAlive.mockReset()
+    mocks.prProposals = []
     localStorage.clear()
   })
 
@@ -418,6 +433,30 @@ describe('OrgAgentSessionWorkspace', () => {
     expect(screen.queryByRole('button', { name: /desktop view/i })).not.toBeInTheDocument()
     expect(screen.getByText('changes for session-four')).toBeInTheDocument()
     expect(screen.queryByText(/'s desktop/)).not.toBeInTheDocument()
+  })
+
+  it('toggles Keep Alive for the bot from the toolbar', () => {
+    render(
+      <OrgAgentSessionWorkspace sessionId="session-ka" organizationId="acme" bot={{ ...runningBot, keep_alive: false } as any}>
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /keep alive off/i }))
+    expect(mocks.setKeepAlive).toHaveBeenCalledWith({ botId: runningBot.id, keepAlive: true })
+  })
+
+  it('shows the bot pull request proposals awaiting a decision beside the chat', () => {
+    mocks.prProposals = [
+      { id: 'prp_pending', title: 'Playbook rules', status: 'pending' },
+      { id: 'prp_opened', title: 'Already open', status: 'opened' },
+    ]
+    render(
+      <OrgAgentSessionWorkspace sessionId="session-pr" organizationId="acme" bot={runningBot as any}>
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
+    expect(screen.getByTestId('pr-proposal-prp_pending')).toBeTruthy()
+    expect(screen.queryByTestId('pr-proposal-prp_opened')).toBeNull()
   })
 
   it('offers start for a stopped bot and stop for a running one', () => {

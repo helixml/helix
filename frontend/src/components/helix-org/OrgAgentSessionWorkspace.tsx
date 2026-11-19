@@ -26,7 +26,14 @@ import type { PanelImperativeHandle } from 'react-resizable-panels'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
 import { loadPanelLayout, savePanelLayout } from '../../lib/panelLayoutStorage'
-import { BotDTO } from '../../services/helixOrgService'
+import { BotDTO, useSetBotKeepAlive } from '../../services/helixOrgService'
+import {
+  ACTIONABLE_PR_PROPOSAL_STATUSES,
+  PRProposalOwner,
+  proposalsToReveal,
+  usePRProposals,
+} from '../../services/specTaskPRProposalService'
+import PRProposalCard from '../tasks/PRProposalCard'
 import { TypesInteraction, TypesSandboxRuntime } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import SubagentsPanel from '../session/SubagentsPanel'
@@ -145,6 +152,17 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
   const botName = bot?.name || bot?.id || 'Helix bot'
   const defaultView: TaskView = isHeadless ? 'changes' : 'desktop'
 
+  const setKeepAlive = useSetBotKeepAlive(organizationId)
+  // A bot opens pull requests (e.g. to its own playbook) only through
+  // proposals a person approves; the ones awaiting a decision or a retry sit
+  // above the chat, exactly as on a spec task.
+  const proposalOwner: PRProposalOwner | undefined = bot?.id && organizationId
+    ? { kind: 'bot', orgId: organizationId, botId: bot.id }
+    : undefined
+  const { data: prProposals } = usePRProposals(proposalOwner)
+  const actionablePRProposals = (prProposals ?? []).filter((p) =>
+    ACTIONABLE_PR_PROPOSAL_STATUSES.has(p.status ?? ''),
+  )
   const [view, setView] = useState<TaskView>(() => loadView(viewKey) ?? defaultView)
   const [terminalOpen, setTerminalOpen] = useState(() => loadStoredBoolean(terminalOpenKey))
   const [terminalHeight, setTerminalHeight] = useState(() => loadTerminalHeight(terminalKey))
@@ -165,6 +183,22 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     setTerminalOpen(open)
     saveStoredBoolean(terminalOpenKey, open)
   }, [terminalOpenKey])
+
+  // A proposal waiting on the user is only visible beside the chat, so show
+  // the chat once per new proposal — not on every poll, so a user who hides
+  // it again is not fought.
+  const revealedProposalIdsRef = useRef<Set<string>>(new Set())
+  const proposalsToRevealKey = proposalsToReveal(prProposals ?? [], revealedProposalIdsRef.current).join(',')
+  useEffect(() => {
+    if (!proposalsToRevealKey) return
+    proposalsToRevealKey.split(',').forEach((id) => revealedProposalIdsRef.current.add(id))
+    if (isBigScreen) {
+      updateChatCollapsed(false)
+    } else {
+      setView('chat')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposalsToRevealKey])
 
   // A headless bot has no desktop; if the stored view is desktop, fall back.
   // On a big screen chat has its own panel, so "chat" as a right-panel view
@@ -231,6 +265,10 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
       showRestart={!!bot && !!onRestart}
       onRestart={onRestart}
       restartBusy={lifecycleBusy}
+      showKeepAlive={!!bot}
+      keepAlive={!!bot?.keep_alive}
+      onToggleKeepAlive={bot?.id ? () => setKeepAlive.mutate({ botId: bot.id!, keepAlive: !bot.keep_alive }) : undefined}
+      keepAliveBusy={setKeepAlive.isPending}
       showUsage
       detailsLabel="Settings"
       onRestoreSplit={singlePanel ? () => updateChatCollapsed(false) : undefined}
@@ -305,11 +343,26 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, sessionId, organizationId, desktopRunning, starting, lifecycleBusy, isHeadless, indicatorState, bot?.sandbox_status_message, bot?.sandbox_id, bot?.sandbox_status, bot?.restart_required, bot?.effective_sandbox_runtime, bot?.effective_sandbox_resource_overrides?.vcpus, bot?.effective_sandbox_resource_overrides?.memory_mb, bot?.project_id, bot?.name, instanceOf?.id, instanceOf?.name, instanceOf?.project_id, instanceOf?.legacy_app_id, instanceOf?.effective_sandbox_resource_overrides?.vcpus, instanceOf?.effective_sandbox_resource_overrides?.memory_mb, instanceOf?.sandbox_resource_overrides?.vcpus, sessionSandbox?.runtime, children])
 
+  const prProposalCards = proposalOwner && actionablePRProposals.length > 0 ? (
+    <Box sx={{ flexShrink: 0, maxHeight: '45%', overflow: 'auto', px: 1, pt: 1, borderBottom: `1px solid ${dividerColor}` }}>
+      {actionablePRProposals.map((proposal) => (
+        <PRProposalCard key={proposal.id} owner={proposalOwner} proposal={proposal} />
+      ))}
+    </Box>
+  ) : null
+
   // Outside the memo: the Agents view follows the streaming interactions,
   // which are not a primitive dependency.
   const shownSurface = view === 'agents'
     ? <SubagentsPanel interactions={subagentInteractions ?? []} />
-    : surface
+    : view === 'chat' && prProposalCards
+      ? (
+        <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {prProposalCards}
+          <Box sx={{ flex: 1, minHeight: 0 }}>{surface}</Box>
+        </Box>
+      )
+      : surface
 
   const content = (singlePanel = false) => (
     <Box sx={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -402,6 +455,7 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
           )}
         </Box>
       </Box>
+      {prProposalCards}
       <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
         {children}
       </Box>
