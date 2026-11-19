@@ -445,7 +445,8 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 		return nil
 	}
 	if reflect.DeepEqual(session.Metadata.CodeAgentConfig, config) &&
-		session.Metadata.CodeAgentOverrides == nil {
+		session.Metadata.CodeAgentOverrides == nil &&
+		sessionUsesAgentRuntime(session, config.Runtime) {
 		return false, false, recoverPrompts()
 	}
 

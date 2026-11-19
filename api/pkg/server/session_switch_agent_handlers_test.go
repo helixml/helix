@@ -382,6 +382,41 @@ func TestReconcileSessionAgentWithApp_RepairsBeforeUserTurn(t *testing.T) {
 	assert.Contains(t, srv.maybePrependTranscript(ctx, updated, "next user turn"), "next user turn")
 }
 
+func TestReconcileSessionAgentWithAppUsesSessionCodeAgentConfig(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	session := newTestParentSession("user_a")
+	session.ParentApp = ""
+	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{Runtime: types.CodeAgentRuntimeZedAgent}
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
+	session.Metadata.ZedThreadID = "thread_from_opencode"
+	seedParentWithInteractions(t, mem, session, 1)
+
+	httpErr := srv.reconcileSessionAgentWithApp(ctx, session, testUserTurn)
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, types.CodeAgentRuntimeZedAgent, updated.Metadata.CodeAgentRuntime)
+	assert.Equal(t, types.CodeAgentRuntimeZedAgent.ZedAgentName(), updated.Metadata.ZedAgentName)
+	assert.Empty(t, updated.Metadata.ZedThreadID)
+	assert.Equal(t, types.CodeAgentRuntimeZedAgent.ZedAgentName(), srv.getAgentNameForSession(ctx, updated))
+	assert.Contains(t, srv.maybePrependTranscript(ctx, updated, "next user turn"), "next user turn")
+
+	httpErr = srv.reconcileSessionAgentWithApp(ctx, updated, testUserTurn)
+	require.Nil(t, httpErr)
+	interactions, _, err := mem.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID})
+	require.NoError(t, err)
+	seedCount := 0
+	for _, interaction := range interactions {
+		if interaction.Trigger == types.InteractionTriggerForkSeed {
+			seedCount++
+		}
+	}
+	assert.Equal(t, 1, seedCount)
+}
+
 // maybePrependTranscript must seed the new thread on an in-place switch (where
 // ParentSessionID is empty but AgentSwitchedAt is set).
 func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {

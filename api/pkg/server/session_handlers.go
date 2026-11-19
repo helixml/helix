@@ -429,6 +429,9 @@ func currentAgentInfo(app *types.App, assistantID string) (types.CodeAgentRuntim
 }
 
 func applyCurrentAgentInfoToSummary(summary *types.SessionSummary, app *types.App) {
+	if summary.Metadata.CodeAgentConfig != nil {
+		return
+	}
 	runtime, modelName, ok := currentAgentInfo(app, summary.Metadata.AssistantID)
 	if !ok {
 		return
@@ -3371,7 +3374,7 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		session.Metadata.SandboxResourceOverrides = req.SandboxResourceOverrides
 	}
 
-	if req.AppID != "" {
+	if req.AppID != "" && session.Metadata.CodeAgentConfig == nil {
 		app, err := s.Store.GetApp(ctx, req.AppID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get session app: %w", err)
@@ -3387,6 +3390,11 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		session.Metadata.AssistantID = req.AssistantID
 		session.Metadata.CodeAgentRuntime = runtime
 		session.Metadata.ZedAgentName = runtime.ZedAgentName()
+	}
+	if session.Metadata.CodeAgentConfig != nil {
+		if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session, provenance); reconcileErr != nil {
+			return nil, fmt.Errorf("failed to reconcile session coding runtime: %s", reconcileErr.Message)
+		}
 	}
 
 	var existingDelivery *types.Interaction
