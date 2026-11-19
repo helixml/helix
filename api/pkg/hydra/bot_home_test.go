@@ -332,7 +332,9 @@ func TestDestroyBotHome_FailedPurgeReportsWhereDataRemains(t *testing.T) {
 	locked := filepath.Join(res.Path, "locked")
 	writeFile(t, filepath.Join(locked, "f"), "x", 0o600)
 	require.NoError(t, os.Chmod(locked, 0o500))
-	t.Cleanup(func() { _ = filepath.Walk(base, func(p string, _ os.FileInfo, _ error) error { return os.Chmod(p, 0o755) }) })
+	t.Cleanup(func() {
+		_ = filepath.Walk(base, func(p string, _ os.FileInfo, _ error) error { return os.Chmod(p, 0o755) })
+	})
 
 	_, err = destroyBotHome(&DestroyBotHomeRequest{OrganizationID: testOrg, BotID: testBot, Mode: BotHomePurge}, time.Now())
 	require.ErrorContains(t, err, "data may still exist at "+filepath.Join(base, botHomesTrashDirName))

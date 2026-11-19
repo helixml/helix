@@ -495,8 +495,8 @@ const (
 
 // DestroyBotHomeRequest erases one bot's home.
 type DestroyBotHomeRequest struct {
-	OrganizationID string             `json:"organization_id"`
-	BotID          string             `json:"bot_id"`
+	OrganizationID string `json:"organization_id"`
+	BotID          string `json:"bot_id"`
 	// Generation, when set, must match the home on disk; a different
 	// generation is never erased.
 	Generation string             `json:"generation,omitempty"`
