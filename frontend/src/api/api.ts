@@ -802,6 +802,12 @@ export interface HosthistorySample {
 }
 
 export interface HydraBotHomeInventory {
+  /**
+   * BrowserProfile is the profile declared in .helix/browser.json (see
+   * desktop/shared/helix-browser.sh); nil when none is declared, in which
+   * case the browser uses .chrome-state.
+   */
+  browser_profile?: HydraDeclaredBrowserProfile;
   chrome_profiles?: HydraChromeProfileStatus[];
   top_level_entries?: number;
 }
@@ -832,6 +838,19 @@ export interface HydraContainerBlkioStats {
   read_bytes?: number;
   session_id?: string;
   write_bytes?: number;
+}
+
+export interface HydraDeclaredBrowserProfile {
+  path?: string;
+  state?: HydraDeclaredBrowserProfileState;
+}
+
+export enum HydraDeclaredBrowserProfileState {
+  DeclaredBrowserProfileOK = "ok",
+  DeclaredBrowserProfileMissing = "missing",
+  DeclaredBrowserProfileWrongIdentity = "wrong_identity",
+  DeclaredBrowserProfileInconsistent = "inconsistent",
+  DeclaredBrowserProfileInvalidDeclaration = "invalid_declaration",
 }
 
 export enum HydraDevContainerStatus {

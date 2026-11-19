@@ -95,6 +95,28 @@ type BotHomeResult struct {
 type BotHomeInventory struct {
 	TopLevelEntries int                   `json:"top_level_entries"`
 	ChromeProfiles  []ChromeProfileStatus `json:"chrome_profiles,omitempty"`
+	// BrowserProfile is the profile declared in .helix/browser.json (see
+	// desktop/shared/helix-browser.sh); nil when none is declared, in which
+	// case the browser uses .chrome-state.
+	BrowserProfile *DeclaredBrowserProfile `json:"browser_profile,omitempty"`
+}
+
+// DeclaredBrowserProfileState says whether the declared profile can be used.
+// Hydra only reports it: a bot without a usable profile still starts, and its
+// browser requests fail with the same reason.
+type DeclaredBrowserProfileState string
+
+const (
+	DeclaredBrowserProfileOK                 DeclaredBrowserProfileState = "ok"
+	DeclaredBrowserProfileMissing            DeclaredBrowserProfileState = "missing"
+	DeclaredBrowserProfileWrongIdentity      DeclaredBrowserProfileState = "wrong_identity"
+	DeclaredBrowserProfileInconsistent       DeclaredBrowserProfileState = "inconsistent"
+	DeclaredBrowserProfileInvalidDeclaration DeclaredBrowserProfileState = "invalid_declaration"
+)
+
+type DeclaredBrowserProfile struct {
+	Path  string                      `json:"path,omitempty"`
+	State DeclaredBrowserProfileState `json:"state"`
 }
 
 // ChromeProfileStatus is the integrity of one Chrome user-data dir. It cannot
@@ -470,7 +492,61 @@ func inventoryBotHome(home string) BotHomeInventory {
 		}
 		inv.ChromeProfiles = append(inv.ChromeProfiles, chromeProfileStatus(home, dir))
 	}
+	inv.BrowserProfile = declaredBrowserProfile(home)
 	return inv
+}
+
+// declaredBrowserProfile checks the declared profile the way helix-browser
+// does before launching: inside the home, present, carrying the declared
+// identity, with a readable Local State. The home is bot-writable, so paths
+// are confined to it after resolving symlinks.
+func declaredBrowserProfile(home string) *DeclaredBrowserProfile {
+	var decl struct {
+		Profile   string `json:"profile"`
+		ProfileID string `json:"profile_id"`
+	}
+	found, err := readJSONFile(filepath.Join(home, ".helix", "browser.json"), &decl)
+	if !found {
+		return nil
+	}
+	status := &DeclaredBrowserProfile{Path: decl.Profile}
+	rel := filepath.Clean(decl.Profile)
+	if err != nil || decl.ProfileID == "" || decl.Profile == "" || filepath.IsAbs(rel) || !filepath.IsLocal(rel) {
+		status.State = DeclaredBrowserProfileInvalidDeclaration
+		return status
+	}
+	realHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		status.State = DeclaredBrowserProfileInconsistent
+		return status
+	}
+	dir, err := filepath.EvalSymlinks(filepath.Join(home, rel))
+	if errors.Is(err, fs.ErrNotExist) {
+		status.State = DeclaredBrowserProfileMissing
+		return status
+	}
+	if err != nil {
+		status.State = DeclaredBrowserProfileInconsistent
+		return status
+	}
+	if inside, relErr := filepath.Rel(realHome, dir); relErr != nil || !filepath.IsLocal(inside) {
+		status.State = DeclaredBrowserProfileInvalidDeclaration
+		return status
+	}
+	var localState map[string]any
+	if ok, err := readJSONFile(filepath.Join(dir, "Local State"), &localState); !ok || err != nil {
+		status.State = DeclaredBrowserProfileInconsistent
+		return status
+	}
+	var identity struct {
+		ProfileID string `json:"profile_id"`
+	}
+	if ok, err := readJSONFile(filepath.Join(dir, ".helix-profile.json"), &identity); !ok || err != nil || identity.ProfileID != decl.ProfileID {
+		status.State = DeclaredBrowserProfileWrongIdentity
+		return status
+	}
+	status.State = DeclaredBrowserProfileOK
+	return status
 }
 
 func chromeProfileStatus(home, dir string) ChromeProfileStatus {
@@ -671,7 +747,13 @@ func (dm *DevContainerManager) bindBotHome(ctx context.Context, dockerClient *cl
 		Str("outcome", string(result.Outcome)).
 		Int("top_level_entries", result.Inventory.TopLevelEntries).
 		Interface("chrome_profiles", result.Inventory.ChromeProfiles).
+		Interface("browser_profile", result.Inventory.BrowserProfile).
 		Msg("Bound Org Bot home")
+	if bp := result.Inventory.BrowserProfile; bp != nil && bp.State != DeclaredBrowserProfileOK {
+		log.Warn().Str("session_id", req.SessionID).Str("bot_home", key).
+			Str("profile", bp.Path).Str("state", string(bp.State)).
+			Msg("Org Bot's declared browser profile is not usable; browser requests will fail until it is restored")
+	}
 	return result, nil
 }
 

@@ -1202,6 +1202,13 @@ definitions:
     type: object
   hydra.BotHomeInventory:
     properties:
+      browser_profile:
+        allOf:
+        - $ref: '#/definitions/hydra.DeclaredBrowserProfile'
+        description: |-
+          BrowserProfile is the profile declared in .helix/browser.json (see
+          desktop/shared/helix-browser.sh); nil when none is declared, in which
+          case the browser uses .chrome-state.
       chrome_profiles:
         items:
           $ref: '#/definitions/hydra.ChromeProfileStatus'
@@ -1254,6 +1261,27 @@ definitions:
       write_bytes:
         type: integer
     type: object
+  hydra.DeclaredBrowserProfile:
+    properties:
+      path:
+        type: string
+      state:
+        $ref: '#/definitions/hydra.DeclaredBrowserProfileState'
+    type: object
+  hydra.DeclaredBrowserProfileState:
+    enum:
+    - ok
+    - missing
+    - wrong_identity
+    - inconsistent
+    - invalid_declaration
+    type: string
+    x-enum-varnames:
+    - DeclaredBrowserProfileOK
+    - DeclaredBrowserProfileMissing
+    - DeclaredBrowserProfileWrongIdentity
+    - DeclaredBrowserProfileInconsistent
+    - DeclaredBrowserProfileInvalidDeclaration
   hydra.DevContainerStatus:
     enum:
     - starting

@@ -27717,6 +27717,14 @@ const docTemplate = `{
         "hydra.BotHomeInventory": {
             "type": "object",
             "properties": {
+                "browser_profile": {
+                    "description": "BrowserProfile is the profile declared in .helix/browser.json (see\ndesktop/shared/helix-browser.sh); nil when none is declared, in which\ncase the browser uses .chrome-state.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/hydra.DeclaredBrowserProfile"
+                        }
+                    ]
+                },
                 "chrome_profiles": {
                     "type": "array",
                     "items": {
@@ -27794,6 +27802,34 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "hydra.DeclaredBrowserProfile": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/hydra.DeclaredBrowserProfileState"
+                }
+            }
+        },
+        "hydra.DeclaredBrowserProfileState": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "missing",
+                "wrong_identity",
+                "inconsistent",
+                "invalid_declaration"
+            ],
+            "x-enum-varnames": [
+                "DeclaredBrowserProfileOK",
+                "DeclaredBrowserProfileMissing",
+                "DeclaredBrowserProfileWrongIdentity",
+                "DeclaredBrowserProfileInconsistent",
+                "DeclaredBrowserProfileInvalidDeclaration"
+            ]
         },
         "hydra.DevContainerStatus": {
             "type": "string",
