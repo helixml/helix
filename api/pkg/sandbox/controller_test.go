@@ -171,9 +171,9 @@ func (s *ControllerSuite) TestReapExpiredDeletesEachExpiredSandbox() {
 	// GetSystemSettings.
 	for _, sb := range expired {
 		s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
-		s.store.EXPECT().SetSandboxStatus(s.ctx, sb.ID, types.SandboxStatusStopping, "").Return(nil)
-		s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
-		s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
+		s.store.EXPECT().SetSandboxStatus(gomock.Any(), sb.ID, types.SandboxStatusStopping, "").Return(nil)
+		s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+		s.store.EXPECT().DeleteSandbox(gomock.Any(), sb.ID).Return(nil)
 	}
 
 	s.Require().NoError(s.controller.ReapExpired(s.ctx))
@@ -196,9 +196,9 @@ func (s *ControllerSuite) TestReapExpiredContinuesAfterPerSandboxFailure() {
 	// First sandbox fails on GetSandbox (logged + skipped), second succeeds.
 	s.store.EXPECT().GetSandbox(s.ctx, "sbx_fail").Return(nil, errors.New("vanished"))
 	s.store.EXPECT().GetSandbox(s.ctx, "sbx_ok").Return(expired[1], nil)
-	s.store.EXPECT().SetSandboxStatus(s.ctx, "sbx_ok", types.SandboxStatusStopping, "").Return(nil)
-	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
-	s.store.EXPECT().DeleteSandbox(s.ctx, "sbx_ok").Return(nil)
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), "sbx_ok", types.SandboxStatusStopping, "").Return(nil)
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(gomock.Any(), "sbx_ok").Return(nil)
 
 	s.Require().NoError(s.controller.ReapExpired(s.ctx))
 }

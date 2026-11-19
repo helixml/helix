@@ -19,7 +19,7 @@ func newSandboxTestStore(t *testing.T) *PostgresStore {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&types.Sandbox{}, &types.ProjectWebServiceState{}))
+	require.NoError(t, db.AutoMigrate(&types.Sandbox{}, &types.SandboxRun{}, &types.ProjectWebServiceState{}))
 
 	return &PostgresStore{gdb: db, Store: orgstore.New(db)}
 }
@@ -253,4 +253,100 @@ func TestListSandboxesVisibility(t *testing.T) {
 		ids(&SandboxVisibility{ProjectIDs: []string{"prj_m"}, SessionOwner: "usr_me", IncludeUnscoped: true}), "member of project M only")
 	require.ElementsMatch(t, []string{"sbx_in_m"}, ids(&SandboxVisibility{ProjectIDs: []string{"prj_m"}}), "key scoped to project M")
 	require.Empty(t, ids(&SandboxVisibility{}), "empty visibility matches nothing")
+}
+
+func sandboxRuns(t *testing.T, store *PostgresStore, sandboxID string) []types.SandboxRun {
+	t.Helper()
+	var runs []types.SandboxRun
+	require.NoError(t, store.gdb.Where("sandbox_id = ?", sandboxID).Order("started_at ASC, id ASC").Find(&runs).Error)
+	return runs
+}
+
+// The run ledger is the only record of how long a session-backed sandbox ran
+// across restarts: the row itself is reopened and forgets earlier runs.
+func TestSandboxRunLedgerFollowsLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := newSandboxTestStore(t)
+
+	sb, err := store.CreateSandbox(ctx, &types.Sandbox{
+		ID:             "sbx_runs",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		Runtime:        types.SandboxRuntimeUbuntuDesktop,
+		VCPUs:          2,
+	})
+	require.NoError(t, err)
+	require.Empty(t, sandboxRuns(t, store, sb.ID), "a pending sandbox has not run")
+
+	require.NoError(t, store.SetSandboxStatus(ctx, sb.ID, types.SandboxStatusRunning, ""))
+	require.NoError(t, store.SetSandboxStatus(ctx, sb.ID, types.SandboxStatusRunning, ""))
+	runs := sandboxRuns(t, store, sb.ID)
+	require.Len(t, runs, 1, "a duplicate running write must not open a second run")
+	require.Nil(t, runs[0].StoppedAt)
+	require.Equal(t, 2, runs[0].VCPUs)
+	require.Equal(t, "org_1", runs[0].OrganizationID)
+	require.Equal(t, types.SandboxRuntimeUbuntuDesktop, runs[0].Runtime)
+
+	require.NoError(t, store.SetSandboxResources(ctx, sb.ID, 8, 16384))
+	runs = sandboxRuns(t, store, sb.ID)
+	require.Len(t, runs, 2, "a resize closes the run at the old size and opens one at the new size")
+	require.NotNil(t, runs[0].StoppedAt)
+	require.Nil(t, runs[1].StoppedAt)
+	require.Equal(t, 8, runs[1].VCPUs)
+	require.True(t, runs[1].StartedAt.Equal(*runs[0].StoppedAt),
+		"the run at the new size starts at the resize, not back at the sandbox start")
+
+	require.NoError(t, store.SetSandboxStatus(ctx, sb.ID, types.SandboxStatusStopped, ""))
+	for _, run := range sandboxRuns(t, store, sb.ID) {
+		require.NotNil(t, run.StoppedAt, "stopping closes every run")
+	}
+
+	// A restart reopens the same row as pending, then marks it running.
+	reopened, err := store.GetSandbox(ctx, sb.ID)
+	require.NoError(t, err)
+	reopened.Status = types.SandboxStatusPending
+	reopened.StartedAt = nil
+	reopened.StoppedAt = nil
+	_, err = store.UpdateSandbox(ctx, reopened)
+	require.NoError(t, err)
+	require.Len(t, sandboxRuns(t, store, sb.ID), 2)
+	require.NoError(t, store.SetSandboxStatus(ctx, sb.ID, types.SandboxStatusRunning, ""))
+	runs = sandboxRuns(t, store, sb.ID)
+	require.Len(t, runs, 3, "the restart is a new run; earlier runs are kept")
+	require.Nil(t, runs[2].StoppedAt)
+
+	require.NoError(t, store.DeleteSandbox(ctx, sb.ID))
+	runs = sandboxRuns(t, store, sb.ID)
+	for i, run := range runs {
+		require.NotNil(t, run.StoppedAt, "delete closes the open run")
+		if i > 0 {
+			require.False(t, run.StartedAt.Before(*runs[i-1].StoppedAt), "runs never overlap, so no hour is counted twice")
+		}
+	}
+}
+
+// A row still marked running when it is reopened (the stop never reached the
+// API) must not leave its run open across the gap.
+func TestSandboxRunLedgerClosesRunOnReopenOfRunningRow(t *testing.T) {
+	ctx := context.Background()
+	store := newSandboxTestStore(t)
+
+	sb, err := store.CreateSandbox(ctx, &types.Sandbox{
+		ID:             "sbx_runs_reopen",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		Runtime:        types.SandboxRuntimeHeadlessUbuntu,
+	})
+	require.NoError(t, err)
+	require.NoError(t, store.SetSandboxStatus(ctx, sb.ID, types.SandboxStatusRunning, ""))
+
+	reopened, err := store.GetSandbox(ctx, sb.ID)
+	require.NoError(t, err)
+	reopened.Status = types.SandboxStatusPending
+	_, err = store.UpdateSandbox(ctx, reopened)
+	require.NoError(t, err)
+
+	runs := sandboxRuns(t, store, sb.ID)
+	require.Len(t, runs, 1)
+	require.NotNil(t, runs[0].StoppedAt)
 }

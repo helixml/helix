@@ -722,12 +722,12 @@ func (s *ProvisionSuite) TestDeleteCallsHydraDeleteAndForgetOps() {
 		Status:         types.SandboxStatusPending, // not running -> billing skipped
 	}
 	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
-	s.store.EXPECT().SetSandboxStatus(s.ctx, sb.ID, types.SandboxStatusStopping, "").Return(nil)
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sb.ID, types.SandboxStatusStopping, "").Return(nil)
 	// Decrement fires after the successful hydra delete to mirror the
 	// Increment that happened on Provision.
 	s.store.EXPECT().DecrementSandboxContainerCount(gomock.Any(), "host-z").Return(nil)
-	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
-	s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(gomock.Any(), sb.ID).Return(nil)
 
 	s.Require().NoError(s.controller.Delete(s.ctx, sb.ID))
 	s.Require().Equal([]string{sb.ID}, s.hydra.deleteCalls)
@@ -747,9 +747,9 @@ func (s *ProvisionSuite) TestDeleteContinuesWhenHydraDeleteFails() {
 		Status:         types.SandboxStatusPending,
 	}
 	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
-	s.store.EXPECT().SetSandboxStatus(s.ctx, sb.ID, types.SandboxStatusStopping, "").Return(nil)
-	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
-	s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sb.ID, types.SandboxStatusStopping, "").Return(nil)
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(gomock.Any(), sb.ID).Return(nil)
 
 	s.hydra.deleteErr = errors.New("hydra unreachable")
 	s.Require().NoError(s.controller.Delete(s.ctx, sb.ID))
@@ -803,12 +803,39 @@ func (s *ProvisionSuite) TestDeleteSkipsHydraWhenSandboxHasNoHost() {
 		Status:         types.SandboxStatusFailed,
 	}
 	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
-	s.store.EXPECT().SetSandboxStatus(s.ctx, sb.ID, types.SandboxStatusStopping, "").Return(nil)
-	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
-	s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sb.ID, types.SandboxStatusStopping, "").Return(nil)
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(gomock.Any(), sb.ID).Return(nil)
 
 	s.Require().NoError(s.controller.Delete(s.ctx, sb.ID))
 	s.Require().Empty(s.hydra.deleteCalls, "Delete must not contact hydra for sandboxes without a host")
+}
+
+// TestDeleteFinishesWhenCallerGoesAway: a hydra teardown can outlast the HTTP
+// client's timeout. The soft-delete must still run, or the row sticks in
+// "stopping" with its container already gone.
+func (s *ProvisionSuite) TestDeleteFinishesWhenCallerGoesAway() {
+	sb := &types.Sandbox{
+		ID:             "sbx_slow_teardown",
+		OrganizationID: "org_1",
+		Owner:          "user_1",
+		Status:         types.SandboxStatusFailed,
+	}
+	ctx, cancel := context.WithCancel(s.ctx)
+	defer cancel()
+	s.store.EXPECT().GetSandbox(ctx, sb.ID).Return(sb, nil)
+	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sb.ID, types.SandboxStatusStopping, "").
+		DoAndReturn(func(context.Context, string, types.SandboxStatus, string) error {
+			cancel() // the client gives up mid-teardown
+			return nil
+		})
+	s.store.EXPECT().GetAPIKey(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.store.EXPECT().DeleteSandbox(gomock.Any(), sb.ID).
+		DoAndReturn(func(deleteCtx context.Context, _ string) error {
+			return deleteCtx.Err()
+		})
+
+	s.Require().NoError(s.controller.Delete(ctx, sb.ID))
 }
 
 func (s *ProvisionSuite) TestReconcileWebServiceContainersDeletesSupersededContainer() {
