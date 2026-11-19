@@ -3941,24 +3941,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - email
-    - slack
-    - helix_events
-    - gitlab
-    - local
-    - webhook
     - cron
+    - helix_events
+    - slack
+    - gitlab
     - github
+    - webhook
+    - email
+    - local
     type: string
     x-enum-varnames:
-    - KindEmail
-    - KindSlack
-    - KindHelixEvents
-    - KindGitLab
-    - KindLocal
-    - KindWebhook
     - KindCron
+    - KindHelixEvents
+    - KindSlack
+    - KindGitLab
     - KindGitHub
+    - KindWebhook
+    - KindEmail
+    - KindLocal
   transport.ResolvedActivation:
     properties:
       address:
@@ -8855,7 +8855,11 @@ definitions:
         type: array
       desktop_credits:
         type: number
+      desktop_hours:
+        type: number
       headless_credits:
+        type: number
+      headless_hours:
         type: number
       running_sandboxes:
         description: RunningSandboxes is a point-in-time count, not a range aggregate.
@@ -8865,6 +8869,8 @@ definitions:
           $ref: '#/definitions/types.UsageComputeBreakdownRow'
         type: array
       total_credits:
+        type: number
+      total_hours:
         type: number
     type: object
   types.OrgDetails:
@@ -15146,6 +15152,8 @@ definitions:
     properties:
       credits:
         type: number
+      hours:
+        type: number
       name:
         type: string
       pricing_type:
@@ -15167,9 +15175,15 @@ definitions:
         type: string
       desktop:
         type: number
+      desktop_hours:
+        type: number
       headless:
         type: number
+      headless_hours:
+        type: number
       total:
+        type: number
+      total_hours:
         type: number
     type: object
   types.UsageFilterOption:

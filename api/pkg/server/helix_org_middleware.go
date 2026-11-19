@@ -290,6 +290,10 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 		// scope is checked before the admin exemption, as orgstore does.
 		role, platformAdmin := helixOrgAuthority(user, membership.Role)
 		if isHelixOrgPrivilegedMutation(r) && !platformAdmin && role != types.OrganizationRoleOwner {
+			if isAgentScopedKey(user) {
+				http.Error(w, errScopedKeyOrgWiring.Error(), http.StatusForbidden)
+				return
+			}
 			http.Error(w, "only organization owners and administrators can modify this resource", http.StatusForbidden)
 			return
 		}

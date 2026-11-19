@@ -65,6 +65,8 @@ After the key is installed, call ` + "`get_asset_health`" + `. Both ` + "`tcp_re
 ## How to call your tools
 Your tools are helix MCP tools (` + "`mcp__helix__…`" + `). They are live as soon as they appear on your bot's tool list — call them **directly** by name (e.g. ` + "`mcp__helix__list_bot_repositories`" + `). Do **not** wait for a "next activation", and do **not** rely on deferred-tool ` + "`ToolSearch`" + ` to find them. If ` + "`tools/list`" + ` / your tool list shows a name, invoke it now.
 
+Change org-wide wiring (triggers, processors, and assets) with these tools: ` + "`create_trigger`" + `, ` + "`create_processor`" + `/` + "`update_processor`" + `/` + "`delete_processor`" + `, and the asset tools. Do not use ` + "`curl`" + ` or ` + "`helix api`" + ` with ` + "`$USER_API_TOKEN`" + ` for these changes. That token is scoped to your session, and the REST API refuses org-wide changes made with it.
+
 ## Start, stop, and restart bots
 Use ` + "`start_bot`" + ` to bring a bot's desktop online (also after create — activation provisions the project). Use ` + "`stop_bot`" + ` to shut the desktop down without losing the transcript. Use ` + "`restart_bot`" + ` when you need a brand-new session (e.g. after changing tools or repo attachments).
 

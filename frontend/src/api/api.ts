@@ -2540,14 +2540,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindEmail = "email",
-  KindSlack = "slack",
-  KindHelixEvents = "helix_events",
-  KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindWebhook = "webhook",
   KindCron = "cron",
+  KindHelixEvents = "helix_events",
+  KindSlack = "slack",
+  KindGitLab = "gitlab",
   KindGitHub = "github",
+  KindWebhook = "webhook",
+  KindEmail = "email",
+  KindLocal = "local",
 }
 
 export interface TransportResolvedActivation {
@@ -5640,11 +5640,14 @@ export interface TypesOrgComputeUsage {
   billing_enabled?: boolean;
   daily?: TypesUsageComputeDailyPoint[];
   desktop_credits?: number;
+  desktop_hours?: number;
   headless_credits?: number;
+  headless_hours?: number;
   /** RunningSandboxes is a point-in-time count, not a range aggregate. */
   running_sandboxes?: number;
   sandboxes?: TypesUsageComputeBreakdownRow[];
   total_credits?: number;
+  total_hours?: number;
 }
 
 export interface TypesOrgDetails {
@@ -9594,6 +9597,7 @@ export interface TypesUsageBreakdownRow {
 
 export interface TypesUsageComputeBreakdownRow {
   credits?: number;
+  hours?: number;
   name?: string;
   pricing_type?: string;
   project_id?: string;
@@ -9606,8 +9610,11 @@ export interface TypesUsageComputeBreakdownRow {
 export interface TypesUsageComputeDailyPoint {
   date?: string;
   desktop?: number;
+  desktop_hours?: number;
   headless?: number;
+  headless_hours?: number;
   total?: number;
+  total_hours?: number;
 }
 
 export interface TypesUsageFilterOption {

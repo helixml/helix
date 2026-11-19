@@ -31587,24 +31587,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "email",
-                "slack",
-                "helix_events",
-                "gitlab",
-                "local",
-                "webhook",
                 "cron",
-                "github"
+                "helix_events",
+                "slack",
+                "gitlab",
+                "github",
+                "webhook",
+                "email",
+                "local"
             ],
             "x-enum-varnames": [
-                "KindEmail",
-                "KindSlack",
-                "KindHelixEvents",
-                "KindGitLab",
-                "KindLocal",
-                "KindWebhook",
                 "KindCron",
-                "KindGitHub"
+                "KindHelixEvents",
+                "KindSlack",
+                "KindGitLab",
+                "KindGitHub",
+                "KindWebhook",
+                "KindEmail",
+                "KindLocal"
             ]
         },
         "transport.ResolvedActivation": {
@@ -38216,7 +38216,13 @@ const docTemplate = `{
                 "desktop_credits": {
                     "type": "number"
                 },
+                "desktop_hours": {
+                    "type": "number"
+                },
                 "headless_credits": {
+                    "type": "number"
+                },
+                "headless_hours": {
                     "type": "number"
                 },
                 "running_sandboxes": {
@@ -38230,6 +38236,9 @@ const docTemplate = `{
                     }
                 },
                 "total_credits": {
+                    "type": "number"
+                },
+                "total_hours": {
                     "type": "number"
                 }
             }
@@ -46548,6 +46557,9 @@ const docTemplate = `{
                 "credits": {
                     "type": "number"
                 },
+                "hours": {
+                    "type": "number"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -46580,10 +46592,19 @@ const docTemplate = `{
                 "desktop": {
                     "type": "number"
                 },
+                "desktop_hours": {
+                    "type": "number"
+                },
                 "headless": {
                     "type": "number"
                 },
+                "headless_hours": {
+                    "type": "number"
+                },
                 "total": {
+                    "type": "number"
+                },
+                "total_hours": {
                     "type": "number"
                 }
             }
