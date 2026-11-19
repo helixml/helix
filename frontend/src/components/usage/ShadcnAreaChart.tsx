@@ -4,8 +4,6 @@ import Typography from '@mui/material/Typography';
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -49,10 +47,9 @@ export interface ShadcnAreaChartProps {
   zeroIsData?: boolean;
   /**
    * 'area' stacks filled areas; 'line' draws unfilled comparison lines;
-   * 'trend' draws each series as its own smooth line over a faint fill;
-   * 'bar' stacks bars.
+   * 'trend' draws each series as its own smooth line over a faint fill.
    */
-  variant?: 'area' | 'line' | 'trend' | 'bar';
+  variant?: 'area' | 'line' | 'trend';
   /** Fixed Y-axis bounds for values with a known range. */
   yDomain?: [number, number];
   /** Width reserved for Y-axis tick labels. Default 72. */
@@ -78,6 +75,18 @@ export const niceStep = (raw: number): number => {
   const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
   return nice * magnitude;
 };
+
+// plottedSeries is what a chart draws and its legend lists: series with a
+// value in range. An explicit zero counts when zero is data, except on a
+// trend, where an all-zero series would be a flat line along the axis.
+export const plottedSeries = (
+  series: ShadcnSeries[],
+  data: Array<Record<string, unknown>>,
+  variant: ShadcnAreaChartProps['variant'],
+  zeroIsData: boolean,
+): ShadcnSeries[] => series.filter(s => data.some(d => (
+  (Number(d[s.key]) || 0) > 0 || (zeroIsData && variant !== 'trend' && d[s.key] != null)
+)));
 
 // niceTicks spans [0, max] in at most ~5 round ticks.
 export const niceTicks = (max: number): number[] => {
@@ -188,17 +197,14 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   connectNulls = false,
 }) => {
   const lightTheme = useLightTheme();
-  const Chart = variant === 'line' ? LineChart : variant === 'bar' ? BarChart : AreaChart;
+  const Chart = variant === 'line' ? LineChart : AreaChart;
   // Trend lines are drawn side by side, so the axis scales to the largest
   // single series, not their sum.
   const stackSeries = stacked && variant !== 'line' && variant !== 'trend';
-  // Unstacked trend lines would draw an all-zero series as a flat line along
-  // the axis, a series the legend already leaves out.
-  const drawn = variant === 'trend'
-    ? series.filter(s => data.some(d => (Number(d[s.key]) || 0) > 0))
-    : series;
+  const drawn = React.useMemo(() => plottedSeries(series, data, variant, zeroIsData), [series, data, variant, zeroIsData]);
   // Few points (sparse days, a provider seen twice) draw as straight segments
-  // between real samples; smoothing them invents shape between dates.
+  // between real samples, since smoothing invents shape between dates. A
+  // trend is smooth by design and always curves.
   const curve = data.length <= 14 && variant !== 'trend' ? 'linear' : 'monotone';
   const yTicks = React.useMemo(() => {
     if (yDomain) return undefined;
@@ -301,26 +307,14 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 allowDataOverflow={!!yDomain}
               />
               <Tooltip
-                cursor={variant === 'bar'
-                  ? { fill: lightTheme.isLight ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)' }
-                  : { stroke: lightTheme.isLight ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.2)' }}
+                cursor={{ stroke: lightTheme.isLight ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.2)' }}
                 content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData, showTime, stacked && variant !== 'line'))}
               />
               {/* Recharts' default legend lays items at whatever order they
                   enter the chart and wraps awkwardly when there are many
                   series — items end up in two ragged rows. We render our own
                   legend below the chart instead (see <ChartLegend/> below). */}
-              {drawn.map(s => variant === 'bar' ? (
-                <Bar
-                  key={s.key}
-                  dataKey={s.key}
-                  name={s.label}
-                  stackId={stacked ? 'stack' : undefined}
-                  fill={s.color}
-                  maxBarSize={36}
-                  isAnimationActive={false}
-                />
-              ) : variant === 'line' ? (
+              {drawn.map(s => variant === 'line' ? (
                 <Line
                   key={s.key}
                   type={curve}
@@ -345,8 +339,10 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                   strokeWidth={variant === 'trend' ? 2 : 1.5}
                   fill={`url(#${gradientPrefix}-${s.key})`}
                   // A one- or two-sample trend has no line to speak of; mark the samples.
-                  dot={variant === 'trend' && data.length <= 2 ? { r: 3, fill: s.color, strokeWidth: 0 } : false}
-                  activeDot={{ r: 4, fill: s.color, strokeWidth: 0 }}
+                  {...(variant === 'trend' ? {
+                    dot: data.length <= 2 ? { r: 3, fill: s.color, strokeWidth: 0 } : false,
+                    activeDot: { r: 4, fill: s.color, strokeWidth: 0 },
+                  } : {})}
                   isAnimationActive={false}
                 />
               ))}
@@ -386,8 +382,8 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
             px: 0.5,
           }}
         >
-          {/* Only series with data in range: a legend entry with nothing plotted reads as a missing line. */}
-          {series.filter(s => data.some(d => (Number(d[s.key]) || 0) > 0 || (zeroIsData && d[s.key] != null))).map(s => (
+          {/* The legend lists what is drawn: an entry with nothing plotted reads as a missing line. */}
+          {drawn.map(s => (
             <Box
               key={s.key}
               sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: '0 0 auto' }}
