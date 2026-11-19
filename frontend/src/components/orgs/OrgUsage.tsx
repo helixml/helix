@@ -43,7 +43,7 @@ import {
   getUncachedInputTokens,
 } from '../../utils/usageMetrics'
 import { initialUsageParam, toUsageDateInput, usageRangeFrom } from '../../utils/usageDateRange'
-import { formatCompact, formatCost, formatNumber, formatPercent } from '../../utils/usageFormat'
+import { formatCompact, formatCost, formatHours, formatNumber, formatPercent } from '../../utils/usageFormat'
 import {
   OverviewStat,
   OverviewStatStrip,
@@ -125,6 +125,17 @@ const fromURLDate = (value: string | null, fallback: string) => {
 const currentSearchParams = () => new URLSearchParams(window.location.search)
 
 const formatMs = (value?: number) => `${Math.round(value ?? 0).toLocaleString()} ms`
+
+const computeSpendDetail = (billingEnabled: boolean, credits: number) => {
+  if (billingEnabled) return `${formatCost(credits)} debited`
+  return credits > 0 ? `${formatCost(credits)} historical spend` : 'Compute billing off'
+}
+
+const computeShareDetail = (hours: number, totalHours: number, credits: number, kind: string) => {
+  if (hours <= 0) return `No ${kind} runtime`
+  const share = `${formatPercent(hours / totalHours)} of runtime`
+  return credits > 0 ? `${share} · ${formatCost(credits)}` : share
+}
 
 const formatDateTime = (value?: string) => value
   ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -404,16 +415,19 @@ const modelOverviewFields: ITableField[] = [
   { name: 'tokens', title: 'Tokens', numeric: true },
 ]
 
-const computeSandboxFields: ITableField[] = [
+// The cost column only appears when something was actually debited; with
+// billing off it would be a column of $0.00.
+const computeSandboxFields = (withCost: boolean): ITableField[] => [
   { name: 'name', title: 'Sandbox' },
   // Spec-task runners inherit their task's name, so two projects in the same
   // org routinely produce identically-named rows. Project is what makes the
-  // cost attributable.
+  // usage attributable.
   { name: 'project', title: 'Project' },
   { name: 'kind', title: 'Kind' },
   { name: 'size', title: 'Size', numeric: true },
-  { name: 'credits', title: 'Compute cost', numeric: true },
-  { name: 'share', title: 'Share', numeric: true },
+  { name: 'hours', title: 'Runtime', numeric: true },
+  { name: 'share', title: 'Runtime share', numeric: true },
+  ...(withCost ? [{ name: 'credits', title: 'Compute cost', numeric: true }] : []),
 ]
 
 const sessionFields: ITableField[] = [
@@ -809,23 +823,34 @@ const OrgUsage: FC = () => {
   const cacheSavings = usage.data?.cache_savings ?? 0
   const helixCredits = usage.data?.helix_credits ?? 0
   const compute = usage.data?.compute
+  // Runtime is measured whether or not compute is billed, so it leads; credits
+  // are shown alongside only when something was actually debited.
   const computeTotals = useMemo(() => {
     const daily = compute?.daily || []
-    const computeActiveDays = daily.filter(point => (point.total ?? 0) > 0).length
-    const total = compute?.total_credits ?? 0
+    const computeActiveDays = daily.filter(point => (point.total_hours ?? 0) > 0 || (point.total ?? 0) > 0).length
+    const hours = compute?.total_hours ?? 0
     return {
-      total,
+      total: compute?.total_credits ?? 0,
       desktop: compute?.desktop_credits ?? 0,
       headless: compute?.headless_credits ?? 0,
+      hours,
+      desktopHours: compute?.desktop_hours ?? 0,
+      headlessHours: compute?.headless_hours ?? 0,
       activeDays: computeActiveDays,
-      perActiveDay: computeActiveDays > 0 ? total / computeActiveDays : 0,
+      hoursPerActiveDay: computeActiveDays > 0 ? hours / computeActiveDays : 0,
     }
   }, [compute])
-  const computeChartData = useMemo<UsageChartRow[]>(() => (compute?.daily || []).map(point => ({
+  const computeRuntimeChartData = useMemo<UsageChartRow[]>(() => (compute?.daily || []).map(point => ({
+    date: point.date || '',
+    desktop: point.desktop_hours ?? 0,
+    headless: point.headless_hours ?? 0,
+  })), [compute])
+  const computeSpendChartData = useMemo<UsageChartRow[]>(() => (compute?.daily || []).map(point => ({
     date: point.date || '',
     desktop: point.desktop ?? 0,
     headless: point.headless ?? 0,
   })), [compute])
+  const computeHasSpend = computeTotals.total > 0
   // Project names come from the filter options the same response already
   // carries, so no extra request is needed to attribute a sandbox.
   const projectNames = useMemo(() => {
@@ -836,7 +861,7 @@ const OrgUsage: FC = () => {
     return names
   }, [usage.data?.filter_projects])
   const computeSandboxRows = useMemo(() => (compute?.sandboxes || []).map(row => {
-    const share = computeTotals.total > 0 ? (row.credits ?? 0) / computeTotals.total : 0
+    const share = computeTotals.hours > 0 ? (row.hours ?? 0) / computeTotals.hours : 0
     return {
       id: row.sandbox_id || '',
       _data: row,
@@ -882,10 +907,11 @@ const OrgUsage: FC = () => {
           {row.vcpus ? `${row.vcpus} vCPU` : '—'}
         </Typography>
       ),
-      credits: <Typography variant="body2">{formatCost(row.credits)}</Typography>,
+      hours: <Typography variant="body2">{formatHours(row.hours)}</Typography>,
       share: <Typography variant="body2" color="text.secondary">{formatPercent(share)}</Typography>,
+      credits: <Typography variant="body2" color="text.secondary">{formatCost(row.credits)}</Typography>,
     }
-  }), [compute, computeTotals.total, projectNames, router])
+  }), [compute, computeTotals.hours, projectNames, router])
 
   const activeDays = metrics.filter(metric => (metric.total_tokens ?? 0) > 0).length
   const averageTokens = activeDays > 0 ? totals.total / activeDays : 0
@@ -1293,9 +1319,9 @@ const OrgUsage: FC = () => {
                       <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail={`≈ ${formatCost(rawTokenCost)} at API rates`} />
                       <OverviewStat
                         emphasis
-                        label="Sandbox compute"
-                        value={compute ? formatCost(computeTotals.total) : '—'}
-                        detail={compute ? (compute.billing_enabled ? 'Desktops and containers' : 'Historical, billing off') : 'No compute in this range'}
+                        label="Sandbox runtime"
+                        value={compute ? formatHours(computeTotals.hours) : '—'}
+                        detail={compute ? computeSpendDetail(compute.billing_enabled ?? false, computeTotals.total) : 'No compute in this range'}
                       />
                       <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
                       <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
@@ -1334,11 +1360,11 @@ const OrgUsage: FC = () => {
                     />
                     {compute && (
                       <ShadcnAreaChart
-                        title="Daily compute spend"
-                        headline={`${formatCost(computeTotals.total)} in range`}
-                        data={computeChartData}
+                        title="Daily sandbox runtime"
+                        headline={`${formatHours(computeTotals.hours)} in range`}
+                        data={computeRuntimeChartData}
                         series={COMPUTE_SERIES}
-                        valueFormatter={formatCost}
+                        valueFormatter={formatHours}
                         zeroIsData
                         variant="trend"
                         cardHeight="auto"
@@ -1451,48 +1477,60 @@ const OrgUsage: FC = () => {
                 {section.key === 'compute' && (compute ? (
                   <>
                     <Typography variant="body2" color="text.secondary">
-                      {compute.billing_enabled
-                        ? 'Credits debited for running desktops and containers.'
-                        : 'Compute billing is disabled — this is historical spend and nothing new is accruing.'} The date range, project and task filters apply; model, provider, session and user filters describe tokens only.
+                      {compute.billing_enabled ? '' : 'Compute billing is disabled, so nothing is debited; any spend shown is historical. '}
+                      The date range, project and task filters apply; model, provider, session and user filters describe tokens only.
                     </Typography>
                     <OverviewStatStrip columns={4}>
                       <OverviewStat
                         label="Desktops"
-                        value={formatCost(computeTotals.desktop)}
-                        detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.desktop / computeTotals.total)} of compute spend` : 'No desktop spend'}
+                        value={formatHours(computeTotals.desktopHours)}
+                        detail={computeShareDetail(computeTotals.desktopHours, computeTotals.hours, computeTotals.desktop, 'desktop')}
                       />
                       <OverviewStat
                         label="Headless"
-                        value={formatCost(computeTotals.headless)}
-                        detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.headless / computeTotals.total)} of compute spend` : 'No headless spend'}
+                        value={formatHours(computeTotals.headlessHours)}
+                        detail={computeShareDetail(computeTotals.headlessHours, computeTotals.hours, computeTotals.headless, 'headless')}
                       />
                       <OverviewStat
                         label="Per active day"
-                        value={formatCost(computeTotals.perActiveDay)}
-                        detail={`${computeTotals.activeDays} ${computeTotals.activeDays === 1 ? 'day' : 'days'} with compute spend`}
+                        value={formatHours(computeTotals.hoursPerActiveDay)}
+                        detail={`${computeTotals.activeDays} ${computeTotals.activeDays === 1 ? 'day' : 'days'} with sandboxes running`}
                       />
                       <OverviewStat
                         label="Running now"
                         value={`${compute.running_sandboxes ?? 0}`}
-                        detail="Sandboxes currently billing"
+                        detail={compute.billing_enabled ? 'Sandboxes currently billing' : 'Sandboxes currently running'}
                       />
                     </OverviewStatStrip>
 
                     <ShadcnAreaChart
-                      title="Daily compute spend"
-                      headline={`${formatCost(computeTotals.total)} in range`}
-                      data={computeChartData}
+                      title="Daily sandbox runtime"
+                      headline={`${formatHours(computeTotals.hours)} in range`}
+                      data={computeRuntimeChartData}
                       series={COMPUTE_SERIES}
-                      valueFormatter={formatCost}
+                      valueFormatter={formatHours}
                       zeroIsData
                       variant="trend"
                       cardHeight="auto"
                     />
 
+                    {computeHasSpend && (
+                      <ShadcnAreaChart
+                        title="Daily compute spend"
+                        headline={`${formatCost(computeTotals.total)} in range`}
+                        data={computeSpendChartData}
+                        series={COMPUTE_SERIES}
+                        valueFormatter={formatCost}
+                        zeroIsData
+                        variant="trend"
+                        cardHeight="auto"
+                      />
+                    )}
+
                     {computeSandboxRows.length > 0 && (
                       <UsagePanel>
                         <UsageSection title="Sandbox breakdown">
-                          <ResponsiveTable fields={computeSandboxFields} data={computeSandboxRows} />
+                          <ResponsiveTable fields={computeSandboxFields(computeHasSpend)} data={computeSandboxRows} />
                         </UsageSection>
                       </UsagePanel>
                     )}
