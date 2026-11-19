@@ -8397,6 +8397,14 @@ export interface TypesSpecTask {
 export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
   /**
+   * DestroyWorkspace tears the task's desktop down for good instead of
+   * stopping it: the container, the session's on-host data and the task's
+   * workspace checkout are deleted, so a finished task stops holding disk.
+   * Only honoured when the request archives and stop is enabled; the same
+   * live-agent guard as stop_agent applies.
+   */
+  destroy_workspace?: boolean;
+  /**
    * StopAgent controls whether archiving stops the task's external agent and
    * frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
    * that is mid-turn unless the caller says so explicitly.
@@ -21308,7 +21316,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
+     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly. Pass destroy_workspace=true to destroy the desktop instead of stopping it, deleting its container data and the task's workspace checkout (ignored when unarchiving, with stop_agent=false, or for a Keep Alive task).
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksArchivePartialUpdate
