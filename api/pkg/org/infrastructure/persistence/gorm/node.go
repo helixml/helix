@@ -50,7 +50,7 @@ type OrgBot struct {
 	AutoApprovePullRequests   bool      `json:"auto_approve_pull_requests" gorm:"column:auto_approve_pull_requests;not null;default:false"`
 	AutoApprovePullRequestsBy string    `json:"auto_approve_pull_requests_by,omitempty" gorm:"column:auto_approve_pull_requests_by;not null;default:''"`
 	CreatedAt                 time.Time `json:"created_at" gorm:"column:created_at"`
-	UpdatedAt       time.Time                       `json:"updated_at" gorm:"column:updated_at"`
+	UpdatedAt                 time.Time `json:"updated_at" gorm:"column:updated_at"`
 }
 
 // TableName keeps the persisted model on the established org_bots table.
@@ -71,20 +71,20 @@ func (nodeMapper) ToRow(node orgchart.Node) (OrgBot, error) {
 		agentID = &node.AgentID
 	}
 	return OrgBot{
-		ID:              string(node.ID),
-		OrganizationID:  node.OrganizationID,
-		LegacyAppID:     agentID,
-		CodeAgentConfig: node.CodeAgentConfig,
-		Name:            node.Name,
-		Content:         node.Content,
-		Tools:           tools,
-		ProjectIDs:      node.ProjectIDs,
-		PreserveContext: node.PreserveContext,
-		SandboxRuntime:  node.SandboxRuntime,
-		SandboxVCPUs:    node.SandboxVCPUs,
-		SandboxMemoryMB: node.SandboxMemoryMB,
-		InstanceProfile: node.InstanceProfile,
-		PortraitIndex:   node.PortraitIndex,
+		ID:                        string(node.ID),
+		OrganizationID:            node.OrganizationID,
+		LegacyAppID:               agentID,
+		CodeAgentConfig:           node.CodeAgentConfig,
+		Name:                      node.Name,
+		Content:                   node.Content,
+		Tools:                     tools,
+		ProjectIDs:                node.ProjectIDs,
+		PreserveContext:           node.PreserveContext,
+		SandboxRuntime:            node.SandboxRuntime,
+		SandboxVCPUs:              node.SandboxVCPUs,
+		SandboxMemoryMB:           node.SandboxMemoryMB,
+		InstanceProfile:           node.InstanceProfile,
+		PortraitIndex:             node.PortraitIndex,
 		KeepAlive:                 node.KeepAlive,
 		AutoApprovePullRequests:   node.AutoApprovePullRequests,
 		AutoApprovePullRequestsBy: node.AutoApprovePullRequestsBy,
@@ -106,20 +106,20 @@ func (nodeMapper) ToDomain(row OrgBot) (orgchart.Node, error) {
 		agentID = *row.LegacyAppID
 	}
 	return orgchart.Node{
-		ID:              orgchart.NodeID(row.ID),
-		OrganizationID:  row.OrganizationID,
-		AgentID:         agentID,
-		CodeAgentConfig: row.CodeAgentConfig,
-		Name:            row.Name,
-		Content:         row.Content,
-		Tools:           tools,
-		ProjectIDs:      row.ProjectIDs,
-		PreserveContext: row.PreserveContext,
-		SandboxRuntime:  row.SandboxRuntime,
-		SandboxVCPUs:    row.SandboxVCPUs,
-		SandboxMemoryMB: row.SandboxMemoryMB,
-		InstanceProfile: row.InstanceProfile,
-		PortraitIndex:   row.PortraitIndex,
+		ID:                        orgchart.NodeID(row.ID),
+		OrganizationID:            row.OrganizationID,
+		AgentID:                   agentID,
+		CodeAgentConfig:           row.CodeAgentConfig,
+		Name:                      row.Name,
+		Content:                   row.Content,
+		Tools:                     tools,
+		ProjectIDs:                row.ProjectIDs,
+		PreserveContext:           row.PreserveContext,
+		SandboxRuntime:            row.SandboxRuntime,
+		SandboxVCPUs:              row.SandboxVCPUs,
+		SandboxMemoryMB:           row.SandboxMemoryMB,
+		InstanceProfile:           row.InstanceProfile,
+		PortraitIndex:             row.PortraitIndex,
 		KeepAlive:                 row.KeepAlive,
 		AutoApprovePullRequests:   row.AutoApprovePullRequests,
 		AutoApprovePullRequestsBy: row.AutoApprovePullRequestsBy,

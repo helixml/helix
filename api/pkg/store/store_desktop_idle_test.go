@@ -309,3 +309,56 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsGol
 	suite.False(returned[golden.ID], "golden build session must never be returned as idle")
 	suite.True(returned[plain.ID], "non-golden desktop with the same activity should be idle")
 }
+
+// TestPostgresStore_ListIdleDesktops_SkipsKeepAliveOrgBot verifies that an
+// org bot's idle desktop is shut down unless the bot has Keep Alive on.
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ListIdleDesktops_SkipsKeepAliveOrgBot() {
+	ctx := context.Background()
+	org := &types.Organization{ID: "org_keepalive_" + system.GenerateUUID(), Name: "keepalive-" + system.GenerateUUID(), Owner: "user_id"}
+	_, err := suite.db.CreateOrganization(ctx, org)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _ = suite.db.DeleteOrganization(ctx, org.ID) })
+
+	botID := "b-keepalive"
+	suite.Require().NoError(suite.db.gdb.WithContext(ctx).Exec(
+		`INSERT INTO org_bots (id, org_id, name, content, keep_alive, created_at, updated_at) VALUES (?, ?, 'Keep', '# Keep', false, now(), now())`,
+		botID, org.ID).Error)
+
+	session := types.Session{
+		ID:             system.GenerateSessionID(),
+		Owner:          "user_id",
+		OrganizationID: org.ID,
+		Created:        time.Now(),
+		Updated:        time.Now().Add(-2 * time.Hour),
+		Metadata: types.SessionMetadata{
+			ExternalAgentStatus: "running",
+			DevContainerID:      "container-orgbot-" + system.GenerateUUID(),
+			OrgWorkerID:         botID,
+		},
+	}
+	_, err = suite.db.CreateSession(ctx, session)
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() { _, _ = suite.db.DeleteSession(ctx, session.ID) })
+	oldTime := time.Now().Add(-2 * time.Hour)
+	_, err = suite.db.CreateInteraction(ctx, &types.Interaction{
+		ID: system.GenerateInteractionID(), SessionID: session.ID, GenerationID: 1,
+		UserID: "user_id", Created: oldTime, Updated: oldTime,
+	})
+	suite.Require().NoError(err)
+
+	idle := func() bool {
+		results, err := suite.db.ListIdleDesktops(ctx, time.Now().Add(-1*time.Hour))
+		suite.Require().NoError(err)
+		for _, s := range results {
+			if s.ID == session.ID {
+				return true
+			}
+		}
+		return false
+	}
+	suite.True(idle(), "without Keep Alive the bot's idle desktop is shut down")
+
+	suite.Require().NoError(suite.db.gdb.WithContext(ctx).Exec(
+		`UPDATE org_bots SET keep_alive = true WHERE id = ? AND org_id = ?`, botID, org.ID).Error)
+	suite.False(idle(), "Keep Alive exempts the bot's desktop")
+}

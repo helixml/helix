@@ -87,7 +87,7 @@ type Node struct {
 	AutoApprovePullRequests   bool
 	AutoApprovePullRequestsBy string
 	CreatedAt                 time.Time
-	UpdatedAt     time.Time
+	UpdatedAt                 time.Time
 }
 
 // NewNode validates and constructs a Node. Treat the returned value as

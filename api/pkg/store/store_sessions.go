@@ -606,7 +606,8 @@ func (s *PostgresStore) ListSessionsByOwner(ctx context.Context, ownerID string)
 // idleSince. For desktops with no interactions at all, the session's own
 // updated timestamp is used as the activity marker. Golden build sessions never
 // have interactions but are working, not idle; they are bounded by the golden
-// build timeout instead, so they are never returned.
+// build timeout instead, so they are never returned. Nor are desktops pinned
+// with Keep Alive: a spec task's, or an org bot's (org_bots.keep_alive).
 func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
 	// CTE computes the last activity time per desktop, then the outer query
 	// selects one session per desktop that is past the idle threshold.
@@ -626,6 +627,12 @@ WITH desktop_last_activity AS (
           SELECT 1 FROM spec_tasks st
           WHERE st.planning_session_id = s.id
             AND st.keep_alive = true
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM org_bots b
+          WHERE b.id = s.config->>'org_worker_id'
+            AND b.org_id = s.organization_id
+            AND b.keep_alive = true
       )
     GROUP BY s.config->>'dev_container_id'
 )
