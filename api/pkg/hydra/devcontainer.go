@@ -75,6 +75,10 @@ type GoldenBuildResult struct {
 // DevContainerManager manages dev container lifecycle (Zed+agent environments)
 // This manages container launching functionality
 type DevContainerManager struct {
+	// botHomeMu serialises bot-home binding and erasure so two sessions
+	// cannot claim the same home between the in-use check and the start.
+	botHomeMu sync.Mutex
+
 	// Docker client for the sandbox's dockerd (sandbox Docker or isolated Hydra dockerd)
 	docker *client.Client
 
@@ -664,6 +668,16 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 	}
 
+	var botHome *BotHomeResult
+	if req.BotHome != nil {
+		// Before prepareMountSources: that creates missing bind sources,
+		// which must never stand in for a missing bot home.
+		botHome, err = dm.bindBotHome(ctx, dockerClient, req)
+		if err != nil {
+			return nil, fmt.Errorf("bind bot home: %w", err)
+		}
+		containerConfig.Labels[containerBotHomeLabel] = BotHomeKey(req.BotHome.OrganizationID, req.BotHome.BotID)
+	}
 	if err := prepareMountSources(req); err != nil {
 		return nil, err
 	}
@@ -753,6 +767,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 				ContainerID:   existingContainer.ID,
 				ContainerName: req.ContainerName,
 				IPAddress:     ipAddress,
+				BotHome:       botHome,
 			}, nil
 		}
 
@@ -823,6 +838,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 				ContainerID:   existingContainer.ID,
 				ContainerName: req.ContainerName,
 				IPAddress:     ipAddress,
+				BotHome:       botHome,
 			}, nil
 		}
 	}
@@ -892,6 +908,10 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	inspect, err := dockerClient.ContainerInspect(dockerCtx, resp.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+	if botHome != nil && !containerMountsSource(inspect.Mounts, botHome.Path, "/home/retro/work") {
+		dockerClient.ContainerRemove(dockerCtx, resp.ID, container.RemoveOptions{Force: true})
+		return nil, fmt.Errorf("container did not mount bot home %s at /home/retro/work; removed it", botHome.Path)
 	}
 
 	// Get IP address based on network mode
@@ -972,6 +992,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		DesktopVersion: desktopVersion,
 		GPUVendor:      gpuVendor,
 		RenderNode:     renderNode,
+		BotHome:        botHome,
 	}, nil
 }
 
@@ -2572,6 +2593,18 @@ func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileR
 
 	// Instance disks of dead sessions, after their containers are gone.
 	resp.InstanceDisksReaped, resp.InstanceDisksSkipped = ReconcileOrphanInstanceDisks(ctx, liveSessions, grace, req.DryRun)
+
+	if req.BotHomesAuthoritative {
+		liveHomes := make(map[string]bool, len(req.LiveBotHomes))
+		for _, key := range req.LiveBotHomes {
+			liveHomes[key] = true
+		}
+		retention := DefaultBotHomeRetention
+		if req.BotHomeRetentionSeconds > 0 {
+			retention = time.Duration(req.BotHomeRetentionSeconds) * time.Second
+		}
+		resp.BotHomesReaped, resp.BotHomesSkipped = ReconcileOrphanBotHomes(liveHomes, dm.botHomeInUseChecker(ctx), grace, retention, req.DryRun, time.Now())
+	}
 
 	if !req.DryRun {
 		// Prune golden snapshots the flatten just absorbed plus any other stale
