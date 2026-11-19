@@ -239,8 +239,7 @@ const KeyCap: FC<{ children: React.ReactNode }> = ({ children }) => (
 const ComposerDeliveryHint: FC<{
   steeringAvailable: boolean
   interruptShortcut: string
-  compact: boolean
-}> = ({ steeringAvailable, interruptShortcut, compact }) => {
+}> = ({ steeringAvailable, interruptShortcut }) => {
   const enterMode: PromptDeliveryMode = steeringAvailable ? 'steer' : 'queue'
   const items: { key: string; mode: PromptDeliveryMode }[] = steeringAvailable
     ? [
@@ -252,7 +251,13 @@ const ComposerDeliveryHint: FC<{
         { key: 'Enter', mode: 'queue' },
         { key: interruptShortcut, mode: 'interrupt' },
       ]
-  const visible = compact ? items.slice(0, 1) : items
+  const [first, ...rest] = items
+  const renderItem = ({ key, mode }: { key: string; mode: PromptDeliveryMode }) => (
+    <Box key={mode} component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, height: 20 }}>
+      <KeyCap>{key}</KeyCap>
+      <span>{DELIVERY_MODE_LABEL[mode].toLowerCase()}</span>
+    </Box>
+  )
   return (
     <Tooltip
       title={
@@ -277,21 +282,30 @@ const ComposerDeliveryHint: FC<{
           display: 'flex',
           alignItems: 'center',
           gap: 0.75,
-          flexShrink: 1,
+          flex: '0 1 auto',
           minWidth: 0,
-          overflow: 'hidden',
           whiteSpace: 'nowrap',
           color: (theme) => getChatColors(theme).subtle,
           fontSize: '0.75rem',
           mr: 0.5,
         }}
       >
-        {visible.map(({ key, mode }) => (
-          <Box key={mode} component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-            <KeyCap>{key}</KeyCap>
-            <span>{DELIVERY_MODE_LABEL[mode].toLowerCase()}</span>
-          </Box>
-        ))}
+        {renderItem(first)}
+        {/* Hints that don't fit wrap onto a clipped second line, so they
+            disappear whole instead of being cut mid-word. */}
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            columnGap: 0.75,
+            height: 20,
+            overflow: 'hidden',
+            minWidth: 0,
+            flex: '0 1 auto',
+          }}
+        >
+          {rest.map(renderItem)}
+        </Box>
       </Box>
     </Tooltip>
   )
@@ -2041,7 +2055,6 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             <ComposerDeliveryHint
               steeringAvailable={steeringAvailable}
               interruptShortcut={interruptShortcut}
-              compact={composerWidth > 0 && composerWidth < 480}
             />
           )}
 

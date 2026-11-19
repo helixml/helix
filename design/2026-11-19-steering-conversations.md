@@ -19,10 +19,15 @@ stores it as `session.config.agent_steering_supported`.
   `InitializeResponse._meta.steering.supported`. Zed sends it with
   `_meta.steering.idleBehavior = "promptRequired"` so an idle session never starts a
   detached turn.
+- **Codex** (`@agentclientprotocol/codex-acp` ≥ 2.8): the same `_session/steering`
+  contract and capability flag, so it takes the same path as Claude Code. It can also
+  answer `outcome: "failed"`; Zed then delivers the message as a follow-up (queue). It
+  echoes the steered message as a user chunk only on ACP v2; Zed speaks v1, so the
+  entry is not duplicated.
 - **Zed native agent**: `Thread::set_end_turn_at_next_boundary` — the turn ends after
   its current tool round, then the steer runs as the next turn. A turn with no tool
   calls therefore behaves like queue.
-- **Everything else**: no steering. The composer says "Enter → queue" and the server
+- **Everything else** (e.g. Qwen Code, Goose, OpenCode unless they adopt the extension): no steering. The composer says "Enter → queue" and the server
   holds a steer prompt exactly like a queued one.
 
 ## Server
