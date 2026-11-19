@@ -422,3 +422,79 @@ describe("Interaction", () => {
     expect(screen.getByText("Live implementation activity")).toBeInTheDocument();
   });
 });
+
+describe("Interaction turn notes", () => {
+  it("labels a steered prompt quietly", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_steer",
+          prompt_message: "change of plan",
+          response_message: "ok",
+          state: TypesInteractionState.InteractionStateComplete,
+          steered: true,
+        }}
+      />,
+    );
+    expect(screen.getByText("Steered")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says a steered-from turn is still working instead of warning it is incomplete", () => {
+    render(
+      <Interaction
+        {...baseProps}
+        isLastInteraction={false}
+        interaction={{
+          id: "int_running",
+          prompt_message: "long task",
+          response_message: "working",
+          state: TypesInteractionState.InteractionStateWaiting,
+        }}
+        nextInteraction={{
+          id: "int_steer",
+          prompt_message: "change of plan",
+          state: TypesInteractionState.InteractionStateWaiting,
+          steered: true,
+        }}
+      />,
+    );
+    expect(screen.getByText(/your next message reaches the agent at its next step/)).toBeInTheDocument();
+    expect(screen.queryByText(/Incomplete interaction/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows an older open turn and an interrupted turn without alerts", () => {
+    const { unmount } = render(
+      <Interaction
+        {...baseProps}
+        isLastInteraction={false}
+        interaction={{
+          id: "int_open",
+          prompt_message: "task",
+          response_message: "partial",
+          state: TypesInteractionState.InteractionStateWaiting,
+        }}
+        nextInteraction={{ id: "int_next", prompt_message: "next", state: TypesInteractionState.InteractionStateWaiting }}
+      />,
+    );
+    expect(screen.getByText("Still finishing this turn")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    unmount();
+
+    render(
+      <Interaction
+        {...baseProps}
+        interaction={{
+          id: "int_interrupted",
+          prompt_message: "task",
+          response_message: "partial",
+          state: TypesInteractionState.InteractionStateInterrupted,
+        }}
+      />,
+    );
+    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});

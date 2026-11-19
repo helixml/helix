@@ -31848,23 +31848,23 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "github",
-                "helix_events",
+                "webhook",
+                "email",
+                "slack",
                 "local",
                 "cron",
-                "gitlab",
-                "webhook",
-                "slack",
-                "email"
+                "helix_events",
+                "gitlab"
             ],
             "x-enum-varnames": [
                 "KindGitHub",
-                "KindHelixEvents",
+                "KindWebhook",
+                "KindEmail",
+                "KindSlack",
                 "KindLocal",
                 "KindCron",
-                "KindGitLab",
-                "KindWebhook",
-                "KindSlack",
-                "KindEmail"
+                "KindHelixEvents",
+                "KindGitLab"
             ]
         },
         "transport.ResolvedActivation": {
@@ -36917,6 +36917,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "steered": {
+                    "description": "Steered is true when this turn's prompt was a steer delivered while the\nagent was still working on an earlier turn. The chat labels it, and the\nearlier turn reads as continuing rather than incomplete.",
+                    "type": "boolean"
                 },
                 "summary": {
                     "description": "Summary is a one-line description of this interaction for search/indexing.\nGenerated lazily on first access or via background job.",

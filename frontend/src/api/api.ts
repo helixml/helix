@@ -2579,13 +2579,13 @@ export enum TransportFieldType {
 
 export enum TransportKind {
   KindGitHub = "github",
-  KindHelixEvents = "helix_events",
+  KindWebhook = "webhook",
+  KindEmail = "email",
+  KindSlack = "slack",
   KindLocal = "local",
   KindCron = "cron",
+  KindHelixEvents = "helix_events",
   KindGitLab = "gitlab",
-  KindWebhook = "webhook",
-  KindSlack = "slack",
-  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -4998,6 +4998,12 @@ export interface TypesInteraction {
   session_id?: string;
   state?: TypesInteractionState;
   status?: string;
+  /**
+   * Steered is true when this turn's prompt was a steer delivered while the
+   * agent was still working on an earlier turn. The chat labels it, and the
+   * earlier turn reads as continuing rather than incomplete.
+   */
+  steered?: boolean;
   /**
    * Summary is a one-line description of this interaction for search/indexing.
    * Generated lazily on first access or via background job.

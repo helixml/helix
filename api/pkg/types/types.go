@@ -153,6 +153,11 @@ type Interaction struct {
 	// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
 	PromptID string `json:"prompt_id,omitempty" gorm:"index"`
 
+	// Steered is true when this turn's prompt was a steer delivered while the
+	// agent was still working on an earlier turn. The chat labels it, and the
+	// earlier turn reads as continuing rather than incomplete.
+	Steered bool `json:"steered,omitempty" gorm:"not null;default:false"`
+
 	// Provenance records who caused this turn's prompt. Server-set at
 	// creation and never updated; rows from before it existed read as
 	// origin "unknown".

@@ -2,7 +2,7 @@ import React, { FC, useMemo } from "react";
 import InteractionContainer from "./InteractionContainer";
 import InteractionInference from "./InteractionInference";
 import Box from "@mui/material/Box";
-import Alert from "@mui/material/Alert";
+import { CircleStop, Clock, CornerDownRight } from "lucide-react";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -170,6 +170,7 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   if (
     prevProps.nextInteraction?.id !== nextProps.nextInteraction?.id ||
     prevProps.nextInteraction?.state !== nextProps.nextInteraction?.state ||
+    prevProps.nextInteraction?.steered !== nextProps.nextInteraction?.steered ||
     prevProps.nextInteraction?.error !== nextProps.nextInteraction?.error ||
     getInteractionUserMessage(prevProps.nextInteraction) !==
       getInteractionUserMessage(nextProps.nextInteraction)
@@ -252,6 +253,25 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
 
   return true;
 };
+
+/** A quiet one-line status under or above a turn — not an alert. */
+const TurnNote: FC<{ icon: React.ReactNode; children: React.ReactNode }> = ({ icon, children }) => (
+  <Box
+    sx={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 0.5,
+      mt: 0.75,
+      mb: 0.25,
+      fontSize: "0.75rem",
+      color: "text.secondary",
+      opacity: 0.8,
+    }}
+  >
+    {icon}
+    <span>{children}</span>
+  </Box>
+)
 
 interface InteractionProps {
   serverConfig: TypesServerConfigForFrontend;
@@ -501,6 +521,13 @@ export const Interaction: FC<InteractionProps> = ({
                   </Box>
                 </Tooltip>
               )}
+              {interaction.steered && (
+                <Tooltip title="Sent while the agent was working, and delivered at its next step without stopping it">
+                  <Box component="span" sx={{ alignSelf: "flex-end" }}>
+                    <TurnNote icon={<CornerDownRight size={13} />}>Steered</TurnNote>
+                  </Box>
+                </Tooltip>
+              )}
               <InteractionContainer
                 buttons={headerButtons}
                 background={true}
@@ -641,41 +668,18 @@ export const Interaction: FC<InteractionProps> = ({
                   interaction={interaction}
                   isLatest={isLastInteraction}
                 />
-                {/* Show incomplete warning for waiting interactions that aren't actively streaming */}
+                {/* A turn that is still open but no longer the newest is not an
+                    error: a steer or a newer message is on its way, or the
+                    agent is still finishing. Say so quietly. */}
                 {isLive && !children && !isLastInteraction && (
-                  <Alert
-                    severity="warning"
-                    icon={false}
-                    sx={{
-                      mt: 1,
-                      py: 0.25,
-                      px: 1.5,
-                      fontSize: "0.75rem",
-                      "& .MuiAlert-message": {
-                        padding: "2px 0",
-                      },
-                    }}
-                  >
-                    ⚠ Incomplete interaction — the agent may have disconnected
-                    before finishing
-                  </Alert>
+                  <TurnNote icon={nextInteraction?.steered ? <CornerDownRight size={13} /> : <Clock size={13} />}>
+                    {nextInteraction?.steered
+                      ? "Still working — your next message reaches the agent at its next step"
+                      : "Still finishing this turn"}
+                  </TurnNote>
                 )}
                 {interaction.state === TypesInteractionState.InteractionStateInterrupted && (
-                  <Alert
-                    severity="info"
-                    icon={false}
-                    sx={{
-                      mt: 1,
-                      py: 0.25,
-                      px: 1.5,
-                      fontSize: "0.75rem",
-                      "& .MuiAlert-message": {
-                        padding: "2px 0",
-                      },
-                    }}
-                  >
-                    Interrupted
-                  </Alert>
+                  <TurnNote icon={<CircleStop size={13} />}>Interrupted</TurnNote>
                 )}
               </>
             )}

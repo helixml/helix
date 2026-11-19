@@ -53,3 +53,13 @@ follow-up (the steered entry would merge into the turn's own user message).
 Tests: Go `TestPromptHistoryHandlersSuite` (steer rules, capability handler), frontend
 `RobustPromptInput.test.tsx` (keys + hint), Zed E2E Phase 18 (the scripted ACP agent
 implements `_session/steering`, so the split is asserted exactly).
+
+## In the chat
+
+`interactions.steered` is set when a steer prompt is dispatched while another turn is
+still running (an idle steer is an ordinary turn). The chat shows a quiet
+"↳ Steered" note above that prompt. A turn that is still open but no longer the
+newest shows a one-line note instead of the old "⚠ Incomplete interaction" alert:
+"Still working — your next message reaches the agent at its next step" when the next
+turn is a steer, otherwise "Still finishing this turn". Interrupted turns get the same
+quiet treatment ("Interrupted") instead of an alert box.

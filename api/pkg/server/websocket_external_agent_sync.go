@@ -3869,7 +3869,23 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// message mid-turn (canSteerMidTurn); otherwise they wait like a queued
 	// prompt.
 	threadNotEstablished := session.Metadata.ZedThreadID == ""
-	deliversMidTurn := prompt.Interrupt || (prompt.Steer && canSteerMidTurn(session))
+	steersMidTurn := prompt.Steer && canSteerMidTurn(session)
+	deliversMidTurn := prompt.Interrupt || steersMidTurn
+	// A steer only counts as one when it lands in a running turn; delivered
+	// to an idle agent it is an ordinary turn.
+	steered := false
+	if steersMidTurn && !threadNotEstablished {
+		latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    sessionID,
+			GenerationID: session.GenerationID,
+			PerPage:      1,
+			Order:        "created DESC, id DESC",
+		})
+		if recheckErr != nil {
+			return fmt.Errorf("check whether session %s is mid-turn: %w", sessionID, recheckErr)
+		}
+		steered = len(latestInteractions) > 0 && latestInteractions[0].State == types.InteractionStateWaiting
+	}
 	if !deliversMidTurn || threadNotEstablished {
 		latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    sessionID,
@@ -3923,6 +3939,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 		PromptMessage:           prompt.Content,
 		State:                   types.InteractionStateWaiting,
 		PromptID:                prompt.ID,
+		Steered:                 steered,
 		CodeAgentConfigSnapshot: configSnapshot,
 		ExternalAgentRequestID:  interactionID,
 	}
