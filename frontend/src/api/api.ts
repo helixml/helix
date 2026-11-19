@@ -2466,14 +2466,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitHub = "github",
-  KindGitLab = "gitlab",
   KindEmail = "email",
-  KindSlack = "slack",
-  KindCron = "cron",
-  KindHelixEvents = "helix_events",
+  KindGitLab = "gitlab",
+  KindGitHub = "github",
   KindLocal = "local",
+  KindCron = "cron",
+  KindSlack = "slack",
   KindWebhook = "webhook",
+  KindHelixEvents = "helix_events",
 }
 
 export interface TransportResolvedActivation {
@@ -4630,13 +4630,6 @@ export interface TypesGitRepository {
   status?: TypesGitRepositoryStatus;
   /** Set while an upstream operation is running */
   sync_in_progress_since?: string;
-  /**
-   * TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
-   * .helix/startup.sh from. Only a human write moves it (a push with a human
-   * credential, or a startup-script save in the UI/API); agent pushes never
-   * do. Written only via SetGitRepositoryTrustedStartupSHA.
-   */
-  trusted_startup_sha?: string;
   updated_at?: string;
   /** Authentication fields */
   username?: string;
@@ -5573,11 +5566,14 @@ export interface TypesOrgComputeUsage {
   billing_enabled?: boolean;
   daily?: TypesUsageComputeDailyPoint[];
   desktop_credits?: number;
+  desktop_hours?: number;
   headless_credits?: number;
+  headless_hours?: number;
   /** RunningSandboxes is a point-in-time count, not a range aggregate. */
   running_sandboxes?: number;
   sandboxes?: TypesUsageComputeBreakdownRow[];
   total_credits?: number;
+  total_hours?: number;
 }
 
 export interface TypesOrgDetails {
@@ -9526,6 +9522,7 @@ export interface TypesUsageBreakdownRow {
 
 export interface TypesUsageComputeBreakdownRow {
   credits?: number;
+  hours?: number;
   name?: string;
   pricing_type?: string;
   project_id?: string;
@@ -9538,8 +9535,11 @@ export interface TypesUsageComputeBreakdownRow {
 export interface TypesUsageComputeDailyPoint {
   date?: string;
   desktop?: number;
+  desktop_hours?: number;
   headless?: number;
+  headless_hours?: number;
   total?: number;
+  total_hours?: number;
 }
 
 export interface TypesUsageFilterOption {

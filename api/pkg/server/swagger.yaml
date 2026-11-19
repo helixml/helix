@@ -3810,24 +3810,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - github
-    - gitlab
     - email
-    - slack
-    - cron
-    - helix_events
+    - gitlab
+    - github
     - local
+    - cron
+    - slack
     - webhook
+    - helix_events
     type: string
     x-enum-varnames:
-    - KindGitHub
-    - KindGitLab
     - KindEmail
-    - KindSlack
-    - KindCron
-    - KindHelixEvents
+    - KindGitLab
+    - KindGitHub
     - KindLocal
+    - KindCron
+    - KindSlack
     - KindWebhook
+    - KindHelixEvents
   transport.ResolvedActivation:
     properties:
       address:
@@ -7203,13 +7203,6 @@ definitions:
       sync_in_progress_since:
         description: Set while an upstream operation is running
         type: string
-      trusted_startup_sha:
-        description: |-
-          TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
-          .helix/startup.sh from. Only a human write moves it (a push with a human
-          credential, or a startup-script save in the UI/API); agent pushes never
-          do. Written only via SetGitRepositoryTrustedStartupSHA.
-        type: string
       updated_at:
         type: string
       username:
@@ -8731,7 +8724,11 @@ definitions:
         type: array
       desktop_credits:
         type: number
+      desktop_hours:
+        type: number
       headless_credits:
+        type: number
+      headless_hours:
         type: number
       running_sandboxes:
         description: RunningSandboxes is a point-in-time count, not a range aggregate.
@@ -8741,6 +8738,8 @@ definitions:
           $ref: '#/definitions/types.UsageComputeBreakdownRow'
         type: array
       total_credits:
+        type: number
+      total_hours:
         type: number
     type: object
   types.OrgDetails:
@@ -15021,6 +15020,8 @@ definitions:
     properties:
       credits:
         type: number
+      hours:
+        type: number
       name:
         type: string
       pricing_type:
@@ -15042,9 +15043,15 @@ definitions:
         type: string
       desktop:
         type: number
+      desktop_hours:
+        type: number
       headless:
         type: number
+      headless_hours:
+        type: number
       total:
+        type: number
+      total_hours:
         type: number
     type: object
   types.UsageFilterOption:

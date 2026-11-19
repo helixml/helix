@@ -31219,24 +31219,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "github",
-                "gitlab",
                 "email",
-                "slack",
-                "cron",
-                "helix_events",
+                "gitlab",
+                "github",
                 "local",
-                "webhook"
+                "cron",
+                "slack",
+                "webhook",
+                "helix_events"
             ],
             "x-enum-varnames": [
-                "KindGitHub",
-                "KindGitLab",
                 "KindEmail",
-                "KindSlack",
-                "KindCron",
-                "KindHelixEvents",
+                "KindGitLab",
+                "KindGitHub",
                 "KindLocal",
-                "KindWebhook"
+                "KindCron",
+                "KindSlack",
+                "KindWebhook",
+                "KindHelixEvents"
             ]
         },
         "transport.ResolvedActivation": {
@@ -35767,10 +35767,6 @@ const docTemplate = `{
                     "description": "Set while an upstream operation is running",
                     "type": "string"
                 },
-                "trusted_startup_sha": {
-                    "description": "TrustedStartupSHA is the helix-specs commit whose tree sandboxes run\n.helix/startup.sh from. Only a human write moves it (a push with a human\ncredential, or a startup-script save in the UI/API); agent pushes never\ndo. Written only via SetGitRepositoryTrustedStartupSHA.",
-                    "type": "string"
-                },
                 "updated_at": {
                     "type": "string"
                 },
@@ -37852,7 +37848,13 @@ const docTemplate = `{
                 "desktop_credits": {
                     "type": "number"
                 },
+                "desktop_hours": {
+                    "type": "number"
+                },
                 "headless_credits": {
+                    "type": "number"
+                },
+                "headless_hours": {
                     "type": "number"
                 },
                 "running_sandboxes": {
@@ -37866,6 +37868,9 @@ const docTemplate = `{
                     }
                 },
                 "total_credits": {
+                    "type": "number"
+                },
+                "total_hours": {
                     "type": "number"
                 }
             }
@@ -46183,6 +46188,9 @@ const docTemplate = `{
                 "credits": {
                     "type": "number"
                 },
+                "hours": {
+                    "type": "number"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -46215,10 +46223,19 @@ const docTemplate = `{
                 "desktop": {
                     "type": "number"
                 },
+                "desktop_hours": {
+                    "type": "number"
+                },
                 "headless": {
                     "type": "number"
                 },
+                "headless_hours": {
+                    "type": "number"
+                },
                 "total": {
+                    "type": "number"
+                },
+                "total_hours": {
                     "type": "number"
                 }
             }

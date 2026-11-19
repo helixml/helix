@@ -280,3 +280,23 @@ type SandboxFileListResponse struct {
 	Path    string             `json:"path"`
 	Entries []SandboxFileEntry `json:"entries"`
 }
+
+// SandboxRun is one continuous interval a sandbox's container was running.
+// A session-backed row is reopened on every restart, overwriting its
+// started/stopped timestamps, so runtime history lives here instead: one row
+// per start, closed when the sandbox stops, fails, is deleted or resized.
+// Usage reports runtime from these rows whether or not compute is billed.
+type SandboxRun struct {
+	ID             string         `json:"id" gorm:"primaryKey"`
+	SandboxID      string         `json:"sandbox_id" gorm:"size:64;index;not null"`
+	OrganizationID string         `json:"organization_id" gorm:"size:64;index:idx_sandbox_runs_org_started;not null"`
+	Runtime        SandboxRuntime `json:"runtime" gorm:"size:64;not null"`
+	VCPUs          int            `json:"vcpus" gorm:"not null;default:1"`
+	StartedAt      time.Time      `json:"started_at" gorm:"index:idx_sandbox_runs_org_started;not null"`
+	// StoppedAt is nil while the container is still running.
+	StoppedAt *time.Time `json:"stopped_at,omitempty" gorm:"index"`
+}
+
+func (SandboxRun) TableName() string {
+	return "sandbox_runs"
+}

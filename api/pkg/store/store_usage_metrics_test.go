@@ -647,6 +647,76 @@ func (suite *UsageMetricsTestSuite) TestGetOrgComputeUsage_FiltersSpecAndSchedul
 	suite.Equal(scheduledSandbox.ID, scheduledUsage.Sandboxes[0].SandboxID)
 }
 
+// Runtime comes from the run ledger, so it is reported with billing off and no
+// wallet charges at all. Runs are split across the days they span, clipped to
+// the range, and an open run counts up to the end of the range.
+func (suite *UsageMetricsTestSuite) TestGetOrgComputeUsage_ReportsRuntimeWithoutCharges() {
+	orgID := "org_" + system.GenerateID()
+	userID := "user_" + system.GenerateID()
+	desktopProject := "prj_" + system.GenerateID()
+	headlessProject := "prj_" + system.GenerateID()
+	at := func(day, hour int) time.Time { return time.Date(2026, 8, day, hour, 0, 0, 0, time.UTC) }
+	ptr := func(t time.Time) *time.Time { return &t }
+
+	desktop := &types.Sandbox{
+		ID: "sbx_" + system.GenerateID(), Name: "Desktop", OrganizationID: orgID, ProjectID: desktopProject,
+		Owner: userID, Runtime: types.SandboxRuntimeUbuntuDesktop, Status: types.SandboxStatusStopped, VCPUs: 4,
+	}
+	headless := &types.Sandbox{
+		ID: "sbx_" + system.GenerateID(), Name: "Headless", OrganizationID: orgID, ProjectID: headlessProject,
+		Owner: userID, Runtime: types.SandboxRuntimeHeadlessUbuntu, Status: types.SandboxStatusRunning,
+	}
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(desktop).Error)
+	suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(headless).Error)
+	for _, run := range []types.SandboxRun{
+		// Spans midnight: two hours on each day.
+		{SandboxID: desktop.ID, Runtime: desktop.Runtime, StartedAt: at(13, 22), StoppedAt: ptr(at(14, 2))},
+		// Starts before the range: only the hour inside it counts.
+		{SandboxID: headless.ID, Runtime: headless.Runtime, StartedAt: at(12, 23), StoppedAt: ptr(at(13, 1))},
+		{SandboxID: headless.ID, Runtime: headless.Runtime, StartedAt: at(14, 10), StoppedAt: ptr(at(14, 11))},
+		// Still running: counts up to the end of the range.
+		{SandboxID: headless.ID, Runtime: headless.Runtime, StartedAt: at(14, 23)},
+		// Outside the range entirely.
+		{SandboxID: desktop.ID, Runtime: desktop.Runtime, StartedAt: at(10, 0), StoppedAt: ptr(at(10, 5))},
+	} {
+		run.ID = system.GenerateSandboxRunID()
+		run.OrganizationID = orgID
+		run.VCPUs = 1
+		suite.Require().NoError(suite.db.gdb.WithContext(suite.ctx).Create(&run).Error)
+	}
+
+	usage, err := suite.db.GetOrgComputeUsage(suite.ctx, &GetOrgComputeUsageQuery{
+		OrganizationID: orgID, From: at(13, 0), To: at(15, 0),
+	})
+	suite.Require().NoError(err)
+	suite.InDelta(0, usage.TotalCredits, 1e-9)
+	suite.InDelta(4, usage.DesktopHours, 1e-6)
+	suite.InDelta(3, usage.HeadlessHours, 1e-6)
+	suite.InDelta(7, usage.TotalHours, 1e-6)
+	suite.Require().Len(usage.Daily, 3)
+	suite.InDelta(2, usage.Daily[0].DesktopHours, 1e-6)
+	suite.InDelta(1, usage.Daily[0].HeadlessHours, 1e-6)
+	suite.InDelta(2, usage.Daily[1].DesktopHours, 1e-6)
+	suite.InDelta(2, usage.Daily[1].HeadlessHours, 1e-6)
+	suite.InDelta(0, usage.Daily[2].TotalHours, 1e-6)
+	suite.Require().Len(usage.Sandboxes, 2)
+	suite.Equal(desktop.ID, usage.Sandboxes[0].SandboxID, "without charges, the breakdown ranks by runtime")
+	suite.InDelta(4, usage.Sandboxes[0].Hours, 1e-6)
+	suite.Equal("desktop", usage.Sandboxes[0].PricingType)
+	suite.Equal(4, usage.Sandboxes[0].VCPUs)
+	suite.InDelta(3, usage.Sandboxes[1].Hours, 1e-6)
+
+	filtered, err := suite.db.GetOrgComputeUsage(suite.ctx, &GetOrgComputeUsageQuery{
+		OrganizationID: orgID, ProjectID: headlessProject, From: at(13, 0), To: at(15, 0),
+	})
+	suite.Require().NoError(err)
+	suite.InDelta(0, filtered.DesktopHours, 1e-6)
+	suite.InDelta(3, filtered.HeadlessHours, 1e-6)
+	suite.Require().Len(filtered.Sandboxes, 1)
+	suite.Equal(headless.ID, filtered.Sandboxes[0].SandboxID)
+	suite.Equal(1, filtered.RunningSandboxes)
+}
+
 func (suite *UsageMetricsTestSuite) TestGetUserMonthlyTokenUsage_User() {
 	appID := "test-" + system.GenerateAppID()
 	userID := system.GenerateID()
