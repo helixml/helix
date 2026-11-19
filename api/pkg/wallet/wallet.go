@@ -28,7 +28,10 @@ func For(ctx context.Context, s store.Store, orgID, userID string) (*types.Walle
 // HasEnoughBalance reports whether billable usage may start. It always may
 // when billing is disabled; otherwise the organization must have a paid plan
 // when one is required, and, when the client bills usage, the wallet must
-// hold at least the minimum inference balance.
+// hold at least the minimum inference balance. An organization or user with
+// no wallet yet (one only ever used through the API, never the billing page
+// that creates it) has no credits and no plan: a refusal, not an error, so
+// callers answer 402 rather than 500.
 func HasEnoughBalance(ctx context.Context, s store.Store, cfg config.Stripe, orgID, userID string, clientBillingEnabled bool) (bool, error) {
 	if !cfg.BillingEnabled {
 		return true, nil
@@ -36,6 +39,9 @@ func HasEnoughBalance(ctx context.Context, s store.Store, cfg config.Stripe, org
 
 	if cfg.RequireActiveSubscription {
 		subscription, err := s.GetWalletByOrg(ctx, orgID)
+		if errors.Is(err, store.ErrNotFound) {
+			return false, fmt.Errorf("organization '%s' %w", orgID, ErrNoActiveSubscription)
+		}
 		if err != nil {
 			return false, fmt.Errorf("failed to get subscription: %w", err)
 		}
@@ -49,6 +55,9 @@ func HasEnoughBalance(ctx context.Context, s store.Store, cfg config.Stripe, org
 	}
 
 	w, err := For(ctx, s, orgID, userID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("failed to get wallet: %w", err)
 	}

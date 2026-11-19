@@ -317,6 +317,19 @@ func (s *MeteringSuite) TestOrgWithoutRequiredSubscriptionIsRefused() {
 	s.requireNoMoreCredits(err)
 }
 
+// An org used only through the API never opened the billing page that
+// creates its wallet; it has no credits yet, which is a 402, not a 500.
+func (s *MeteringSuite) TestOrgWithoutWalletIsOutOfCredits() {
+	s.store.EXPECT().GetWalletByOrg(gomock.Any(), testOrgID).AnyTimes().Return(nil, store.ErrNotFound)
+
+	_, err := s.provider.Search(s.ctx, &websearch.SearchRequest{Query: "q"})
+	s.requireNoMoreCredits(err)
+
+	s.provider = New(s.inner, testPrices, config.Stripe{BillingEnabled: true, RequireActiveSubscription: true}, s.store)
+	_, err = s.provider.Search(s.ctx, &websearch.SearchRequest{Query: "q"})
+	s.requireNoMoreCredits(err)
+}
+
 func (s *MeteringSuite) TestSuccessIsRecordedWithWhatWasCharged() {
 	s.orgWallet(1)
 	s.inner.EXPECT().Search(gomock.Any(), gomock.Any()).Return(&websearch.SearchResponse{
