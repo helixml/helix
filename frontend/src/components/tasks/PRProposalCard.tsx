@@ -26,6 +26,7 @@ import useSnackbar from "../../hooks/useSnackbar";
 import { useDecidePRProposal } from "../../services/specTaskPRProposalService";
 import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 import { getChatColors } from "../session/chatStyles";
+import { useCollapseOnUserMessage } from "../session/actionCardCollapse";
 
 const { PRProposalStatusPending, PRProposalStatusApproved, PRProposalStatusFailed } =
   TypesSpecTaskPRProposalStatus;
@@ -50,6 +51,7 @@ export default function PRProposalCard({
   const isPending = status === PRProposalStatusPending;
 
   const [expanded, setExpanded] = useState(isPending);
+  useCollapseOnUserMessage(() => setExpanded(false));
   const [headBranch, setHeadBranch] = useState(proposal.head_branch ?? "");
   const [baseBranch, setBaseBranch] = useState(proposal.base_branch ?? "");
   const [title, setTitle] = useState(proposal.title ?? "");
