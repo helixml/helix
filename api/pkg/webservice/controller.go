@@ -558,6 +558,9 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) (*
 	if replacementTarget.HostDeviceID == "" {
 		return nil, &RecoveryDeferredError{Reason: "active sandbox pinned runner is unknown"}
 	}
+	if state.HostDeviceID != "" && state.HostDeviceID != replacementTarget.HostDeviceID {
+		return nil, &RecoveryDeferredError{Reason: fmt.Sprintf("active sandbox runner %q does not match persistent data runner %q", replacementTarget.HostDeviceID, state.HostDeviceID)}
+	}
 	if ready, why := c.hostReadyForReplacement(ctx, replacementTarget); !ready {
 		return nil, &RecoveryDeferredError{Reason: why}
 	}
@@ -628,7 +631,10 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 			if sb.HostDeviceID == "" {
 				return nil, fmt.Errorf("web service sandbox %s has no pinned runner; refusing to deploy against persistent data", sb.ID)
 			}
-			if state.HostDeviceID != sb.HostDeviceID {
+			if state.HostDeviceID != "" && state.HostDeviceID != sb.HostDeviceID {
+				return nil, fmt.Errorf("web service sandbox %s is on runner %q but persistent data is pinned to runner %q", sb.ID, sb.HostDeviceID, state.HostDeviceID)
+			}
+			if state.HostDeviceID == "" {
 				if err := c.store.SetWebServiceHostDeviceID(ctx, project.ID, sb.HostDeviceID); err != nil {
 					return nil, fmt.Errorf("record web service runner pin: %w", err)
 				}
@@ -681,7 +687,13 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 		switch latest.Status {
 		case types.SandboxStatusRunning:
 			// Record this sandbox as active and pin the project to its runner.
-			if latest.HostDeviceID != "" {
+			if latest.HostDeviceID == "" {
+				return nil, fmt.Errorf("web service sandbox %s reached running state without a pinned runner", latest.ID)
+			}
+			if state.HostDeviceID != "" && state.HostDeviceID != latest.HostDeviceID {
+				return nil, fmt.Errorf("web service sandbox %s was placed on runner %q but persistent data is pinned to runner %q", latest.ID, latest.HostDeviceID, state.HostDeviceID)
+			}
+			if state.HostDeviceID == "" {
 				if err := c.store.SetWebServiceHostDeviceID(ctx, project.ID, latest.HostDeviceID); err != nil {
 					return nil, fmt.Errorf("record web service runner pin: %w", err)
 				}
