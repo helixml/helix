@@ -40,6 +40,7 @@ type SpecTaskOrchestrator struct {
 	goldenBuildService    *GoldenBuildService
 	attentionService      *AttentionService
 	ciNotifier            CINotifier // Delivers ci_passed / ci_failed messages to running agents
+	reviewWebhooks        ReviewWebhookEnsurer
 	prProposals           *PRProposalService
 	stopChan              chan struct{}
 	wg                    sync.WaitGroup
@@ -134,6 +135,19 @@ func (o *SpecTaskOrchestrator) SetAttentionService(svc *AttentionService) {
 // task but skips agent-side messaging (human attention events still fire).
 func (o *SpecTaskOrchestrator) SetCINotifier(n CINotifier) {
 	o.ciNotifier = n
+}
+
+// ReviewWebhookEnsurer installs the PR review webhook on a repo that may
+// predate the feature. *GitRepositoryService satisfies it.
+type ReviewWebhookEnsurer interface {
+	EnsureReviewWebhook(ctx context.Context, repoID string)
+}
+
+// SetReviewWebhookEnsurer backfills PR review webhooks on repos whose PRs the
+// orchestrator polls, so PRs opened before the feature was enabled still
+// deliver review feedback. When nil, nothing is backfilled.
+func (o *SpecTaskOrchestrator) SetReviewWebhookEnsurer(e ReviewWebhookEnsurer) {
+	o.reviewWebhooks = e
 }
 
 // Start begins the orchestration loop
@@ -1313,6 +1327,9 @@ func (o *SpecTaskOrchestrator) processExternalPullRequestStatus(ctx context.Cont
 		if pr.URL != "" && task.RepoPullRequests[i].PRURL != pr.URL {
 			task.RepoPullRequests[i].PRURL = pr.URL
 			updated = true
+		}
+		if o.reviewWebhooks != nil && pr.State == types.PullRequestStateOpen {
+			o.reviewWebhooks.EnsureReviewWebhook(ctx, repoPR.RepositoryID)
 		}
 
 		// CI status: poll the provider for the PR's head SHA, fire

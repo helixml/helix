@@ -80,7 +80,7 @@ func TestEnsureGitHubReviewWebhook_GeneratesAndPersistsSecret(t *testing.T) {
 	if call.secret != persisted.GitHub.WebhookSecret {
 		t.Fatalf("hook secret %q != persisted secret %q", call.secret, persisted.GitHub.WebhookSecret)
 	}
-	if strings.Join(call.events, ",") != "pull_request_review" {
+	if strings.Join(call.events, ",") != "pull_request_review,issue_comment" {
 		t.Fatalf("events = %v", call.events)
 	}
 }
@@ -136,5 +136,55 @@ func TestEnsureGitHubReviewWebhook_InstallFailureIsBestEffort(t *testing.T) {
 	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-1").Return(repo, nil)
 
 	installer := &fakeWebhookInstaller{err: errors.New("github 500")}
-	svc.ensureGitHubReviewWebhook(context.Background(), installer, "repo-1", "owner", "repo") // must not panic/propagate
+	// Returned (not swallowed) so the backfill can retry; PR creation ignores it.
+	if err := svc.ensureGitHubReviewWebhook(context.Background(), installer, "repo-1", "owner", "repo"); err == nil {
+		t.Fatal("install failure must be returned so the backfill retries")
+	}
+}
+
+func TestEnsureReviewWebhook_DisabledIsNoop(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	svc := newInstallTestService(t, ctrl) // mock store: any call fails the test
+	svc.SetGitHubReviewWebhooks("")
+
+	svc.EnsureReviewWebhook(context.Background(), "repo-1")
+}
+
+func TestEnsureReviewWebhook_SkipsNonGitHubAndRunsOncePerRepo(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	svc := NewGitRepositoryService(mockStore, t.TempDir(), "http://api:8080", "helix", "helix@test")
+	svc.SetGitHubReviewWebhooks("https://prime.example.com/api/v1/webhooks/github/reviews")
+
+	repo := &types.GitRepository{
+		ID:           "repo-gl",
+		ExternalURL:  "https://gitlab.com/owner/repo",
+		ExternalType: types.ExternalRepositoryTypeGitLab,
+	}
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-gl").Return(repo, nil).Times(1)
+
+	svc.EnsureReviewWebhook(context.Background(), "repo-gl")
+	svc.EnsureReviewWebhook(context.Background(), "repo-gl")
+}
+
+func TestEnsureReviewWebhook_FailureIsRetried(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+	svc := NewGitRepositoryService(mockStore, t.TempDir(), "http://api:8080", "helix", "helix@test")
+	svc.SetGitHubReviewWebhooks("https://prime.example.com/api/v1/webhooks/github/reviews")
+
+	// A failed attempt must not mark the repo done: the next poll retries.
+	gomock.InOrder(
+		mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-1").Return(nil, errors.New("db blip")),
+		mockStore.EXPECT().GetGitRepository(gomock.Any(), "repo-1").Return(&types.GitRepository{
+			ID: "repo-1", ExternalURL: "https://gitlab.com/owner/repo", ExternalType: types.ExternalRepositoryTypeGitLab,
+		}, nil),
+	)
+
+	svc.EnsureReviewWebhook(context.Background(), "repo-1")
+	svc.EnsureReviewWebhook(context.Background(), "repo-1")
+	svc.EnsureReviewWebhook(context.Background(), "repo-1") // settled after the success: no third load
 }

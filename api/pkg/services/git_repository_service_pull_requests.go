@@ -900,11 +900,17 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 	}
 
 	if !internalPRRouting(repo) {
-		s.ensureGitHubReviewWebhook(ctx, client, repo.ID, owner, repoName)
+		// Best-effort: failures are logged inside and must not fail PR creation.
+		_ = s.ensureGitHubReviewWebhook(ctx, client, repo.ID, owner, repoName)
 	}
 
 	return strconv.Itoa(pr.GetNumber()), nil
 }
+
+// reviewWebhookEvents are the GitHub events relayed to spec tasks: formal
+// reviews (with their inline comments and thread replies) and PR conversation
+// comments, which GitHub sends as issue_comment.
+var reviewWebhookEvents = []string{"pull_request_review", "issue_comment"}
 
 // webhookInstaller is the seam for the GitHub webhook upsert so the install
 // path is testable without hitting GitHub. *github.Client satisfies it.
@@ -914,8 +920,8 @@ type webhookInstaller interface {
 
 // ensureGitHubReviewWebhook installs (idempotently) a pull_request_review
 // webhook on the external repo so review feedback flows back to the spec task.
-// Best-effort: a failed install must not fail PR creation. No-op when the
-// feature is not enabled (SetGitHubReviewWebhooks).
+// Failures are logged and returned so the backfill can retry; PR creation
+// ignores them. No-op when the feature is not enabled (SetGitHubReviewWebhooks).
 //
 // Deliveries are signed with a per-repo secret generated on first install and
 // stored on the repo row: one repo's secret can only produce deliveries that
@@ -929,9 +935,9 @@ type webhookInstaller interface {
 // ponytail: single control-plane process assumed; multi-replica deployments
 // still race the read-generate-persist window — close it with a DB
 // compare-and-set on the webhook_secret column if that ever applies.
-func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, installer webhookInstaller, repoID, owner, repoName string) {
+func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, installer webhookInstaller, repoID, owner, repoName string) error {
 	if s.githubReviewWebhooksURL == "" {
-		return
+		return nil
 	}
 
 	err := s.WithRepoLock("webhook:"+repoID, func() error {
@@ -958,11 +964,11 @@ func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, in
 
 		payloadURL := fmt.Sprintf("%s/%s", s.githubReviewWebhooksURL, repo.ID)
 		if err := installer.UpsertWebhook(ctx, owner, repoName, "helix-spec-task-reviews",
-			payloadURL, []string{"pull_request_review"}, repo.GitHub.WebhookSecret); err != nil {
+			payloadURL, reviewWebhookEvents, repo.GitHub.WebhookSecret); err != nil {
 			// Reviews are a nice-to-have; CI feedback still arrives via the poller.
 			log.Warn().Err(err).Str("owner", owner).Str("repo", repoName).
 				Msg("failed to install GitHub review webhook on repo; PR review feedback will not reach the task agent")
-			return nil
+			return fmt.Errorf("install review webhook: %w", err)
 		}
 		log.Info().Str("owner", owner).Str("repo", repoName).Str("repo_id", repo.ID).
 			Msg("GitHub review webhook installed on repo")
@@ -971,6 +977,41 @@ func (s *GitRepositoryService) ensureGitHubReviewWebhook(ctx context.Context, in
 	if err != nil {
 		log.Warn().Err(err).Str("repo_id", repoID).
 			Msg("failed to prepare GitHub review webhook install; PR review feedback will not reach the task agent")
+	}
+	return err
+}
+
+// EnsureReviewWebhook installs or upgrades the PR review webhook on an
+// external GitHub repo, once per repo per process; a failed attempt is
+// forgotten so the next poll retries (e.g. after the operator grants the
+// GitHub App webhook permission). It backfills repos whose
+// PRs predate the feature and upgrades older hooks to the current event list
+// (UpsertWebhook edits a hook matched by URL). Best-effort, like the install
+// on PR creation; a no-op when the feature is off.
+func (s *GitRepositoryService) EnsureReviewWebhook(ctx context.Context, repoID string) {
+	if s.githubReviewWebhooksURL == "" {
+		return
+	}
+	if _, done := s.reviewWebhookBackfilled.LoadOrStore(repoID, struct{}{}); done {
+		return
+	}
+	repo, err := s.GetRepositoryMetadata(ctx, repoID)
+	if err != nil {
+		s.reviewWebhookBackfilled.Delete(repoID)
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to load repository for review webhook backfill")
+		return
+	}
+	if repo.ExternalType != types.ExternalRepositoryTypeGitHub || internalPRRouting(repo) {
+		return
+	}
+	client, owner, repoName, err := s.githubClientForRepo(ctx, repo, "")
+	if err != nil {
+		s.reviewWebhookBackfilled.Delete(repoID)
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("no GitHub client for review webhook backfill")
+		return
+	}
+	if err := s.ensureGitHubReviewWebhook(ctx, client, repo.ID, owner, repoName); err != nil {
+		s.reviewWebhookBackfilled.Delete(repoID)
 	}
 }
 

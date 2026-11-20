@@ -116,8 +116,7 @@ type GitHub struct {
 	// deliveries with (spec task PR review feedback). Auto-generated at first
 	// webhook install; one repo's secret never validates another repo's
 	// deliveries, keeping orgs isolated on shared deployments.
-	WebhookSecret   string `json:"webhook_secret,omitempty"`
-	ReviewBotUserID int64  `json:"review_bot_user_id,omitempty"`
+	WebhookSecret string `json:"webhook_secret,omitempty"`
 
 	// GitHub App authentication (service-to-service)
 	// When AppID and PrivateKey are set, uses GitHub App installation tokens
@@ -211,7 +210,6 @@ type GitRepositoryUpdateRequest struct {
 	GitHub            *GitHub                `json:"github,omitempty"`
 	GitLab            *GitLab                `json:"gitlab,omitempty"`
 	Bitbucket         *Bitbucket             `json:"bitbucket,omitempty"`
-	ReviewBotUserID   *int64                 `json:"review_bot_user_id,omitempty"`
 	OAuthConnectionID *string                `json:"oauth_connection_id,omitempty"` // OAuth connection for authentication
 	Metadata          map[string]interface{} `json:"metadata,omitempty"`
 	KoditIndexing     *bool                  `json:"kodit_indexing,omitempty"` // Enable Kodit code intelligence indexing (pointer to distinguish unset from false)
