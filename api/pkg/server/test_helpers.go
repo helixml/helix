@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -156,6 +157,30 @@ func (s *HelixAPIServer) EnqueueQueuedPrompt(sessionID, message string, interrup
 	}
 	s.processPendingPromptsForSession(context.Background(), sessionID)
 	return promptID, nil
+}
+
+// EnqueueSteerPrompt enqueues a steer-mode prompt and drains the queue
+// synchronously, like EnqueueQueuedPrompt. Returns the prompt id.
+func (s *HelixAPIServer) EnqueueSteerPrompt(sessionID, message string) (string, error) {
+	ctx := context.Background()
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	entry := &types.PromptHistoryEntry{
+		ID:         system.GeneratePromptHistoryID(),
+		UserID:     session.Owner,
+		SessionID:  sessionID,
+		Content:    message,
+		Status:     "pending",
+		Steer:      true,
+		Provenance: testHarnessTurn,
+	}
+	if err := s.Store.CreatePromptHistoryEntry(ctx, entry); err != nil {
+		return "", err
+	}
+	s.processPendingPromptsForSession(ctx, sessionID)
+	return entry.ID, nil
 }
 
 // ConnectedAgentIDs returns the IDs of all currently connected agents.

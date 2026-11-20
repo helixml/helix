@@ -1,4 +1,4 @@
-import { FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -10,7 +10,7 @@ import { TypesInteractionState } from '../../api/api'
 import { useStreaming } from '../../contexts/streaming'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
-import { useListInteractions } from '../../services/sessionService'
+import { useGetSession, useListInteractions } from '../../services/sessionService'
 import { useRefreshSpecTaskStatus } from '../../services/specTaskService'
 import { SESSION_TYPE_TEXT } from '../../types'
 import RobustPromptInput from '../common/RobustPromptInput'
@@ -140,12 +140,25 @@ const AgentChatContent: FC<AgentChatProps> = ({
       TypesInteractionState.InteractionStateWaiting,
     [latestInteractionsResponse?.data?.interactions?.[0]?.state],
   )
+  // Whether the agent can take a message mid-turn. Zed reports it when the
+  // agent's thread is created or loaded. This shares the session query the
+  // spec-task page already polls (useSandboxState), so it adds no polling of
+  // its own; it is also re-read whenever a new turn starts.
+  const steeringQueryEnabled = !!sessionId && !!specTaskId && !minimal
+  const { data: steeringSessionResponse, refetch: refetchSteeringSession } = useGetSession(sessionId, {
+    enabled: steeringQueryEnabled,
+  })
+  const steeringSupported = !!steeringSessionResponse?.data?.config?.agent_steering_supported
   // Session-keyed queue for sessions without a spec task; the spec-task
   // composer carries its own backend-backed queue instead.
   const sessionQueue = useSessionPromptQueue(showSessionPromptQueue ? sessionId : '', isAgentBusy)
   const hasSessionQueue = showSessionPromptQueue && sessionQueue.entries.length > 0
   const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
   const latestInteractionId = latestInteraction?.id || null
+  useEffect(() => {
+    if (steeringQueryEnabled && isAgentBusy && !steeringSupported) refetchSteeringSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestInteractionId, isAgentBusy, steeringQueryEnabled, steeringSupported])
   const { data: pendingQuestionsResponse } = useListInteractions(
     sessionId,
     0,
@@ -263,6 +276,7 @@ const AgentChatContent: FC<AgentChatProps> = ({
       onFileUpload={handleFileUpload}
       onCancel={handleCancel}
       isAgentBusy={isAgentBusy}
+      steeringSupported={steeringSupported}
       isCancelling={isCancelling}
       leadingActions={leadingActions}
       showContextUsage={!minimal}

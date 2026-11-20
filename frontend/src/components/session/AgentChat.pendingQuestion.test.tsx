@@ -42,6 +42,8 @@ vi.mock("../../hooks/useSnackbar", () => ({
 }));
 
 vi.mock("../../services/sessionService", () => ({
+  // AgentChat reads the session for the agent's steering capability.
+  useGetSession: () => ({ data: undefined }),
   useListInteractions: (
     _sessionId: string,
     _page: number,

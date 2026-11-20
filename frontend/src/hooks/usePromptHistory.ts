@@ -17,6 +17,7 @@ import {
   backendToLocal,
 } from '../services/promptHistoryService'
 import useAccount from './useAccount'
+import { deliveryFlags, type PromptDeliveryMode } from '../utils/promptDeliveryMode'
 
 const HISTORY_STORAGE_KEY = 'helix_prompt_history'
 const DRAFT_STORAGE_KEY = 'helix_prompt_draft'
@@ -45,6 +46,7 @@ export interface PromptHistoryEntry {
   // 'failed'   → dispatch failed or Zed bounced — eligible for retry
   status: 'sent' | 'sending' | 'pending' | 'failed'
   interrupt?: boolean       // If true, this message interrupts current conversation
+  steer?: boolean           // If true, delivered into the running turn (see utils/promptDeliveryMode)
   queuePosition?: number    // Position in queue for ordering
   syncedToBackend?: boolean // If true, this entry has been synced to the backend
   deleted?: boolean          // Tombstone: locally deleted, prevents re-import from backend
@@ -72,12 +74,12 @@ interface UsePromptHistoryReturn {
   setDraft: (value: string) => void
 
   // Actions
-  saveToHistory: (content: string, interrupt?: boolean) => PromptHistoryEntry
+  saveToHistory: (content: string, mode: PromptDeliveryMode) => PromptHistoryEntry
   markAsSent: (id: string) => void
   markAsFailed: (id: string) => void
   retryFailed: (id: string) => string | null  // Returns content to retry
   updateContent: (id: string, content: string) => void  // Update content of queued message
-  updateInterrupt: (id: string, interrupt: boolean) => void  // Toggle interrupt flag
+  updateDeliveryMode: (id: string, mode: PromptDeliveryMode) => void
   removeFromQueue: (id: string) => void  // Remove a message from queue
   reorderQueue: (activeId: string, overId: string) => void  // Reorder messages in queue
 
@@ -206,7 +208,7 @@ export function usePromptHistory({
   // Load initial state from localStorage
   const [history, setHistory] = useState<PromptHistoryEntry[]>(() => loadHistory(specTaskId))
   // Mirror of the latest history for synchronous reads in event handlers (e.g.
-  // updateInterrupt's immediate push) without depending on a stale closure.
+  // updateDeliveryMode's immediate push) without depending on a stale closure.
   const historyRef = useRef<PromptHistoryEntry[]>(history)
   historyRef.current = history
   const [draft, setDraftState] = useState<string>(() => loadDraft(sessionId))
@@ -592,7 +594,7 @@ export function usePromptHistory({
   }, [specTaskId])
 
   // Save prompt to history (called before sending)
-  const saveToHistory = useCallback((content: string, interrupt: boolean = true): PromptHistoryEntry => {
+  const saveToHistory = useCallback((content: string, mode: PromptDeliveryMode): PromptHistoryEntry => {
     // Calculate queue position based on existing pending/failed messages
     let queuePosition: number
     setHistory(prev => {
@@ -609,7 +611,7 @@ export function usePromptHistory({
       timestamp: Date.now(),
       sessionId,
       status: 'pending',
-      interrupt,
+      ...deliveryFlags(mode),
       queuePosition: queuePosition!,
     }
 
@@ -680,18 +682,19 @@ export function usePromptHistory({
     })
   }, [specTaskId])
 
-  // Toggle interrupt flag of a queued message
-  const updateInterrupt = useCallback((id: string, interrupt: boolean) => {
+  // Change how a queued message is delivered (steer / queue / interrupt)
+  const updateDeliveryMode = useCallback((id: string, mode: PromptDeliveryMode) => {
+    const flags = deliveryFlags(mode)
     setHistory(prev => {
       const updated = prev.map(h =>
-        h.id === id ? { ...h, interrupt, syncedToBackend: false } : h
+        h.id === id ? { ...h, ...flags, syncedToBackend: false } : h
       )
       saveHistory(updated, specTaskId)
       return updated
     })
 
-    // Persist the interrupt flag IMMEDIATELY rather than waiting for the
-    // SYNC_DEBOUNCE_MS batched sync. Interrupt is an intent-bearing escalation:
+    // Persist the mode IMMEDIATELY rather than waiting for the
+    // SYNC_DEBOUNCE_MS batched sync. Steer and interrupt are intent-bearing escalations:
     // if the backend drains the queue (current turn completes) before the
     // debounced sync lands, the escalation is silently lost and the prompt is
     // dispatched as a plain queue message — which can also reorder it relative
@@ -699,7 +702,7 @@ export function usePromptHistory({
     // See design/2026-06-23-queue-drain-out-of-order-dispatch.md.
     const existing = historyRef.current.find(h => h.id === id)
     if (existing && apiClient && specTaskId && projectId && navigator.onLine) {
-      syncPromptHistory(apiClient, projectId, specTaskId, [{ ...existing, interrupt }])
+      syncPromptHistory(apiClient, projectId, specTaskId, [{ ...existing, ...flags }])
         .then(() => {
           setHistory(prev =>
             prev.map(h => (h.id === id ? { ...h, syncedToBackend: true } : h))
@@ -707,7 +710,7 @@ export function usePromptHistory({
         })
         .catch(e => {
           // Leave syncedToBackend=false so the debounced sync retries.
-          console.warn('[PromptHistory] Failed to flush interrupt toggle immediately:', e)
+          console.warn('[PromptHistory] Failed to flush delivery mode change immediately:', e)
         })
     }
   }, [specTaskId, apiClient, projectId])
@@ -764,7 +767,7 @@ export function usePromptHistory({
     markAsFailed,
     retryFailed,
     updateContent,
-    updateInterrupt,
+    updateDeliveryMode,
     removeFromQueue,
     reorderQueue,
     // Status

@@ -25,6 +25,7 @@ import { alpha } from '@mui/material/styles';
 import {
   SendHorizontal,
   ListStart,
+  CornerDownRight,
   CircleAlert,
   CheckCircle,
   Hourglass,
@@ -59,6 +60,13 @@ import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import {
+  DELIVERY_MODE_DESCRIPTION,
+  DELIVERY_MODE_LABEL,
+  deliveryModeOf,
+  nextDeliveryMode,
+  type PromptDeliveryMode,
+} from '../../utils/promptDeliveryMode'
 import { mightBePlaceholderClipboardImage } from '../../utils/clipboardPlaceholder'
 import {
   nextQueueVisibilityDeadline,
@@ -162,6 +170,9 @@ interface RobustPromptInputProps {
   isAgentBusy?: boolean
   // Whether cancellation is waiting for acknowledgement from the agent
   isCancelling?: boolean
+  // Whether the agent can take a message into its running turn (the session's
+  // agent_steering_supported). When false, Enter while busy queues instead.
+  steeringSupported?: boolean
   // Fires synchronously inside handleSend the moment the user submits a
   // prompt, before the local queue persist or the backend sync POST. The
   // parent uses this hook to do optimistic UI updates (e.g. flip the cached
@@ -189,7 +200,8 @@ interface SortableQueueItemProps {
   handleCancelEdit: () => void
   handleStartEdit: (entry: PromptHistoryEntry) => void
   handleRemoveFromQueue: (id: string) => void
-  handleToggleInterrupt: (id: string) => void
+  handleCycleDeliveryMode: (id: string) => void
+  steeringAvailable: boolean
   truncateContent: (content: string, maxLen?: number) => string
   handleRestartAgent: () => void
   isRestarting: boolean
@@ -201,6 +213,113 @@ interface SortableQueueItemProps {
   isForeign: boolean
   orgMembers: TypesOrganizationMembership[]
   currentUser?: TypesUser
+}
+
+const KeyCap: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <Box
+    component="kbd"
+    sx={{
+      fontFamily: 'inherit',
+      fontSize: '0.6875rem',
+      lineHeight: 1.4,
+      px: 0.5,
+      borderRadius: 0.5,
+      border: (theme) => `1px solid ${alpha(theme.palette.text.primary, 0.16)}`,
+      color: 'text.secondary',
+    }}
+  >
+    {children}
+  </Box>
+)
+
+/**
+ * Says what each key does while the agent is working, so pressing Enter is
+ * never a guess. Shown only while a turn is running: when idle, Enter sends.
+ */
+const ComposerDeliveryHint: FC<{
+  steeringAvailable: boolean
+  interruptShortcut: string
+}> = ({ steeringAvailable, interruptShortcut }) => {
+  const enterMode: PromptDeliveryMode = steeringAvailable ? 'steer' : 'queue'
+  const items: { key: string; mode: PromptDeliveryMode }[] = steeringAvailable
+    ? [
+        { key: 'Enter', mode: 'steer' },
+        { key: 'Tab', mode: 'queue' },
+        { key: interruptShortcut, mode: 'interrupt' },
+      ]
+    : [
+        { key: 'Enter', mode: 'queue' },
+        { key: interruptShortcut, mode: 'interrupt' },
+      ]
+  const [first, ...rest] = items
+  const renderItem = ({ key, mode }: { key: string; mode: PromptDeliveryMode }) => (
+    <Box key={mode} component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, height: 20 }}>
+      <KeyCap>{key}</KeyCap>
+      <span>{DELIVERY_MODE_LABEL[mode].toLowerCase()}</span>
+    </Box>
+  )
+  return (
+    <Tooltip
+      title={
+        <Box>
+          {items.map(({ key, mode }) => (
+            <Typography key={mode} variant="caption" sx={{ display: 'block' }}>
+              <strong>{key}</strong> — {DELIVERY_MODE_LABEL[mode]}: {DELIVERY_MODE_DESCRIPTION[mode].toLowerCase()}
+            </Typography>
+          ))}
+          {!steeringAvailable && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'grey.400' }}>
+              This agent can’t take messages mid-turn, so Enter queues.
+            </Typography>
+          )}
+        </Box>
+      }
+    >
+      <Box
+        data-testid="composer-delivery-hint"
+        aria-label={`Enter will ${DELIVERY_MODE_LABEL[enterMode].toLowerCase()}`}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+          flex: '0 1 auto',
+          minWidth: 0,
+          whiteSpace: 'nowrap',
+          color: (theme) => getChatColors(theme).subtle,
+          fontSize: '0.75rem',
+          mr: 0.5,
+        }}
+      >
+        {renderItem(first)}
+        {/* Hints that don't fit wrap onto a clipped second line, so they
+            disappear whole instead of being cut mid-word. */}
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            columnGap: 0.75,
+            height: 20,
+            overflow: 'hidden',
+            minWidth: 0,
+            flex: '0 1 auto',
+          }}
+        >
+          {rest.map(renderItem)}
+        </Box>
+      </Box>
+    </Tooltip>
+  )
+}
+
+const DeliveryModeIcon: FC<{ mode: PromptDeliveryMode; size: number }> = ({ mode, size }) => {
+  switch (mode) {
+    case 'steer':
+      return <CornerDownRight size={size} />
+    case 'interrupt':
+      return <Zap size={size} />
+    default:
+      return <ListStart size={size} />
+  }
 }
 
 // Sortable queue item component
@@ -218,7 +337,8 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   handleCancelEdit,
   handleStartEdit,
   handleRemoveFromQueue,
-  handleToggleInterrupt,
+  handleCycleDeliveryMode,
+  steeringAvailable,
   truncateContent,
   handleRestartAgent,
   isRestarting,
@@ -249,6 +369,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
     ? `Queued by ${owner?.full_name || owner?.username || owner?.email || 'another user'}`
     : 'Queued by you'
 
+  const deliveryMode = deliveryModeOf(entry)
   const isFailed = entry.status === 'failed'
   // Classification (transient vs crashed vs stuck → Restart) is shared with
   // SessionPromptQueue via classifyPromptQueueEntry so both queues agree.
@@ -540,26 +661,38 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           would rewrite their queue. Attribution is enough here. */}
       {!isEditing && !isSending && !isForeign && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
-          {/* Interrupt toggle */}
-          <Tooltip title={entry.interrupt !== false ? "Interrupt mode - click to queue after current" : "Queue mode - click to interrupt"}>
+          <Tooltip
+            title={
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {DELIVERY_MODE_LABEL[deliveryMode]}
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block' }}>
+                  {DELIVERY_MODE_DESCRIPTION[deliveryMode]}
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'grey.400' }}>
+                  Click to change to {DELIVERY_MODE_LABEL[nextDeliveryMode(deliveryMode, steeringAvailable)].toLowerCase()}
+                </Typography>
+              </Box>
+            }
+          >
             <IconButton
               size="small"
+              aria-label={`Delivery: ${DELIVERY_MODE_LABEL[deliveryMode]}. Click to change.`}
               onClick={(e) => {
                 e.stopPropagation()
-                handleToggleInterrupt(entry.id)
+                handleCycleDeliveryMode(entry.id)
               }}
               sx={{
                 p: 0.5,
-                color: entry.interrupt !== false ? 'warning.main' : 'text.secondary',
+                color: deliveryMode === 'interrupt'
+                  ? 'warning.main'
+                  : deliveryMode === 'steer' ? 'info.main' : 'text.secondary',
                 opacity: 0.62,
                 '&:hover': { opacity: 1 },
               }}
             >
-              {entry.interrupt !== false ? (
-                <Zap size={14} />
-              ) : (
-                <ListStart size={14} />
-              )}
+              <DeliveryModeIcon mode={deliveryMode} size={14} />
             </IconButton>
           </Tooltip>
           {/* Remove */}
@@ -598,6 +731,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   onImagePaste,
   onCancel,
   isAgentBusy = false,
+  steeringSupported = false,
   isCancelling = false,
   onWillSend,
   sendMode = 'queued',
@@ -652,13 +786,12 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   const interruptShortcut = /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ? '⌘Enter' : 'Ctrl+Enter'
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showQueue, setShowQueue] = useState(true)
-  const [interruptMode, setInterruptMode] = useState(false) // false = queue after (default), true = interrupt
 
   // Editing state for queued messages
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
   const [editingOriginalContent, setEditingOriginalContent] = useState('')
-  const [editingInterruptMode, setEditingInterruptMode] = useState(false)
+  const [editingDeliveryMode, setEditingDeliveryMode] = useState<PromptDeliveryMode>('queue')
 
   const {
     draft,
@@ -667,7 +800,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     markAsSent,
     markAsFailed,
     updateContent,
-    updateInterrupt,
+    updateDeliveryMode,
     removeFromQueue,
     reorderQueue,
     pendingPrompts,
@@ -766,6 +899,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // from 53b336e01, which deleted the client-side pump on the assumption that
   // the backend queue was always enabled.)
   const backendQueueEnabled = !!(specTaskId && projectId && apiClient)
+
+  // Steering needs the backend queue (it decides mid-turn delivery) and an
+  // agent that Zed reported as able to take a message into its running turn.
+  const steeringAvailable = backendQueueEnabled && steeringSupported
+  // What plain Enter does while the agent is working. When idle every mode
+  // sends immediately, so Enter just sends.
+  const busyEnterMode: PromptDeliveryMode = steeringAvailable ? 'steer' : 'queue'
 
   useEffect(() => {
     attachmentsRef.current = attachments
@@ -950,7 +1090,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     })
   }, [])
 
-  const submitDraft = useCallback(async (interrupt: boolean) => {
+  const submitDraft = useCallback(async (mode: PromptDeliveryMode) => {
     const content = draft.trim()
     if (
       (!content && attachments.length === 0 && reviewComments.length === 0) ||
@@ -1004,15 +1144,15 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       return
     }
 
-    saveToHistory(fullContent, interrupt)
+    saveToHistory(fullContent, mode)
     clearDraft()
     clearCurrentAttachments()
     onReviewCommentsSentRef.current?.()
   }, [draft, attachments, inputDisabled, sendMode, isAgentBusy, onSend, clearDraft, setDraft, clearCurrentAttachments, saveToHistory, onWillSend, reviewComments.length])
 
   const handleSend = useCallback(async () => {
-    await submitDraft(interruptMode)
-  }, [interruptMode, submitDraft])
+    await submitDraft(isAgentBusy ? busyEnterMode : 'queue')
+  }, [isAgentBusy, busyEnterMode, submitDraft])
 
   // Remove from queue: tombstone locally first (instant UI update, prevents
   // re-import on sync), then fire backend DELETE (best effort).
@@ -1025,13 +1165,12 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     }
   }, [removeFromQueue, apiClient])
 
-  // Toggle interrupt mode for a queued message
-  const handleToggleInterrupt = useCallback((entryId: string) => {
+  const handleCycleDeliveryMode = useCallback((entryId: string) => {
     const entry = queuedPrompts.find(e => e.id === entryId)
     if (entry) {
-      updateInterrupt(entryId, entry.interrupt === false)
+      updateDeliveryMode(entryId, nextDeliveryMode(deliveryModeOf(entry), steeringAvailable))
     }
-  }, [queuedPrompts, updateInterrupt])
+  }, [queuedPrompts, updateDeliveryMode, steeringAvailable])
 
   // Restart Zed thread after a Claude Agent crash. Calls the backend endpoint
   // which clears the dead acp_thread_id and resets crashed prompts back to
@@ -1062,7 +1201,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
     // Store original content and interrupt mode so we can restore on cancel
     setEditingOriginalContent(entry.content)
-    setEditingInterruptMode(entry.interrupt !== false)
+    setEditingDeliveryMode(deliveryModeOf(entry))
     setEditingId(entry.id)
     setEditingContent(entry.content)
 
@@ -1093,14 +1232,14 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
     if (trimmedContent) {
       // Re-queue as a new pending entry with the edited content
-      saveToHistory(trimmedContent, editingInterruptMode)
+      saveToHistory(trimmedContent, editingDeliveryMode)
     }
     // If content is empty, don't re-queue (effectively deletes it)
 
     setEditingId(null)
     setEditingContent('')
     setEditingOriginalContent('')
-  }, [editingId, editingContent, editingInterruptMode, removeFromQueue, saveToHistory])
+  }, [editingId, editingContent, editingDeliveryMode, removeFromQueue, saveToHistory])
 
   // Cancel editing — remove old entry, re-queue original content unchanged.
   // The old entry was already deleted from the backend in handleStartEdit.
@@ -1111,13 +1250,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
       // Re-queue the original content as a new pending entry
       if (editingOriginalContent.trim()) {
-        saveToHistory(editingOriginalContent, editingInterruptMode)
+        saveToHistory(editingOriginalContent, editingDeliveryMode)
       }
     }
     setEditingId(null)
     setEditingContent('')
     setEditingOriginalContent('')
-  }, [editingId, editingOriginalContent, editingInterruptMode, removeFromQueue, saveToHistory])
+  }, [editingId, editingOriginalContent, editingDeliveryMode, removeFromQueue, saveToHistory])
 
   // Handle key events in edit textarea
   const handleEditKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1131,10 +1270,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   }, [handleSaveEdit, handleCancelEdit])
 
   // Handle key events
-  // Enter = queue mode (non-interrupt), Ctrl+Enter = interrupt mode
-  // Empty Enter (no draft, no attachments) = promote the OLDEST queued entry to
-  // interrupt mode, which dispatches it immediately via the existing sync loop.
-  // Equivalent to clicking the lightning icon on that queue item.
+  // While the agent is working: Enter = steer (queue when the agent can't
+  // steer), Tab = queue, Ctrl/⌘+Enter = interrupt. When idle Enter just sends.
+  // Empty Enter (no draft, no attachments) = escalate the OLDEST queued entry
+  // the same way plain Enter would deliver a new one (steer, else interrupt),
+  // dispatching it immediately via the existing sync loop.
   // Oldest-first (not most-recent) so repeated empty-Enter escalates the queue in
   // FIFO order — promoting the newest would dispatch it ahead of older queued
   // messages, reordering the conversation.
@@ -1163,35 +1303,49 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         return
       }
     }
+    const hasDraft = draft.trim().length > 0 || attachments.length > 0 || reviewComments.length > 0
+
+    // Tab queues a message behind the running turn. Only claimed while the
+    // agent is working and there is something to send, so Tab still moves
+    // focus everywhere else.
+    if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        isAgentBusy && sendMode === 'queued' && hasDraft) {
+      e.preventDefault()
+      void submitDraft('queue')
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      // Ctrl+Enter = interrupt mode, Enter = queue mode
       const useInterrupt = e.ctrlKey || e.metaKey // metaKey for Mac Cmd key
-      const content = draft.trim()
 
-      // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
-      if (!content && attachments.length === 0 && reviewComments.length === 0) {
+      if (!hasDraft) {
         if (inputDisabled || sendMode === 'direct') return
-        // Promote the OLDEST NON-interrupt queued message to interrupt.
-        // Scans queuedPrompts (failed + pending) so a deferred message — the one
-        // the user is actually trying to escalate — is still a candidate.
+        // Escalate the OLDEST queue-mode message. Scans queuedPrompts (failed +
+        // pending) so a deferred message — the one the user is actually trying
+        // to escalate — is still a candidate.
+        const escalateTo: PromptDeliveryMode = useInterrupt || !steeringAvailable ? 'interrupt' : 'steer'
         const candidates = queuedPrompts.filter(p =>
-          p.interrupt === false &&
+          deliveryModeOf(p) === 'queue' &&
           !p.deleted &&
           p.id !== sendingId &&
           p.id !== editingId
         )
         if (candidates.length === 0) return
         const target = candidates.reduce((a, b) => (b.timestamp < a.timestamp ? b : a))
-        updateInterrupt(target.id, true)
+        updateDeliveryMode(target.id, escalateTo)
         return
       }
 
-      void submitDraft(useInterrupt)
+      if (useInterrupt) {
+        void submitDraft('interrupt')
+      } else {
+        void submitDraft(isAgentBusy ? busyEnterMode : 'queue')
+      }
       return
     }
 
-  }, [composerSelectedIndex, composerSuggestions.items, composerTrigger, draft, attachments.length, reviewComments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateInterrupt, sendingId, editingId, selectComposerSuggestion])
+  }, [composerSelectedIndex, composerSuggestions.items, composerTrigger, draft, attachments.length, reviewComments.length, inputDisabled, sendMode, submitDraft, queuedPrompts, updateDeliveryMode, sendingId, editingId, selectComposerSuggestion, isAgentBusy, busyEnterMode, steeringAvailable])
 
   const addFilesAsAttachments = useCallback((files: File[]) => {
     if (!attachmentsEnabled || files.length === 0) return
@@ -1469,6 +1623,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         ? 'Offline'
         : 'Offline - messages will queue'
   const collapseLeadingActions = !!leadingActions && composerWidth > 0 && composerWidth < 400
+  const showDeliveryHint = sendMode === 'queued' && !minimal && isAgentBusy
 
   const input = (
     <Box
@@ -1560,7 +1715,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                       handleCancelEdit={handleCancelEdit}
                       handleStartEdit={handleStartEdit}
                       handleRemoveFromQueue={handleRemoveFromQueue}
-                      handleToggleInterrupt={handleToggleInterrupt}
+                      handleCycleDeliveryMode={handleCycleDeliveryMode}
+                      steeringAvailable={steeringAvailable}
                       truncateContent={truncateContent}
                       handleRestartAgent={handleRestartAgent}
                       isRestarting={isRestartingAgent}
@@ -1893,55 +2049,14 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             </Tooltip>
           )}
 
-          {/* Interrupt mode toggle */}
-          {sendMode === 'queued' && !minimal && <Tooltip
-            title={
-              <Box>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  {interruptMode ? 'Interrupt Mode' : 'Queue Mode'}
-                </Typography>
-                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                  {interruptMode
-                    ? 'Messages sent immediately, interrupting current conversation'
-                    : 'Messages wait until current conversation completes'
-                  }
-                </Typography>
-                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'grey.400' }}>
-                  Keyboard: Enter = queue | {interruptShortcut} = interrupt
-                </Typography>
-              </Box>
-            }
-          >
-            <IconButton
-              size="small"
-              onClick={() => setInterruptMode(!interruptMode)}
-              aria-label={interruptMode ? 'Switch to queue mode' : 'Switch to interrupt mode'}
-              aria-pressed={interruptMode}
-              sx={{
-                flexShrink: 0,
-                width: 28,
-                height: 28,
-                color: interruptMode
-                  ? 'warning.main'
-                  : (theme) => getChatColors(theme).subtle,
-                bgcolor: interruptMode
-                  ? (theme) => alpha(theme.palette.warning.main, 0.1)
-                  : 'transparent',
-                '&:hover': {
-                  color: interruptMode ? 'warning.main' : 'text.primary',
-                  bgcolor: (theme) => alpha(theme.palette.text.primary, 0.06),
-                },
-              }}
-            >
-              {interruptMode ? (
-                <Zap size={17} />
-              ) : (
-                <ListStart size={17} />
-              )}
-            </IconButton>
-          </Tooltip>}
-
           <Box sx={{ flex: 1 }} />
+
+          {showDeliveryHint && (
+            <ComposerDeliveryHint
+              steeringAvailable={steeringAvailable}
+              interruptShortcut={interruptShortcut}
+            />
+          )}
 
           {trailingActions}
 
@@ -1983,8 +2098,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             </Tooltip>
           )}
 
-          {/* Send button */}
-          {!isAgentBusy && !isDirectSending && (() => {
+          {/* Send button. While the agent works it delivers like plain Enter
+              (steer, or queue when the agent can't steer), so it is only
+              shown once there is something to send — Stop stays primary. */}
+          {!isDirectSending && (!isAgentBusy || (sendMode === 'queued' && (draft.trim().length > 0 || attachments.length > 0 || reviewComments.length > 0))) && (() => {
             const hasContent = draft.trim().length > 0 || reviewComments.length > 0
             const uploadedAttachments = attachments.filter(a => a.uploadStatus === 'uploaded')
             const pendingUploads = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
@@ -1998,16 +2115,16 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                     ? `Uploading ${pendingUploads.length} file${pendingUploads.length > 1 ? 's' : ''}...`
                     : failedUploads.length > 0
                       ? 'Retry or remove failed uploads before sending'
-                      : sendMode === 'direct'
-                        ? 'Send message'
-                        : `Add to queue (Enter = queue, ${interruptShortcut} = interrupt)`
+                      : sendMode === 'direct' || !isAgentBusy
+                        ? 'Send (Enter)'
+                        : `${DELIVERY_MODE_LABEL[busyEnterMode]} (Enter) — ${DELIVERY_MODE_DESCRIPTION[busyEnterMode].toLowerCase()}`
                 }
               >
                 <span>
                   <IconButton
                     onClick={handleSend}
                     disabled={!canSend}
-                    aria-label="Send message"
+                    aria-label={isAgentBusy && sendMode === 'queued' ? `${DELIVERY_MODE_LABEL[busyEnterMode]} message` : 'Send message'}
                     color={canSend ? 'secondary' : 'primary'}
                     sx={{
                       flexShrink: 0,

@@ -2578,14 +2578,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindSlack = "slack",
   KindGitHub = "github",
-  KindEmail = "email",
-  KindGitLab = "gitlab",
   KindWebhook = "webhook",
-  KindCron = "cron",
+  KindEmail = "email",
+  KindSlack = "slack",
   KindLocal = "local",
+  KindCron = "cron",
   KindHelixEvents = "helix_events",
+  KindGitLab = "gitlab",
 }
 
 export interface TransportResolvedActivation {
@@ -4999,6 +4999,12 @@ export interface TypesInteraction {
   state?: TypesInteractionState;
   status?: string;
   /**
+   * Steered is true when this turn's prompt was a steer delivered while the
+   * agent was still working on an earlier turn. The chat labels it, and the
+   * earlier turn reads as continuing rather than incomplete.
+   */
+  steered?: boolean;
+  /**
    * Summary is a one-line description of this interaction for search/indexing.
    * Generated lazily on first access or via background job.
    */
@@ -6385,6 +6391,12 @@ export interface TypesPromptHistoryEntry {
    * Values: "pending", "sent", "failed"
    */
   status?: string;
+  /**
+   * Steer delivers this message into the agent's running turn without
+   * cancelling it, when the agent supports steering. Otherwise it waits for
+   * the turn to finish like a queued message. Mutually exclusive with Interrupt.
+   */
+  steer?: boolean;
   updated_at?: string;
   user_id?: string;
 }
@@ -6398,6 +6410,8 @@ export interface TypesPromptHistoryEntrySync {
   queue_position?: number;
   session_id?: string;
   status?: string;
+  /** If true, delivered into the running turn when the agent supports it */
+  steer?: boolean;
   /** Unix timestamp in milliseconds */
   timestamp?: number;
 }
@@ -7703,6 +7717,12 @@ export interface TypesSessionMetadata {
    */
   agent_config_applied_at?: string;
   agent_handoff_delivered_at?: string;
+  /**
+   * AgentSteeringSupported is reported by Zed for the session's thread: true
+   * when the agent can take a message into its running turn. Without it a
+   * steer prompt waits for the turn to finish.
+   */
+  agent_steering_supported?: boolean;
   /**
    * AgentSwitchedAt is set when the agent framework is switched IN PLACE on
    * this same session (no fork / new container) — see
