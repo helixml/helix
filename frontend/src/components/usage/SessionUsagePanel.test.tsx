@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { SessionUsageView, buildUsageRows, formatCost, formatSeconds, formatTokens } from './SessionUsagePanel'
+import { SessionUsageView, bucketCalls, buildUsageRows, callSpan, formatCost, formatSeconds, formatTokens } from './SessionUsagePanel'
 import type { SessionUsage } from '../../services/sessionUsageService'
 
 // Real /api/v1/sessions/{id}/usage response from a DHRE broker bot instance
@@ -139,13 +139,17 @@ describe('SessionUsagePanel', () => {
     expect(screen.getAllByText('92%').length).toBeGreaterThan(0)
     expect(screen.getByText('1m 57s')).toBeTruthy()
     expect(screen.getByText('Per turn')).toBeTruthy()
-    expect(screen.getAllByRole('row')).toHaveLength(1 + usage.turns.length)
+    // Each turn renders in both the wide table and the narrow stacked list;
+    // a container query shows one of them.
+    for (const turn of usage.turns) {
+      expect(screen.getAllByTitle(turn.prompt)).toHaveLength(2)
+    }
   })
 
   it('says cost is n/a when the model has no price', () => {
     render(<SessionUsageView usage={{ ...usage, summary: { ...usage.summary, total_cost: 0 } }} />)
     expect(screen.getByText('n/a')).toBeTruthy()
-    expect(screen.getByText('no price for this model')).toBeTruthy()
+    expect(screen.getByText('No price for this model')).toBeTruthy()
   })
 
   it('handles a session with no LLM calls yet', () => {
@@ -154,13 +158,35 @@ describe('SessionUsagePanel', () => {
     expect(screen.getByText('No LLM calls recorded for this session yet.')).toBeTruthy()
   })
 
-  it('builds per-call chart rows: uncached input, cache hit ratio, seconds', () => {
+  it('builds per-call chart rows: uncached input, seconds', () => {
     const rows = buildUsageRows(usage)
     expect(rows.tokens).toHaveLength(usage.calls.length)
     const c = usage.calls[1]
     expect(rows.tokens[1].input).toBe(Math.max(c.prompt_tokens - c.cache_read_tokens, 0))
     expect(rows.latency[1].duration).toBeCloseTo(c.duration_ms / 1000)
-    expect(rows.cache.every(r => r.hit >= 0 && r.hit <= 1)).toBe(true)
+  })
+
+  it('sums calls into even time buckets that cover the whole span', () => {
+    const { size, rows, cache } = bucketCalls(usage.calls)
+    const span = new Date(usage.calls[usage.calls.length - 1].created).getTime() - new Date(usage.calls[0].created).getTime()
+    expect(span / size).toBeLessThanOrEqual(40)
+    expect(rows.reduce((n, r) => n + r.calls, 0)).toBe(usage.calls.length)
+    expect(rows.reduce((n, r) => n + r.output, 0)).toBe(usage.calls.reduce((n, c) => n + c.completion_tokens, 0))
+    for (let i = 1; i < rows.length; i++) {
+      expect(new Date(rows[i].date).getTime() - new Date(rows[i - 1].date).getTime()).toBe(size)
+    }
+    expect(cache.every(r => r.hit >= 0 && r.hit <= 1)).toBe(true)
+  })
+
+  it('buckets a multi-day session per day', () => {
+    const calls = [
+      { ...usage.calls[0], created: '2026-11-01T10:00:00Z' },
+      { ...usage.calls[0], created: '2026-11-30T10:00:00Z' },
+    ]
+    const { size, rows } = bucketCalls(calls)
+    expect(size).toBe(24 * 60 * 60 * 1000)
+    expect(rows).toHaveLength(30)
+    expect(rows.filter(r => r.calls === 1)).toHaveLength(2)
   })
 
   it('formats values compactly', () => {
@@ -170,5 +196,12 @@ describe('SessionUsagePanel', () => {
     expect(formatCost(12.5)).toBe('$12.50')
     expect(formatSeconds(117275)).toBe('1m 57s')
     expect(formatSeconds(2765)).toBe('2.8s')
+  })
+})
+
+describe('callSpan', () => {
+  it('says when the calls happened', () => {
+    expect(callSpan(usage)).toMatch(/^All \d+ LLM calls of this session, /)
+    expect(callSpan(null)).toMatch(/LLM calls\.$/)
   })
 })

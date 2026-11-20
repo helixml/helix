@@ -241,7 +241,7 @@ func (s *GitRepositoryService) trackUpstreamSync(ctx context.Context, repoID str
 	err := fn()
 
 	syncErr := ""
-	s.upstreamFailedAtMu.Lock()
+	s.upstreamStateMu.Lock()
 	if err != nil {
 		syncErr = err.Error()
 		if s.upstreamFailedAt == nil {
@@ -251,7 +251,7 @@ func (s *GitRepositoryService) trackUpstreamSync(ctx context.Context, repoID str
 	} else {
 		delete(s.upstreamFailedAt, repoID)
 	}
-	s.upstreamFailedAtMu.Unlock()
+	s.upstreamStateMu.Unlock()
 	sctx, cancel = storeCtx()
 	defer cancel()
 	if storeErr := s.store.MarkGitRepositorySyncFinished(sctx, repoID, time.Now(), syncErr); storeErr != nil {
@@ -263,8 +263,30 @@ func (s *GitRepositoryService) trackUpstreamSync(ctx context.Context, repoID str
 // UpstreamFailedWithin reports whether the last upstream fetch or push for the
 // repo failed less than d ago.
 func (s *GitRepositoryService) UpstreamFailedWithin(repoID string, d time.Duration) bool {
-	s.upstreamFailedAtMu.Lock()
-	defer s.upstreamFailedAtMu.Unlock()
+	s.upstreamStateMu.Lock()
+	defer s.upstreamStateMu.Unlock()
 	failedAt, ok := s.upstreamFailedAt[repoID]
 	return ok && time.Since(failedAt) < d
+}
+
+// recordMirrorSynced notes that a full mirror fetch which started at
+// startedAt succeeded: the mirror holds every upstream branch as of then.
+func (s *GitRepositoryService) recordMirrorSynced(repoID string, startedAt time.Time) {
+	s.upstreamStateMu.Lock()
+	defer s.upstreamStateMu.Unlock()
+	if s.upstreamSyncedAt == nil {
+		s.upstreamSyncedAt = make(map[string]time.Time)
+	}
+	s.upstreamSyncedAt[repoID] = startedAt
+}
+
+// UpstreamSyncedWithin reports whether a full mirror fetch of the repo
+// (SyncAllBranches) started less than d ago and succeeded. Pushes and
+// single-branch fetches don't count: they leave other branches as stale as
+// they were.
+func (s *GitRepositoryService) UpstreamSyncedWithin(repoID string, d time.Duration) bool {
+	s.upstreamStateMu.Lock()
+	defer s.upstreamStateMu.Unlock()
+	syncedAt, ok := s.upstreamSyncedAt[repoID]
+	return ok && time.Since(syncedAt) < d
 }

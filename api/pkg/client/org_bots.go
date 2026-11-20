@@ -91,10 +91,25 @@ func (c *HelixClient) StopOrgBot(ctx context.Context, orgID, botID string) error
 	return c.makeRequest(ctx, http.MethodPost, orgBotPath(orgID, botID)+"/stop", nil, nil)
 }
 
-// RestartOrgBot restarts the bot with a fresh session.
-func (c *HelixClient) RestartOrgBot(ctx context.Context, orgID, botID string) (*orgapi.BotActivateDTO, error) {
-	var resp orgapi.BotActivateDTO
-	if err := c.makeRequest(ctx, http.MethodPost, orgBotPath(orgID, botID)+"/restart", nil, &resp); err != nil {
+// RestartOrgBot recreates the bot's container on its current session,
+// keeping its thread, bot home and queued work.
+func (c *HelixClient) RestartOrgBot(ctx context.Context, orgID, botID string) (*orgapi.BotRestartDTO, error) {
+	var resp orgapi.BotRestartDTO
+	if err := c.makeRequest(ctx, http.MethodPost, orgBotPath(orgID, botID)+"/runtime-restart", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ResetOrgBot destructively resets a bot within the given scope ("session"
+// or "session_and_home"). confirm must equal botID.
+func (c *HelixClient) ResetOrgBot(ctx context.Context, orgID, botID, scope, confirm string) (*orgapi.BotResetDTO, error) {
+	var resp orgapi.BotResetDTO
+	body, err := json.Marshal(orgapi.BotResetRequestDTO{Scope: scope, Confirm: confirm})
+	if err != nil {
+		return nil, err
+	}
+	if err := c.makeRequest(ctx, http.MethodPost, orgBotPath(orgID, botID)+"/reset", bytes.NewReader(body), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

@@ -156,9 +156,13 @@ func (c *trackedConn) Close() error {
 
 // readyz reports whether this instance should receive traffic: it is not
 // draining and Postgres answers. Load balancers and the blue/green deploy's
-// health check poll it.
+// health check poll it; X-Helix-Instance (HELIX_INSTANCE_ID, e.g. "blue")
+// tells the deploy which colour nginx actually reached.
 func (apiServer *HelixAPIServer) readyz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if apiServer.Cfg != nil && apiServer.Cfg.InstanceID != "" {
+		w.Header().Set("X-Helix-Instance", apiServer.Cfg.InstanceID)
+	}
 	if apiServer.drainer.draining.Load() {
 		http.Error(w, "draining", http.StatusServiceUnavailable)
 		return

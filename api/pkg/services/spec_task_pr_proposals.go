@@ -56,6 +56,7 @@ type PRProposalService struct {
 	git               prProposalGit
 	attention         *AttentionService
 	enqueue           SpecTaskMessageEnqueuer
+	orgBots           OrgBotPRHost
 	serverBaseURL     string
 }
 
@@ -101,39 +102,62 @@ func (s *PRProposalService) Propose(ctx context.Context, task *types.SpecTask, i
 	if !proposableStatuses[task.Status] {
 		return nil, invalidProposal("the task is in %q; pull requests can be proposed once implementation has started", task.Status)
 	}
+	return s.propose(ctx, proposalOwner{task: task}, in)
+}
+
+// ProposeForOrgBot records an org bot's proposal. Unlike a spec task, a bot has
+// no working branch or name to default to, so head_branch and title are
+// required, and it may propose a branch it has already pushed.
+func (s *PRProposalService) ProposeForOrgBot(ctx context.Context, orgID, botID string, in ProposePRInput) (*types.SpecTaskPRProposal, error) {
+	owner, err := s.orgBotOwner(ctx, orgID, botID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(in.HeadBranch) == "" {
+		return nil, invalidProposal("head_branch is required: name the branch your commits are on")
+	}
+	if strings.TrimSpace(in.Title) == "" {
+		return nil, invalidProposal("title is required")
+	}
+	return s.propose(ctx, owner, in)
+}
+
+func (s *PRProposalService) propose(ctx context.Context, owner proposalOwner, in ProposePRInput) (*types.SpecTaskPRProposal, error) {
 	if strings.TrimSpace(in.Reason) == "" {
 		return nil, invalidProposal("reason is required: tell the user what this pull request contains and why it should be opened now")
 	}
-	project, err := s.store.GetProject(ctx, task.ProjectID)
+	project, err := s.store.GetProject(ctx, owner.projectID())
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
-	repo, err := s.resolveRepository(ctx, task, project, in.RepositoryID)
+	repo, err := s.resolveRepository(ctx, owner.projectID(), project, in.RepositoryID)
 	if err != nil {
 		return nil, err
 	}
 
 	head := strings.TrimSpace(in.HeadBranch)
 	if head == "" {
-		head = task.BranchName
+		head = owner.ownBranch()
 	}
 	base := strings.TrimSpace(in.BaseBranch)
 	if base == "" {
-		base = TaskTargetBranch(repo, task, project.DefaultRepoID)
+		if owner.task != nil {
+			base = TaskTargetBranch(repo, owner.task, project.DefaultRepoID)
+		} else {
+			base = repo.DefaultBranch
+		}
 	}
-	if err := s.validateBranches(ctx, task, repo, head, base, ""); err != nil {
+	if err := s.validateBranches(ctx, owner, repo, head, base, ""); err != nil {
 		return nil, err
 	}
 	title := strings.TrimSpace(in.Title)
-	if title == "" {
-		title = task.Name
+	if title == "" && owner.task != nil {
+		title = owner.task.Name
 	}
 
-	existing, err := s.store.ListSpecTaskPRProposals(ctx, &types.SpecTaskPRProposalFilter{
-		SpecTaskID:   task.ID,
-		RepositoryID: repo.ID,
-		HeadBranch:   head,
-	})
+	filter := owner.filter()
+	filter.RepositoryID, filter.HeadBranch = repo.ID, head
+	existing, err := s.store.ListSpecTaskPRProposals(ctx, &filter)
 	if err != nil {
 		return nil, err
 	}
@@ -155,8 +179,7 @@ func (s *PRProposalService) Propose(ctx context.Context, task *types.SpecTask, i
 		case types.PRProposalStatusApproved, types.PRProposalStatusFailed:
 			return nil, conflictingProposal("a proposal for %s is already approved (%s); push your commits to %s and Helix will open the pull request", head, p.ID, head)
 		case types.PRProposalStatusOpened:
-			if pr := findTaskPR(task, repo.ID, p.PRID); pr == nil || pr.PRState == "" ||
-				pr.PRState == string(types.PullRequestStateOpen) || pr.PRState == string(types.PullRequestStateUnknown) {
+			if s.openedPRStillOpen(ctx, owner, repo.ID, p) {
 				return nil, conflictingProposal("pull request #%d is already open from %s (%s); push more commits to %s to update it", p.PRNumber, head, p.PRURL, head)
 			}
 		}
@@ -164,8 +187,6 @@ func (s *PRProposalService) Propose(ctx context.Context, task *types.SpecTask, i
 
 	p := &types.SpecTaskPRProposal{
 		ID:                system.GeneratePRProposalID(),
-		SpecTaskID:        task.ID,
-		ProjectID:         task.ProjectID,
 		RepositoryID:      repo.ID,
 		RepositoryName:    repo.Name,
 		HeadBranch:        head,
@@ -176,24 +197,44 @@ func (s *PRProposalService) Propose(ctx context.Context, task *types.SpecTask, i
 		Status:            types.PRProposalStatusPending,
 		ProposedBySession: in.SessionID,
 	}
+	owner.stamp(p)
 	if err := s.store.CreateSpecTaskPRProposal(ctx, p); err != nil {
 		return nil, err
 	}
-	if task.AutoApprovePullRequests {
-		if decided := s.autoApprove(ctx, task, p); decided != nil {
+	if enabled, _ := owner.autoApprover(); enabled {
+		if decided := s.autoApprove(ctx, owner, p); decided != nil {
 			return decided, nil
 		}
 	}
-	s.emitAttention(task, types.AttentionEventPRProposal, p.ID, map[string]interface{}{
-		"proposal_id": p.ID,
-		"head_branch": p.HeadBranch,
-		"base_branch": p.BaseBranch,
-		"repository":  p.RepositoryName,
-		"title":       p.Title,
-	})
-	log.Info().Str("task_id", task.ID).Str("proposal_id", p.ID).Str("repo", repo.Name).
+	if owner.task != nil {
+		s.emitAttention(owner.task, types.AttentionEventPRProposal, p.ID, map[string]interface{}{
+			"proposal_id": p.ID,
+			"head_branch": p.HeadBranch,
+			"base_branch": p.BaseBranch,
+			"repository":  p.RepositoryName,
+			"title":       p.Title,
+		})
+	}
+	k, v := owner.logKey()
+	log.Info().Str(k, v).Str("proposal_id", p.ID).Str("repo", repo.Name).
 		Str("head", head).Str("base", base).Msg("pr proposal: created")
 	return p, nil
+}
+
+// openedPRStillOpen reports whether an opened proposal's PR is still open, in
+// which case the branch cannot be proposed again. A task tracks its PRs' state;
+// an org bot's PR is looked up on the provider.
+func (s *PRProposalService) openedPRStillOpen(ctx context.Context, owner proposalOwner, repoID string, p *types.SpecTaskPRProposal) bool {
+	if owner.task != nil {
+		pr := findTaskPR(owner.task, repoID, p.PRID)
+		return pr == nil || pr.PRState == "" ||
+			pr.PRState == string(types.PullRequestStateOpen) || pr.PRState == string(types.PullRequestStateUnknown)
+	}
+	pr, err := s.git.GetPullRequest(ctx, repoID, p.PRID)
+	if err != nil || pr == nil {
+		return true // unknown: refuse rather than open a duplicate
+	}
+	return pr.State == types.PullRequestStateOpen || pr.State == types.PullRequestStateUnknown
 }
 
 // Decide applies a user's decision. Approving grants push rights to the head
@@ -204,57 +245,56 @@ func (s *PRProposalService) Decide(ctx context.Context, user *types.User, propos
 	if err != nil {
 		return nil, err
 	}
-	task, err := s.store.GetSpecTask(ctx, p.SpecTaskID)
+	owner, err := s.ownerOf(ctx, p)
 	if err != nil {
-		return nil, fmt.Errorf("get spec task: %w", err)
+		return nil, err
 	}
 	decider, err := types.RequestTurnProvenance(user)
 	if err != nil {
 		return nil, err
 	}
-	return s.decide(ctx, user, task, p, req, false, decider)
+	return s.decide(ctx, user, owner, p, req, false, decider)
 }
 
-// autoApprove approves a new proposal of a task that auto-approves PRs, as
+// autoApprove approves a new proposal of an owner that auto-approves PRs, as
 // the user who enabled it. It returns nil, leaving the proposal pending for a
 // human, when that user cannot approve (e.g. no provider connection).
-func (s *PRProposalService) autoApprove(ctx context.Context, task *types.SpecTask, p *types.SpecTaskPRProposal) *types.SpecTaskPRProposal {
-	user := s.currentAutoApprover(ctx, task)
+func (s *PRProposalService) autoApprove(ctx context.Context, owner proposalOwner, p *types.SpecTaskPRProposal) *types.SpecTaskPRProposal {
+	user := s.currentAutoApprover(ctx, owner)
 	if user == nil {
 		return nil
 	}
-	decided, err := s.decide(ctx, user, task, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true, types.SystemTurn(types.SystemTurnPRAutoApprove))
+	decided, err := s.decide(ctx, user, owner, p, &types.PRProposalDecisionRequest{Decision: types.PRProposalDecisionApprove}, true, types.SystemTurn(types.SystemTurnPRAutoApprove))
 	if err != nil {
-		log.Warn().Err(err).Str("task_id", task.ID).Str("proposal_id", p.ID).Msg("pr proposal: auto-approval failed; waiting for a human")
+		k, v := owner.logKey()
+		log.Warn().Err(err).Str(k, v).Str("proposal_id", p.ID).Msg("pr proposal: auto-approval failed; waiting for a human")
 		return nil
 	}
 	return decided
 }
 
-// currentAutoApprover returns the user whose identity a task's auto-approval
+// currentAutoApprover returns the user whose identity an owner's auto-approval
 // acts as, or nil (wait for a human) when that user cannot approve right now.
 // The approver was recorded when auto-approval was turned on; they may since
 // have been deactivated or lost access to the project, so check it each time.
-func (s *PRProposalService) currentAutoApprover(ctx context.Context, task *types.SpecTask) *types.User {
-	actorID := task.AutoApprovePullRequestsBy
-	if actorID == "" {
-		actorID = task.CreatedBy
-	}
+func (s *PRProposalService) currentAutoApprover(ctx context.Context, owner proposalOwner) *types.User {
+	k, v := owner.logKey()
+	_, actorID := owner.autoApprover()
 	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: actorID})
 	if err != nil || user == nil {
-		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver not found; waiting for a human")
+		log.Warn().Err(err).Str(k, v).Str("user_id", actorID).Msg("pr proposal: auto-approver not found; waiting for a human")
 		return nil
 	}
 	if err := user.AccountAccessError(); err != nil {
-		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver account inactive; waiting for a human")
+		log.Warn().Err(err).Str(k, v).Str("user_id", actorID).Msg("pr proposal: auto-approver account inactive; waiting for a human")
 		return nil
 	}
 	if s.authorizeApprover == nil {
-		log.Warn().Str("task_id", task.ID).Msg("pr proposal: no approver authorizer configured; waiting for a human")
+		log.Warn().Str(k, v).Msg("pr proposal: no approver authorizer configured; waiting for a human")
 		return nil
 	}
-	if err := s.authorizeApprover(ctx, user, task.ProjectID); err != nil {
-		log.Warn().Err(err).Str("task_id", task.ID).Str("user_id", actorID).Msg("pr proposal: auto-approver no longer has project access; waiting for a human")
+	if err := s.authorizeApprover(ctx, user, owner.projectID()); err != nil {
+		log.Warn().Err(err).Str(k, v).Str("user_id", actorID).Msg("pr proposal: auto-approver no longer has project access; waiting for a human")
 		return nil
 	}
 	return user
@@ -266,7 +306,7 @@ func (s *PRProposalService) currentAutoApprover(ctx context.Context, task *types
 // propose_pull_request result rather than a separate message.
 // decider is the deciding caller; the turn telling the agent the outcome,
 // now or once commits land, is triggered_by it.
-func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *types.SpecTask, p *types.SpecTaskPRProposal, req *types.PRProposalDecisionRequest, auto bool, decider types.TurnProvenance) (*types.SpecTaskPRProposal, error) {
+func (s *PRProposalService) decide(ctx context.Context, user *types.User, owner proposalOwner, p *types.SpecTaskPRProposal, req *types.PRProposalDecisionRequest, auto bool, decider types.TurnProvenance) (*types.SpecTaskPRProposal, error) {
 	outcome := types.TriggeredBySystemTurn(types.SystemTurnPRProposalOutcome, decider)
 	now := time.Now()
 	from := p.Status
@@ -303,7 +343,7 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 			return nil, err
 		}
 		s.dismissApprovalRequest(ctx, p)
-		s.notifyAgent(ctx, task, p, user, nil, outcome)
+		s.notifyAgent(ctx, owner, p, user, nil, outcome)
 		return p, nil
 
 	case types.PRProposalDecisionApprove:
@@ -325,15 +365,15 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 				p.Body = req.Body
 			}
 		}
-		project, err := s.store.GetProject(ctx, task.ProjectID)
+		project, err := s.store.GetProject(ctx, owner.projectID())
 		if err != nil {
 			return nil, fmt.Errorf("get project: %w", err)
 		}
-		repo, err := s.resolveRepository(ctx, task, project, p.RepositoryID)
+		repo, err := s.resolveRepository(ctx, owner.projectID(), project, p.RepositoryID)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.validateBranches(ctx, task, repo, p.HeadBranch, p.BaseBranch, p.ID); err != nil {
+		if err := s.validateBranches(ctx, owner, repo, p.HeadBranch, p.BaseBranch, p.ID); err != nil {
 			return nil, err
 		}
 		// The PR is opened with the approver's credentials; fail before
@@ -360,7 +400,7 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 			return nil, conflictingProposal("proposal changed while deciding; reload and try again")
 		}
 		if req.AutoApproveFuture {
-			if err := s.SetAutoApprove(ctx, task.ID, true, user.ID); err != nil {
+			if err := s.setOwnerAutoApprove(ctx, owner, true, user.ID); err != nil {
 				return nil, err
 			}
 		}
@@ -372,7 +412,7 @@ func (s *PRProposalService) decide(ctx context.Context, user *types.User, task *
 		if err != nil {
 			return nil, err
 		}
-		s.notifyAgent(ctx, task, opened, user, &original, outcome)
+		s.notifyAgent(ctx, owner, opened, user, &original, outcome)
 		return opened, nil
 	}
 	return nil, invalidProposal("decision must be %q or %q", types.PRProposalDecisionApprove, types.PRProposalDecisionReject)
@@ -393,6 +433,28 @@ func (s *PRProposalService) SetAutoApprove(ctx context.Context, taskID string, e
 		task.UpdatedAt = time.Now()
 		return s.store.UpdateSpecTask(ctx, task)
 	})
+}
+
+// SetOrgBotAutoApprove turns auto-approval of an org bot's PR proposals on or
+// off. Turning it on records userID as the approver whose credentials are used.
+func (s *PRProposalService) SetOrgBotAutoApprove(ctx context.Context, orgID, botID string, enabled bool, userID string) error {
+	owner, err := s.orgBotOwner(ctx, orgID, botID)
+	if err != nil {
+		return err
+	}
+	return s.setOwnerAutoApprove(ctx, owner, enabled, userID)
+}
+
+func (s *PRProposalService) setOwnerAutoApprove(ctx context.Context, owner proposalOwner, enabled bool, userID string) error {
+	if owner.task != nil {
+		return s.SetAutoApprove(ctx, owner.task.ID, enabled, userID)
+	}
+	return s.orgBots.SetPRAutoApprove(ctx, owner.bot.OrganizationID, owner.bot.BotID, enabled, userID)
+}
+
+// ListForOrgBot lists an org bot's proposals, oldest first.
+func (s *PRProposalService) ListForOrgBot(ctx context.Context, orgID, botID string) ([]*types.SpecTaskPRProposal, error) {
+	return s.store.ListSpecTaskPRProposals(ctx, &types.SpecTaskPRProposalFilter{OrgBotID: botID, OrganizationID: orgID})
 }
 
 // OnBranchPushed opens the PRs of approved proposals waiting on this branch.
@@ -480,11 +542,11 @@ func (s *PRProposalService) openAndNotify(ctx context.Context, proposalID string
 	if p.Status == types.PRProposalStatusApproved {
 		return // still waiting for commits; nothing new to tell anyone
 	}
-	task, err := s.store.GetSpecTask(ctx, p.SpecTaskID)
+	owner, err := s.ownerOf(ctx, p)
 	if err != nil {
 		return
 	}
-	s.notifyAgent(ctx, task, p, nil, nil, types.TriggeredBySystemTurn(types.SystemTurnPRProposalOutcome, p.Decider))
+	s.notifyAgent(ctx, owner, p, nil, nil, types.TriggeredBySystemTurn(types.SystemTurnPRProposalOutcome, p.Decider))
 }
 
 // tryOpen pushes an approved proposal's branch upstream and opens (or adopts)
@@ -501,9 +563,9 @@ func (s *PRProposalService) tryOpen(ctx context.Context, proposalID string) (*ty
 		if p.Status != types.PRProposalStatusApproved {
 			return nil
 		}
-		task, err := s.store.GetSpecTask(ctx, p.SpecTaskID)
+		owner, err := s.ownerOf(ctx, p)
 		if err != nil {
-			return fmt.Errorf("get spec task: %w", err)
+			return err
 		}
 		repo, err := s.store.GetGitRepository(ctx, p.RepositoryID)
 		if err != nil {
@@ -520,7 +582,7 @@ func (s *PRProposalService) tryOpen(ctx context.Context, proposalID string) (*ty
 			return nil
 		}
 
-		pr, err := s.openOnProvider(ctx, p, task, repo)
+		pr, err := s.openOnProvider(ctx, p, owner, repo)
 		if err != nil {
 			return s.markFailed(ctx, p, err)
 		}
@@ -529,21 +591,26 @@ func (s *PRProposalService) tryOpen(ctx context.Context, proposalID string) (*ty
 		if ok, err := s.store.UpdateSpecTaskPRProposal(ctx, p, types.PRProposalStatusApproved); err != nil || !ok {
 			return fmt.Errorf("record opened pull request %s on proposal %s (updated=%v): %w", pr.ID, p.ID, ok, err)
 		}
-		if err := s.attachPR(ctx, p); err != nil {
-			log.Error().Err(err).Str("proposal_id", p.ID).Msg("pr proposal: PR opened but attaching it to the task failed (reconcile will retry)")
+		// An org bot has no task to track the PR on: the proposal row is the
+		// record, and its card in the bot's chat links to it.
+		if owner.task != nil {
+			if err := s.attachPR(ctx, p); err != nil {
+				log.Error().Err(err).Str("proposal_id", p.ID).Msg("pr proposal: PR opened but attaching it to the task failed (reconcile will retry)")
+			}
+			s.emitAttention(owner.task, types.AttentionEventPRReady, pr.ID, map[string]interface{}{
+				"pr_id":  pr.ID,
+				"pr_url": pr.URL,
+			})
 		}
-		s.emitAttention(task, types.AttentionEventPRReady, pr.ID, map[string]interface{}{
-			"pr_id":  pr.ID,
-			"pr_url": pr.URL,
-		})
-		log.Info().Str("task_id", task.ID).Str("proposal_id", p.ID).Str("pr_id", pr.ID).
+		k, v := owner.logKey()
+		log.Info().Str(k, v).Str("proposal_id", p.ID).Str("pr_id", pr.ID).
 			Str("pr_url", pr.URL).Msg("pr proposal: pull request opened")
 		return nil
 	})
 	return result, err
 }
 
-func (s *PRProposalService) openOnProvider(ctx context.Context, p *types.SpecTaskPRProposal, task *types.SpecTask, repo *types.GitRepository) (*types.PullRequest, error) {
+func (s *PRProposalService) openOnProvider(ctx context.Context, p *types.SpecTaskPRProposal, owner proposalOwner, repo *types.GitRepository) (*types.PullRequest, error) {
 	var pr *types.PullRequest
 	err := s.git.WithRepoLock(repo.ID, func() error {
 		// Helix-hosted repos keep the branch in the same bare repo as the
@@ -557,7 +624,10 @@ func (s *PRProposalService) openOnProvider(ctx context.Context, p *types.SpecTas
 			pr = existing
 			return nil
 		}
-		body := AppendPRFooter(p.Body, s.renderFooter(ctx, repo, task))
+		body := p.Body
+		if owner.task != nil {
+			body = AppendPRFooter(p.Body, s.renderFooter(ctx, repo, owner.task))
+		}
 		id, err := s.git.CreatePullRequest(ctx, repo.ID, p.Title, body, p.HeadBranch, p.BaseBranch, p.DecidedBy)
 		if err != nil {
 			if strings.Contains(err.Error(), "already exists") {
@@ -651,8 +721,8 @@ func findTaskPR(task *types.SpecTask, repoID, prID string) *types.RepoPR {
 	return nil
 }
 
-func (s *PRProposalService) resolveRepository(ctx context.Context, task *types.SpecTask, project *types.Project, ref string) (*types.GitRepository, error) {
-	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: task.ProjectID})
+func (s *PRProposalService) resolveRepository(ctx context.Context, projectID string, project *types.Project, ref string) (*types.GitRepository, error) {
+	repos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: projectID})
 	if err != nil {
 		return nil, fmt.Errorf("list project repositories: %w", err)
 	}
@@ -682,10 +752,12 @@ func validBranchName(name string) bool {
 }
 
 // validateBranches checks a head/base pair. Beyond naming rules, a head other
-// than the task's own branch must not belong to anyone else: no other task's
-// branch or proposal, and no pre-existing branch the task was never granted.
+// than a task's own branch must not belong to anyone else: no other task's
+// branch, no other owner's proposal, and — for a task — no pre-existing branch
+// it was never granted. An org bot pushes without branch restrictions, so the
+// branch it proposes normally exists already; it only must not be claimed.
 // selfID is the proposal being decided, whose own grant does not count against it.
-func (s *PRProposalService) validateBranches(ctx context.Context, task *types.SpecTask, repo *types.GitRepository, head, base, selfID string) error {
+func (s *PRProposalService) validateBranches(ctx context.Context, owner proposalOwner, repo *types.GitRepository, head, base, selfID string) error {
 	if head == "" {
 		return invalidProposal("head_branch is required (the task has no branch yet)")
 	}
@@ -704,7 +776,7 @@ func (s *PRProposalService) validateBranches(ctx context.Context, task *types.Sp
 	if _, err := GetBranchCommitID(ctx, repo.LocalPath, base); err != nil {
 		return invalidProposal("base_branch %q does not exist in %s", base, repo.Name)
 	}
-	if head == task.BranchName {
+	if own := owner.ownBranch(); own != "" && head == own {
 		return nil
 	}
 
@@ -712,28 +784,28 @@ func (s *PRProposalService) validateBranches(ctx context.Context, task *types.Sp
 	if err != nil {
 		return err
 	}
-	grantedToTask := false
+	grantedToOwner := false
 	for _, p := range others {
 		if p.ID == selfID || p.Status == types.PRProposalStatusRejected {
 			continue
 		}
-		if p.SpecTaskID != task.ID {
-			return conflictingProposal("branch %q is already claimed by another task; choose a different name", head)
+		if !owner.owns(p) {
+			return conflictingProposal("branch %q is already claimed by another task or bot; choose a different name", head)
 		}
 		if p.GrantsPush() {
-			grantedToTask = true
+			grantedToOwner = true
 		}
 	}
-	tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: task.ProjectID, BranchName: head, IncludeArchived: true})
+	tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: owner.projectID(), BranchName: head, IncludeArchived: true})
 	if err != nil {
 		return fmt.Errorf("check branch ownership: %w", err)
 	}
 	for _, t := range tasks {
-		if t.ID != task.ID {
+		if owner.task == nil || t.ID != owner.task.ID {
 			return conflictingProposal("branch %q is another task's working branch; choose a different name", head)
 		}
 	}
-	if !grantedToTask {
+	if owner.task != nil && !grantedToOwner {
 		if _, err := GetBranchCommitID(ctx, repo.LocalPath, head); err == nil {
 			return conflictingProposal("branch %q already exists in %s; propose a new branch name", head, repo.Name)
 		}
@@ -775,14 +847,17 @@ func (s *PRProposalService) emitAttention(task *types.SpecTask, eventType types.
 
 // dismissApprovalRequest clears a decided proposal's Needs Attention entry.
 func (s *PRProposalService) dismissApprovalRequest(ctx context.Context, p *types.SpecTaskPRProposal) {
+	if p.SpecTaskID == "" {
+		return // org bot proposals raise no attention event
+	}
 	key := types.BuildAttentionEventIdempotencyKey(p.SpecTaskID, types.AttentionEventPRProposal, p.ID)
 	if err := s.store.DismissAttentionEventByKey(ctx, key); err != nil {
 		log.Warn().Err(err).Str("proposal_id", p.ID).Msg("pr proposal: failed to dismiss approval request")
 	}
 }
 
-func (s *PRProposalService) notifyAgent(ctx context.Context, task *types.SpecTask, p *types.SpecTaskPRProposal, decidedBy *types.User, original *types.SpecTaskPRProposal, provenance types.TurnProvenance) {
-	if s.enqueue == nil {
+func (s *PRProposalService) notifyAgent(ctx context.Context, owner proposalOwner, p *types.SpecTaskPRProposal, decidedBy *types.User, original *types.SpecTaskPRProposal, provenance types.TurnProvenance) {
+	if owner.task != nil && s.enqueue == nil {
 		return
 	}
 	if decidedBy == nil && p.DecidedBy != "" {
@@ -792,8 +867,15 @@ func (s *PRProposalService) notifyAgent(ctx context.Context, task *types.SpecTas
 	if msg == "" {
 		return
 	}
-	if err := s.enqueue(ctx, task, msg, false, "", provenance); err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Str("proposal_id", p.ID).Msg("pr proposal: failed to notify agent")
+	var err error
+	if owner.task != nil {
+		err = s.enqueue(ctx, owner.task, msg, false, "", provenance)
+	} else {
+		err = s.orgBots.NotifyPRBot(ctx, owner.bot.OrganizationID, owner.bot.BotID, msg, provenance)
+	}
+	if err != nil {
+		k, v := owner.logKey()
+		log.Error().Err(err).Str(k, v).Str("proposal_id", p.ID).Msg("pr proposal: failed to notify agent")
 	}
 }
 

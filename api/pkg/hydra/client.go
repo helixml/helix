@@ -369,6 +369,23 @@ func (c *RevDialClient) DestroyDevContainer(ctx context.Context, sessionID, spec
 	return &result, nil
 }
 
+// DestroyBotHome retires or purges an Org Bot home via RevDial.
+func (c *RevDialClient) DestroyBotHome(ctx context.Context, req *DestroyBotHomeRequest) (*DestroyBotHomeResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("encode destroy bot home request: %w", err)
+	}
+	respBody, err := c.doRequest(ctx, "POST", "/api/v1/bot-homes/destroy", body)
+	if err != nil {
+		return nil, err
+	}
+	var result DestroyBotHomeResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &result, nil
+}
+
 // GetDevContainer gets the status of a dev container via RevDial
 func (c *RevDialClient) GetDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
 	path := fmt.Sprintf("/api/v1/dev-containers/%s", sessionID)

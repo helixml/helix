@@ -18,6 +18,9 @@ type Executor interface {
 	// DestroyDesktop stops the desktop and deletes every on-host resource the
 	// session owns. specTaskID, when set, also deletes that task's workspace.
 	DestroyDesktop(ctx context.Context, sessionID, specTaskID string) error
+	// EraseBotHome retires or purges an Org Bot's durable home. The bot's
+	// desktop must be stopped first.
+	EraseBotHome(ctx context.Context, orgID, botID string, mode hydra.BotHomeDestroyMode) (*hydra.DestroyBotHomeResponse, error)
 	GetSession(sessionID string) (*ZedSession, error)
 	CleanupExpiredSessions(ctx context.Context, timeout time.Duration)
 	ListSessions() []*ZedSession

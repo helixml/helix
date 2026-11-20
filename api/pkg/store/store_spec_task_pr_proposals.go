@@ -11,8 +11,16 @@ import (
 )
 
 func (s *PostgresStore) CreateSpecTaskPRProposal(ctx context.Context, p *types.SpecTaskPRProposal) error {
-	if p.ID == "" || p.SpecTaskID == "" || p.ProjectID == "" || p.RepositoryID == "" || p.HeadBranch == "" {
-		return fmt.Errorf("id, spec_task_id, project_id, repository_id and head_branch are required")
+	if p.ID == "" || p.ProjectID == "" || p.RepositoryID == "" || p.HeadBranch == "" {
+		return fmt.Errorf("id, project_id, repository_id and head_branch are required")
+	}
+	specTaskOwned := p.SpecTaskID != ""
+	orgBotOwned := p.OrgBotID != "" || p.OrganizationID != ""
+	if specTaskOwned == orgBotOwned {
+		return fmt.Errorf("a pr proposal needs exactly one owner: spec_task_id, or org_bot_id with organization_id")
+	}
+	if orgBotOwned && (p.OrgBotID == "" || p.OrganizationID == "") {
+		return fmt.Errorf("an org bot pr proposal needs both org_bot_id and organization_id")
 	}
 	if p.Status == "" {
 		p.Status = types.PRProposalStatusPending
@@ -42,6 +50,12 @@ func (s *PostgresStore) ListSpecTaskPRProposals(ctx context.Context, f *types.Sp
 	if f != nil {
 		if f.SpecTaskID != "" {
 			q = q.Where("spec_task_id = ?", f.SpecTaskID)
+		}
+		if f.OrgBotID != "" {
+			if f.OrganizationID == "" {
+				return nil, fmt.Errorf("list pr proposals: an org bot filter needs its organization")
+			}
+			q = q.Where("org_bot_id = ? AND organization_id = ?", f.OrgBotID, f.OrganizationID)
 		}
 		if f.ProjectID != "" {
 			q = q.Where("project_id = ?", f.ProjectID)

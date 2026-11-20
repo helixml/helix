@@ -100,18 +100,36 @@ func (k *HelixAPIKeys) Service(ctx context.Context, orgID string) (string, error
 	return keyStr, nil
 }
 
-// User returns an api_key owned by userID, minting one if the user has
-// none yet. Cached lookups are unnecessary — ListAPIKeys is a single
-// indexed query and the cost is dominated by the LLM round-trip
-// immediately following.
+// User returns a PERSONAL api_key owned by userID — no organization, project,
+// spec task, session or app binding — minting one if the user has none.
+// Cached lookups are unnecessary — ListAPIKeys is a single indexed query and
+// the cost is dominated by the LLM round-trip immediately following.
+//
+// PERSONAL IS LOAD-BEARING. This is the credential an org bot's activation
+// runs under (the Spawner's BearerForUser), and the activation starts the
+// bot's OWN session — which a scoped key is refused: org-bot sessions may not
+// run on a key bound to an organization (let alone a project, spec task,
+// session or app), because the session's owner, quota and audit trail must be
+// a person. ListAPIKeys orders by nothing, so keys[0] is whatever Postgres
+// returns first — and when a user's key list gains a scoped key (an
+// automation integration's key, for example), an unfiltered first-pick hands
+// the spawner that key and EVERY new org-bot session starts failing before
+// the session row exists, while the durable activation queue retries with a
+// growing backoff. The bot looks alive — its run events land on the trigger —
+// and no session ever appears. Seen live 2026-11-19.
 func (k *HelixAPIKeys) User(ctx context.Context, userID string) (string, error) {
 	keys, err := k.store.ListAPIKeys(ctx, &helixstore.ListAPIKeysQuery{Owner: userID, Type: types.APIkeytypeAPI})
 	if err != nil {
 		return "", fmt.Errorf("list api keys: %w", err)
 	}
-	if len(keys) > 0 {
-		return keys[0].Key, nil
+	for _, key := range keys {
+		if !isPersonalAPIKey(key) {
+			continue
+		}
+		return key.Key, nil
 	}
+	log.Warn().Str("user_id", userID).Int("keys", len(keys)).
+		Msg("helix-org: user has no personal api key, minting one for activations")
 	keyStr, err := system.GenerateAPIKey()
 	if err != nil {
 		return "", fmt.Errorf("generate api key: %w", err)
@@ -127,4 +145,19 @@ func (k *HelixAPIKeys) User(ctx context.Context, userID string) (string, error) 
 	}
 	log.Info().Str("user_id", userID).Msg("helix-org auto-provisioned per-user api key")
 	return keyStr, nil
+}
+
+// isPersonalAPIKey reports whether the key acts for the person themself, with
+// no binding that would narrow what an activation may touch. An org-scoped
+// key is excluded on purpose even though org work is where activations run:
+// starting a session is attributed to a person, and the scoped-credential
+// checks treat org keys the same way.
+func isPersonalAPIKey(k *types.ApiKey) bool {
+	if k == nil {
+		return false
+	}
+	if k.OrganizationID != "" || k.ProjectID != "" || k.SpecTaskID != "" || k.SessionID != "" {
+		return false
+	}
+	return k.AppID == nil || !k.AppID.Valid || k.AppID.String == ""
 }

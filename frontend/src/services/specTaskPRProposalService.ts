@@ -50,21 +50,53 @@ export function projectHasPullRequests(
 // Agents propose pull requests asynchronously, so poll while the task is open.
 const POLL_INTERVAL_MS = 5000;
 
-export function useSpecTaskPRProposals(specTaskId: string | undefined) {
+/** Who a pull request proposal belongs to: a spec task or an org bot. */
+export type PRProposalOwner =
+  | { kind: "task"; specTaskId: string }
+  | { kind: "bot"; orgId: string; botId: string };
+
+export const orgBotPRProposalsQueryKey = (orgId: string, botId: string) => [
+  "orgs",
+  orgId,
+  "bots",
+  botId,
+  "pr-proposals",
+];
+
+function ownerQueryKey(owner: PRProposalOwner) {
+  return owner.kind === "task"
+    ? prProposalsQueryKey(owner.specTaskId)
+    : orgBotPRProposalsQueryKey(owner.orgId, owner.botId);
+}
+
+function ownerReady(owner: PRProposalOwner | undefined): owner is PRProposalOwner {
+  if (!owner) return false;
+  return owner.kind === "task" ? !!owner.specTaskId : !!owner.orgId && !!owner.botId;
+}
+
+export function usePRProposals(owner: PRProposalOwner | undefined) {
   const api = useApi();
   const apiClient = api.getApiClient();
   return useQuery({
-    queryKey: prProposalsQueryKey(specTaskId || ""),
+    queryKey: ownerReady(owner) ? ownerQueryKey(owner) : ["pr-proposals", "none"],
     queryFn: async () => {
-      const response = await apiClient.v1SpecTasksPrProposalsDetail(specTaskId!);
+      const o = owner!;
+      const response =
+        o.kind === "task"
+          ? await apiClient.v1SpecTasksPrProposalsDetail(o.specTaskId)
+          : await apiClient.v1OrgsBotsPrProposalsDetail(o.orgId, o.botId);
       return response.data as TypesSpecTaskPRProposal[];
     },
-    enabled: !!specTaskId,
+    enabled: ownerReady(owner),
     refetchInterval: POLL_INTERVAL_MS,
   });
 }
 
-export function useDecidePRProposal(specTaskId: string) {
+export function useSpecTaskPRProposals(specTaskId: string | undefined) {
+  return usePRProposals(specTaskId ? { kind: "task", specTaskId } : undefined);
+}
+
+export function useDecidePRProposalFor(owner: PRProposalOwner) {
   const api = useApi();
   const apiClient = api.getApiClient();
   const queryClient = useQueryClient();
@@ -76,18 +108,26 @@ export function useDecidePRProposal(specTaskId: string) {
       proposalId: string;
       request: TypesPRProposalDecisionRequest;
     }) => {
-      const response = await apiClient.v1SpecTasksPrProposalsDecideCreate(
-        specTaskId,
-        proposalId,
-        request,
-      );
+      const response =
+        owner.kind === "task"
+          ? await apiClient.v1SpecTasksPrProposalsDecideCreate(owner.specTaskId, proposalId, request)
+          : await apiClient.v1OrgsBotsPrProposalsDecideCreate(owner.orgId, owner.botId, proposalId, request);
       return response.data as TypesSpecTaskPRProposal;
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: prProposalsQueryKey(specTaskId) });
-      queryClient.invalidateQueries({ queryKey: ["spec-tasks", specTaskId] });
-      queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["attention-events"] });
+      queryClient.invalidateQueries({ queryKey: ownerQueryKey(owner) });
+      if (owner.kind === "task") {
+        queryClient.invalidateQueries({ queryKey: ["spec-tasks", owner.specTaskId] });
+        queryClient.invalidateQueries({ queryKey: ["spec-tasks"] });
+        queryClient.invalidateQueries({ queryKey: ["attention-events"] });
+      } else {
+        // The bot row carries auto_approve_pull_requests, set by "approve future".
+        queryClient.invalidateQueries({ queryKey: ["helix-org"] });
+      }
     },
   });
+}
+
+export function useDecidePRProposal(specTaskId: string) {
+  return useDecidePRProposalFor({ kind: "task", specTaskId });
 }

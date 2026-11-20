@@ -6,19 +6,21 @@ import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import TablePagination from '@mui/material/TablePagination'
+import { alpha } from '@mui/material/styles'
 import InputAdornment from '@mui/material/InputAdornment'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
 import Autocomplete from '@mui/material/Autocomplete'
 import LinearProgress from '@mui/material/LinearProgress'
-import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { TooltipContentProps } from 'recharts'
-import { Cloud, Download, Search, X } from 'lucide-react'
+import Collapse from '@mui/material/Collapse'
+import Tab from '@mui/material/Tab'
+import Tabs from '@mui/material/Tabs'
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import type { TooltipContentProps, YAxisTickContentProps } from 'recharts'
+import { Cloud, Download, Search, SlidersHorizontal, X } from 'lucide-react'
 
-import type { TypesAggregatedUsageMetric, TypesUsageAgentRuntimeTimeSeries, TypesUsageBreakdownRow, TypesUsageFilterOption, TypesUsageModelTimeSeries, TypesUsageProviderTimeSeries } from '../../api/api'
+import type { TypesAggregatedUsageMetric, TypesUsageAgentRuntimeTimeSeries, TypesUsageBreakdownRow, TypesUsageFilterOption } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useDebounce from '../../hooks/useDebounce'
@@ -28,6 +30,7 @@ import SimpleTable, { ITableField } from '../widgets/SimpleTable'
 import ShadcnAreaChart, { ShadcnSeries } from '../usage/ShadcnAreaChart'
 import { PROVIDERS } from '../providers/types'
 import { useGetOrgUsage } from '../../services/orgService'
+import { USAGE_TABLES, UsageTableKey, usageSection, usageSectionRoute } from './usageSections'
 import helixLogo from '../../../assets/img/logo.png'
 import {
   buildCacheHitRatioChartData,
@@ -40,38 +43,53 @@ import {
   getUncachedInputTokens,
 } from '../../utils/usageMetrics'
 import { initialUsageParam, toUsageDateInput, usageRangeFrom } from '../../utils/usageDateRange'
-import { formatCompact, formatCost, formatNumber, formatPercent } from '../../utils/usageFormat'
+import { formatCompact, formatCost, formatHours, formatNumber, formatPercent } from '../../utils/usageFormat'
 import {
   OverviewStat,
   OverviewStatStrip,
+  UsageChartGrid,
   USAGE_RANGE_DAYS,
-  UsageHeadline,
   UsagePageHeader,
   UsageRangeControls,
   UsageRangeKey,
   UsageSection,
-  UsageShareRow,
+  SegmentBar,
+  SegmentBarPanel,
+  UsageSwitch,
+  UsageSegment,
 } from '../usage/UsageOverview'
 
 type UsageLoadingScope = 'filters' | 'projects' | 'tasks' | 'sessions' | 'users'
-type OverviewMetric = 'cost' | 'tokens'
+type ActivityMetric = 'cost' | 'tokens' | 'calls'
+type ActivitySplit = 'provider' | 'model' | 'type'
 type LatencyMetric = 'per-request' | 'per-1k-output'
 type UsageChartRow = { date: string; [key: string]: number | string }
 
 const TOKEN_SERIES: ShadcnSeries[] = [
-  { key: 'input', label: 'Input', color: '#2563eb' },
+  { key: 'input', label: 'Uncached input', color: '#2563eb' },
   { key: 'cacheRead', label: 'Cache read', color: '#16a34a' },
   { key: 'cacheWrite', label: 'Cache write', color: '#d97706' },
   { key: 'output', label: 'Output', color: '#9333ea' },
 ]
 
-const CHART_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#e11d48']
+// Cost splits the same four ways as tokens, in the same colours.
+const COST_TYPE_SERIES: ShadcnSeries[] = TOKEN_SERIES
+
+const ACTIVITY_METRIC_OPTIONS: Array<{ value: ActivityMetric; label: string }> = [
+  { value: 'cost', label: 'Cost' },
+  { value: 'tokens', label: 'Tokens' },
+  { value: 'calls', label: 'Calls' },
+]
+
+// Series colours for models, runtimes and providers. They skip green and purple,
+// which mean cache read and output on every token chart.
+const CHART_COLORS = ['#2563eb', '#db2777', '#0891b2', '#ea580c', '#64748b', '#ca8a04']
 
 // Two hues from the page palette so compute reads as part of the same system
 // as the token charts above it. Desktops first: they are the expensive half.
 const COMPUTE_SERIES: ShadcnSeries[] = [
   { key: 'desktop', label: 'Desktops', color: CHART_COLORS[0] },
-  { key: 'headless', label: 'Headless', color: CHART_COLORS[4] },
+  { key: 'headless', label: 'Headless', color: CHART_COLORS[2] },
 ]
 
 const PROVIDER_COLORS: Record<string, string> = {
@@ -108,7 +126,20 @@ const currentSearchParams = () => new URLSearchParams(window.location.search)
 
 const formatMs = (value?: number) => `${Math.round(value ?? 0).toLocaleString()} ms`
 
-const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString() : '-'
+const computeSpendDetail = (billingEnabled: boolean, credits: number) => {
+  if (billingEnabled) return `${formatCost(credits)} debited`
+  return credits > 0 ? `${formatCost(credits)} historical spend` : 'Compute billing off'
+}
+
+const computeShareDetail = (hours: number, totalHours: number, credits: number, kind: string) => {
+  if (hours <= 0) return `No ${kind} runtime`
+  const share = `${formatPercent(hours / totalHours)} of runtime`
+  return credits > 0 ? `${share} · ${formatCost(credits)}` : share
+}
+
+const formatDateTime = (value?: string) => value
+  ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  : '-'
 
 const filterOptionLabel = (option: TypesUsageFilterOption) => {
   const label = option.name || option.model || option.provider || option.id || ''
@@ -262,26 +293,6 @@ const exportJSON = (filename: string, rows: TypesUsageBreakdownRow[]) => {
   URL.revokeObjectURL(url)
 }
 
-const ProviderSummaryRow: FC<{
-  provider: TypesUsageBreakdownRow
-  metric: OverviewMetric
-  total: number
-  color: string
-}> = ({ provider, metric, total, color }) => {
-  const value = metric === 'cost' ? (provider.total_cost ?? 0) : (provider.total_tokens ?? 0)
-  const share = total > 0 ? value / total : 0
-  return (
-    <UsageShareRow
-      icon={<UsageProviderIcon provider={provider.provider} />}
-      label={provider.name || provider.provider || 'Unknown'}
-      value={metric === 'cost' ? formatCost(value) : formatCompact(value)}
-      share={share}
-      color={color}
-      caption={`${formatPercent(share)} of ${metric} · ${formatCompact(provider.total_tokens)} tokens`}
-    />
-  )
-}
-
 // UsagePanel is the outlined card the Sandbox compute block uses. Everything
 // on the page sits in one, so the charts and tables read as parts of a single
 // system instead of floating panes on the page background.
@@ -291,8 +302,77 @@ const UsagePanel: FC<{ children: React.ReactNode }> = ({ children }) => (
   </Paper>
 )
 
+// ResponsiveTable is a breakdown table on tablets and desktops and, on a
+// phone, one block per row: the name, then every other column as a labelled
+// value (cost and tokens first, as in the table), so nothing is clipped.
+const ResponsiveTable: FC<{ fields: ITableField[]; data: Record<string, any>[]; loading?: boolean }> = ({ fields, data, loading }) => {
+  const [nameField, ...valueFields] = fields
+  return (
+    <>
+      <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+        <TableScroll><SimpleTable authenticated fields={fields} data={data} compact loading={loading} /></TableScroll>
+      </Box>
+      <Box sx={{ display: { xs: 'block', sm: 'none' } }}>
+        {data.map((row, i) => (
+          <Box key={row.id ?? i} sx={{ py: 1.25, borderTop: i ? '1px solid' : 'none', borderColor: 'divider', minWidth: 0 }}>
+            <Box sx={{ minWidth: 0, overflow: 'hidden', '& p': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}>{row[nameField.name]}</Box>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 2, rowGap: 0.25, mt: 0.5 }}>
+              {valueFields.map(f => (
+                // Text values (project, kind) take the full row; numbers pair up two per row.
+                <Box key={f.name} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, minWidth: 0, gridColumn: f.numeric ? 'auto' : '1 / -1' }}>
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ flexShrink: 0 }}>{f.title}</Typography>
+                  <Box sx={{ minWidth: 0, textAlign: 'right', '& p': { fontSize: '0.8125rem' } }}>{row[f.name]}</Box>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        ))}
+      </Box>
+    </>
+  )
+}
+
+// BreakdownTable collapses an empty breakdown to one muted line instead of a
+// table header, "No data" row and pagination footer.
+const BreakdownTable: FC<{ empty: string; rows: unknown[]; loading?: boolean; children: React.ReactNode }> = ({ empty, rows, loading, children }) => (
+  rows.length === 0 && !loading
+    ? <Typography variant="body2" color="text.secondary">{empty}</Typography>
+    : <>{children}</>
+)
+
+// TableScroll lets wide breakdown tables scroll sideways on narrow screens
+// instead of being clipped by their card.
+// Edge shadows (attached to the content vs the box) appear only while more
+// columns are scrolled out of view.
+const TableScroll: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <Box
+    sx={theme => {
+      const paper = theme.palette.background.paper
+      const shade = alpha(theme.palette.text.primary, 0.12)
+      return {
+        overflowX: 'auto',
+        mx: -2,
+        px: 2,
+        background: `linear-gradient(to right, ${paper} 30%, ${alpha(paper, 0)}) left center / 32px 100% no-repeat local,
+          linear-gradient(to left, ${paper} 30%, ${alpha(paper, 0)}) right center / 32px 100% no-repeat local,
+          radial-gradient(farthest-side at 0 50%, ${shade}, transparent) left center / 10px 100% no-repeat scroll,
+          radial-gradient(farthest-side at 100% 50%, ${shade}, transparent) right center / 10px 100% no-repeat scroll`,
+        '& .MuiTableContainer-root, & .MuiPaper-root, & table': { background: 'transparent', boxShadow: 'none' },
+        '& th, & td': { whiteSpace: 'nowrap', px: 1.25 },
+        // Set explicitly: the theme default renders bolder on light than on dark.
+        '& thead th': { fontWeight: 600, color: 'text.secondary' },
+        '& td:first-of-type': { maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' },
+        '& td:first-of-type p, & td:first-of-type span': { overflow: 'hidden', textOverflow: 'ellipsis' },
+      }
+    }}
+  >
+    {children}
+  </Box>
+)
+
+// Nothing to export: no buttons, rather than two disabled ones beside the empty state.
 const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = ({ filename, rows }) => (
-  <Stack direction="row" spacing={1}>
+  !rows.length ? null : <Stack direction="row" spacing={1}>
     <Button
       size="small"
       variant="outlined"
@@ -313,51 +393,91 @@ const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = 
   </Stack>
 )
 
+// How the page reads its numbers. 'billed' leads with what was charged;
+// 'usage' — nothing charged in range, as on a self-hosted install or an org on
+// its own providers — leads with tokens, calls and runtime, and shows API-rate
+// cost last, and only when some of the usage has a price at all.
+type UsageCostMode = 'billed' | 'usage' | 'unpriced'
+
+const COST_FIELD: ITableField = { name: 'cost', title: 'API-rate cost', numeric: true }
+
+// The figures a breakdown is read for sit next to the name, so on a phone they
+// stay in view before the table scrolls.
+const withCostField = (mode: UsageCostMode, fields: ITableField[]): ITableField[] => {
+  const [name, ...rest] = fields
+  if (mode === 'billed') return [name, COST_FIELD, ...rest]
+  if (mode === 'usage') return [name, ...rest, COST_FIELD]
+  return fields
+}
+
 const baseFields: ITableField[] = [
   { name: 'name', title: 'Name' },
+  { name: 'total', title: 'Tokens', numeric: true },
   { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'sessions', title: 'Sessions', numeric: true },
-  { name: 'input', title: 'Input', numeric: true },
+  { name: 'input', title: 'Total input', numeric: true },
   { name: 'output', title: 'Output', numeric: true },
   { name: 'cache', title: 'Cache read', numeric: true },
   { name: 'cacheHit', title: 'Hit ratio', numeric: true },
-  { name: 'total', title: 'Total', numeric: true },
-  { name: 'cost', title: 'Cost', numeric: true },
   { name: 'latency', title: 'Latency', numeric: true },
 ]
 
-const modelOverviewFields: ITableField[] = [
-  { name: 'name', title: 'Model' },
-  { name: 'cost', title: 'API-rate cost', numeric: true },
-  { name: 'share', title: 'Share', numeric: true },
-  { name: 'tokens', title: 'Tokens', numeric: true },
-]
+// Billed, the share is of cost; otherwise it is of tokens.
+const modelOverviewFields = (mode: UsageCostMode): ITableField[] => mode === 'billed'
+  ? [
+    { name: 'name', title: 'Model' },
+    COST_FIELD,
+    { name: 'share', title: 'Share', numeric: true },
+    { name: 'tokens', title: 'Tokens', numeric: true },
+  ]
+  : withCostField(mode, [
+    { name: 'name', title: 'Model' },
+    { name: 'tokens', title: 'Tokens', numeric: true },
+    { name: 'share', title: 'Share', numeric: true },
+  ])
 
-const computeSandboxFields: ITableField[] = [
+// The cost column only appears when something was actually debited; with
+// billing off it would be a column of $0.00.
+const computeSandboxFields = (withCost: boolean): ITableField[] => [
   { name: 'name', title: 'Sandbox' },
   // Spec-task runners inherit their task's name, so two projects in the same
   // org routinely produce identically-named rows. Project is what makes the
-  // cost attributable.
+  // usage attributable.
   { name: 'project', title: 'Project' },
   { name: 'kind', title: 'Kind' },
   { name: 'size', title: 'Size', numeric: true },
-  { name: 'credits', title: 'Credits', numeric: true },
-  { name: 'share', title: 'Share', numeric: true },
+  { name: 'hours', title: 'Runtime', numeric: true },
+  { name: 'share', title: 'Runtime share', numeric: true },
+  ...(withCost ? [{ name: 'credits', title: 'Compute cost', numeric: true }] : []),
 ]
 
 const sessionFields: ITableField[] = [
   { name: 'name', title: 'Session' },
+  { name: 'total', title: 'Tokens', numeric: true },
+  { name: 'requests', title: 'LLM calls', numeric: true },
   { name: 'users', title: 'Users', numeric: true },
   { name: 'projects', title: 'Projects', numeric: true },
-  { name: 'requests', title: 'LLM calls', numeric: true },
-  { name: 'input', title: 'Input', numeric: true },
+  { name: 'input', title: 'Total input', numeric: true },
   { name: 'output', title: 'Output', numeric: true },
   { name: 'cache', title: 'Cache read', numeric: true },
   { name: 'cacheHit', title: 'Hit ratio', numeric: true },
-  { name: 'total', title: 'Total', numeric: true },
-  { name: 'cost', title: 'Cost', numeric: true },
-  { name: 'lastActivity', title: 'Last activity' },
 ]
+
+// Tokens with no cost were served by a model with no price (a self-hosted or
+// custom endpoint). "$0.00" would read as free; a dash reads as unknown.
+const CostCell: FC<{ cost?: number; tokens?: number; bold?: boolean }> = ({ cost, tokens, bold }) => {
+  const unpriced = (cost ?? 0) === 0 && (tokens ?? 0) > 0
+  return (
+    <Typography
+      variant="body2"
+      color={unpriced ? 'text.secondary' : undefined}
+      title={unpriced ? 'No price for this model' : undefined}
+      sx={{ fontWeight: bold && !unpriced ? 600 : undefined }}
+    >
+      {unpriced ? '—' : formatCost(cost)}
+    </Typography>
+  )
+}
 
 const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameClick?: (row: TypesUsageBreakdownRow) => void) => ({
   id: row.id,
@@ -374,14 +494,14 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
           }}
           style={{ color: 'inherit', textDecoration: 'none' }}
         >
-          <Typography variant="body2" sx={{ fontWeight: 600, '&:hover': { textDecoration: 'underline' } }}>{row.name || row.id || 'Unknown'}</Typography>
+          <Typography variant="body2" title={row.name || row.id} sx={{ fontWeight: 600, '&:hover': { textDecoration: 'underline' } }}>{row.name || row.id || 'Unknown'}</Typography>
         </a>
       ) : (
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.name || row.id || 'Unknown'}</Typography>
+        <Typography variant="body2" title={row.name || row.id} sx={{ fontWeight: 600 }}>{row.name || row.id || 'Unknown'}</Typography>
       )}
       {(row.email || row.username) && (
         <Typography variant="caption" color="text.secondary">
-          {[row.email, row.username].filter(Boolean).join(' · ')}
+          {[...new Set([row.email, row.username].filter(Boolean))].join(' · ')}
         </Typography>
       )}
       {row.model && !withProvider && (
@@ -396,44 +516,57 @@ const rowToTable = (row: TypesUsageBreakdownRow, withProvider = false, onNameCli
   projects: <Typography variant="body2">{formatNumber(row.unique_projects)}</Typography>,
   sessions: <Typography variant="body2">{formatNumber(row.session_count)}</Typography>,
   requests: <Typography variant="body2">{formatNumber(row.total_requests)}</Typography>,
-  input: <Typography variant="body2">{formatNumber(getTotalInputTokens(row))}</Typography>,
-  output: <Typography variant="body2">{formatNumber(row.completion_tokens)}</Typography>,
-  cache: <Typography variant="body2">{formatNumber(row.cache_read_tokens)}</Typography>,
-  cacheHit: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatPercent(getCacheHitRatio(row))}</Typography>,
-  total: <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatNumber(row.total_tokens)}</Typography>,
-  cost: <Typography variant="body2">{formatCost(row.total_cost)}</Typography>,
+  // Token counts are compact (20.4M) with the exact count on hover; exports keep exact values.
+  input: <Typography variant="body2" title={formatNumber(getTotalInputTokens(row))}>{formatCompact(getTotalInputTokens(row))}</Typography>,
+  output: <Typography variant="body2" title={formatNumber(row.completion_tokens)}>{formatCompact(row.completion_tokens)}</Typography>,
+  cache: <Typography variant="body2" title={formatNumber(row.cache_read_tokens)}>{formatCompact(row.cache_read_tokens)}</Typography>,
+  cacheHit: <Typography variant="body2">{formatPercent(getCacheHitRatio(row))}</Typography>,
+  total: <Typography variant="body2" title={formatNumber(row.total_tokens)}>{formatCompact(row.total_tokens)}</Typography>,
+  cost: <CostCell cost={row.total_cost} tokens={row.total_tokens} bold />,
   latency: <Typography variant="body2">{formatMs(row.latency_ms)}</Typography>,
-  lastActivity: <Typography variant="body2" color="text.secondary">{formatDateTime(row.last_activity_at)}</Typography>,
 })
 
-const buildModelChart = (series: TypesUsageModelTimeSeries[] = []): UsageChartRow[] => {
+const metricValue = (metric: TypesAggregatedUsageMetric | TypesUsageBreakdownRow, kind: ActivityMetric): number => (
+  kind === 'cost' ? (metric.total_cost ?? 0) : kind === 'tokens' ? (metric.total_tokens ?? 0) : (metric.total_requests ?? 0)
+)
+
+// buildSeriesChart turns per-series daily metrics (one series per provider or
+// model) into one chart row per date.
+export const buildSeriesChart = (
+  series: Array<{ key: string; metrics?: TypesAggregatedUsageMetric[] }>,
+  kind: ActivityMetric,
+): UsageChartRow[] => {
   const dates = new Map<string, UsageChartRow>()
-  series.slice(0, CHART_COLORS.length).forEach(model => {
-    model.metrics?.forEach(metric => {
+  series.forEach(item => {
+    item.metrics?.forEach(metric => {
       if (!metric.date) return
-      const entry = dates.get(metric.date) ?? { date: metric.date }
-      entry[model.id || model.model || 'model'] = metric.total_tokens ?? 0
-      dates.set(metric.date, entry)
+      const row = dates.get(metric.date) ?? { date: metric.date }
+      row[item.key] = metricValue(metric, kind)
+      dates.set(metric.date, row)
     })
   })
   return Array.from(dates.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)))
 }
 
-const buildProviderChart = (
-  series: TypesUsageProviderTimeSeries[] = [],
-  metric: OverviewMetric,
-): UsageChartRow[] => {
-  const dates = new Map<string, UsageChartRow>()
-  series.forEach(provider => {
-    provider.metrics?.forEach(value => {
-      if (!value.date) return
-      const row = dates.get(value.date) ?? { date: value.date }
-      row[provider.provider || 'unknown'] = metric === 'cost' ? (value.total_cost ?? 0) : (value.total_tokens ?? 0)
-      dates.set(value.date, row)
-    })
-  })
-  return Array.from(dates.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)))
-}
+// buildTypeChart splits each day's tokens or API-rate cost into uncached
+// input, cache reads, cache writes and output.
+export const buildTypeChart = (metrics: TypesAggregatedUsageMetric[], kind: 'cost' | 'tokens'): UsageChartRow[] => metrics.map(metric => (
+  kind === 'tokens'
+    ? {
+      date: metric.date || '',
+      input: getUncachedInputTokens(metric),
+      cacheRead: metric.cache_read_tokens ?? 0,
+      cacheWrite: metric.cache_write_tokens ?? 0,
+      output: metric.completion_tokens ?? 0,
+    }
+    : {
+      date: metric.date || '',
+      input: metric.prompt_cost ?? 0,
+      cacheRead: metric.cache_read_cost ?? 0,
+      cacheWrite: metric.cache_write_cost ?? 0,
+      output: metric.completion_cost ?? 0,
+    }
+))
 
 const buildAgentCacheChart = (series: TypesUsageAgentRuntimeTimeSeries[] = []) => (
   buildCacheHitRatioChartData(series)
@@ -483,9 +616,21 @@ const buildProjectModelChart = (rows: TypesUsageBreakdownRow[] = [], projects: T
 }
 
 const ProjectModelTooltip: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
+  const lightTheme = useLightTheme()
   if (!active || !payload?.length) return null
   return (
-    <Box sx={{ bgcolor: 'rgba(10,10,15,0.95)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, px: 1.5, py: 1, minWidth: 220 }}>
+    <Box
+      sx={{
+        bgcolor: lightTheme.isLight ? 'rgba(255,255,255,0.98)' : 'rgba(10,10,15,0.95)',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        boxShadow: lightTheme.isLight ? '0 4px 12px rgba(0,0,0,0.12)' : '0 4px 12px rgba(0,0,0,0.4)',
+        px: 1.5,
+        py: 1,
+        minWidth: 220,
+      }}
+    >
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
         {label}
       </Typography>
@@ -506,45 +651,95 @@ const ProjectModelTooltip: FC<TooltipContentProps<number, string>> = ({ active, 
   )
 }
 
+const PROJECT_ROW_HEIGHT = 40
+
+// ProjectModelChart ranks the top projects as horizontal bars, each split by
+// the models that processed its tokens, so long project names stay readable.
 const ProjectModelChart: FC<{
   data: Array<Record<string, number | string>>,
   series: Array<{ key: string; label: string; color: string }>,
 }> = ({ data, series }) => {
+  const lightTheme = useLightTheme()
   const hasData = data.some(row => series.some(item => Number(row[item.key] || 0) > 0))
+  const tick = { fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }
+  const longest = Math.max(0, ...data.map(row => String(row.project).length))
+  const projectMax = Math.max(1, ...data.map(row => series.reduce((sum, item) => sum + (Number(row[item.key]) || 0), 0)))
   return (
-    <Box sx={{ height: 340, bgcolor: 'rgba(0,0,0,0.2)', borderRadius: 2, p: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, letterSpacing: '0.04em' }}>
-          PROJECT TOKENS BY MODEL
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Top projects, stacked by model
-        </Typography>
-      </Stack>
+    <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2 }}>
+      <Box sx={{ mb: 1 }}>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>Project tokens by model</Typography>
+        <Typography variant="caption" color="text.secondary">Top projects, split by the models that processed their tokens</Typography>
+      </Box>
+      {hasData && (
+        // Phones: each project's name above its own full-width bar, so a long
+        // name never squeezes the bar to a stub.
+        <Stack spacing={1.5} sx={{ display: { xs: 'flex', sm: 'none' }, mt: 1.5 }}>
+          {data.map(row => {
+            const total = series.reduce((sum, item) => sum + (Number(row[item.key]) || 0), 0)
+            return (
+              <Box key={String(row.project)} sx={{ minWidth: 0 }}>
+                <Stack direction="row" justifyContent="space-between" spacing={1} sx={{ fontSize: '0.8125rem', mb: 0.5 }}>
+                  <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={String(row.project)}>{String(row.project)}</Box>
+                  <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatCompact(total)}</Box>
+                </Stack>
+                <Box sx={{ display: 'flex', height: 8, gap: '2px', width: `${Math.max(2, (total / projectMax) * 100)}%` }}>
+                  {series.filter(item => (Number(row[item.key]) || 0) > 0).map(item => (
+                    <Box key={item.key} title={`${item.label} · ${formatCompact(Number(row[item.key]))}`} sx={{ flex: `${Number(row[item.key])} 1 0`, minWidth: 3, bgcolor: item.color, borderRadius: '2px' }} />
+                  ))}
+                </Box>
+              </Box>
+            )
+          })}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 0.5, fontSize: '0.75rem', color: 'text.secondary' }}>
+            {series.map(item => (
+              <Box key={item.key} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: item.color }} />{item.label}
+              </Box>
+            ))}
+          </Box>
+        </Stack>
+      )}
       {hasData ? (
-        <ResponsiveContainer width="100%" height={270}>
-          <BarChart data={data} margin={{ top: 8, right: 12, left: 16, bottom: 0 }}>
-            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
-            <XAxis
+        <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+        <ResponsiveContainer width="100%" height={data.length * PROJECT_ROW_HEIGHT + 64}>
+          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 0 }} barCategoryGap={10}>
+            <CartesianGrid horizontal={false} stroke={lightTheme.isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)'} />
+            <XAxis type="number" tickLine={false} axisLine={false} tick={tick} tickFormatter={formatCompact} />
+            <YAxis
+              type="category"
               dataKey="project"
               tickLine={false}
               axisLine={false}
-              tickMargin={8}
-              interval={0}
-              tick={{ fill: '#94A3B8', fontSize: 12 }}
+              width={Math.min(240, Math.max(96, longest * 7 + 12))}
+              // A plain <text> tick: recharts' default wraps long names onto two lines.
+              tick={(props: YAxisTickContentProps) => {
+                const name = String(props.payload?.value ?? '')
+                return (
+                  <text x={Number(props.x) - 6} y={Number(props.y)} dy={4} textAnchor="end" fill={tick.fill} fontSize={tick.fontSize}>
+                    <title>{name}</title>
+                    {name.length > 32 ? `${name.slice(0, 31)}…` : name}
+                  </text>
+                )
+              }}
             />
-            <YAxis tickLine={false} axisLine={false} tickMargin={10} width={72} tick={{ fill: '#94A3B8', fontSize: 12 }} tickFormatter={formatCompact} />
-            <Tooltip content={React.createElement(ProjectModelTooltip)} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-            <Legend wrapperStyle={{ fontSize: '0.75rem' }} />
+            <Tooltip
+              content={React.createElement(ProjectModelTooltip)}
+              cursor={{ fill: lightTheme.isLight ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)' }}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: '0.75rem' }}
+              iconType="square"
+              iconSize={8}
+              formatter={(value: string) => <span style={{ color: tick.fill }}>{value}</span>}
+            />
             {series.map(item => (
               <Bar key={item.key} dataKey={item.key} name={item.label} stackId="tokens" fill={item.color} isAnimationActive={false} />
             ))}
           </BarChart>
         </ResponsiveContainer>
-      ) : (
-        <Box sx={{ height: 270, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Typography variant="body2" color="text.secondary">No project/model usage data</Typography>
         </Box>
+      ) : (
+        <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>No project or model usage in this range.</Typography>
       )}
     </Box>
   )
@@ -568,6 +763,14 @@ const OrgUsage: FC = () => {
   const [sessionIdInput, setSessionIdInput] = useState(() => initialParam('session_id'))
   const [provider, setProvider] = useState(() => initialParam('provider'))
   const [model, setModel] = useState(() => initialParam('model'))
+  // On a phone the filters fold behind one button so the numbers come first.
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const section = usageSection(router.name === 'org_usage' ? 'overview' : router.params.section)
+  const [table, setTable] = useState<UsageTableKey>(() => {
+    const value = initialParam('table')
+    return USAGE_TABLES.some(t => t.key === value) ? value as UsageTableKey : 'projects'
+  })
+  const activeFilters = [userId, projectId, taskId, appId, sessionIdInput, provider || model].filter(Boolean).length
   const [userSearchInput, setUserSearchInput] = useState(() => initialParam('user_search'))
   const [userPage, setUserPage] = useState(0)
   const [userRowsPerPage, setUserRowsPerPage] = useState(10)
@@ -577,7 +780,9 @@ const OrgUsage: FC = () => {
   const [taskRowsPerPage, setTaskRowsPerPage] = useState(10)
   const [sessionPage, setSessionPage] = useState(0)
   const [sessionRowsPerPage, setSessionRowsPerPage] = useState(10)
-  const [overviewMetric, setOverviewMetric] = useState<OverviewMetric>('cost')
+  // Null until the user picks one: the default follows the page's cost mode.
+  const [activityMetricChoice, setActivityMetric] = useState<ActivityMetric | null>(null)
+  const [activitySplit, setActivitySplit] = useState<ActivitySplit>('provider')
   const [latencyMetric, setLatencyMetric] = useState<LatencyMetric>('per-request')
   const [loadingScope, setLoadingScope] = useState<UsageLoadingScope | null>(null)
   const sessionId = useDebounce(sessionIdInput.trim(), 400)
@@ -628,6 +833,8 @@ const OrgUsage: FC = () => {
     setParam('provider', provider)
     setParam('model', model)
     setParam('user_search', userSearchInput.trim())
+    if (section.key === 'breakdowns') setParam('table', table, 'projects')
+    else url.searchParams.delete('table')
     url.searchParams.delete('user_page')
     url.searchParams.delete('user_rows')
     url.searchParams.delete('project_page')
@@ -638,7 +845,7 @@ const OrgUsage: FC = () => {
     url.searchParams.delete('session_rows')
 
     window.history.replaceState({}, '', url.toString())
-  }, [from, to, userId, projectId, taskId, appId, sessionIdInput, provider, model, userSearchInput])
+  }, [from, to, userId, projectId, taskId, appId, sessionIdInput, provider, model, userSearchInput, section.key, table])
 
   useEffect(() => {
     if (!usage.isFetching) {
@@ -653,23 +860,46 @@ const OrgUsage: FC = () => {
   const cacheSavings = usage.data?.cache_savings ?? 0
   const helixCredits = usage.data?.helix_credits ?? 0
   const compute = usage.data?.compute
+  // Runtime is measured whether or not compute is billed, so it leads; credits
+  // are shown alongside only when something was actually debited.
   const computeTotals = useMemo(() => {
     const daily = compute?.daily || []
-    const computeActiveDays = daily.filter(point => (point.total ?? 0) > 0).length
-    const total = compute?.total_credits ?? 0
+    const computeActiveDays = daily.filter(point => (point.total_hours ?? 0) > 0 || (point.total ?? 0) > 0).length
+    const hours = compute?.total_hours ?? 0
     return {
-      total,
+      total: compute?.total_credits ?? 0,
       desktop: compute?.desktop_credits ?? 0,
       headless: compute?.headless_credits ?? 0,
+      hours,
+      desktopHours: compute?.desktop_hours ?? 0,
+      headlessHours: compute?.headless_hours ?? 0,
       activeDays: computeActiveDays,
-      perActiveDay: computeActiveDays > 0 ? total / computeActiveDays : 0,
+      hoursPerActiveDay: computeActiveDays > 0 ? hours / computeActiveDays : 0,
     }
   }, [compute])
-  const computeChartData = useMemo<UsageChartRow[]>(() => (compute?.daily || []).map(point => ({
+  const computeRuntimeChartData = useMemo<UsageChartRow[]>(() => (compute?.daily || []).map(point => ({
+    date: point.date || '',
+    desktop: point.desktop_hours ?? 0,
+    headless: point.headless_hours ?? 0,
+  })), [compute])
+  const computeSpendChartData = useMemo<UsageChartRow[]>(() => (compute?.daily || []).map(point => ({
     date: point.date || '',
     desktop: point.desktop ?? 0,
     headless: point.headless ?? 0,
   })), [compute])
+  const computeHasSpend = computeTotals.total > 0
+  // Whether this range was charged for at all decides what the page leads
+  // with. A global billing flag can't: one install can bill an org's
+  // OpenRouter calls while its self-hosted endpoint is free and unpriced.
+  const costMode: UsageCostMode = helixCredits > 0 || computeHasSpend || compute?.billing_enabled
+    ? 'billed'
+    : rawTokenCost > 0 ? 'usage' : 'unpriced'
+  const activityMetricOptions = costMode === 'unpriced'
+    ? ACTIVITY_METRIC_OPTIONS.filter(option => option.value !== 'cost')
+    : ACTIVITY_METRIC_OPTIONS
+  const activityMetric: ActivityMetric = activityMetricChoice && activityMetricOptions.some(option => option.value === activityMetricChoice)
+    ? activityMetricChoice
+    : costMode === 'billed' ? 'cost' : 'tokens'
   // Project names come from the filter options the same response already
   // carries, so no extra request is needed to attribute a sandbox.
   const projectNames = useMemo(() => {
@@ -680,7 +910,7 @@ const OrgUsage: FC = () => {
     return names
   }, [usage.data?.filter_projects])
   const computeSandboxRows = useMemo(() => (compute?.sandboxes || []).map(row => {
-    const share = computeTotals.total > 0 ? (row.credits ?? 0) / computeTotals.total : 0
+    const share = computeTotals.hours > 0 ? (row.hours ?? 0) / computeTotals.hours : 0
     return {
       id: row.sandbox_id || '',
       _data: row,
@@ -726,54 +956,91 @@ const OrgUsage: FC = () => {
           {row.vcpus ? `${row.vcpus} vCPU` : '—'}
         </Typography>
       ),
-      credits: <Typography variant="body2">{formatCost(row.credits)}</Typography>,
+      hours: <Typography variant="body2">{formatHours(row.hours)}</Typography>,
       share: <Typography variant="body2" color="text.secondary">{formatPercent(share)}</Typography>,
+      credits: <Typography variant="body2" color="text.secondary">{formatCost(row.credits)}</Typography>,
     }
-  }), [compute, computeTotals.total, projectNames, router])
+  }), [compute, computeTotals.hours, projectNames, router])
 
   const activeDays = metrics.filter(metric => (metric.total_tokens ?? 0) > 0).length
   const averageTokens = activeDays > 0 ? totals.total / activeDays : 0
   const cachedShare = totals.input > 0 ? totals.cacheRead / totals.input : 0
-  const tokenChartData = useMemo(() => metrics.map(metric => {
-    const cacheRead = metric.cache_read_tokens ?? 0
-    const cacheWrite = metric.cache_write_tokens ?? 0
-    return {
-      date: metric.date || '',
-      input: getUncachedInputTokens(metric),
-      output: metric.completion_tokens ?? 0,
-      cacheRead,
-      cacheWrite,
-    }
-  }), [metrics])
   const cacheHitRatio = useMemo(() => getAggregateCacheHitRatio(metrics), [metrics])
 
   const providerTimeSeries = usage.data?.provider_time_series || []
-  const providerChartData = buildProviderChart(providerTimeSeries, overviewMetric)
   const providerChartSeries: ShadcnSeries[] = providerTimeSeries.map((item, index) => ({
     key: item.provider || 'unknown',
     label: item.name || item.provider || 'Unknown',
     color: providerColor(item.provider || 'unknown', index, lightTheme.isLight),
   }))
-  const providerRows = [...(usage.data?.providers || [])].sort((a, b) => overviewMetric === 'cost'
-    ? (b.total_cost ?? 0) - (a.total_cost ?? 0)
-    : (b.total_tokens ?? 0) - (a.total_tokens ?? 0))
-  const providerTotal = providerRows.reduce((sum, row) => sum + (
-    overviewMetric === 'cost' ? (row.total_cost ?? 0) : (row.total_tokens ?? 0)
-  ), 0)
+  const modelSeries = (usage.data?.model_time_series || []).slice(0, CHART_COLORS.length)
+  const modelChartSeries: ShadcnSeries[] = modelSeries.map((item, index) => ({
+    key: item.id || item.model || `model-${index}`,
+    label: item.name || item.model || `Model ${index + 1}`,
+    color: CHART_COLORS[index],
+  }))
+  // Calls have no per-type split; the chart falls back to providers.
+  const split: ActivitySplit = activityMetric === 'calls' && activitySplit === 'type' ? 'provider' : activitySplit
+  const activity = (() => {
+    if (split === 'type') {
+      const kind = activityMetric === 'cost' ? 'cost' : 'tokens'
+      return { data: buildTypeChart(metrics, kind), series: kind === 'cost' ? COST_TYPE_SERIES : TOKEN_SERIES }
+    }
+    if (split === 'model') {
+      return {
+        data: buildSeriesChart(modelSeries.map((item, index) => ({ key: modelChartSeries[index].key, metrics: item.metrics })), activityMetric),
+        series: modelChartSeries,
+      }
+    }
+    return {
+      data: buildSeriesChart(providerTimeSeries.map(item => ({ key: item.provider || 'unknown', metrics: item.metrics })), activityMetric),
+      series: providerChartSeries,
+    }
+  })()
+  // Tokens served by models with no price add nothing to API-rate cost, so a
+  // cost chart alone would show those days as idle.
+  const unpricedTokens = (usage.data?.models || [])
+    .filter(row => (row.total_cost ?? 0) === 0)
+    .reduce((sum, row) => sum + (row.total_tokens ?? 0), 0)
+  const activityHeadlineDetail = activityMetric === 'cost'
+    ? ` at API rates${unpricedTokens > 0 ? ` · ${formatCompact(unpricedTokens)} tokens on unpriced models` : ''}`
+    : activityMetric === 'tokens' ? ` across ${formatNumber(totals.requests)} LLM calls` : ''
+  const activityFormat = activityMetric === 'cost' ? formatCost : activityMetric === 'tokens' ? formatCompact : formatNumber
+  const activityTotal = activityMetric === 'cost' ? rawTokenCost : activityMetric === 'tokens' ? totals.total : totals.requests
+  const activityTitle = {
+    cost: 'Daily API-rate cost',
+    tokens: 'Daily processed tokens',
+    calls: 'Daily LLM calls',
+  }[activityMetric]
+
+  const providerSegments = useMemo<UsageSegment[]>(() => [...(usage.data?.providers || [])]
+    .map((row, index) => ({
+      label: row.name || row.provider || 'Unknown',
+      value: metricValue(row, activityMetric),
+      color: providerColor(row.provider || '', index, lightTheme.isLight),
+    }))
+    .sort((a, b) => b.value - a.value), [usage.data?.providers, activityMetric, lightTheme.isLight])
+  const tokenTypeSegments: UsageSegment[] = [
+    { label: 'Uncached input', value: Math.max(totals.input - totals.cacheRead - totals.cacheWrite, 0), color: TOKEN_SERIES[0].color },
+    { label: 'Cache read', value: totals.cacheRead, color: TOKEN_SERIES[1].color },
+    { label: 'Cache write', value: totals.cacheWrite, color: TOKEN_SERIES[2].color },
+    { label: 'Output', value: totals.completion, color: TOKEN_SERIES[3].color },
+  ]
+  const costTypeSegments = useMemo<UsageSegment[]>(() => {
+    const sum = (field: 'prompt_cost' | 'cache_read_cost' | 'cache_write_cost' | 'completion_cost') => metrics.reduce((acc, m) => acc + (m[field] ?? 0), 0)
+    return [
+      { label: 'Uncached input', value: sum('prompt_cost'), color: COST_TYPE_SERIES[0].color },
+      { label: 'Cache read', value: sum('cache_read_cost'), color: COST_TYPE_SERIES[1].color },
+      { label: 'Cache write', value: sum('cache_write_cost'), color: COST_TYPE_SERIES[2].color },
+      { label: 'Output', value: sum('completion_cost'), color: COST_TYPE_SERIES[3].color },
+    ]
+  }, [metrics])
 
   const agentSeries = (usage.data?.agent_runtime_time_series || []).slice(0, CHART_COLORS.length)
   const agentCacheChartData = buildAgentCacheChart(agentSeries)
   const agentCacheChartSeries: ShadcnSeries[] = agentSeries.map((agent, index) => ({
     key: getCacheUsageSeriesKey(agent, index),
     label: agent.name || agent.runtime || 'Unattributed',
-    color: CHART_COLORS[index],
-  }))
-
-  const modelSeries = (usage.data?.model_time_series || []).slice(0, CHART_COLORS.length)
-  const modelChartData = useMemo(() => buildModelChart(modelSeries), [modelSeries])
-  const modelChartSeries: ShadcnSeries[] = modelSeries.map((model, index) => ({
-    key: model.id || model.model || `model-${index}`,
-    label: model.name || model.model || `Model ${index + 1}`,
     color: CHART_COLORS[index],
   }))
 
@@ -937,11 +1204,31 @@ const OrgUsage: FC = () => {
     projects: (usage.data?.projects || []).map(row => rowToTable(row, false, openProject)),
     apps: (usage.data?.apps || []).map(row => rowToTable(row, false, openAgent)),
     tasks: (usage.data?.tasks || []).map(row => rowToTable(row)),
-    sessions: (usage.data?.sessions || []).map(row => rowToTable(row)),
+    // Last activity rides under the session name, so the table fits without a twelfth column.
+    sessions: (usage.data?.sessions || []).map(row => {
+      const cells = rowToTable(row)
+      return {
+        ...cells,
+        name: (
+          <Box>
+            {cells.name}
+            {row.last_activity_at && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Last active {formatDateTime(row.last_activity_at)}
+              </Typography>
+            )}
+          </Box>
+        ),
+      }
+    }),
     users: (usage.data?.users || []).map(row => rowToTable(row)),
   }
+  const breakdownFields = withCostField(costMode, baseFields)
+  const sessionBreakdownFields = withCostField(costMode, sessionFields)
   const modelOverviewRows = (usage.data?.models || []).map(row => {
-    const costShare = rawTokenCost > 0 ? (row.total_cost ?? 0) / rawTokenCost : 0
+    const share = costMode === 'billed'
+      ? (rawTokenCost > 0 ? (row.total_cost ?? 0) / rawTokenCost : 0)
+      : (totals.total > 0 ? (row.total_tokens ?? 0) / totals.total : 0)
     return {
       id: row.id,
       _data: row,
@@ -951,38 +1238,56 @@ const OrgUsage: FC = () => {
           <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.model || row.name || 'Unknown'}</Typography>
         </Stack>
       ),
-      cost: <Typography variant="body2">{formatCost(row.total_cost)}</Typography>,
-      share: <Typography variant="body2" color="text.secondary">{formatPercent(costShare)}</Typography>,
-      tokens: <Typography variant="body2" color="text.secondary">{formatCompact(row.total_tokens)}</Typography>,
+      cost: <CostCell cost={row.total_cost} tokens={row.total_tokens} />,
+      share: <Typography variant="body2" color="text.secondary">{formatPercent(share)}</Typography>,
+      tokens: <Typography variant="body2" color={costMode === 'billed' ? 'text.secondary' : undefined}>{formatCompact(row.total_tokens)}</Typography>,
     }
   })
 
   return (
     <Page
-      breadcrumbTitle="Usage"
+      breadcrumbTitle={section.key === 'overview' ? undefined : section.title}
       breadcrumbParent={{
         title: 'Organizations',
         routeName: 'orgs',
         useOrgRouter: false,
       }}
+      breadcrumbs={[
+        { title: account.organizationTools.organization?.name || orgID, routeName: 'org_general', params: { org_id: orgID } },
+        section.key === 'overview'
+          ? { title: 'Usage' }
+          : { title: 'Usage', routeName: 'org_usage', params: usageSectionRoute('overview', orgID, window.location.search).params },
+      ]}
       breadcrumbShowHome={true}
-      orgBreadcrumbs={true}
     >
       <Container maxWidth="xl">
         <Box sx={{ mt: 3, pb: 4 }}>
           <Stack spacing={2.5}>
             <UsagePageHeader
-              title="Usage"
-              description="LLM calls, tokens, cost, latency, and sandbox compute for this organization."
+              title={section.key === 'overview' ? 'Usage' : section.title}
+              description={section.description}
               actions={(
-                <UsageRangeControls
-                  range={range}
-                  from={from}
-                  to={to}
-                  onRangeChange={handleRangeChange}
-                  onFromChange={value => { markFilterChange(); setFrom(value); setRange(null) }}
-                  onToChange={value => { markFilterChange(); setTo(value); setRange(null) }}
-                />
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                  <Button
+                    variant={filtersOpen || activeFilters > 0 ? 'contained' : 'outlined'}
+                    color={filtersOpen || activeFilters > 0 ? 'secondary' : 'inherit'}
+                    size="small"
+                    startIcon={<SlidersHorizontal size={16} />}
+                    onClick={() => setFiltersOpen(open => !open)}
+                    aria-expanded={filtersOpen}
+                    sx={{ textTransform: 'none', minHeight: 40, whiteSpace: 'nowrap' }}
+                  >
+                    {activeFilters > 0 ? `Filters · ${activeFilters}` : 'Filters'}
+                  </Button>
+                  <UsageRangeControls
+                    range={range}
+                    from={from}
+                    to={to}
+                    onRangeChange={handleRangeChange}
+                    onFromChange={value => { markFilterChange(); setFrom(value); setRange(null) }}
+                    onToChange={value => { markFilterChange(); setTo(value); setRange(null) }}
+                  />
+                </Stack>
               )}
             />
 
@@ -992,408 +1297,477 @@ const OrgUsage: FC = () => {
               </Alert>
             )}
 
+            {/* Filters apply to every section; they fold away until asked for. */}
+            <Collapse in={filtersOpen} unmountOnExit>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
+                    gap: 1.25,
+                  }}
+                >
+                  <FilterAutocomplete
+                    label="User"
+                    options={userOptions}
+                    value={selectedUser}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => { markFilterChange(); setUserId(option?.id || '') }}
+                  />
+                  <FilterAutocomplete
+                    label="Project"
+                    options={projectOptions}
+                    value={selectedProject}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => { markFilterChange(); setProjectId(option?.id || '') }}
+                  />
+                  <FilterAutocomplete
+                    label="Task"
+                    options={taskOptions}
+                    value={selectedTask}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => { markFilterChange(); setTaskId(option?.id || '') }}
+                  />
+                  <FilterAutocomplete
+                    label="Agent"
+                    options={appOptions}
+                    value={selectedApp}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => { markFilterChange(); setAppId(option?.id || '') }}
+                  />
+                  <TextField size="small" label="Session ID" value={sessionIdInput} onChange={e => { markFilterChange(); setSessionIdInput(e.target.value) }} />
+                  <FilterAutocomplete
+                    label="Provider"
+                    options={providerOptions}
+                    value={selectedProvider}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => {
+                      markFilterChange()
+                      setProvider(option?.id || '')
+                      setModel('')
+                    }}
+                  />
+                  <FilterAutocomplete
+                    label="Model"
+                    options={filteredModelOptions}
+                    value={selectedModel}
+                    loading={isScopedLoading('filters')}
+                    onChange={option => {
+                      markFilterChange()
+                      setProvider(option?.provider || '')
+                      setModel(option?.model || '')
+                    }}
+                  />
+                  <Button size="small" variant="outlined" startIcon={<X size={16} />} onClick={clearFilters} sx={{ minHeight: 40 }}>
+                    Clear
+                  </Button>
+                </Box>
+              </Paper>
+            </Collapse>
+            <Box sx={{ height: 3, mt: '-16px !important' }}>
+              {isScopedLoading('filters') && <LinearProgress sx={{ borderRadius: 1, height: 3 }} />}
+            </Box>
+
             {usage.isLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
                 <CircularProgress />
               </Box>
             ) : (
               <>
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(260px, 0.72fr) minmax(0, 1.6fr)' }, gap: 3 }}>
-                  <Stack spacing={2.25}>
-                    <UsageHeadline
-                      label={overviewMetric === 'cost' ? 'Raw token cost' : 'Processed tokens'}
-                      value={overviewMetric === 'cost' ? `${formatCost(rawTokenCost)}*` : formatCompact(totals.total)}
-                      detail={overviewMetric === 'cost'
-                        ? '* API-rate equivalent; subscription usage is not charged per token'
-                        : `${formatNumber(totals.requests)} LLM calls in this window`}
-                    />
-
-                    {providerRows.length ? providerRows.map((row, index) => (
-                      <ProviderSummaryRow
-                        key={row.id || row.provider || index}
-                        provider={row}
-                        metric={overviewMetric}
-                        total={providerTotal}
-                        color={providerColor(row.provider || '', index, lightTheme.isLight)}
-                      />
-                    )) : (
-                      <Typography variant="body2" color="text.secondary">No provider activity in this window.</Typography>
+                {section.key === 'overview' && (
+                  <>
+                    {costMode === 'billed' ? (
+                      <OverviewStatStrip columns={6}>
+                        <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail={`≈ ${formatCost(rawTokenCost)} at API rates`} />
+                        <OverviewStat
+                          emphasis
+                          label="Sandbox runtime"
+                          value={compute ? formatHours(computeTotals.hours) : '—'}
+                          detail={compute ? computeSpendDetail(compute.billing_enabled ?? false, computeTotals.total) : 'No compute in this range'}
+                        />
+                        <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
+                        <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
+                        <OverviewStat emphasis label="Cache savings" value={formatCost(cacheSavings)} detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× API-rate cost` : 'vs full input rates'} />
+                        <OverviewStat
+                          emphasis
+                          label="Subscription savings"
+                          value={formatCost(subscriptionSavings)}
+                          detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost` : 'No subscription usage'}
+                        />
+                      </OverviewStatStrip>
+                    ) : (
+                      <OverviewStatStrip columns={6}>
+                        <OverviewStat emphasis primary label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatCompact(totals.completion)} output`} />
+                        <OverviewStat emphasis label="LLM calls" value={formatNumber(totals.requests)} detail={`${activeDays} ${activeDays === 1 ? 'day' : 'days'} with LLM calls`} />
+                        <OverviewStat
+                          emphasis
+                          label="Sandbox runtime"
+                          value={compute ? formatHours(computeTotals.hours) : '—'}
+                          detail={compute ? `${compute.running_sandboxes ?? 0} running now` : 'No compute in this range'}
+                        />
+                        <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
+                        <OverviewStat emphasis label="Sessions" value={formatNumber(usage.data?.active_sessions)} detail={`${formatNumber(usage.data?.active_projects)} projects`} />
+                        <OverviewStat
+                          emphasis
+                          label="API-rate cost"
+                          value={costMode === 'usage' ? formatCost(rawTokenCost) : '—'}
+                          detail={costMode === 'usage' ? 'Not charged; reference only' : 'No priced models used'}
+                        />
+                      </OverviewStatStrip>
                     )}
-                  </Stack>
-
-                  <Box>
-                    <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
-                      <ToggleButtonGroup
-                        value={overviewMetric}
-                        exclusive
-                        size="small"
-                        onChange={(_, next: OverviewMetric | null) => next && setOverviewMetric(next)}
-                      >
-                        <ToggleButton value="cost">Cost</ToggleButton>
-                        <ToggleButton value="tokens">Tokens</ToggleButton>
-                      </ToggleButtonGroup>
-                    </Stack>
                     <ShadcnAreaChart
-                      title={`DAILY ${overviewMetric === 'cost' ? 'API-RATE COST' : 'PROCESSED TOKENS'}`}
-                      headline={overviewMetric === 'cost' ? formatCost(rawTokenCost) : formatCompact(totals.total)}
-                      data={providerChartData}
-                      series={providerChartSeries}
-                      valueFormatter={overviewMetric === 'cost' ? formatCost : formatCompact}
-                      stacked={false}
+                      title={activityTitle}
+                      headline={`${activityFormat(activityTotal)} in range${activityHeadlineDetail}`}
+                      action={(
+                        <>
+                          <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={activityMetricOptions} onChange={setActivityMetric} />
+                          <UsageSwitch<ActivitySplit>
+                            label="Split by"
+                            value={split}
+                            options={[
+                              { value: 'provider', label: 'Provider' },
+                              { value: 'model', label: 'Model' },
+                              { value: 'type', label: 'Type', disabled: activityMetric === 'calls' },
+                            ]}
+                            onChange={setActivitySplit}
+                          />
+                        </>
+                      )}
+                      data={activity.data}
+                      series={activity.series}
+                      valueFormatter={activityFormat}
+                      variant="trend"
+                      cardHeight="auto"
+                      chartHeight={260}
                     />
-                  </Box>
-                </Box>
-
-                <OverviewStatStrip columns={5}>
-                  <OverviewStat label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatCompact(averageTokens)} per active day`} />
-                  <OverviewStat
-                    label="Subscription savings"
-                    value={formatCost(subscriptionSavings)}
-                    detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost avoided` : 'No subscription usage'}
-                  />
-                  <OverviewStat
-                    label="Cache savings"
-                    value={formatCost(cacheSavings)}
-                    detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× the raw token cost` : 'vs full input rates'}
-                  />
-                  <OverviewStat label="Helix credits" value={formatCost(helixCredits)} detail="Actually debited for paid tokens" />
-                  <OverviewStat label="Cached input" value={formatCompact(totals.cacheRead)} detail={`${formatPercent(cachedShare)} of observed input`} />
-                </OverviewStatStrip>
-
-                <UsageSection title="Model breakdown">
-                  <SimpleTable authenticated fields={modelOverviewFields} data={modelOverviewRows} compact />
-                </UsageSection>
-              </>
-            )}
-
-            <Paper variant="outlined" sx={{ px: 2, pt: 1.25, pb: 2, borderRadius: 2, bgcolor: 'rgba(0,0,0,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}>
-              <Box sx={{ height: 6, mb: 1.5 }}>
-                {isScopedLoading('filters') && (
-                  <LinearProgress sx={{ borderRadius: 1 }} />
-                )}
-              </Box>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }, gap: 1.5 }}>
-                <FilterAutocomplete
-                  label="User"
-                  options={userOptions}
-                  value={selectedUser}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => { markFilterChange(); setUserId(option?.id || '') }}
-                />
-                <FilterAutocomplete
-                  label="Project"
-                  options={projectOptions}
-                  value={selectedProject}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => { markFilterChange(); setProjectId(option?.id || '') }}
-                />
-                <FilterAutocomplete
-                  label="Task"
-                  options={taskOptions}
-                  value={selectedTask}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => { markFilterChange(); setTaskId(option?.id || '') }}
-                />
-                <FilterAutocomplete
-                  label="Agent"
-                  options={appOptions}
-                  value={selectedApp}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => { markFilterChange(); setAppId(option?.id || '') }}
-                />
-                <TextField size="small" label="Session ID" value={sessionIdInput} onChange={e => { markFilterChange(); setSessionIdInput(e.target.value) }} />
-                <FilterAutocomplete
-                  label="Provider"
-                  options={providerOptions}
-                  value={selectedProvider}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => {
-                    markFilterChange()
-                    setProvider(option?.id || '')
-                    setModel('')
-                  }}
-                />
-                <FilterAutocomplete
-                  label="Model"
-                  options={filteredModelOptions}
-                  value={selectedModel}
-                  loading={isScopedLoading('filters')}
-                  onChange={option => {
-                    markFilterChange()
-                    setProvider(option?.provider || '')
-                    setModel(option?.model || '')
-                  }}
-                />
-                <Button size="small" variant="outlined" startIcon={<X size={16} />} onClick={clearFilters} sx={{ minHeight: 40 }}>
-                  Clear
-                </Button>
-              </Box>
-            </Paper>
-
-            <Typography variant="caption" color="text.secondary">
-              Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
-            </Typography>
-
-            {!usage.isLoading && compute && (
-              <Paper variant="outlined" sx={{ p: 0, overflow: 'hidden' }}>
-                <Box sx={{ px: 2, pt: 2, pb: 1.5 }}>
-                  <Typography variant="overline" color="text.secondary">Sandbox compute</Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-                    {formatCost(computeTotals.total)}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {compute.billing_enabled
-                      ? 'Credits debited for running desktops and containers'
-                      : 'Compute billing is disabled — this is historical spend and nothing new is accruing'}
-                  </Typography>
-                </Box>
-
-                <OverviewStatStrip columns={4}>
-                  <OverviewStat
-                    label="Desktops"
-                    value={formatCost(computeTotals.desktop)}
-                    detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.desktop / computeTotals.total)} of compute spend` : 'No desktop spend'}
-                  />
-                  <OverviewStat
-                    label="Headless"
-                    value={formatCost(computeTotals.headless)}
-                    detail={computeTotals.total > 0 ? `${formatPercent(computeTotals.headless / computeTotals.total)} of compute spend` : 'No headless spend'}
-                  />
-                  <OverviewStat
-                    label="Per active day"
-                    value={formatCost(computeTotals.perActiveDay)}
-                    detail={`${computeTotals.activeDays} ${computeTotals.activeDays === 1 ? 'day' : 'days'} with compute spend`}
-                  />
-                  <OverviewStat
-                    label="Running now"
-                    value={`${compute.running_sandboxes ?? 0}`}
-                    detail="Sandboxes currently billing"
-                  />
-                </OverviewStatStrip>
-
-                <Box sx={{ p: 2 }}>
-                  <ShadcnAreaChart
-                    title="DAILY COMPUTE SPEND"
-                    headline={formatCost(computeTotals.total)}
-                    data={computeChartData}
-                    series={COMPUTE_SERIES}
-                    valueFormatter={formatCost}
-                    zeroIsData
-                  />
-                </Box>
-
-                {computeSandboxRows.length > 0 && (
-                  <Box sx={{ px: 2, pb: 2 }}>
-                    <UsageSection title="Sandbox breakdown">
-                      <SimpleTable authenticated fields={computeSandboxFields} data={computeSandboxRows} compact />
-                    </UsageSection>
-                  </Box>
+                    {compute && (
+                      <ShadcnAreaChart
+                        title="Daily sandbox runtime"
+                        headline={`${formatHours(computeTotals.hours)} in range`}
+                        data={computeRuntimeChartData}
+                        series={COMPUTE_SERIES}
+                        valueFormatter={formatHours}
+                        zeroIsData
+                        variant="trend"
+                        cardHeight="auto"
+                      />
+                    )}
+                  </>
                 )}
 
-                <Box sx={{ px: 2, pb: 2 }}>
-                  <Typography variant="caption" color="text.secondary">
-                Compute spend answers the date range, project, and task filters — model, provider, session and user filters describe tokens, not containers.
-                  </Typography>
-                </Box>
-              </Paper>
-            )}
-
-            {!usage.isLoading && (
-              <>
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.35fr) minmax(0, 1fr)' }, gap: 2 }}>
-                  <UsagePanel>
+                {section.key === 'tokens' && (
+                  <>
                     <ShadcnAreaChart
-                      title="TOKENS OVER TIME"
-                      headline={formatCompact(totals.total)}
-                      data={tokenChartData}
-                      series={TOKEN_SERIES}
-                      valueFormatter={formatCompact}
+                      title={activityTitle}
+                      headline={`${activityFormat(activityTotal)} in range${activityHeadlineDetail}`}
+                      action={(
+                        <>
+                          <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={activityMetricOptions} onChange={setActivityMetric} />
+                          <UsageSwitch<ActivitySplit>
+                            label="Split by"
+                            value={split}
+                            options={[
+                              { value: 'provider', label: 'Provider' },
+                              { value: 'model', label: 'Model' },
+                              { value: 'type', label: 'Type', disabled: activityMetric === 'calls' },
+                            ]}
+                            onChange={setActivitySplit}
+                          />
+                        </>
+                      )}
+                      data={activity.data}
+                      series={activity.series}
+                      valueFormatter={activityFormat}
+                      variant="trend"
+                      cardHeight="auto"
+                      chartHeight={260}
                     />
-                  </UsagePanel>
-                  <UsagePanel>
-                    <Stack direction="row" alignItems="center" justifyContent="flex-end" sx={{ mb: 1 }}>
-                      <ToggleButtonGroup
-                        value={latencyMetric}
-                        exclusive
-                        size="small"
-                        onChange={(_, next: LatencyMetric | null) => next && setLatencyMetric(next)}
-                      >
-                        <ToggleButton value="per-request">Per request</ToggleButton>
-                        <ToggleButton value="per-1k-output">Per 1k output</ToggleButton>
-                      </ToggleButtonGroup>
-                    </Stack>
+                    <SegmentBarPanel>
+                      <SegmentBar
+                        label={`${{ cost: 'API-rate cost', tokens: 'Tokens', calls: 'LLM calls' }[activityMetric]} by provider`}
+                        segments={providerSegments}
+                        format={activityFormat}
+                      />
+                      <SegmentBar label="Tokens by type" segments={tokenTypeSegments} format={formatCompact} />
+                      {costMode !== 'unpriced' && <SegmentBar label="API-rate cost by type" segments={costTypeSegments} format={formatCost} />}
+                    </SegmentBarPanel>
+                    {/* The figures here not already shown above, as one quiet line. */}
+                    <Typography variant="caption" color="text.secondary" component="p" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      <Box component="span" sx={{ color: 'text.primary' }}>{formatCompact(totals.requests > 0 ? totals.total / totals.requests : 0)}</Box> tokens per call
+                      {' · '}<Box component="span" sx={{ color: 'text.primary' }}>{formatCompact(averageTokens)}</Box> tokens per active day ({activeDays} {activeDays === 1 ? 'day' : 'days'} with LLM calls)
+                      {'. '}Savings use current model API rates. Helix credits include only metered token charges debited by Helix; provider subscriptions and external API keys are excluded.
+                    </Typography>
+                    <UsagePanel>
+                      <UsageSection title="Model breakdown">
+                        <ResponsiveTable fields={modelOverviewFields(costMode)} data={modelOverviewRows} />
+                      </UsageSection>
+                    </UsagePanel>
+                  </>
+                )}
+
+                {section.key === 'performance' && (
+                  <UsageChartGrid columns={3}>
                     <ShadcnAreaChart
-                      title={latencyMetric === 'per-request' ? 'LATENCY BY PROVIDER' : 'LATENCY PER 1K OUTPUT TOKENS'}
-                      headline={latencyHeadline}
+                      title="Latency"
+                      headline={`${latencyHeadline} mean ${latencyMetric === 'per-request' ? 'per call' : 'per 1k out'}`}
+                      action={(
+                        <UsageSwitch<LatencyMetric>
+                          label="Latency metric"
+                          value={latencyMetric}
+                          options={[{ value: 'per-request', label: 'Per call' }, { value: 'per-1k-output', label: 'Per 1k out' }]}
+                          onChange={setLatencyMetric}
+                        />
+                      )}
                       data={latencyChartData}
                       series={latencyChartSeries}
                       valueFormatter={formatMs}
                       stacked={false}
                       variant="line"
                       connectNulls
+                      cardHeight="auto"
+                      chartHeight={200}
                     />
-                  </UsagePanel>
-                </Box>
+                    <ShadcnAreaChart
+                      title="Tool call errors"
+                      headline={`${toolCallErrorHeadline} of tool-calling requests, by provider`}
+                      data={toolCallErrorChartData}
+                      series={providerChartSeries}
+                      valueFormatter={value => (value > 0 && value < 0.01 ? `${(value * 100).toFixed(2)}%` : formatPercent(value))}
+                      stacked={false}
+                      zeroIsData
+                      variant="line"
+                      connectNulls
+                      cardHeight="auto"
+                      chartHeight={200}
+                    />
+                    <ShadcnAreaChart
+                      title="Cache hit ratio by agent runtime"
+                      headline={`${formatPercent(cacheHitRatio)} overall`}
+                      data={agentCacheChartData}
+                      series={agentCacheChartSeries}
+                      valueFormatter={value => formatPercent(value)}
+                      stacked={false}
+                      zeroIsData
+                      variant="line"
+                      yDomain={[0, 1]}
+                      cardHeight="auto"
+                      chartHeight={200}
+                    />
+                  </UsageChartGrid>
+                )}
 
-                <UsagePanel>
-                  <ShadcnAreaChart
-                    title="TOOL CALL ERROR RATE BY PROVIDER"
-                    headline={toolCallErrorHeadline}
-                    data={toolCallErrorChartData}
-                    series={providerChartSeries}
-                    valueFormatter={value => formatPercent(value)}
-                    stacked={false}
-                    zeroIsData
-                    variant="line"
-                    connectNulls
-                  />
-                </UsagePanel>
-
-                <UsagePanel>
-                  <ShadcnAreaChart
-                    title="CACHE HIT RATIO BY AGENT RUNTIME"
-                    headline={formatPercent(cacheHitRatio)}
-                    data={agentCacheChartData}
-                    series={agentCacheChartSeries}
-                    valueFormatter={value => formatPercent(value)}
-                    stacked={false}
-                    zeroIsData
-                    variant="line"
-                    yDomain={[0, 1]}
-                  />
-                </UsagePanel>
-
-                <UsagePanel>
-                  <ShadcnAreaChart
-                    title="MODEL USAGE OVER TIME"
-                    headline={`${modelSeries.length} models`}
-                    data={modelChartData}
-                    series={modelChartSeries}
-                    valueFormatter={formatCompact}
-                    stacked={false}
-                  />
-                </UsagePanel>
-
-                <UsagePanel>
-                  <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
-                </UsagePanel>
-
-                <Stack spacing={3} sx={{ width: '100%' }}>
-                  <UsagePanel>
-                    <UsageSection title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
-                      <SimpleTable authenticated fields={baseFields} data={tableRows.projects} compact loading={isScopedLoading('projects')} />
-                      <TablePagination
-                        component="div"
-                        count={usage.data?.projects_total || 0}
-                        page={projectPage}
-                        rowsPerPage={projectRowsPerPage}
-                        onPageChange={(_, nextPage) => {
-                          setLoadingScope('projects')
-                          setProjectPage(nextPage)
-                        }}
-                        onRowsPerPageChange={event => {
-                          setLoadingScope('projects')
-                          setProjectRowsPerPage(parseInt(event.target.value, 10))
-                          setProjectPage(0)
-                        }}
-                        rowsPerPageOptions={[10, 25, 50, 100]}
+                {section.key === 'compute' && (compute ? (
+                  <>
+                    <Typography variant="body2" color="text.secondary">
+                      {compute.billing_enabled ? '' : 'Compute billing is disabled, so nothing is debited; any spend shown is historical. '}
+                      The date range, project and task filters apply; model, provider, session and user filters describe tokens only.
+                    </Typography>
+                    <OverviewStatStrip columns={4}>
+                      <OverviewStat
+                        label="Desktops"
+                        value={formatHours(computeTotals.desktopHours)}
+                        detail={computeShareDetail(computeTotals.desktopHours, computeTotals.hours, computeTotals.desktop, 'desktop')}
                       />
-                    </UsageSection>
-                  </UsagePanel>
-
-                  <UsagePanel>
-                    <UsageSection title="Agent" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
-                      <SimpleTable authenticated fields={baseFields} data={tableRows.apps} compact />
-                    </UsageSection>
-                  </UsagePanel>
-
-                  <UsagePanel>
-                    <UsageSection title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
-                      <SimpleTable authenticated fields={baseFields} data={tableRows.tasks} compact loading={isScopedLoading('tasks')} />
-                      <TablePagination
-                        component="div"
-                        count={usage.data?.tasks_total || 0}
-                        page={taskPage}
-                        rowsPerPage={taskRowsPerPage}
-                        onPageChange={(_, nextPage) => {
-                          setLoadingScope('tasks')
-                          setTaskPage(nextPage)
-                        }}
-                        onRowsPerPageChange={event => {
-                          setLoadingScope('tasks')
-                          setTaskRowsPerPage(parseInt(event.target.value, 10))
-                          setTaskPage(0)
-                        }}
-                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      <OverviewStat
+                        label="Headless"
+                        value={formatHours(computeTotals.headlessHours)}
+                        detail={computeShareDetail(computeTotals.headlessHours, computeTotals.hours, computeTotals.headless, 'headless')}
                       />
-                    </UsageSection>
-                  </UsagePanel>
-
-                  <UsagePanel>
-                    <UsageSection title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
-                      <SimpleTable authenticated fields={sessionFields} data={tableRows.sessions} compact loading={isScopedLoading('sessions')} />
-                      <TablePagination
-                        component="div"
-                        count={usage.data?.sessions_total || 0}
-                        page={sessionPage}
-                        rowsPerPage={sessionRowsPerPage}
-                        onPageChange={(_, nextPage) => {
-                          setLoadingScope('sessions')
-                          setSessionPage(nextPage)
-                        }}
-                        onRowsPerPageChange={event => {
-                          setLoadingScope('sessions')
-                          setSessionRowsPerPage(parseInt(event.target.value, 10))
-                          setSessionPage(0)
-                        }}
-                        rowsPerPageOptions={[10, 25, 50, 100]}
+                      <OverviewStat
+                        label="Per active day"
+                        value={formatHours(computeTotals.hoursPerActiveDay)}
+                        detail={`${computeTotals.activeDays} ${computeTotals.activeDays === 1 ? 'day' : 'days'} with sandboxes running`}
                       />
-                    </UsageSection>
-                  </UsagePanel>
+                      <OverviewStat
+                        label="Running now"
+                        value={`${compute.running_sandboxes ?? 0}`}
+                        detail={compute.billing_enabled ? 'Sandboxes currently billing' : 'Sandboxes currently running'}
+                      />
+                    </OverviewStatStrip>
 
-                  <UsagePanel>
-                    <UsageSection
-                      title="Users"
-                      action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
+                    <ShadcnAreaChart
+                      title="Daily sandbox runtime"
+                      headline={`${formatHours(computeTotals.hours)} in range`}
+                      data={computeRuntimeChartData}
+                      series={COMPUTE_SERIES}
+                      valueFormatter={formatHours}
+                      zeroIsData
+                      variant="trend"
+                      cardHeight="auto"
+                    />
+
+                    {computeHasSpend && (
+                      <ShadcnAreaChart
+                        title="Daily compute spend"
+                        headline={`${formatCost(computeTotals.total)} in range`}
+                        data={computeSpendChartData}
+                        series={COMPUTE_SERIES}
+                        valueFormatter={formatCost}
+                        zeroIsData
+                        variant="trend"
+                        cardHeight="auto"
+                      />
+                    )}
+
+                    {computeSandboxRows.length > 0 && (
+                      <UsagePanel>
+                        <UsageSection title="Sandbox breakdown">
+                          <ResponsiveTable fields={computeSandboxFields(computeHasSpend)} data={computeSandboxRows} />
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                  </>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No sandbox compute in this range.</Typography>
+                ))}
+
+                {section.key === 'breakdowns' && (
+                  <>
+                    <Tabs
+                      value={table}
+                      onChange={(_, next: UsageTableKey) => setTable(next)}
+                      variant="scrollable"
+                      scrollButtons={false}
+                      // Tight tabs so all five fit a phone without scroll buttons.
+                      sx={{ borderBottom: 1, borderColor: 'divider', minHeight: 40, '& .MuiTab-root': { textTransform: 'none', minHeight: 40, minWidth: 0, px: { xs: 1.25, sm: 2 } } }}
                     >
-                      <TextField
-                        size="small"
-                        placeholder="Search username or email"
-                        value={userSearchInput}
-                        onChange={e => {
-                          setLoadingScope('users')
-                          setUserSearchInput(e.target.value)
-                          setUserPage(0)
-                        }}
-                        sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
-                        InputProps={{
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <Search size={16} />
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                      <SimpleTable authenticated fields={baseFields} data={tableRows.users} compact loading={isScopedLoading('users')} />
-                      <TablePagination
-                        component="div"
-                        count={usage.data?.users_total || 0}
-                        page={userPage}
-                        rowsPerPage={userRowsPerPage}
-                        onPageChange={(_, nextPage) => {
-                          setLoadingScope('users')
-                          setUserPage(nextPage)
-                        }}
-                        onRowsPerPageChange={event => {
-                          setLoadingScope('users')
-                          setUserRowsPerPage(parseInt(event.target.value, 10))
-                          setUserPage(0)
-                        }}
-                        rowsPerPageOptions={[10, 25, 50, 100]}
-                      />
-                    </UsageSection>
-                  </UsagePanel>
-                </Stack>
+                      {USAGE_TABLES.map(t => <Tab key={t.key} value={t.key} label={t.label} />)}
+                    </Tabs>
+                    {table === 'projects' && (
+                      <>
+                        <ProjectModelChart data={projectModelChart.data} series={projectModelChart.series} />
+                        <UsagePanel>
+                          <UsageSection title="Projects" action={<ExportButtons filename={`org-${orgID}-projects-usage`} rows={usage.data?.export_projects || usage.data?.projects || []} />}>
+                            <BreakdownTable empty="No projects in this range." loading={isScopedLoading('projects')} rows={tableRows.projects}>
+                              <ResponsiveTable fields={breakdownFields} data={tableRows.projects} loading={isScopedLoading('projects')} />
+                            </BreakdownTable>
+                            {(usage.data?.projects_total || 0) > projectRowsPerPage && (<TablePagination
+                              component="div"
+                              count={usage.data?.projects_total || 0}
+                              page={projectPage}
+                              rowsPerPage={projectRowsPerPage}
+                              onPageChange={(_, nextPage) => {
+                                setLoadingScope('projects')
+                                setProjectPage(nextPage)
+                              }}
+                              onRowsPerPageChange={event => {
+                                setLoadingScope('projects')
+                                setProjectRowsPerPage(parseInt(event.target.value, 10))
+                                setProjectPage(0)
+                              }}
+                              rowsPerPageOptions={[10, 25, 50, 100]}
+                            />)}
+                          </UsageSection>
+                        </UsagePanel>
+                      </>
+                    )}
+                    {table === 'agents' && (
+                      <UsagePanel>
+                        <UsageSection title="Agents" action={<ExportButtons filename={`org-${orgID}-agents-usage`} rows={usage.data?.export_apps || usage.data?.apps || []} />}>
+                          <BreakdownTable empty="No agents in this range." rows={tableRows.apps}>
+                            <ResponsiveTable fields={breakdownFields} data={tableRows.apps} />
+                          </BreakdownTable>
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                    {table === 'tasks' && (
+                      <UsagePanel>
+                        <UsageSection title="Tasks" action={<ExportButtons filename={`org-${orgID}-tasks-usage`} rows={usage.data?.export_tasks || usage.data?.tasks || []} />}>
+                          <BreakdownTable empty="No tasks in this range." loading={isScopedLoading('tasks')} rows={tableRows.tasks}>
+                            <ResponsiveTable fields={breakdownFields} data={tableRows.tasks} loading={isScopedLoading('tasks')} />
+                          </BreakdownTable>
+                          {(usage.data?.tasks_total || 0) > taskRowsPerPage && (<TablePagination
+                            component="div"
+                            count={usage.data?.tasks_total || 0}
+                            page={taskPage}
+                            rowsPerPage={taskRowsPerPage}
+                            onPageChange={(_, nextPage) => {
+                              setLoadingScope('tasks')
+                              setTaskPage(nextPage)
+                            }}
+                            onRowsPerPageChange={event => {
+                              setLoadingScope('tasks')
+                              setTaskRowsPerPage(parseInt(event.target.value, 10))
+                              setTaskPage(0)
+                            }}
+                            rowsPerPageOptions={[10, 25, 50, 100]}
+                          />)}
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                    {table === 'sessions' && (
+                      <UsagePanel>
+                        <UsageSection title="Sessions" action={<ExportButtons filename={`org-${orgID}-sessions-usage`} rows={usage.data?.export_sessions || usage.data?.sessions || []} />}>
+                          <BreakdownTable empty="No sessions in this range." loading={isScopedLoading('sessions')} rows={tableRows.sessions}>
+                            <ResponsiveTable fields={sessionBreakdownFields} data={tableRows.sessions} loading={isScopedLoading('sessions')} />
+                          </BreakdownTable>
+                          {(usage.data?.sessions_total || 0) > sessionRowsPerPage && (<TablePagination
+                            component="div"
+                            count={usage.data?.sessions_total || 0}
+                            page={sessionPage}
+                            rowsPerPage={sessionRowsPerPage}
+                            onPageChange={(_, nextPage) => {
+                              setLoadingScope('sessions')
+                              setSessionPage(nextPage)
+                            }}
+                            onRowsPerPageChange={event => {
+                              setLoadingScope('sessions')
+                              setSessionRowsPerPage(parseInt(event.target.value, 10))
+                              setSessionPage(0)
+                            }}
+                            rowsPerPageOptions={[10, 25, 50, 100]}
+                          />)}
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                    {table === 'users' && (
+                      <UsagePanel>
+                        <UsageSection
+                          title="Users"
+                          action={<ExportButtons filename={`org-${orgID}-users-usage`} rows={usage.data?.export_users || usage.data?.users || []} />}
+                        >
+                          <TextField
+                            size="small"
+                            placeholder="Search username or email"
+                            value={userSearchInput}
+                            onChange={e => {
+                              setLoadingScope('users')
+                              setUserSearchInput(e.target.value)
+                              setUserPage(0)
+                            }}
+                            sx={{ mb: 1.5, width: '100%', maxWidth: 360 }}
+                            InputProps={{
+                              startAdornment: (
+                                <InputAdornment position="start">
+                                  <Search size={16} />
+                                </InputAdornment>
+                              ),
+                            }}
+                          />
+                          <BreakdownTable empty="No users in this range." loading={isScopedLoading('users')} rows={tableRows.users}>
+                            <ResponsiveTable fields={breakdownFields} data={tableRows.users} loading={isScopedLoading('users')} />
+                          </BreakdownTable>
+                          {(usage.data?.users_total || 0) > userRowsPerPage && (<TablePagination
+                            component="div"
+                            count={usage.data?.users_total || 0}
+                            page={userPage}
+                            rowsPerPage={userRowsPerPage}
+                            onPageChange={(_, nextPage) => {
+                              setLoadingScope('users')
+                              setUserPage(nextPage)
+                            }}
+                            onRowsPerPageChange={event => {
+                              setLoadingScope('users')
+                              setUserRowsPerPage(parseInt(event.target.value, 10))
+                              setUserPage(0)
+                            }}
+                            rowsPerPageOptions={[10, 25, 50, 100]}
+                          />)}
+                        </UsageSection>
+                      </UsagePanel>
+                    )}
+                  </>
+                )}
               </>
             )}
           </Stack>

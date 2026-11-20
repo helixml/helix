@@ -2614,7 +2614,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     task?.id && (actionablePRProposals.length > 0 || pendingCompletionKey) ? (
       <>
         {actionablePRProposals.map((proposal) => (
-          <PRProposalCard key={proposal.id} specTaskId={task.id!} proposal={proposal} />
+          <PRProposalCard
+            key={proposal.id}
+            owner={{ kind: "task", specTaskId: task.id! }}
+            proposal={proposal}
+          />
         ))}
         {pendingCompletionKey && (
           <CompletionRequestCard

@@ -107,6 +107,12 @@ export interface ApiBotDTO {
    */
   agent_work_state?: TypesAgentWorkState;
   /**
+   * AutoApprovePullRequests approves the bot's PR proposals as
+   * AutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
+  /**
    * CanEdit is true when the caller may change this Bot: organization
    * owners and platform admins, or a member who may update the Bot's
    * agent app. The UI hides edit, delete and re-parent controls when false.
@@ -133,6 +139,11 @@ export interface ApiBotDTO {
    * default when the Bot never configured one).
    */
   instance_profile?: TypesBotInstanceProfile;
+  /**
+   * KeepAlive exempts the bot's desktop from idle shutdown. Changed through
+   * PUT /orgs/{org}/bots/{id}/keep-alive.
+   */
+  keep_alive?: boolean;
   legacy_app_id?: string;
   model?: string;
   /**
@@ -217,6 +228,51 @@ export interface ApiBotInstanceDTO {
   session_id?: string;
   sudo?: boolean;
   updated_at?: string;
+}
+
+export interface ApiBotResetDTO {
+  activation_id?: string;
+  erases?: string[];
+  home?: ApiBotResetHomeDTO;
+  keeps?: string[];
+  previous_session_id?: string;
+  scope?: string;
+  session_id?: string;
+}
+
+export interface ApiBotResetHomeDTO {
+  existed?: boolean;
+  generation?: string;
+  retired_path?: string;
+}
+
+export interface ApiBotResetPlanDTO {
+  scopes?: ApiBotResetScopeDTO[];
+}
+
+export interface ApiBotResetRequestDTO {
+  /** Confirm must equal the bot id. */
+  confirm?: string;
+  /** Scope is "session" or "session_and_home". */
+  scope?: string;
+}
+
+export interface ApiBotResetScopeDTO {
+  /** Available is false when the scope would be refused right now. */
+  available?: boolean;
+  erases?: string[];
+  keeps?: string[];
+  scope?: string;
+  unavailable_reason?: string;
+}
+
+export interface ApiBotRestartDTO {
+  activation_id?: string;
+  legacy_app_id?: string;
+  mode?: string;
+  preserves?: string[];
+  project_id?: string;
+  session_id?: string;
 }
 
 export interface ApiChartPositionDTO {
@@ -754,6 +810,33 @@ export interface HosthistorySample {
   disk?: number;
   memory?: number;
   timestamp?: number;
+}
+
+export interface HydraBotHomeInventory {
+  chrome_profiles?: HydraChromeProfileStatus[];
+  top_level_entries?: number;
+}
+
+export enum HydraBotHomeOutcome {
+  BotHomeOutcomeExisting = "existing",
+  BotHomeOutcomeCreated = "created",
+  BotHomeOutcomeMigrated = "migrated",
+}
+
+export interface HydraBotHomeResult {
+  generation?: string;
+  inventory?: HydraBotHomeInventory;
+  migrated_from_session?: string;
+  outcome?: HydraBotHomeOutcome;
+  path?: string;
+}
+
+export interface HydraChromeProfileStatus {
+  cookies_db_present?: boolean;
+  default_prefs_valid?: boolean;
+  local_state_valid?: boolean;
+  path?: string;
+  singleton_lock?: boolean;
 }
 
 export interface HydraContainerBlkioStats {
@@ -1362,7 +1445,6 @@ export interface ServerClaudeLoginStartResponse {
 }
 
 export interface ServerClaudeModel {
-  description?: string;
   id?: string;
   name?: string;
 }
@@ -1418,6 +1500,8 @@ export interface ServerDeployWebServiceRequest {
 }
 
 export interface ServerDevContainerWithClients {
+  /** BotHome reports how the bot home was bound, when the request had one. */
+  bot_home?: HydraBotHomeResult;
   clients?: GithubComHelixmlHelixApiPkgServerClientInfo[];
   container_id?: string;
   container_name?: string;
@@ -1868,6 +1952,14 @@ export interface ServerModelSubstitution {
   original_model?: string;
   original_provider?: string;
   reason?: string;
+}
+
+export interface ServerOrgBotKeepAliveRequest {
+  keep_alive?: boolean;
+}
+
+export interface ServerOrgBotPRAutoApproveRequest {
+  enabled?: boolean;
 }
 
 export interface ServerOrganizationDomainInfo {
@@ -2466,14 +2558,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitHub = "github",
-  KindGitLab = "gitlab",
-  KindEmail = "email",
   KindSlack = "slack",
-  KindCron = "cron",
-  KindHelixEvents = "helix_events",
-  KindLocal = "local",
+  KindGitHub = "github",
+  KindEmail = "email",
+  KindGitLab = "gitlab",
   KindWebhook = "webhook",
+  KindCron = "cron",
+  KindLocal = "local",
+  KindHelixEvents = "helix_events",
 }
 
 export interface TransportResolvedActivation {
@@ -2890,7 +2982,7 @@ export interface TypesAssistantConfig {
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
    * model — otherwise Claude Code defaults to Sonnet. Empty means
-   * "claude-opus-5-5" (the current 1M-context Opus model).
+   * DefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.
    */
   claude_subscription_model?: string;
   /**
@@ -3681,6 +3773,16 @@ export interface TypesCodeAgentExecutionConfig {
 export interface TypesCodeAgentGooseRecipe {
   name?: string;
   path?: string;
+}
+
+export interface TypesCodeAgentModelOption {
+  /**
+   * Current marks a current-generation model. Pickers list current models
+   * first and group the rest as legacy.
+   */
+  current?: boolean;
+  id?: string;
+  name?: string;
 }
 
 export interface TypesCodeAgentOverrides {
@@ -4630,13 +4732,6 @@ export interface TypesGitRepository {
   status?: TypesGitRepositoryStatus;
   /** Set while an upstream operation is running */
   sync_in_progress_since?: string;
-  /**
-   * TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
-   * .helix/startup.sh from. Only a human write moves it (a push with a human
-   * credential, or a startup-script save in the UI/API); agent pushes never
-   * do. Written only via SetGitRepositoryTrustedStartupSHA.
-   */
-  trusted_startup_sha?: string;
   updated_at?: string;
   /** Authentication fields */
   username?: string;
@@ -5573,11 +5668,14 @@ export interface TypesOrgComputeUsage {
   billing_enabled?: boolean;
   daily?: TypesUsageComputeDailyPoint[];
   desktop_credits?: number;
+  desktop_hours?: number;
   headless_credits?: number;
+  headless_hours?: number;
   /** RunningSandboxes is a point-in-time count, not a range aggregate. */
   running_sandboxes?: number;
   sandboxes?: TypesUsageComputeBreakdownRow[];
   total_credits?: number;
+  total_hours?: number;
 }
 
 export interface TypesOrgDetails {
@@ -6852,6 +6950,7 @@ export interface TypesSandbox {
   id?: string;
   image?: string;
   memory_mb?: number;
+  /** SandboxNameMaxLen */
   name?: string;
   /**
    * OrgBotID is the helix-org bot whose session owns this container, when
@@ -7222,6 +7321,12 @@ export interface TypesServerConfigForFrontend {
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
+  /**
+   * CodeAgentModels is the vendor model catalogue per coding-agent harness,
+   * best first (see CodeAgentModels). The UI pickers and their defaults read it
+   * from here so the backend list is the only place it is maintained.
+   */
+  code_agent_models?: Record<string, TypesCodeAgentModelOption[]>;
   /**
    * DefaultChatSystemPrompt is the system prompt the platform applies to
    * direct model chats when the user has not customised one. Surfaced to
@@ -8292,6 +8397,14 @@ export interface TypesSpecTask {
 export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
   /**
+   * DestroyWorkspace tears the task's desktop down for good instead of
+   * stopping it: the container, the session's on-host data and the task's
+   * workspace checkout are deleted, so a finished task stops holding disk.
+   * Only honoured when the request archives and stop is enabled; the same
+   * live-agent guard as stop_agent applies.
+   */
+  destroy_workspace?: boolean;
+  /**
    * StopAgent controls whether archiving stops the task's external agent and
    * frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
    * that is mid-turn unless the caller says so explicitly.
@@ -8485,6 +8598,9 @@ export interface TypesSpecTaskPRProposal {
   error?: string;
   head_branch?: string;
   id?: string;
+  /** OrgBotID is the proposing org bot, unique within OrganizationID. */
+  org_bot_id?: string;
+  organization_id?: string;
   pr_id?: string;
   pr_number?: number;
   pr_url?: string;
@@ -9526,6 +9642,7 @@ export interface TypesUsageBreakdownRow {
 
 export interface TypesUsageComputeBreakdownRow {
   credits?: number;
+  hours?: number;
   name?: string;
   pricing_type?: string;
   project_id?: string;
@@ -9538,8 +9655,11 @@ export interface TypesUsageComputeBreakdownRow {
 export interface TypesUsageComputeDailyPoint {
   date?: string;
   desktop?: number;
+  desktop_hours?: number;
   headless?: number;
+  headless_hours?: number;
   total?: number;
+  total_hours?: number;
 }
 
 export interface TypesUsageFilterOption {
@@ -16745,6 +16865,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description When on, the bot's desktop is not shut down when idle. A bot's own key cannot change it.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsKeepAliveUpdate
+     * @summary Turn an org bot's Keep Alive on or off
+     * @request PUT:/api/v1/orgs/{org}/bots/{id}/keep-alive
+     * @secure
+     */
+    v1OrgsBotsKeepAliveUpdate: (
+      org: string,
+      id: string,
+      request: ServerOrgBotKeepAliveRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/keep-alive`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @tags HelixOrg
@@ -16781,17 +16925,139 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description When on, the bot's proposals are approved as the user who turned it on. A bot's own key cannot change it.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPrAutoApproveUpdate
+     * @summary Turn auto-approval of an org bot's pull request proposals on or off
+     * @request PUT:/api/v1/orgs/{org}/bots/{id}/pr-auto-approve
+     * @secure
+     */
+    v1OrgsBotsPrAutoApproveUpdate: (
+      org: string,
+      id: string,
+      request: ServerOrgBotPRAutoApproveRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/pr-auto-approve`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description An org bot opens pull requests (e.g. to its own playbook) only through proposals a user approves.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPrProposalsDetail
+     * @summary List an org bot's pull request proposals
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/pr-proposals
+     * @secure
+     */
+    v1OrgsBotsPrProposalsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskPRProposal[], any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/pr-proposals`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approving opens the pull request as soon as the branch has commits beyond the base. Edited fields override the bot's proposal. A bot's own key cannot decide.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPrProposalsDecideCreate
+     * @summary Approve or reject an org bot's pull request proposal
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/pr-proposals/{proposal_id}/decide
+     * @secure
+     */
+    v1OrgsBotsPrProposalsDecideCreate: (
+      org: string,
+      id: string,
+      proposalId: string,
+      request: TypesPRProposalDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskPRProposal, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/pr-proposals/${proposalId}/decide`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsResetDetail
+     * @summary Helix-org: describe what resetting a bot would erase
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/reset
+     * @secure
+     */
+    v1OrgsBotsResetDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotResetPlanDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/reset`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsResetCreate
+     * @summary Helix-org: reset a bot (destructive; erases the declared scope)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/reset
+     * @secure
+     */
+    v1OrgsBotsResetCreate: (id: string, org: string, request: ApiBotResetRequestDTO, params: RequestParams = {}) =>
+      this.request<ApiBotResetDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/reset`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @tags HelixOrg
      * @name V1OrgsBotsRestartCreate
-     * @summary Helix-org: restart a bot (fresh session + desktop)
+     * @summary Helix-org: DEPRECATED fresh-session restart (use runtime-restart or reset)
      * @request POST:/api/v1/orgs/{org}/bots/{id}/restart
+     * @deprecated
      * @secure
      */
     v1OrgsBotsRestartCreate: (id: string, org: string, params: RequestParams = {}) =>
       this.request<ApiBotActivateDTO, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/bots/${id}/restart`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsRuntimeRestartCreate
+     * @summary Helix-org: restart a bot's runtime (keeps session, home and queue)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/runtime-restart
+     * @secure
+     */
+    v1OrgsBotsRuntimeRestartCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotRestartDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/runtime-restart`,
         method: "POST",
         secure: true,
         ...params,
@@ -21050,7 +21316,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
+     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly. Pass destroy_workspace=true to destroy the desktop instead of stopping it, deleting its container data and the task's workspace checkout (ignored when unarchiving, with stop_agent=false, or for a Keep Alive task).
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksArchivePartialUpdate

@@ -220,3 +220,16 @@ func TestReadSkipsFilesRemovedAfterListing(t *testing.T) {
 		t.Fatalf("readFiles of a vanished chunk = %v, %v", got, err)
 	}
 }
+
+func TestStallShareNeverExceedsWallTime(t *testing.T) {
+	at := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+	samples := []types.SessionResourceSample{
+		{SessionID: "ses_a", Timestamp: at.UnixMilli()},
+		// 30s of I/O stall counted over an interval stamped as 29.5s.
+		{SessionID: "ses_a", Timestamp: at.Add(29500 * time.Millisecond).UnixMilli(), IOPressureUsec: 30e6, CPUThrottledUsec: 31e6},
+	}
+	r := Summarize("ses_a", samples, 10)
+	if r.Summary.IOPressurePct != 100 || r.Points[0].IOPressurePct != 100 || r.Points[0].CPUThrottledPct != 100 {
+		t.Fatalf("shares above 100%%: %+v %+v", r.Summary, r.Points[0])
+	}
+}

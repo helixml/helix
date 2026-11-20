@@ -151,6 +151,13 @@ definitions:
         description: |-
           AgentWorkState is "working" only while the running Bot's latest
           interaction is still waiting for its external agent.
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests approves the bot's PR proposals as
+          AutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.
+        type: boolean
+      auto_approve_pull_requests_by:
+        type: string
       can_edit:
         description: |-
           CanEdit is true when the caller may change this Bot: organization
@@ -186,6 +193,11 @@ definitions:
         description: |-
           InstanceProfile is the effective profile of this Bot's instances (the
           default when the Bot never configured one).
+      keep_alive:
+        description: |-
+          KeepAlive exempts the bot's desktop from idle shutdown. Changed through
+          PUT /orgs/{org}/bots/{id}/keep-alive.
+        type: boolean
       legacy_app_id:
         type: string
       model:
@@ -305,6 +317,87 @@ definitions:
       sudo:
         type: boolean
       updated_at:
+        type: string
+    type: object
+  api.BotResetDTO:
+    properties:
+      activation_id:
+        type: string
+      erases:
+        items:
+          type: string
+        type: array
+      home:
+        $ref: '#/definitions/api.BotResetHomeDTO'
+      keeps:
+        items:
+          type: string
+        type: array
+      previous_session_id:
+        type: string
+      scope:
+        type: string
+      session_id:
+        type: string
+    type: object
+  api.BotResetHomeDTO:
+    properties:
+      existed:
+        type: boolean
+      generation:
+        type: string
+      retired_path:
+        type: string
+    type: object
+  api.BotResetPlanDTO:
+    properties:
+      scopes:
+        items:
+          $ref: '#/definitions/api.BotResetScopeDTO'
+        type: array
+    type: object
+  api.BotResetRequestDTO:
+    properties:
+      confirm:
+        description: Confirm must equal the bot id.
+        type: string
+      scope:
+        description: Scope is "session" or "session_and_home".
+        type: string
+    type: object
+  api.BotResetScopeDTO:
+    properties:
+      available:
+        description: Available is false when the scope would be refused right now.
+        type: boolean
+      erases:
+        items:
+          type: string
+        type: array
+      keeps:
+        items:
+          type: string
+        type: array
+      scope:
+        type: string
+      unavailable_reason:
+        type: string
+    type: object
+  api.BotRestartDTO:
+    properties:
+      activation_id:
+        type: string
+      legacy_app_id:
+        type: string
+      mode:
+        type: string
+      preserves:
+        items:
+          type: string
+        type: array
+      project_id:
+        type: string
+      session_id:
         type: string
     type: object
   api.ChartPositionDTO:
@@ -1118,6 +1211,51 @@ definitions:
         type: number
       timestamp:
         type: integer
+    type: object
+  hydra.BotHomeInventory:
+    properties:
+      chrome_profiles:
+        items:
+          $ref: '#/definitions/hydra.ChromeProfileStatus'
+        type: array
+      top_level_entries:
+        type: integer
+    type: object
+  hydra.BotHomeOutcome:
+    enum:
+    - existing
+    - created
+    - migrated
+    type: string
+    x-enum-varnames:
+    - BotHomeOutcomeExisting
+    - BotHomeOutcomeCreated
+    - BotHomeOutcomeMigrated
+  hydra.BotHomeResult:
+    properties:
+      generation:
+        type: string
+      inventory:
+        $ref: '#/definitions/hydra.BotHomeInventory'
+      migrated_from_session:
+        type: string
+      outcome:
+        $ref: '#/definitions/hydra.BotHomeOutcome'
+      path:
+        type: string
+    type: object
+  hydra.ChromeProfileStatus:
+    properties:
+      cookies_db_present:
+        type: boolean
+      default_prefs_valid:
+        type: boolean
+      local_state_valid:
+        type: boolean
+      path:
+        type: string
+      singleton_lock:
+        type: boolean
     type: object
   hydra.ContainerBlkioStats:
     properties:
@@ -2038,8 +2176,6 @@ definitions:
     type: object
   server.ClaudeModel:
     properties:
-      description:
-        type: string
       id:
         type: string
       name:
@@ -2122,6 +2258,11 @@ definitions:
     type: object
   server.DevContainerWithClients:
     properties:
+      bot_home:
+        allOf:
+        - $ref: '#/definitions/hydra.BotHomeResult'
+        description: BotHome reports how the bot home was bound, when the request
+          had one.
       clients:
         items:
           $ref: '#/definitions/github_com_helixml_helix_api_pkg_server.ClientInfo'
@@ -2891,6 +3032,16 @@ definitions:
         type: string
       reason:
         type: string
+    type: object
+  server.OrgBotKeepAliveRequest:
+    properties:
+      keep_alive:
+        type: boolean
+    type: object
+  server.OrgBotPRAutoApproveRequest:
+    properties:
+      enabled:
+        type: boolean
     type: object
   server.OrganizationDomainInfo:
     properties:
@@ -3810,24 +3961,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - github
-    - gitlab
-    - email
     - slack
-    - cron
-    - helix_events
-    - local
+    - github
+    - email
+    - gitlab
     - webhook
+    - cron
+    - local
+    - helix_events
     type: string
     x-enum-varnames:
-    - KindGitHub
-    - KindGitLab
-    - KindEmail
     - KindSlack
-    - KindCron
-    - KindHelixEvents
-    - KindLocal
+    - KindGitHub
+    - KindEmail
+    - KindGitLab
     - KindWebhook
+    - KindCron
+    - KindLocal
+    - KindHelixEvents
   transport.ResolvedActivation:
     properties:
       address:
@@ -4515,7 +4666,7 @@ definitions:
           CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
           which the claude-agent-acp package reads (resolveModelPreference) to pick the
           model — otherwise Claude Code defaults to Sonnet. Empty means
-          "claude-opus-5-5" (the current 1M-context Opus model).
+          DefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.
         type: string
       code_agent_credential_type:
         allOf:
@@ -5733,6 +5884,18 @@ definitions:
       name:
         type: string
       path:
+        type: string
+    type: object
+  types.CodeAgentModelOption:
+    properties:
+      current:
+        description: |-
+          Current marks a current-generation model. Pickers list current models
+          first and group the rest as legacy.
+        type: boolean
+      id:
+        type: string
+      name:
         type: string
     type: object
   types.CodeAgentOverrides:
@@ -7202,13 +7365,6 @@ definitions:
         $ref: '#/definitions/types.GitRepositoryStatus'
       sync_in_progress_since:
         description: Set while an upstream operation is running
-        type: string
-      trusted_startup_sha:
-        description: |-
-          TrustedStartupSHA is the helix-specs commit whose tree sandboxes run
-          .helix/startup.sh from. Only a human write moves it (a push with a human
-          credential, or a startup-script save in the UI/API); agent pushes never
-          do. Written only via SetGitRepositoryTrustedStartupSHA.
         type: string
       updated_at:
         type: string
@@ -8731,7 +8887,11 @@ definitions:
         type: array
       desktop_credits:
         type: number
+      desktop_hours:
+        type: number
       headless_credits:
+        type: number
+      headless_hours:
         type: number
       running_sandboxes:
         description: RunningSandboxes is a point-in-time count, not a range aggregate.
@@ -8741,6 +8901,8 @@ definitions:
           $ref: '#/definitions/types.UsageComputeBreakdownRow'
         type: array
       total_credits:
+        type: number
+      total_hours:
         type: number
     type: object
   types.OrgDetails:
@@ -10804,6 +10966,7 @@ definitions:
       memory_mb:
         type: integer
       name:
+        description: SandboxNameMaxLen
         type: string
       org_bot_id:
         description: |-
@@ -11310,6 +11473,16 @@ definitions:
       billing_enabled:
         description: Charging for usage
         type: boolean
+      code_agent_models:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/types.CodeAgentModelOption'
+          type: array
+        description: |-
+          CodeAgentModels is the vendor model catalogue per coding-agent harness,
+          best first (see CodeAgentModels). The UI pickers and their defaults read it
+          from here so the backend list is the only place it is maintained.
+        type: object
       default_chat_system_prompt:
         description: |-
           DefaultChatSystemPrompt is the system prompt the platform applies to
@@ -12951,6 +13124,14 @@ definitions:
     properties:
       archived:
         type: boolean
+      destroy_workspace:
+        description: |-
+          DestroyWorkspace tears the task's desktop down for good instead of
+          stopping it: the container, the session's on-host data and the task's
+          workspace checkout are deleted, so a finished task stops holding disk.
+          Only honoured when the request archives and stop is enabled; the same
+          live-agent guard as stop_agent applies.
+        type: boolean
       stop_agent:
         description: |-
           StopAgent controls whether archiving stops the task's external agent and
@@ -13297,6 +13478,11 @@ definitions:
       head_branch:
         type: string
       id:
+        type: string
+      org_bot_id:
+        description: OrgBotID is the proposing org bot, unique within OrganizationID.
+        type: string
+      organization_id:
         type: string
       pr_id:
         type: string
@@ -15021,6 +15207,8 @@ definitions:
     properties:
       credits:
         type: number
+      hours:
+        type: number
       name:
         type: string
       pricing_type:
@@ -15042,9 +15230,15 @@ definitions:
         type: string
       desktop:
         type: number
+      desktop_hours:
+        type: number
       headless:
         type: number
+      headless_hours:
+        type: number
       total:
+        type: number
+      total_hours:
         type: number
     type: object
   types.UsageFilterOption:
@@ -24782,6 +24976,37 @@ paths:
       summary: 'Helix-org: delete a bot instance'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/keep-alive:
+    put:
+      consumes:
+      - application/json
+      description: When on, the bot's desktop is not shut down when idle. A bot's
+        own key cannot change it.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Setting
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.OrgBotKeepAliveRequest'
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Turn an org bot's Keep Alive on or off
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/parents:
     post:
       consumes:
@@ -24847,8 +25072,183 @@ paths:
       summary: 'Helix-org: remove a bot reporting line (manager)'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/pr-auto-approve:
+    put:
+      consumes:
+      - application/json
+      description: When on, the bot's proposals are approved as the user who turned
+        it on. A bot's own key cannot change it.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Setting
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.OrgBotPRAutoApproveRequest'
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Turn auto-approval of an org bot's pull request proposals on or off
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/pr-proposals:
+    get:
+      description: An org bot opens pull requests (e.g. to its own playbook) only
+        through proposals a user approves.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskPRProposal'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List an org bot's pull request proposals
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/pr-proposals/{proposal_id}/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving opens the pull request as soon as the branch has commits
+        beyond the base. Edited fields override the bot's proposal. A bot's own key
+        cannot decide.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Proposal ID
+        in: path
+        name: proposal_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PRProposalDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskPRProposal'
+      security:
+      - BearerAuth: []
+      summary: Approve or reject an org bot's pull request proposal
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/reset:
+    get:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BotResetPlanDTO'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: describe what resetting a bot would erase'
+      tags:
+      - HelixOrg
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Scope and confirmation
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.BotResetRequestDTO'
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.BotResetDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: reset a bot (destructive; erases the declared scope)'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/restart:
     post:
+      deprecated: true
       parameters:
       - description: Bot ID
         in: path
@@ -24864,6 +25264,10 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -24874,7 +25278,38 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: restart a bot (fresh session + desktop)'
+      summary: 'Helix-org: DEPRECATED fresh-session restart (use runtime-restart or
+        reset)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/runtime-restart:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.BotRestartDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: restart a bot''s runtime (keeps session, home and queue)'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/secrets:
@@ -31199,6 +31634,9 @@ paths:
         to restore it. Archiving stops the task's agent and frees its sandbox by default
         (stop_agent, default true); pass stop_agent=false for bookkeeping only. A
         live agent mid-turn is never stopped unless stop_agent is sent explicitly.
+        Pass destroy_workspace=true to destroy the desktop instead of stopping it,
+        deleting its container data and the task's workspace checkout (ignored when
+        unarchiving, with stop_agent=false, or for a Keep Alive task).
       parameters:
       - description: Task ID
         in: path

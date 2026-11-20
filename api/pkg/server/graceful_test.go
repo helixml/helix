@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 )
 
@@ -96,6 +97,7 @@ func TestReadyzReportsDraining(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.readyz(rec, httptest.NewRequest(http.MethodGet, "/api/v1/readyz", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "blue", rec.Header().Get("X-Helix-Instance"))
 
 	s.drainer.draining.Store(true)
 	rec = httptest.NewRecorder()
@@ -107,5 +109,7 @@ func newReadyzServer(t *testing.T) (*gomock.Controller, *HelixAPIServer) {
 	ctrl := gomock.NewController(t)
 	st := store.NewMockStore(ctrl)
 	st.EXPECT().Ping(gomock.Any()).Return(nil).AnyTimes()
-	return ctrl, &HelixAPIServer{Store: st, drainer: newDrainer()}
+	cfg := &config.ServerConfig{}
+	cfg.InstanceID = "blue"
+	return ctrl, &HelixAPIServer{Cfg: cfg, Store: st, drainer: newDrainer()}
 }

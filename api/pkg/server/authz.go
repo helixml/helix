@@ -284,6 +284,11 @@ func denyProjectMutationToConfinedKey(user *types.User) error {
 // errTaskConfinedKeyOrg refuses the helix-org surface to a task-confined key.
 var errTaskConfinedKeyOrg = errors.New("a task-confined key cannot use helix-org")
 
+// errScopedKeyOrgWiring refuses org-wide REST mutations made with a project- or
+// session-scoped key, even when the key's owner is an org owner or admin. A bot
+// changes that wiring through its helix MCP tools, which check its tool grants.
+var errScopedKeyOrgWiring = errors.New("project- and session-scoped keys cannot change org-wide settings, triggers, processors or assets over REST, even when the key's owner is an organization owner or admin; bots must use their helix MCP tools instead (create_trigger, create_processor, update_processor, delete_processor, asset tools)")
+
 // denyHelixOrgToConfinedKey refuses the org graph (bots, chat, activations,
 // topics, processors, settings, Slack, the org MCP) to a task-confined key:
 // an org Bot acts on its own authority across the organization, so reaching

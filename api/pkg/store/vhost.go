@@ -141,8 +141,26 @@ func (s *PostgresStore) UpsertProjectWebServiceState(ctx context.Context, state 
 	if state.CreatedAt.IsZero() {
 		state.CreatedAt = state.UpdatedAt
 	}
-	return s.gdb.WithContext(ctx).
-		Save(state).Error
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing types.ProjectWebServiceState
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("project_id = ?", state.ProjectID).
+			First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			return tx.Create(state).Error
+		}
+		if err != nil {
+			return err
+		}
+		if state.HostDeviceID != "" && existing.HostDeviceID != "" && state.HostDeviceID != existing.HostDeviceID {
+			return fmt.Errorf("%w: web service runner is pinned to %q, requested %q", ErrConflict, existing.HostDeviceID, state.HostDeviceID)
+		}
+		if existing.HostDeviceID != "" {
+			state.HostDeviceID = existing.HostDeviceID
+		}
+		state.CreatedAt = existing.CreatedAt
+		return tx.Save(state).Error
+	})
 }
 
 // GetProjectWebServiceState returns the row or ErrNotFound.
@@ -175,15 +193,30 @@ func (s *PostgresStore) SetActiveWebServiceSandbox(ctx context.Context, projectI
 		Where(`project_id = ? AND EXISTS (
 			SELECT 1 FROM sandboxes
 			WHERE id = ? AND project_id = ? AND purpose = ? AND deleted_at IS NULL
+			AND host_device_id <> ''
+			AND (COALESCE(project_web_service_states.host_device_id, '') = '' OR project_web_service_states.host_device_id = sandboxes.host_device_id)
 		)`, projectID, sandboxID, projectID, types.SandboxPurposeWebService).
 		Updates(map[string]interface{}{
 			"active_sandbox_id": sandboxID,
+			"host_device_id":    gorm.Expr("(SELECT host_device_id FROM sandboxes WHERE id = ?)", sandboxID),
 			"updated_at":        time.Now(),
 		})
 	if res.Error != nil {
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
+		state, stateErr := s.GetProjectWebServiceState(ctx, projectID)
+		if stateErr != nil {
+			return stateErr
+		}
+		sandbox, sandboxErr := s.GetSandbox(ctx, sandboxID)
+		if sandboxErr != nil {
+			return sandboxErr
+		}
+		if sandbox.ProjectID == projectID && sandbox.Purpose == types.SandboxPurposeWebService &&
+			(sandbox.HostDeviceID == "" || (state.HostDeviceID != "" && state.HostDeviceID != sandbox.HostDeviceID)) {
+			return fmt.Errorf("%w: web service runner is pinned to %q, sandbox runner is %q", ErrConflict, state.HostDeviceID, sandbox.HostDeviceID)
+		}
 		return ErrNotFound
 	}
 	return nil
@@ -195,13 +228,30 @@ func (s *PostgresStore) SetWebServiceHostDeviceID(ctx context.Context, projectID
 	if projectID == "" {
 		return fmt.Errorf("project_id is required")
 	}
-	return s.gdb.WithContext(ctx).
+	if hostDeviceID == "" {
+		return fmt.Errorf("host_device_id is required")
+	}
+	res := s.gdb.WithContext(ctx).
 		Model(&types.ProjectWebServiceState{}).
-		Where("project_id = ?", projectID).
+		Where("project_id = ? AND (COALESCE(host_device_id, '') = '' OR host_device_id = ?)", projectID, hostDeviceID).
 		Updates(map[string]interface{}{
 			"host_device_id": hostDeviceID,
 			"updated_at":     time.Now(),
-		}).Error
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		state, err := s.GetProjectWebServiceState(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		if state.HostDeviceID != "" && state.HostDeviceID != hostDeviceID {
+			return fmt.Errorf("%w: web service runner is pinned to %q, requested %q", ErrConflict, state.HostDeviceID, hostDeviceID)
+		}
+		return ErrNotFound
+	}
+	return nil
 }
 
 // --- web_service_deploys ---
@@ -280,7 +330,7 @@ func (s *PostgresStore) FailInFlightWebServiceDeploys(ctx context.Context, befor
 }
 
 // ListPendingVHostRoutes returns vhost routes that are waiting for DNS
-// ownership verification (verified_at IS NULL AND verification_token != '').
+// ownership verification (verified_at IS NULL and verification_token is nonempty).
 // Caps at limit to avoid runaway sweeps.
 func (s *PostgresStore) ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error) {
 	if limit <= 0 {

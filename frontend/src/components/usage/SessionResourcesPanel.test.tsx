@@ -27,7 +27,7 @@ describe('SessionResourcesView', () => {
   it('shows what the sandbox needs against its limits and where it stalls', () => {
     render(<SessionResourcesView resources={resources()} />)
     expect(screen.getByText('3.25 cores')).toBeTruthy()
-    expect(screen.getByText('max 4.00 · limit 12.0')).toBeTruthy()
+    expect(screen.getByText('Max 4.00 · limit 12.0')).toBeTruthy()
     expect(screen.getAllByText('3.0 GB').length).toBeGreaterThan(0)
     expect(screen.getByText('limit 24 GB')).toBeTruthy()
     expect(screen.getByText('94%')).toBeTruthy()
@@ -42,8 +42,8 @@ describe('SessionResourcesView', () => {
         ])}
       />,
     )
-    expect(screen.getByText('max 4.00 · no limit')).toBeTruthy()
-    expect(screen.getByText('shared host volume')).toBeTruthy()
+    expect(screen.getByText('Max 4.00 · no limit')).toBeTruthy()
+    expect(screen.getAllByText('Shared host volume')).toHaveLength(2)
     expect(screen.getByText(/per-session disk use is not measured/)).toBeTruthy()
   })
 

@@ -75,6 +75,16 @@ type GoldenBuildResult struct {
 // DevContainerManager manages dev container lifecycle (Zed+agent environments)
 // This manages container launching functionality
 type DevContainerManager struct {
+	// botHomeLocks holds one reservation per bot home. CreateDevContainer
+	// keeps it from the ownership check until the container is started and
+	// its mount verified; destroy and GC take the same reservation, so no
+	// second session or erase can act on a home in between.
+	// defaultDockerSocket overrides /var/run/docker.sock; tests only.
+	defaultDockerSocket string
+
+	botHomeLocksMu sync.Mutex
+	botHomeLocks   map[string]*sync.Mutex
+
 	// Docker client for the sandbox's dockerd (sandbox Docker or isolated Hydra dockerd)
 	docker *client.Client
 
@@ -162,6 +172,9 @@ func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer)
 // getDockerClient returns a Docker client for the specified socket
 // If socketPath is empty, uses the default Docker socket
 func (dm *DevContainerManager) getDockerClient(socketPath string) (*client.Client, error) {
+	if socketPath == "" {
+		socketPath = dm.defaultDockerSocket
+	}
 	if socketPath == "" {
 		socketPath = "/var/run/docker.sock"
 	}
@@ -664,6 +677,20 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 	}
 
+	var botHome *BotHomeResult
+	if req.BotHome != nil {
+		// Held until this function returns: the container is then running
+		// (so the in-use check sees it) or creation failed.
+		release := dm.reserveBotHome(BotHomeKey(req.BotHome.OrganizationID, req.BotHome.BotID))
+		defer release()
+		// Before prepareMountSources: that creates missing bind sources,
+		// which must never stand in for a missing bot home.
+		botHome, err = dm.bindBotHome(ctx, dockerClient, req)
+		if err != nil {
+			return nil, fmt.Errorf("bind bot home: %w", err)
+		}
+		containerConfig.Labels[containerBotHomeLabel] = BotHomeKey(req.BotHome.OrganizationID, req.BotHome.BotID)
+	}
 	if err := prepareMountSources(req); err != nil {
 		return nil, err
 	}
@@ -753,6 +780,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 				ContainerID:   existingContainer.ID,
 				ContainerName: req.ContainerName,
 				IPAddress:     ipAddress,
+				BotHome:       botHome,
 			}, nil
 		}
 
@@ -823,6 +851,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 				ContainerID:   existingContainer.ID,
 				ContainerName: req.ContainerName,
 				IPAddress:     ipAddress,
+				BotHome:       botHome,
 			}, nil
 		}
 	}
@@ -892,6 +921,12 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	inspect, err := dockerClient.ContainerInspect(dockerCtx, resp.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+	if botHome != nil && !containerMountsSource(inspect.Mounts, botHome.Path, "/home/retro/work") {
+		if rmErr := dockerClient.ContainerRemove(dockerCtx, resp.ID, container.RemoveOptions{Force: true}); rmErr != nil {
+			return nil, fmt.Errorf("container %s did not mount bot home %s at /home/retro/work, and removing it failed (it may still be running): %w", resp.ID, botHome.Path, rmErr)
+		}
+		return nil, fmt.Errorf("container %s did not mount bot home %s at /home/retro/work; removed it", resp.ID, botHome.Path)
 	}
 
 	// Get IP address based on network mode
@@ -972,6 +1007,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		DesktopVersion: desktopVersion,
 		GPUVendor:      gpuVendor,
 		RenderNode:     renderNode,
+		BotHome:        botHome,
 	}, nil
 }
 
@@ -2572,6 +2608,18 @@ func (dm *DevContainerManager) ReconcileGC(ctx context.Context, req GCReconcileR
 
 	// Instance disks of dead sessions, after their containers are gone.
 	resp.InstanceDisksReaped, resp.InstanceDisksSkipped = ReconcileOrphanInstanceDisks(ctx, liveSessions, grace, req.DryRun)
+
+	if req.BotHomesAuthoritative {
+		liveHomes := make(map[string]bool, len(req.LiveBotHomes))
+		for _, key := range req.LiveBotHomes {
+			liveHomes[key] = true
+		}
+		retention := DefaultBotHomeRetention
+		if req.BotHomeRetentionSeconds > 0 {
+			retention = time.Duration(req.BotHomeRetentionSeconds) * time.Second
+		}
+		resp.BotHomesReaped, resp.BotHomesSkipped = ReconcileOrphanBotHomes(liveHomes, dm.botHomeInUseChecker(ctx), dm.reserveBotHome, grace, retention, req.DryRun, time.Now())
+	}
 
 	if !req.DryRun {
 		// Prune golden snapshots the flatten just absorbed plus any other stale

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,6 +68,36 @@ func newDomainTestServer(t *testing.T, project *types.Project) *domainTestServer
 	cfg.WebServer.URL = "https://helix.example"
 	s.HelixAPIServer = &HelixAPIServer{Cfg: cfg, Store: mockStore}
 	return s
+}
+
+func TestSetActiveWebServiceSandboxMapsStoreErrors(t *testing.T) {
+	project := &types.Project{ID: "prj_1", UserID: "usr_owner", OrganizationID: "org_1"}
+	tests := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{name: "runner conflict", err: fmt.Errorf("runner mismatch: %w", store.ErrConflict), status: http.StatusConflict},
+		{name: "store failure", err: context.Canceled, status: http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newDomainTestServer(t, project)
+			mockStore := s.Store.(*store.MockStore)
+			mockStore.EXPECT().GetSandbox(gomock.Any(), "sbx_1").Return(&types.Sandbox{
+				ID: "sbx_1", OrganizationID: project.OrganizationID,
+			}, nil)
+			mockStore.EXPECT().SetActiveWebServiceSandbox(gomock.Any(), project.ID, "sbx_1").Return(tt.err)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/prj_1/web-service/active-sandbox", strings.NewReader(`{"sandbox_id":"sbx_1"}`))
+			req = mux.SetURLVars(req, map[string]string{"id": project.ID})
+			req = req.WithContext(setRequestUser(req.Context(), types.User{ID: project.UserID, Admin: true}))
+			state, herr := s.setActiveWebServiceSandbox(httptest.NewRecorder(), req)
+			require.Nil(t, state)
+			require.NotNil(t, herr)
+			require.Equal(t, tt.status, herr.StatusCode)
+		})
+	}
 }
 
 func (s *domainTestServer) addDomain(t *testing.T, projectID, hostname string) *types.VHostRoute {

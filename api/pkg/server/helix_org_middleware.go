@@ -290,12 +290,17 @@ func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 		// scope is checked before the admin exemption, as orgstore does.
 		role, platformAdmin := helixOrgAuthority(user, membership.Role)
 		if isHelixOrgPrivilegedMutation(r) && !platformAdmin && role != types.OrganizationRoleOwner {
+			if isAgentScopedKey(user) {
+				http.Error(w, errScopedKeyOrgWiring.Error(), http.StatusForbidden)
+				return
+			}
 			http.Error(w, "only organization owners and administrators can modify this resource", http.StatusForbidden)
 			return
 		}
 		ctx := helixorgserver.WithOrgID(r.Context(), org.ID)
 		ctx = helixorgserver.WithOrgHandle(ctx, mux.Vars(r)["org"])
 		ctx = helixorgserver.WithOrgAuthorization(ctx, role, platformAdmin)
+		ctx = helixorgserver.WithActorUserID(ctx, user.ID)
 		// Bridge the authenticated caller into the runtime-helix context
 		// so in-process calls retain authorization and lifecycle.Create persists
 		// them as the Bot's hiring user

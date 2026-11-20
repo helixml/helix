@@ -377,6 +377,7 @@ func (s *PostgresStore) runMigrations() error {
 			&types.Memory{},
 			&types.SandboxInstance{},
 			&types.Sandbox{},
+			&types.SandboxRun{},
 			&types.OrgCodeAgentHarness{},
 			&types.DiskUsageHistory{},
 			&types.GuidelinesHistory{},
@@ -529,6 +530,29 @@ func (s *PostgresStore) runMigrations() error {
 		}); err != nil {
 			return err
 		}
+	}
+
+	// Seed the run ledger from sandboxes that ran before it existed. A row
+	// only remembers its latest run, so this is one run per sandbox; rows that
+	// already have a run are skipped.
+	if err := s.migrationStep("backfill sandbox_runs", func() error {
+		const unseeded = `FROM sandboxes sb
+			WHERE sb.started_at IS NOT NULL
+			  AND NOT EXISTS (SELECT 1 FROM sandbox_runs r WHERE r.sandbox_id = sb.id)`
+		found, err := s.exists(ctx, "SELECT 1 "+unseeded)
+		if err != nil || !found {
+			return err
+		}
+		return s.execBatches(ctx, fmt.Sprintf(`
+			INSERT INTO sandbox_runs (id, sandbox_id, organization_id, runtime, v_cpus, started_at, stopped_at)
+			SELECT 'sbrun_' || sb.id, sb.id, sb.organization_id, sb.runtime, GREATEST(sb.v_cpus, 1), sb.started_at,
+			       CASE WHEN sb.status = ? AND sb.deleted_at IS NULL THEN NULL
+			            ELSE GREATEST(sb.started_at, COALESCE(sb.stopped_at, sb.deleted_at, sb.updated_at, sb.started_at)) END
+			%s
+			LIMIT %d
+			ON CONFLICT (id) DO NOTHING`, unseeded, backfillBatchSize), types.SandboxStatusRunning)
+	}); err != nil {
+		return err
 	}
 
 	if err := s.migrationStep("encrypt legacy plaintext secrets", func() error {

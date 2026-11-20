@@ -153,7 +153,7 @@ type SendPromptParams struct {
 //     downed desktop on the same session). fresh=false.
 //   - no session → quota pre-flight, then StartSession. fresh=true so the
 //     caller persists the new id.
-const exploratoryRole = "exploratory"
+const exploratoryRole = types.SessionRoleExploratory
 
 func EnsureAndSend(ctx context.Context, client SessionClient, params SendPromptParams) (result DeliveryResult, fresh bool, err error) {
 	if params.Prompt == "" {
