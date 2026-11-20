@@ -785,7 +785,7 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 	case "user_created_thread":
 		err = apiServer.handleUserCreatedThread(sessionID, syncMsg)
 	case "agent_capabilities":
-		return apiServer.handleAgentCapabilities(sessionID, syncMsg)
+		err = apiServer.handleAgentCapabilities(sessionID, syncMsg)
 	case "thread_title_changed":
 		err = apiServer.handleThreadTitleChanged(sessionID, syncMsg)
 	case "context_created": // Legacy support - redirect to thread_created
@@ -5407,6 +5407,12 @@ func (apiServer *HelixAPIServer) handleAgentCapabilities(agentSessionID string, 
 		Str("acp_thread_id", acpThreadID).
 		Bool("steering_supported", steeringSupported).
 		Msg("🧭 [HELIX] Recorded agent steering capability")
+	if steeringSupported {
+		// A steer saved before the capability arrived is still pending because
+		// the busy branch only steers when the flag is set. Re-run the queue so
+		// it is delivered now rather than on the next list-poll nudge.
+		go apiServer.processPendingPromptsForSession(context.Background(), helixSessionID)
+	}
 	return nil
 }
 

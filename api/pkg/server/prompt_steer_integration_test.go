@@ -96,3 +96,36 @@ func TestSteerPrompt_Idle_IsNotMarkedSteered(t *testing.T) {
 
 	require.False(t, steerInteraction(t, mem, promptID).Steered)
 }
+
+// A steer saved before Zed reports the agent's steering capability waits like
+// a queued prompt. When the capability arrives it is delivered straight away.
+func TestSteerPrompt_CapabilityArrival_DeliversWaitingSteer(t *testing.T) {
+	srv, mem, conn, sessionID := steerTestSession(t, true)
+	ctx := context.Background()
+	session, err := mem.GetSession(ctx, sessionID)
+	require.NoError(t, err)
+	session.Metadata.AgentSteeringSupported = false
+	require.NoError(t, mem.UpdateSessionMetadata(ctx, sessionID, session.Metadata))
+
+	_, err = srv.EnqueueSteerPrompt(sessionID, "change of plan")
+	require.NoError(t, err)
+	select {
+	case cmd := <-conn.SendChan:
+		t.Fatalf("steer was sent before the agent could steer: %+v", cmd)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	srv.contextMappings[routeKey(sessionID, "thread_steer")] = sessionID
+	require.NoError(t, srv.processExternalAgentSyncMessage(sessionID, &types.SyncMessage{
+		EventType: "agent_capabilities",
+		Data:      map[string]interface{}{"acp_thread_id": "thread_steer", "steering_supported": true},
+	}))
+
+	select {
+	case cmd := <-conn.SendChan:
+		require.Equal(t, "chat_message", cmd.Type)
+		require.Equal(t, true, cmd.Data["steer"])
+	case <-time.After(2 * time.Second):
+		t.Fatal("the waiting steer was not delivered when the capability arrived")
+	}
+}

@@ -461,3 +461,33 @@ func (suite *PostgresStoreTestSuite) TestSyncPromptHistory_RejectsSteerAndInterr
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "mutually exclusive")
 }
+
+// Re-syncing an existing steer entry with both flags is rejected too, and
+// leaves the stored row as it was.
+func (suite *PostgresStoreTestSuite) TestSyncPromptHistory_RejectsSteerAndInterruptOnUpdate() {
+	ctx := context.Background()
+	yes := true
+	provenance := types.TurnProvenance{Origin: types.TurnOriginUser, UserID: "user_steer"}
+	sessionID := "ses_steer_upd_" + system.GenerateUUID()
+	entryID := "phe_upd_" + system.GenerateUUID()
+	sync := func(interrupt *bool) error {
+		_, err := suite.db.SyncPromptHistory(ctx, "user_steer", provenance, &types.PromptHistorySyncRequest{
+			SessionID: sessionID,
+			Entries: []types.PromptHistoryEntrySync{{
+				ID: entryID, SessionID: sessionID, Content: "x", Status: "pending",
+				Timestamp: time.Now().UnixMilli(), Interrupt: interrupt, Steer: &yes,
+			}},
+		})
+		return err
+	}
+	suite.Require().NoError(sync(nil))
+
+	err := sync(&yes)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "mutually exclusive")
+
+	var stored types.PromptHistoryEntry
+	suite.Require().NoError(suite.db.gdb.WithContext(ctx).Where("id = ?", entryID).First(&stored).Error)
+	suite.True(stored.Steer)
+	suite.False(stored.Interrupt)
+}

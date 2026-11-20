@@ -1,4 +1,4 @@
-import { FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -136,12 +136,13 @@ const AgentChatContent: FC<AgentChatProps> = ({
       TypesInteractionState.InteractionStateWaiting,
     [latestInteractionsResponse?.data?.interactions?.[0]?.state],
   )
-  // Whether the agent can take a message mid-turn. Zed reports it once the
-  // agent's thread exists, so it is re-read while a turn is running.
-  const { data: steeringSessionResponse } = useGetSession(sessionId, {
-    enabled: !!sessionId && !!specTaskId && !minimal,
-    skipInteractions: true,
-    refetchInterval: isAgentBusy ? 10000 : false,
+  // Whether the agent can take a message mid-turn. Zed reports it when the
+  // agent's thread is created or loaded. This shares the session query the
+  // spec-task page already polls (useSandboxState), so it adds no polling of
+  // its own; it is also re-read whenever a new turn starts.
+  const steeringQueryEnabled = !!sessionId && !!specTaskId && !minimal
+  const { data: steeringSessionResponse, refetch: refetchSteeringSession } = useGetSession(sessionId, {
+    enabled: steeringQueryEnabled,
   })
   const steeringSupported = !!steeringSessionResponse?.data?.config?.agent_steering_supported
   // Session-keyed queue for sessions without a spec task; the spec-task
@@ -150,6 +151,10 @@ const AgentChatContent: FC<AgentChatProps> = ({
   const hasSessionQueue = showSessionPromptQueue && sessionQueue.entries.length > 0
   const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
   const latestInteractionId = latestInteraction?.id || null
+  useEffect(() => {
+    if (steeringQueryEnabled && isAgentBusy && !steeringSupported) refetchSteeringSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestInteractionId, isAgentBusy, steeringQueryEnabled, steeringSupported])
   const { data: pendingQuestionsResponse } = useListInteractions(
     sessionId,
     0,

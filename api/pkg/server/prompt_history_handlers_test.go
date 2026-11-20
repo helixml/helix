@@ -478,10 +478,23 @@ func (s *PromptHistoryHandlersSuite) TestHandleAgentCapabilities_RecordsSteering
 			return nil
 		})
 
+	// Becoming steerable re-runs the queue for the session.
+	nudged := make(chan struct{})
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).
+		DoAndReturn(func(context.Context, string) ([]*types.PromptHistoryEntry, error) {
+			close(nudged)
+			return nil, nil
+		})
+
 	err := s.server.handleAgentCapabilities("agent-ses", &types.SyncMessage{Data: map[string]interface{}{
 		"acp_thread_id":      "thread-caps",
 		"steering_supported": true,
 	}})
 	s.Require().NoError(err)
 	s.True(recorded.AgentSteeringSupported)
+	select {
+	case <-nudged:
+	case <-time.After(2 * time.Second):
+		s.Fail("the pending-prompt queue was not re-run")
+	}
 }
