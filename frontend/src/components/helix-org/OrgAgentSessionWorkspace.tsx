@@ -34,6 +34,7 @@ import {
   usePRProposals,
 } from '../../services/specTaskPRProposalService'
 import PRProposalCard from '../tasks/PRProposalCard'
+import { ActionCardCollapseScope } from '../session/actionCardCollapse'
 import { TypesInteraction, TypesSandboxRuntime } from '../../api/api'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 import SubagentsPanel from '../session/SubagentsPanel'
@@ -114,7 +115,7 @@ const saveStoredBoolean = (key: string, value: boolean): void => {
   try { localStorage.setItem(key, String(value)) } catch { /* storage unavailable */ }
 }
 
-const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
+const OrgAgentSessionWorkspaceContent: FC<OrgAgentSessionWorkspaceProps> = ({
   sessionId,
   organizationId,
   bot,
@@ -581,5 +582,13 @@ const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = ({
     </Box>
   )
 }
+
+// The PR proposal cards sit beside the chat (children), not inside it, so the
+// collapse scope wraps both: sending a message collapses them.
+const OrgAgentSessionWorkspace: FC<OrgAgentSessionWorkspaceProps> = (props) => (
+  <ActionCardCollapseScope>
+    <OrgAgentSessionWorkspaceContent {...props} />
+  </ActionCardCollapseScope>
+)
 
 export default OrgAgentSessionWorkspace
