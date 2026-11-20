@@ -48,6 +48,7 @@ import {
 import type { SidebarBot, SidebarItem, SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
 import { useSidebarItemPagination, windowSidebarItems } from './useSidebarItemPagination'
 import BotPortrait from '../helix-org/BotPortrait'
+import { SidebarTreeChildren, SidebarTreeIconSlot, sidebarTreeChevronSize, sidebarTreeHeaderSx } from './SidebarTree'
 
 export const botGroupId = (botId: string): string => `bot:${botId}`
 
@@ -350,15 +351,9 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
           }
         }}
         sx={{
+          ...sidebarTreeHeaderSx,
           width: '100%',
           minWidth: 0,
-          height: 32,
-          pl: 0.75,
-          pr: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.65,
-          borderRadius: '6px',
           cursor: 'pointer',
           position: 'relative',
           outline: 'none',
@@ -396,8 +391,8 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: isPhone ? 28 : 16,
-            height: isPhone ? 28 : 16,
+            width: sidebarTreeChevronSize(isPhone),
+            height: sidebarTreeChevronSize(isPhone),
             borderRadius: '4px',
             '&:hover': {
               backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
@@ -406,8 +401,27 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         >
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </Box>
-        <ActivityStatusDot activity={bot.activity} restartRequired={bot.running && bot.restartRequired} />
-        <BotPortrait portraitIndex={bot.portraitIndex} size={22} sx={{ filter: 'grayscale(1)' }} />
+        <SidebarTreeIconSlot>
+          <BotPortrait portraitIndex={bot.portraitIndex} size={22} sx={{ filter: 'grayscale(1)' }} />
+          {/* Badged on the portrait rather than inline, so bots with and
+              without activity keep their names on the same column. */}
+          {bot.activity && (
+            <Box
+              component="span"
+              sx={{
+                position: 'absolute',
+                right: -2,
+                bottom: -2,
+                p: '1.5px',
+                borderRadius: '50%',
+                display: 'inline-flex',
+                backgroundColor: sidebarColors.background,
+              }}
+            >
+              <ActivityStatusDot activity={bot.activity} restartRequired={bot.running && bot.restartRequired} />
+            </Box>
+          )}
+        </SidebarTreeIconSlot>
         <Typography
           component="span"
           sx={{
@@ -491,14 +505,16 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         )}
       </Box>
       {open && tasksQuery.isError && (
-        <Typography color="error" sx={{ pl: 2.15, py: 0.5, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
-          Failed to load tasks
-        </Typography>
+        <SidebarTreeChildren isPhone={isPhone}>
+          <Typography color="error" sx={{ px: 1, py: 0.5, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
+            Failed to load tasks
+          </Typography>
+        </SidebarTreeChildren>
       )}
       {/* An agent with nothing to show keeps a quiet row rather than an empty
           "no tasks" line under every idle agent. */}
       {open && renderedItems.length > 0 && (
-        <Box sx={{ pl: 1.15 }}>
+        <SidebarTreeChildren isPhone={isPhone}>
           {renderedItems.map((item) => (
             <ProjectChatItemRow
               key={`${item.kind}:${item.id}`}
@@ -516,7 +532,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             />
           ))}
           <ProjectChatShowMore pagination={pagination} hasMore={hasMore} fetching={tasksQuery.isFetching} />
-        </Box>
+        </SidebarTreeChildren>
       )}
     </Box>
   )
