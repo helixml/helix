@@ -195,6 +195,19 @@ func (q *Queue) stopInflight(ctx context.Context, name string) error {
 	}
 }
 
+// PrepareNewAgent discards any consumer, queued delivery or running activation
+// still keyed by a newly created agent's id, then clears its removed mark.
+// Ids are reusable (HelixOS derives them from slugs), and an earlier
+// incarnation's work replayed against the new session fails forever while
+// blocking the agent's one-at-a-time consumer.
+func (q *Queue) PrepareNewAgent(ctx context.Context, orgID string, agentID orgchart.NodeID) error {
+	if err := q.CancelOutstanding(ctx, orgID, agentID); err != nil {
+		return err
+	}
+	q.RestoreAgent(orgID, agentID)
+	return nil
+}
+
 func (q *Queue) RestoreAgent(orgID string, agentID orgchart.NodeID) {
 	name := consumerName(orgID, agentID)
 	lock := q.publishLock(name)

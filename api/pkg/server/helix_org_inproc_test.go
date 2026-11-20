@@ -899,6 +899,48 @@ func TestInProcSpawnerClient_DeletedDeliveryDoesNotRetry(t *testing.T) {
 	require.NotNil(t, entry.DeletedAt)
 }
 
+// A delivery whose interaction lives in another session (a re-created bot's
+// earlier incarnation) can never land; retrying it only blocks the bot's queue.
+func TestInProcSpawnerClient_DeliveryBoundToAnotherSessionDoesNotRetry(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/23045"
+	_, err := store.CreateSession(ctx, types.Session{ID: "ses_old_incarnation", Owner: user.ID})
+	require.NoError(t, err)
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_new_incarnation", Owner: user.ID})
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(ctx, &types.Interaction{
+		ID:            activationDeliveryID(system.InteractionPrefix, deliveryID),
+		SessionID:     "ses_old_incarnation",
+		PromptMessage: "hire",
+		State:         types.InteractionStateError,
+	})
+	require.NoError(t, err)
+
+	_, err = client.SendMessage(ctx, session.ID, "hire", deliveryID, false)
+	require.ErrorIs(t, err, activation.ErrNonRetryable)
+	require.ErrorIs(t, err, errDeliveryIDConflict)
+}
+
+func TestInProcSpawnerClient_PromptBoundToAnotherSessionDoesNotRetry(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/23046"
+	_, err := store.CreateSession(ctx, types.Session{ID: "ses_prompt_old", Owner: user.ID})
+	require.NoError(t, err)
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_prompt_new", Owner: user.ID})
+	require.NoError(t, err)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID:        activationDeliveryID(system.PromptHistoryPrefix, deliveryID),
+		SessionID: "ses_prompt_old",
+		UserID:    user.ID,
+		Content:   "event",
+		Status:    "pending",
+	}))
+
+	_, err = client.SendMessage(ctx, session.ID, "event", deliveryID, false)
+	require.ErrorIs(t, err, activation.ErrNonRetryable)
+	require.ErrorIs(t, err, errDeliveryIDConflict)
+}
+
 func TestInProcSpawnerClient_FailedQueuedDeliveryNudgesRetry(t *testing.T) {
 	_, store, client, user, ctx := newInProcTestSetup(t)
 	const deliveryID = "stream/91"

@@ -26,10 +26,16 @@ const (
 // pull request from it. Every PR a spec task opens goes through one: the user
 // approves the exact branch name, base, title and body before anything reaches
 // the external provider.
+//
+// An org bot proposes through the same row: OrgBotID and OrganizationID are
+// set and SpecTaskID is empty. Exactly one owner is set.
 type SpecTaskPRProposal struct {
 	ID         string `json:"id" gorm:"primaryKey;size:255"`
 	SpecTaskID string `json:"spec_task_id" gorm:"not null;size:255;index"`
 	ProjectID  string `json:"project_id" gorm:"not null;size:255;index"`
+	// OrgBotID is the proposing org bot, unique within OrganizationID.
+	OrgBotID       string `json:"org_bot_id,omitempty" gorm:"not null;default:'';size:255;index:idx_pr_proposal_org_bot"`
+	OrganizationID string `json:"organization_id,omitempty" gorm:"not null;default:'';size:255;index:idx_pr_proposal_org_bot"`
 
 	RepositoryID   string `json:"repository_id" gorm:"not null;size:255"`
 	RepositoryName string `json:"repository_name" gorm:"size:255"`
@@ -81,7 +87,10 @@ func (p *SpecTaskPRProposal) AwaitsPR() bool {
 
 // SpecTaskPRProposalFilter selects proposals. Empty fields are not filtered on.
 type SpecTaskPRProposalFilter struct {
-	SpecTaskID   string
+	SpecTaskID string
+	// OrgBotID filters to one org bot's proposals; it requires OrganizationID.
+	OrgBotID       string
+	OrganizationID string
 	ProjectID    string
 	RepositoryID string
 	HeadBranch   string

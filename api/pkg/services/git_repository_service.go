@@ -81,8 +81,11 @@ type GitRepositoryService struct {
 
 	// upstreamFailedAt records the last failed upstream fetch/push per repo so
 	// best-effort pre-syncs can skip a known-bad upstream instead of stalling.
-	upstreamFailedAt   map[string]time.Time
-	upstreamFailedAtMu sync.Mutex
+	// upstreamSyncedAt records when the last successful full mirror fetch
+	// (SyncAllBranches) started, so they can also skip a mirror that is fresh.
+	upstreamFailedAt map[string]time.Time
+	upstreamSyncedAt map[string]time.Time
+	upstreamStateMu  sync.Mutex
 
 	// prListCache absorbs duplicate ListPullRequests calls (orchestrator polls,
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
@@ -134,6 +137,7 @@ func NewGitRepositoryService(
 		testMode:         false,
 		repoLocks:        make(map[string]*RepoLock),
 		upstreamFailedAt: make(map[string]time.Time),
+		upstreamSyncedAt: make(map[string]time.Time),
 		prListCache:      newPRListCache(defaultPRListCacheTTL),
 	}
 }

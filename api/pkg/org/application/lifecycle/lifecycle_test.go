@@ -20,6 +20,14 @@ type recordingAgentDeliveryCleaner struct {
 	orgID    string
 	agentID  orgchart.NodeID
 	restored bool
+	prepared []orgchart.NodeID
+}
+
+func (c *recordingAgentDeliveryCleaner) PrepareNewAgent(_ context.Context, orgID string, agentID orgchart.NodeID) error {
+	c.orgID = orgID
+	c.agentID = agentID
+	c.prepared = append(c.prepared, agentID)
+	return nil
 }
 
 func (c *recordingAgentDeliveryCleaner) CleanupAgent(_ context.Context, orgID string, agentID orgchart.NodeID) error {
@@ -68,7 +76,7 @@ func TestDelete_RemovesBotsTranscript(t *testing.T) {
 	}
 
 	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers, Attachments: st.WorkerAttachments})}}
-	if err := svc.Delete(ctx, orgID, bot.ID); err != nil {
+	if err := svc.Delete(ctx, orgID, bot.ID, lifecycle.Actor{}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -124,7 +132,7 @@ func TestDelete_CascadesReportingLinesAndAttachments(t *testing.T) {
 	orgtest.AttachTrigger(t, st, orgID, "w-report", mgrTranscript)
 
 	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{reconcile.New(reconcile.Deps{Nodes: st.Nodes, ReportingLines: st.ReportingLines, Triggers: st.Triggers, Attachments: st.WorkerAttachments})}}
-	if err := svc.Delete(ctx, orgID, mgr.ID); err != nil {
+	if err := svc.Delete(ctx, orgID, mgr.ID, lifecycle.Actor{}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -190,7 +198,7 @@ func TestDelete_TearsDownDMChannelToReports(t *testing.T) {
 	}
 
 	svc := &lifecycle.Service{Store: st, NodeReconcilers: []lifecycle.NodeReconciler{rec}}
-	if err := svc.Delete(ctx, orgID, mgr.ID); err != nil {
+	if err := svc.Delete(ctx, orgID, mgr.ID, lifecycle.Actor{}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -261,7 +269,7 @@ func TestDelete_ReconcilesSurvivingReport(t *testing.T) {
 		t.Fatal("precondition: team chat s-team-w-mgr should exist")
 	}
 
-	if err := svc.Delete(ctx, orgID, "w-mgr"); err != nil {
+	if err := svc.Delete(ctx, orgID, "w-mgr", lifecycle.Actor{}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -295,10 +303,10 @@ func TestDelete_Guards(t *testing.T) {
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
 
-	if err := (&lifecycle.Service{Store: st}).Delete(ctx, "org", ""); err == nil {
+	if err := (&lifecycle.Service{Store: st}).Delete(ctx, "org", "", lifecycle.Actor{}); err == nil {
 		t.Fatal("empty bot id should error")
 	}
-	if err := (&lifecycle.Service{}).Delete(ctx, "org", "b-x"); err == nil {
+	if err := (&lifecycle.Service{}).Delete(ctx, "org", "b-x", lifecycle.Actor{}); err == nil {
 		t.Fatal("nil store should error")
 	}
 }
@@ -311,7 +319,7 @@ func TestDelete_CleansUpAgentDelivery(t *testing.T) {
 	seedBot(t, st, orgID, "w-delete")
 
 	cleaner := &recordingAgentDeliveryCleaner{}
-	if err := (&lifecycle.Service{Store: st, AgentDelivery: cleaner}).Delete(ctx, orgID, "w-delete"); err != nil {
+	if err := (&lifecycle.Service{Store: st, AgentDelivery: cleaner}).Delete(ctx, orgID, "w-delete", lifecycle.Actor{}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if cleaner.orgID != orgID || cleaner.agentID != "w-delete" {
@@ -335,7 +343,7 @@ func TestDelete_RestoresAgentDeliveryWhenRuntimeDeleteFails(t *testing.T) {
 
 	cleaner := &recordingAgentDeliveryCleaner{}
 	svc := &lifecycle.Service{Store: st, Helix: &lifecycleRuntime{linkedErr: errors.New("delete failed")}, AgentDelivery: cleaner}
-	if err := svc.Delete(ctx, orgID, bot.ID); err == nil {
+	if err := svc.Delete(ctx, orgID, bot.ID, lifecycle.Actor{}); err == nil {
 		t.Fatal("Delete should fail")
 	}
 	if !cleaner.restored {
@@ -358,7 +366,7 @@ func TestDelete_MissingBotErrorsWithNoSideEffects(t *testing.T) {
 	seedBot(t, st, orgID, "w-bystander")
 
 	svc := newLifecycleSvc(st)
-	if err := svc.Delete(ctx, orgID, "w-missing"); err == nil {
+	if err := svc.Delete(ctx, orgID, "w-missing", lifecycle.Actor{}); err == nil {
 		t.Fatal("Delete on a non-existent bot should error")
 	}
 	if _, err := st.Nodes.Get(ctx, orgID, "w-bystander"); err != nil {
@@ -401,13 +409,13 @@ func TestStartDelete_RunsInBackground(t *testing.T) {
 
 	release := make(chan struct{})
 	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{release: release}}
-	if err := svc.StartDelete(ctx, orgID, "w-async"); err != nil {
+	if err := svc.StartDelete(ctx, orgID, "w-async", lifecycle.Actor{}); err != nil {
 		t.Fatalf("StartDelete: %v", err)
 	}
 	if !svc.Deleting(orgID, "w-async") {
 		t.Fatal("node should be marked as deleting while teardown runs")
 	}
-	if err := svc.StartDelete(ctx, orgID, "w-async"); err != nil {
+	if err := svc.StartDelete(ctx, orgID, "w-async", lifecycle.Actor{}); err != nil {
 		t.Fatalf("repeat StartDelete: %v", err)
 	}
 	close(release)
@@ -430,7 +438,7 @@ func TestStartDelete_FailureKeepsNodeAndClearsMarker(t *testing.T) {
 	seedBot(t, st, orgID, "w-fail")
 
 	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{err: errors.New("host unreachable")}}
-	if err := svc.StartDelete(ctx, orgID, "w-fail"); err != nil {
+	if err := svc.StartDelete(ctx, orgID, "w-fail", lifecycle.Actor{}); err != nil {
 		t.Fatalf("StartDelete: %v", err)
 	}
 	svc.WaitDeletes()
@@ -453,7 +461,7 @@ func TestStartDelete_PanicIsContained(t *testing.T) {
 	seedBot(t, st, orgID, "w-panic")
 
 	svc := &lifecycle.Service{Store: st, Instances: panickyDeleter{}}
-	if err := svc.StartDelete(ctx, orgID, "w-panic"); err != nil {
+	if err := svc.StartDelete(ctx, orgID, "w-panic", lifecycle.Actor{}); err != nil {
 		t.Fatalf("StartDelete: %v", err)
 	}
 	svc.WaitDeletes()
@@ -475,7 +483,7 @@ func TestStartDelete_MissingNodeErrors(t *testing.T) {
 	t.Parallel()
 	st := orggorm.GetOrgTestDB(t)
 	svc := &lifecycle.Service{Store: st}
-	if err := svc.StartDelete(context.Background(), "org", "w-missing"); !errors.Is(err, store.ErrNotFound) {
+	if err := svc.StartDelete(context.Background(), "org", "w-missing", lifecycle.Actor{}); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("StartDelete missing: err=%v, want ErrNotFound", err)
 	}
 	if svc.Deleting("org", "w-missing") {
@@ -508,10 +516,10 @@ func TestDelete_RefusesWhileAnotherDeleteRuns(t *testing.T) {
 	release := make(chan struct{})
 	cleaner := &recordingAgentDeliveryCleaner{}
 	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{release: release}, AgentDelivery: cleaner}
-	if err := svc.StartDelete(ctx, orgID, "w-busy"); err != nil {
+	if err := svc.StartDelete(ctx, orgID, "w-busy", lifecycle.Actor{}); err != nil {
 		t.Fatalf("StartDelete: %v", err)
 	}
-	if err := svc.Delete(ctx, orgID, "w-busy"); !errors.Is(err, lifecycle.ErrDeleteInProgress) {
+	if err := svc.Delete(ctx, orgID, "w-busy", lifecycle.Actor{}); !errors.Is(err, lifecycle.ErrDeleteInProgress) {
 		t.Fatalf("concurrent Delete: err=%v, want ErrDeleteInProgress", err)
 	}
 	if cleaner.restored {
@@ -536,7 +544,7 @@ func TestDelete_HidesNodeWhileRunning(t *testing.T) {
 	release := make(chan struct{})
 	svc := &lifecycle.Service{Store: st, Instances: blockingDeleter{release: release}}
 	done := make(chan error, 1)
-	go func() { done <- svc.Delete(ctx, orgID, "w-sync") }()
+	go func() { done <- svc.Delete(ctx, orgID, "w-sync", lifecycle.Actor{}) }()
 	deadline := time.Now().Add(5 * time.Second)
 	for !svc.Deleting(orgID, "w-sync") {
 		if time.Now().After(deadline) {

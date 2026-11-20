@@ -452,7 +452,7 @@ func (a *apiHandler) deleteBot(w http.ResponseWriter, r *http.Request) {
 	if !a.authorizeBotEditAccess(w, r, orgID, id, "deletion") {
 		return
 	}
-	if err := a.deps.Lifecycle.StartDelete(r.Context(), orgID, id); err != nil {
+	if err := a.deps.Lifecycle.StartDelete(r.Context(), orgID, id, lifecycle.Actor{Type: audit.ActorUser, ID: helixorgserver.ActorUserIDFromContext(r.Context())}); err != nil {
 		writeError(w, errStatus(err), err)
 		return
 	}
@@ -1057,6 +1057,10 @@ func botDTO(b orgchart.Node, parentIDs []string) BotDTO {
 		PreserveContext: b.PreserveContext,
 		SandboxRuntime:  types.SandboxRuntime(b.SandboxRuntime),
 		InstanceProfile: b.EffectiveInstanceProfile(),
+
+		KeepAlive:                 b.KeepAlive,
+		AutoApprovePullRequests:   b.AutoApprovePullRequests,
+		AutoApprovePullRequestsBy: b.AutoApprovePullRequestsBy,
 	}
 	if b.SandboxVCPUs > 0 {
 		dto.SandboxResourceOverrides = &types.SandboxResourceOverrides{VCPUs: b.SandboxVCPUs, MemoryMB: b.SandboxMemoryMB}

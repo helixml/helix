@@ -12568,6 +12568,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/keep-alive": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "When on, the bot's desktop is not shut down when idle. A bot's own key cannot change it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Turn an org bot's Keep Alive on or off",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Setting",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.OrgBotKeepAliveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/parents": {
             "post": {
                 "security": [
@@ -12666,6 +12713,157 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/pr-auto-approve": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "When on, the bot's proposals are approved as the user who turned it on. A bot's own key cannot change it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Turn auto-approval of an org bot's pull request proposals on or off",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Setting",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.OrgBotPRAutoApproveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/pr-proposals": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "An org bot opens pull requests (e.g. to its own playbook) only through proposals a user approves.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "List an org bot's pull request proposals",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.SpecTaskPRProposal"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/pr-proposals/{proposal_id}/decide": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approving opens the pull request as soon as the branch has commits beyond the base. Edited fields override the bot's proposal. A bot's own key cannot decide.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Approve or reject an org bot's pull request proposal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Proposal ID",
+                        "name": "proposal_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PRProposalDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskPRProposal"
                         }
                     }
                 }
@@ -22750,7 +22948,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.",
+                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly. Pass destroy_workspace=true to destroy the desktop instead of stopping it, deleting its container data and the task's workspace checkout (ignored when unarchiving, with stop_agent=false, or for a Keep Alive task).",
                 "consumes": [
                     "application/json"
                 ],
@@ -26288,6 +26486,13 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "auto_approve_pull_requests": {
+                    "description": "AutoApprovePullRequests approves the bot's PR proposals as\nAutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests_by": {
+                    "type": "string"
+                },
                 "can_edit": {
                     "description": "CanEdit is true when the caller may change this Bot: organization\nowners and platform admins, or a member who may update the Bot's\nagent app. The UI hides edit, delete and re-parent controls when false.",
                     "type": "boolean"
@@ -26324,6 +26529,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.BotInstanceProfile"
                         }
                     ]
+                },
+                "keep_alive": {
+                    "description": "KeepAlive exempts the bot's desktop from idle shutdown. Changed through\nPUT /orgs/{org}/bots/{id}/keep-alive.",
+                    "type": "boolean"
                 },
                 "legacy_app_id": {
                     "type": "string"
@@ -27717,6 +27926,14 @@ const docTemplate = `{
         "hydra.BotHomeInventory": {
             "type": "object",
             "properties": {
+                "browser_profile": {
+                    "description": "BrowserProfile is the profile declared in .helix/browser.json (see\ndesktop/shared/helix-browser.sh); nil when none is declared, in which\ncase the browser uses .chrome-state.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/hydra.DeclaredBrowserProfile"
+                        }
+                    ]
+                },
                 "chrome_profiles": {
                     "type": "array",
                     "items": {
@@ -27794,6 +28011,36 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "hydra.DeclaredBrowserProfile": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/hydra.DeclaredBrowserProfileState"
+                }
+            }
+        },
+        "hydra.DeclaredBrowserProfileState": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "missing",
+                "outside_workspace",
+                "wrong_identity",
+                "inconsistent",
+                "invalid_declaration"
+            ],
+            "x-enum-varnames": [
+                "DeclaredBrowserProfileOK",
+                "DeclaredBrowserProfileMissing",
+                "DeclaredBrowserProfileOutsideWorkspace",
+                "DeclaredBrowserProfileWrongIdentity",
+                "DeclaredBrowserProfileInconsistent",
+                "DeclaredBrowserProfileInvalidDeclaration"
+            ]
         },
         "hydra.DevContainerStatus": {
             "type": "string",
@@ -30318,6 +30565,22 @@ const docTemplate = `{
                 }
             }
         },
+        "server.OrgBotKeepAliveRequest": {
+            "type": "object",
+            "properties": {
+                "keep_alive": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.OrgBotPRAutoApproveRequest": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "server.OrganizationDomainInfo": {
             "type": "object",
             "properties": {
@@ -31584,24 +31847,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "local",
-                "gitlab",
-                "helix_events",
-                "cron",
+                "slack",
                 "github",
                 "email",
-                "slack",
-                "webhook"
+                "gitlab",
+                "webhook",
+                "cron",
+                "local",
+                "helix_events"
             ],
             "x-enum-varnames": [
-                "KindLocal",
-                "KindGitLab",
-                "KindHelixEvents",
-                "KindCron",
+                "KindSlack",
                 "KindGitHub",
                 "KindEmail",
-                "KindSlack",
-                "KindWebhook"
+                "KindGitLab",
+                "KindWebhook",
+                "KindCron",
+                "KindLocal",
+                "KindHelixEvents"
             ]
         },
         "transport.ResolvedActivation": {
@@ -43765,6 +44028,10 @@ const docTemplate = `{
                 "archived": {
                     "type": "boolean"
                 },
+                "destroy_workspace": {
+                    "description": "DestroyWorkspace tears the task's desktop down for good instead of\nstopping it: the container, the session's on-host data and the task's\nworkspace checkout are deleted, so a finished task stops holding disk.\nOnly honoured when the request archives and stop is enabled; the same\nlive-agent guard as stop_agent applies.",
+                    "type": "boolean"
+                },
                 "stop_agent": {
                     "description": "StopAgent controls whether archiving stops the task's external agent and\nfrees its sandbox. Omitted (nil) means yes. Archiving never kills an agent\nthat is mid-turn unless the caller says so explicitly.",
                     "type": "boolean"
@@ -44246,6 +44513,13 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "org_bot_id": {
+                    "description": "OrgBotID is the proposing org bot, unique within OrganizationID.",
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 },
                 "pr_id": {

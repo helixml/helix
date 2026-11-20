@@ -107,6 +107,12 @@ export interface ApiBotDTO {
    */
   agent_work_state?: TypesAgentWorkState;
   /**
+   * AutoApprovePullRequests approves the bot's PR proposals as
+   * AutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
+  /**
    * CanEdit is true when the caller may change this Bot: organization
    * owners and platform admins, or a member who may update the Bot's
    * agent app. The UI hides edit, delete and re-parent controls when false.
@@ -133,6 +139,11 @@ export interface ApiBotDTO {
    * default when the Bot never configured one).
    */
   instance_profile?: TypesBotInstanceProfile;
+  /**
+   * KeepAlive exempts the bot's desktop from idle shutdown. Changed through
+   * PUT /orgs/{org}/bots/{id}/keep-alive.
+   */
+  keep_alive?: boolean;
   legacy_app_id?: string;
   model?: string;
   /**
@@ -802,6 +813,12 @@ export interface HosthistorySample {
 }
 
 export interface HydraBotHomeInventory {
+  /**
+   * BrowserProfile is the profile declared in .helix/browser.json (see
+   * desktop/shared/helix-browser.sh); nil when none is declared, in which
+   * case the browser uses .chrome-state.
+   */
+  browser_profile?: HydraDeclaredBrowserProfile;
   chrome_profiles?: HydraChromeProfileStatus[];
   top_level_entries?: number;
 }
@@ -832,6 +849,20 @@ export interface HydraContainerBlkioStats {
   read_bytes?: number;
   session_id?: string;
   write_bytes?: number;
+}
+
+export interface HydraDeclaredBrowserProfile {
+  path?: string;
+  state?: HydraDeclaredBrowserProfileState;
+}
+
+export enum HydraDeclaredBrowserProfileState {
+  DeclaredBrowserProfileOK = "ok",
+  DeclaredBrowserProfileMissing = "missing",
+  DeclaredBrowserProfileOutsideWorkspace = "outside_workspace",
+  DeclaredBrowserProfileWrongIdentity = "wrong_identity",
+  DeclaredBrowserProfileInconsistent = "inconsistent",
+  DeclaredBrowserProfileInvalidDeclaration = "invalid_declaration",
 }
 
 export enum HydraDevContainerStatus {
@@ -1943,6 +1974,14 @@ export interface ServerModelSubstitution {
   reason?: string;
 }
 
+export interface ServerOrgBotKeepAliveRequest {
+  keep_alive?: boolean;
+}
+
+export interface ServerOrgBotPRAutoApproveRequest {
+  enabled?: boolean;
+}
+
 export interface ServerOrganizationDomainInfo {
   auto_join_domain?: string;
   organization_id?: string;
@@ -2539,14 +2578,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindLocal = "local",
-  KindGitLab = "gitlab",
-  KindHelixEvents = "helix_events",
-  KindCron = "cron",
+  KindSlack = "slack",
   KindGitHub = "github",
   KindEmail = "email",
-  KindSlack = "slack",
+  KindGitLab = "gitlab",
   KindWebhook = "webhook",
+  KindCron = "cron",
+  KindLocal = "local",
+  KindHelixEvents = "helix_events",
 }
 
 export interface TransportResolvedActivation {
@@ -8378,6 +8417,14 @@ export interface TypesSpecTask {
 export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
   /**
+   * DestroyWorkspace tears the task's desktop down for good instead of
+   * stopping it: the container, the session's on-host data and the task's
+   * workspace checkout are deleted, so a finished task stops holding disk.
+   * Only honoured when the request archives and stop is enabled; the same
+   * live-agent guard as stop_agent applies.
+   */
+  destroy_workspace?: boolean;
+  /**
    * StopAgent controls whether archiving stops the task's external agent and
    * frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
    * that is mid-turn unless the caller says so explicitly.
@@ -8571,6 +8618,9 @@ export interface TypesSpecTaskPRProposal {
   error?: string;
   head_branch?: string;
   id?: string;
+  /** OrgBotID is the proposing org bot, unique within OrganizationID. */
+  org_bot_id?: string;
+  organization_id?: string;
   pr_id?: string;
   pr_number?: number;
   pr_url?: string;
@@ -16835,6 +16885,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description When on, the bot's desktop is not shut down when idle. A bot's own key cannot change it.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsKeepAliveUpdate
+     * @summary Turn an org bot's Keep Alive on or off
+     * @request PUT:/api/v1/orgs/{org}/bots/{id}/keep-alive
+     * @secure
+     */
+    v1OrgsBotsKeepAliveUpdate: (
+      org: string,
+      id: string,
+      request: ServerOrgBotKeepAliveRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/keep-alive`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @tags HelixOrg
@@ -16867,6 +16941,74 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/orgs/${org}/bots/${id}/parents/${parentId}`,
         method: "DELETE",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description When on, the bot's proposals are approved as the user who turned it on. A bot's own key cannot change it.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPrAutoApproveUpdate
+     * @summary Turn auto-approval of an org bot's pull request proposals on or off
+     * @request PUT:/api/v1/orgs/{org}/bots/{id}/pr-auto-approve
+     * @secure
+     */
+    v1OrgsBotsPrAutoApproveUpdate: (
+      org: string,
+      id: string,
+      request: ServerOrgBotPRAutoApproveRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/pr-auto-approve`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description An org bot opens pull requests (e.g. to its own playbook) only through proposals a user approves.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPrProposalsDetail
+     * @summary List an org bot's pull request proposals
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/pr-proposals
+     * @secure
+     */
+    v1OrgsBotsPrProposalsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskPRProposal[], any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/pr-proposals`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approving opens the pull request as soon as the branch has commits beyond the base. Edited fields override the bot's proposal. A bot's own key cannot decide.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPrProposalsDecideCreate
+     * @summary Approve or reject an org bot's pull request proposal
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/pr-proposals/{proposal_id}/decide
+     * @secure
+     */
+    v1OrgsBotsPrProposalsDecideCreate: (
+      org: string,
+      id: string,
+      proposalId: string,
+      request: TypesPRProposalDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskPRProposal, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/pr-proposals/${proposalId}/decide`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -21194,7 +21336,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
+     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly. Pass destroy_workspace=true to destroy the desktop instead of stopping it, deleting its container data and the task's workspace checkout (ignored when unarchiving, with stop_agent=false, or for a Keep Alive task).
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksArchivePartialUpdate

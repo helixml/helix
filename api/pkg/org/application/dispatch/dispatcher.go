@@ -134,6 +134,16 @@ func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID or
 	})
 }
 
+// DispatchNotice queues a message from Helix itself for one Worker, e.g. the
+// decision on a pull request it proposed. Like every activation it waits its
+// turn on the Worker's queue and starts the Worker's desktop if it is down.
+func (d *Dispatcher) DispatchNotice(_ context.Context, orgID string, workerID orgchart.NodeID, subject, body string) {
+	d.queue.Enqueue(orgID, workerID, activation.Trigger{
+		Kind:    activation.TriggerNotice,
+		Message: streaming.Message{Subject: subject, Body: body},
+	})
+}
+
 // Route fans an event out to every AI Worker attached to its source
 // (skipping the Worker that originated it), then hands it to the
 // Processors reading that source. It never performs external delivery.

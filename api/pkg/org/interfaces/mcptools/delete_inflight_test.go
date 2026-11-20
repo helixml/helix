@@ -47,7 +47,7 @@ func TestMCPToolsWhileBotIsBeingDeleted(t *testing.T) {
 	caller := botCaller{id: "b-owner", orgID: "org-test", admin: true}
 	seedBotRow(t, st, "b-leaving")
 
-	if err := lc.StartDelete(context.Background(), "org-test", "b-leaving"); err != nil {
+	if err := lc.StartDelete(context.Background(), "org-test", "b-leaving", lifecycle.Actor{}); err != nil {
 		t.Fatalf("StartDelete: %v", err)
 	}
 

@@ -86,7 +86,7 @@ func TestSeedChiefOfStaffRespectsDeletionAndExplicitRecreation(t *testing.T) {
 	if err := seeder.SeedChiefOfStaff(ctx, orgID); err != nil {
 		t.Fatalf("seed chief of staff: %v", err)
 	}
-	if err := deps.Lifecycle.Delete(ctx, orgID, chiefOfStaffBotID); err != nil {
+	if err := deps.Lifecycle.Delete(ctx, orgID, chiefOfStaffBotID, lifecycle.Actor{}); err != nil {
 		t.Fatalf("delete chief of staff: %v", err)
 	}
 	if err := seeder.SeedChiefOfStaff(ctx, orgID); err != nil {
