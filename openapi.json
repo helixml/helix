@@ -33135,6 +33135,14 @@
             "hydra.BotHomeInventory": {
                 "type": "object",
                 "properties": {
+                    "browser_profile": {
+                        "description": "BrowserProfile is the profile declared in .helix/browser.json (see\ndesktop/shared/helix-browser.sh); nil when none is declared, in which\ncase the browser uses .chrome-state.",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/hydra.DeclaredBrowserProfile"
+                            }
+                        ]
+                    },
                     "chrome_profiles": {
                         "type": "array",
                         "items": {
@@ -33212,6 +33220,36 @@
                         "type": "integer"
                     }
                 }
+            },
+            "hydra.DeclaredBrowserProfile": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "$ref": "#/components/schemas/hydra.DeclaredBrowserProfileState"
+                    }
+                }
+            },
+            "hydra.DeclaredBrowserProfileState": {
+                "type": "string",
+                "enum": [
+                    "ok",
+                    "missing",
+                    "outside_workspace",
+                    "wrong_identity",
+                    "inconsistent",
+                    "invalid_declaration"
+                ],
+                "x-enum-varnames": [
+                    "DeclaredBrowserProfileOK",
+                    "DeclaredBrowserProfileMissing",
+                    "DeclaredBrowserProfileOutsideWorkspace",
+                    "DeclaredBrowserProfileWrongIdentity",
+                    "DeclaredBrowserProfileInconsistent",
+                    "DeclaredBrowserProfileInvalidDeclaration"
+                ]
             },
             "hydra.DevContainerStatus": {
                 "type": "string",
