@@ -22,7 +22,7 @@ import { ComposerPlanProgress, planStepsFromResponseEntries } from './PlanProgre
 import PendingQuestionCard from './PendingQuestionCard'
 import SessionPromptQueue from './SessionPromptQueue'
 import { useSessionPromptQueue } from './useSessionPromptQueue'
-import { ActionCardCollapseContext } from './actionCardCollapse'
+import { ActionCardCollapseScope, useNotifyUserMessage } from './actionCardCollapse'
 import { getChatColors } from './chatStyles'
 import type { WorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
 import { ModelSwitcherProvider } from '../../contexts/modelSwitcher'
@@ -78,7 +78,9 @@ const isFramed = typeof window !== "undefined" && window.self !== window.top
 /** Shared org/spec-task conversation surface. */
 const AgentChat: FC<AgentChatProps> = (props) => (
   <ModelSwitcherProvider>
-    <AgentChatContent {...props} />
+    <ActionCardCollapseScope>
+      <AgentChatContent {...props} />
+    </ActionCardCollapseScope>
   </ModelSwitcherProvider>
 )
 
@@ -114,7 +116,7 @@ const AgentChatContent: FC<AgentChatProps> = ({
   const [isCancelling, setIsCancelling] = useState(false)
   const [hasSentInWelcome, setHasSentInWelcome] = useState(false)
   const [composerPlanExpanded, setComposerPlanExpanded] = useState(false)
-  const [userMessageCount, setUserMessageCount] = useState(0)
+  const notifyUserMessage = useNotifyUserMessage()
   const [dismissedPlanInteractionId, setDismissedPlanInteractionId] = useState<string | null>(null)
   const apiClient = api.getApiClient()
   // Only a spec task opens with a hidden briefing turn; an org bot instance's
@@ -253,7 +255,7 @@ const AgentChatContent: FC<AgentChatProps> = ({
       onSend={handleSend}
       onWillSend={() => {
         if (sendMode === 'queued') setHasSentInWelcome(true)
-        setUserMessageCount((count) => count + 1)
+        notifyUserMessage()
         onWillSend?.()
       }}
       appendText={appendText}
@@ -410,9 +412,7 @@ const AgentChatContent: FC<AgentChatProps> = ({
             trailingContent={
               actionCards || pendingQuestionInteractions.length > 0 ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <ActionCardCollapseContext.Provider value={userMessageCount}>
-                    {actionCards}
-                  </ActionCardCollapseContext.Provider>
+                  {actionCards}
                   {pendingQuestionInteractions.map((interaction) =>
                     interaction.id && interaction.pending_question ? (
                       <PendingQuestionCard

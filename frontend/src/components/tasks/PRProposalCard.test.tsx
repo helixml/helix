@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 
 import PRProposalCard from "./PRProposalCard";
-import { ActionCardCollapseContext } from "../session/actionCardCollapse";
+import { useNotifyUserMessage, ActionCardCollapseScope } from "../session/actionCardCollapse";
 import { TypesSpecTaskPRProposalStatus } from "../../api/api";
 
 vi.mock("../../services/specTaskPRProposalService", () => ({
-  useDecidePRProposal: () => ({ mutate: vi.fn(), isPending: false }),
+  useDecidePRProposalFor: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("../../hooks/useSnackbar", () => ({
   default: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }),
@@ -23,33 +23,38 @@ const proposal = {
   repository_name: "helix",
 };
 
-const card = (userMessages: number) => (
-  <ThemeProvider theme={createTheme()}>
-    <ActionCardCollapseContext.Provider value={userMessages}>
-      <PRProposalCard specTaskId="spt_1" proposal={proposal} />
-    </ActionCardCollapseContext.Provider>
-  </ThemeProvider>
-);
+function SendButton() {
+  const notify = useNotifyUserMessage();
+  return <button onClick={notify}>send</button>;
+}
+
+const renderCard = () =>
+  render(
+    <ThemeProvider theme={createTheme()}>
+      <ActionCardCollapseScope>
+        <PRProposalCard owner={{ kind: "task", specTaskId: "spt_1" }} proposal={proposal} />
+        <SendButton />
+      </ActionCardCollapseScope>
+    </ThemeProvider>,
+  );
 
 const header = () =>
   screen.getByRole("button", { name: /Agent wants to open a pull request/ });
+const send = () => fireEvent.click(screen.getByRole("button", { name: "send" }));
 
 describe("PRProposalCard", () => {
   it("opens a pending proposal and collapses it when the user sends a message", () => {
-    const { rerender } = render(card(3));
+    renderCard();
     expect(header()).toHaveAttribute("aria-expanded", "true");
 
-    rerender(card(3));
-    expect(header()).toHaveAttribute("aria-expanded", "true");
-
-    rerender(card(4));
+    send();
     expect(header()).toHaveAttribute("aria-expanded", "false");
     expect(header()).toHaveTextContent("feature/x → main · feat: x");
   });
 
   it("can be reopened by hand after auto-collapsing", () => {
-    const { rerender } = render(card(0));
-    rerender(card(1));
+    renderCard();
+    send();
     fireEvent.click(header());
     expect(header()).toHaveAttribute("aria-expanded", "true");
   });
