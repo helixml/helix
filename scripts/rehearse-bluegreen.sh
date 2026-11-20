@@ -229,4 +229,12 @@ log "London broken-deploy availability: $lon_broken"
 [ "$(failed_of "$lon_broken")" = 0 ] || fail "requests failed during the broken London deploy: $lon_broken"
 H 'cmp -s .env /work/env.before-broken' || fail "the London rollback did not restore .env"
 
+log "9. nginx and .env disagree: the London deploy must refuse before changing anything"
+H 'sed -i "s/^# active: green/# active: blue/" /etc/nginx/helix-active/stream.conf; cp -p .env /work/env.before-mismatch; : > /work/zfs.log'
+if out=$(london v1 2>&1); then fail "the deploy ran although nginx and .env disagree"; fi
+grep -q "nginx (/etc/nginx/helix-active) points at 'blue' but .env says green is active" <<< "$out" || fail "unexpected refusal: $out"
+H 'cmp -s .env /work/env.before-mismatch && [ ! -s /work/zfs.log ]' || fail "the refused deploy changed .env or took a snapshot"
+H 'sed -i "s/^# active: blue/# active: green/" /etc/nginx/helix-active/stream.conf'
+[ "$(active)" = green ] || fail "green stopped serving"
+
 log "PASS: cutover ($cutover), v2 ($v2), broken+rollback ($broken), v1 ($v1), London v2 ($lon_v2), London broken+rollback ($lon_broken)"
