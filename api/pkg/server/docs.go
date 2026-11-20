@@ -22948,7 +22948,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.",
+                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly. Pass destroy_workspace=true to destroy the desktop instead of stopping it, deleting its container data and the task's workspace checkout (ignored when unarchiving, with stop_agent=false, or for a Keep Alive task).",
                 "consumes": [
                     "application/json"
                 ],
@@ -43988,6 +43988,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "archived": {
+                    "type": "boolean"
+                },
+                "destroy_workspace": {
+                    "description": "DestroyWorkspace tears the task's desktop down for good instead of\nstopping it: the container, the session's on-host data and the task's\nworkspace checkout are deleted, so a finished task stops holding disk.\nOnly honoured when the request archives and stop is enabled; the same\nlive-agent guard as stop_agent applies.",
                     "type": "boolean"
                 },
                 "stop_agent": {

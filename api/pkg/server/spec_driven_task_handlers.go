@@ -1722,7 +1722,7 @@ func (s *HelixAPIServer) deleteSpecTaskCascade(ctx context.Context, task *types.
 
 // archiveSpecTask godoc
 // @Summary Archive or unarchive a spec task
-// @Description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
+// @Description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly. Pass destroy_workspace=true to destroy the desktop instead of stopping it, deleting its container data and the task's workspace checkout (ignored when unarchiving, with stop_agent=false, or for a Keep Alive task).
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
@@ -1789,8 +1789,14 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 	// refuses to kill an agent mid-turn, because a caller clearing finished
 	// lanes while other work runs must not destroy an in-flight turn. Opting
 	// in to stopping a live agent is explicit and logged.
+	//
+	// A stop keeps the workspace for a warm restart. destroy_workspace=true
+	// destroys the desktop instead, under the same guards, so an automated
+	// client that archives each finished task frees its disk immediately
+	// rather than waiting for the orphan reaper's grace period.
 	if req.Archived && req.StopAgentEnabled() {
 		planningSessionID := task.PlanningSessionID
+		keepAlive := task.KeepAlive
 		stopCtx, stopCancel := detachContext(r.Context(), 5*time.Minute)
 		go func() {
 			defer stopCancel()
@@ -1819,19 +1825,7 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 			if planningSessionID != "" {
 				session, sessionErr := s.Store.GetSession(stopCtx, planningSessionID)
 				if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-					stopErr := s.stopSessionAgent(stopCtx, planningSessionID, "spec task archived")
-					if stopErr != nil {
-						log.Warn().
-							Err(stopErr).
-							Str("task_id", taskID).
-							Str("session_id", planningSessionID).
-							Msg("Failed to stop agent session when archiving (continuing anyway)")
-					} else {
-						log.Info().
-							Str("task_id", taskID).
-							Str("session_id", planningSessionID).
-							Msg("Stopped agent session when archiving")
-					}
+					s.teardownArchivedTaskDesktop(stopCtx, taskID, planningSessionID, keepAlive, req.DestroysWorkspace())
 				}
 			}
 
@@ -1888,6 +1882,40 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
+}
+
+// teardownArchivedTaskDesktop releases the planning-session desktop of a task
+// being archived. A plain stop keeps the workspace for a warm restart; destroy
+// also deletes the container's on-host data and the task's workspace checkout,
+// which is what frees the disk. Destroy works on a desktop that is already
+// stopped or that hydra no longer tracks: hydra removes whatever is still on
+// disk. Keep Alive is an explicit instruction to keep the task's workspace, so
+// it downgrades a destroy to a stop.
+func (s *HelixAPIServer) teardownArchivedTaskDesktop(ctx context.Context, taskID, sessionID string, keepAlive, destroy bool) {
+	logger := log.With().
+		Str("task_id", taskID).
+		Str("session_id", sessionID).
+		Logger()
+
+	if destroy && keepAlive {
+		logger.Info().Msg("Not destroying workspace when archiving: task has Keep Alive; stopping instead")
+		destroy = false
+	}
+
+	if destroy {
+		if err := s.destroySessionAgent(ctx, sessionID, taskID, "spec task archived"); err != nil {
+			logger.Warn().Err(err).Msg("Failed to destroy agent desktop and workspace when archiving (continuing anyway)")
+			return
+		}
+		logger.Info().Msg("Destroyed agent desktop and workspace when archiving")
+		return
+	}
+
+	if err := s.stopSessionAgent(ctx, sessionID, "spec task archived"); err != nil {
+		logger.Warn().Err(err).Msg("Failed to stop agent session when archiving (continuing anyway)")
+		return
+	}
+	logger.Info().Msg("Stopped agent session when archiving")
 }
 
 func getSpecificationStatus(taskStatus types.SpecTaskStatus) string {
