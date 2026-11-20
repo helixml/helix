@@ -340,7 +340,7 @@ func TestEnsureSandboxPinsReplacementToRecordedHost(t *testing.T) {
 	}
 }
 
-func TestEnsureSandboxRepairsStaleRunnerPin(t *testing.T) {
+func TestEnsureSandboxRefusesRunnerPinMismatch(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	st := store.NewMockStore(ctrl)
 	runtimes, err := sandbox.NewRuntimeRegistry(config.Sandboxes{
@@ -357,16 +357,36 @@ func TestEnsureSandboxRepairsStaleRunnerPin(t *testing.T) {
 	st.EXPECT().GetSandbox(gomock.Any(), "sbx_live").Return(&types.Sandbox{
 		ID: "sbx_live", HostDeviceID: "host-current", Status: types.SandboxStatusRunning,
 	}, nil)
-	st.EXPECT().SetWebServiceHostDeviceID(gomock.Any(), "prj_1", "host-current").Return(nil)
-
-	sb, err := c.ensureSandbox(context.Background(), DeployRequest{Owner: "usr_1"}, &types.Project{
+	_, err = c.ensureSandbox(context.Background(), DeployRequest{Owner: "usr_1"}, &types.Project{
 		ID: "prj_1", OrganizationID: "org_1",
 	}, state)
+	if err == nil || !strings.Contains(err.Error(), `persistent data is pinned to runner "host-stale"`) {
+		t.Fatalf("ensureSandbox error = %v", err)
+	}
+}
+
+func TestEnsureSandboxRefusesActiveSandboxWithoutRunner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := store.NewMockStore(ctrl)
+	runtimes, err := sandbox.NewRuntimeRegistry(config.Sandboxes{
+		Runtimes:       "headless-ubuntu=ubuntu:22.04|sleep infinity",
+		DefaultRuntime: "headless-ubuntu",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sb.ID != "sbx_live" || state.HostDeviceID != "host-current" {
-		t.Fatalf("sandbox=%q state host=%q", sb.ID, state.HostDeviceID)
+	c := New(st, sandbox.New(st, nil, runtimes, "", ""))
+	st.EXPECT().GetSandbox(gomock.Any(), "sbx_live").Return(&types.Sandbox{
+		ID: "sbx_live", Status: types.SandboxStatusRunning,
+	}, nil)
+
+	_, err = c.ensureSandbox(context.Background(), DeployRequest{Owner: "usr_1"}, &types.Project{
+		ID: "prj_1", OrganizationID: "org_1",
+	}, &types.ProjectWebServiceState{
+		ProjectID: "prj_1", ActiveSandboxID: "sbx_live", HostDeviceID: "host-with-data",
+	})
+	if err == nil || !strings.Contains(err.Error(), "has no pinned runner") {
+		t.Fatalf("ensureSandbox error = %v", err)
 	}
 }
 

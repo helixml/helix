@@ -26,16 +26,23 @@ func newSandboxTestStore(t *testing.T) *PostgresStore {
 
 func TestSetActiveWebServiceSandboxRequiresEligibleSandbox(t *testing.T) {
 	tests := []struct {
-		name      string
-		projectID string
-		purpose   string
-		deleted   bool
-		wantErr   bool
+		name          string
+		projectID     string
+		purpose       string
+		stateHost     string
+		candidateHost string
+		nullStateHost bool
+		deleted       bool
+		wantErr       bool
 	}{
-		{name: "web service", projectID: "prj_1", purpose: types.SandboxPurposeWebService},
-		{name: "deleted", projectID: "prj_1", purpose: types.SandboxPurposeWebService, deleted: true, wantErr: true},
-		{name: "wrong project", projectID: "prj_2", purpose: types.SandboxPurposeWebService, wantErr: true},
-		{name: "ordinary sandbox", projectID: "prj_1", wantErr: true},
+		{name: "web service", projectID: "prj_1", purpose: types.SandboxPurposeWebService, stateHost: "host-1", candidateHost: "host-1"},
+		{name: "first pin", projectID: "prj_1", purpose: types.SandboxPurposeWebService, candidateHost: "host-1"},
+		{name: "first pin from legacy null", projectID: "prj_1", purpose: types.SandboxPurposeWebService, candidateHost: "host-1", nullStateHost: true},
+		{name: "missing runner", projectID: "prj_1", purpose: types.SandboxPurposeWebService, stateHost: "host-1", wantErr: true},
+		{name: "wrong runner", projectID: "prj_1", purpose: types.SandboxPurposeWebService, stateHost: "host-1", candidateHost: "host-2", wantErr: true},
+		{name: "deleted", projectID: "prj_1", purpose: types.SandboxPurposeWebService, stateHost: "host-1", candidateHost: "host-1", deleted: true, wantErr: true},
+		{name: "wrong project", projectID: "prj_2", purpose: types.SandboxPurposeWebService, stateHost: "host-1", candidateHost: "host-1", wantErr: true},
+		{name: "ordinary sandbox", projectID: "prj_1", stateHost: "host-1", candidateHost: "host-1", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -45,7 +52,12 @@ func TestSetActiveWebServiceSandboxRequiresEligibleSandbox(t *testing.T) {
 			require.NoError(t, store.UpsertProjectWebServiceState(ctx, &types.ProjectWebServiceState{
 				ProjectID:       "prj_1",
 				ActiveSandboxID: "sbx_current",
+				HostDeviceID:    tt.stateHost,
 			}))
+			if tt.nullStateHost {
+				require.NoError(t, store.gdb.Model(&types.ProjectWebServiceState{}).
+					Where("project_id = ?", "prj_1").Update("host_device_id", nil).Error)
+			}
 
 			sb, err := store.CreateSandbox(ctx, &types.Sandbox{
 				ID:             "sbx_candidate",
@@ -54,6 +66,7 @@ func TestSetActiveWebServiceSandboxRequiresEligibleSandbox(t *testing.T) {
 				Owner:          "user_1",
 				Runtime:        types.SandboxRuntimeHeadlessUbuntu,
 				Purpose:        tt.purpose,
+				HostDeviceID:   tt.candidateHost,
 			})
 			require.NoError(t, err)
 			if tt.deleted {
@@ -73,9 +86,56 @@ func TestSetActiveWebServiceSandboxRequiresEligibleSandbox(t *testing.T) {
 				require.Equal(t, "sbx_current", state.ActiveSandboxID)
 			} else {
 				require.Equal(t, sb.ID, state.ActiveSandboxID)
+				require.Equal(t, "host-1", state.HostDeviceID)
 			}
 		})
 	}
+}
+
+func TestSetWebServiceHostDeviceIDIsWriteOnce(t *testing.T) {
+	ctx := context.Background()
+	store := newSandboxTestStore(t)
+	require.NoError(t, store.UpsertProjectWebServiceState(ctx, &types.ProjectWebServiceState{ProjectID: "prj_1"}))
+	require.NoError(t, store.gdb.Model(&types.ProjectWebServiceState{}).
+		Where("project_id = ?", "prj_1").Update("host_device_id", nil).Error)
+
+	require.NoError(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", "host-1"))
+	require.NoError(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", "host-1"))
+	require.ErrorIs(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", "host-2"), ErrNotFound)
+	require.Error(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", ""))
+	require.ErrorIs(t, store.SetWebServiceHostDeviceID(ctx, "prj_missing", "host-1"), ErrNotFound)
+
+	state, err := store.GetProjectWebServiceState(ctx, "prj_1")
+	require.NoError(t, err)
+	require.Equal(t, "host-1", state.HostDeviceID)
+}
+
+func TestUpsertProjectWebServiceStatePreservesRunnerPin(t *testing.T) {
+	ctx := context.Background()
+	store := newSandboxTestStore(t)
+	require.NoError(t, store.UpsertProjectWebServiceState(ctx, &types.ProjectWebServiceState{
+		ProjectID: "prj_1", ContainerPort: 8080,
+	}))
+	stale, err := store.GetProjectWebServiceState(ctx, "prj_1")
+	require.NoError(t, err)
+	require.NoError(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", "host-1"))
+
+	stale.Enabled = true
+	stale.ContainerPort = 9090
+	require.NoError(t, store.UpsertProjectWebServiceState(ctx, stale))
+	state, err := store.GetProjectWebServiceState(ctx, "prj_1")
+	require.NoError(t, err)
+	require.True(t, state.Enabled)
+	require.Equal(t, 9090, state.ContainerPort)
+	require.Equal(t, "host-1", state.HostDeviceID)
+
+	state.HostDeviceID = "host-2"
+	state.ContainerPort = 7070
+	require.Error(t, store.UpsertProjectWebServiceState(ctx, state))
+	persisted, err := store.GetProjectWebServiceState(ctx, "prj_1")
+	require.NoError(t, err)
+	require.Equal(t, 9090, persisted.ContainerPort)
+	require.Equal(t, "host-1", persisted.HostDeviceID)
 }
 
 func TestSetSandboxContainerIgnoresDeletedRows(t *testing.T) {
