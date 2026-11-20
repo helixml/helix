@@ -153,7 +153,7 @@ func (s *PostgresStore) UpsertProjectWebServiceState(ctx context.Context, state 
 			return err
 		}
 		if state.HostDeviceID != "" && existing.HostDeviceID != "" && state.HostDeviceID != existing.HostDeviceID {
-			return fmt.Errorf("web service runner pin conflict: stored %q, requested %q", existing.HostDeviceID, state.HostDeviceID)
+			return fmt.Errorf("%w: web service runner is pinned to %q, requested %q", ErrConflict, existing.HostDeviceID, state.HostDeviceID)
 		}
 		if existing.HostDeviceID != "" {
 			state.HostDeviceID = existing.HostDeviceID
@@ -205,6 +205,18 @@ func (s *PostgresStore) SetActiveWebServiceSandbox(ctx context.Context, projectI
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
+		state, stateErr := s.GetProjectWebServiceState(ctx, projectID)
+		if stateErr != nil {
+			return stateErr
+		}
+		sandbox, sandboxErr := s.GetSandbox(ctx, sandboxID)
+		if sandboxErr != nil {
+			return sandboxErr
+		}
+		if sandbox.ProjectID == projectID && sandbox.Purpose == types.SandboxPurposeWebService &&
+			(sandbox.HostDeviceID == "" || (state.HostDeviceID != "" && state.HostDeviceID != sandbox.HostDeviceID)) {
+			return fmt.Errorf("%w: web service runner is pinned to %q, sandbox runner is %q", ErrConflict, state.HostDeviceID, sandbox.HostDeviceID)
+		}
 		return ErrNotFound
 	}
 	return nil
@@ -230,6 +242,13 @@ func (s *PostgresStore) SetWebServiceHostDeviceID(ctx context.Context, projectID
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
+		state, err := s.GetProjectWebServiceState(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		if state.HostDeviceID != "" && state.HostDeviceID != hostDeviceID {
+			return fmt.Errorf("%w: web service runner is pinned to %q, requested %q", ErrConflict, state.HostDeviceID, hostDeviceID)
+		}
 		return ErrNotFound
 	}
 	return nil

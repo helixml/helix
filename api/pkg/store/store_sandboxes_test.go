@@ -75,7 +75,11 @@ func TestSetActiveWebServiceSandboxRequiresEligibleSandbox(t *testing.T) {
 
 			err = store.SetActiveWebServiceSandbox(ctx, "prj_1", sb.ID)
 			if tt.wantErr {
-				require.ErrorIs(t, err, ErrNotFound)
+				if tt.name == "missing runner" || tt.name == "wrong runner" {
+					require.ErrorIs(t, err, ErrConflict)
+				} else {
+					require.ErrorIs(t, err, ErrNotFound)
+				}
 			} else {
 				require.NoError(t, err)
 			}
@@ -101,7 +105,7 @@ func TestSetWebServiceHostDeviceIDIsWriteOnce(t *testing.T) {
 
 	require.NoError(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", "host-1"))
 	require.NoError(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", "host-1"))
-	require.ErrorIs(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", "host-2"), ErrNotFound)
+	require.ErrorIs(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", "host-2"), ErrConflict)
 	require.Error(t, store.SetWebServiceHostDeviceID(ctx, "prj_1", ""))
 	require.ErrorIs(t, store.SetWebServiceHostDeviceID(ctx, "prj_missing", "host-1"), ErrNotFound)
 
@@ -131,7 +135,7 @@ func TestUpsertProjectWebServiceStatePreservesRunnerPin(t *testing.T) {
 
 	state.HostDeviceID = "host-2"
 	state.ContainerPort = 7070
-	require.Error(t, store.UpsertProjectWebServiceState(ctx, state))
+	require.ErrorIs(t, store.UpsertProjectWebServiceState(ctx, state), ErrConflict)
 	persisted, err := store.GetProjectWebServiceState(ctx, "prj_1")
 	require.NoError(t, err)
 	require.Equal(t, 9090, persisted.ContainerPort)
