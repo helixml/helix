@@ -189,7 +189,7 @@ chmod +x "$work/bin/"*
 src="$work/src"
 mkdir -p "$src/scripts/lib"
 cp "$repo/scripts/deploy-prod.sh" "$repo/scripts/cleanup-runner-images.sh" "$src/scripts/"
-cp "$repo/scripts/lib/deploy-controlplane-remote.sh" "$repo/scripts/lib/deploy-runner-remote.sh" "$repo/scripts/lib/bluegreen.sh" "$src/scripts/lib/"
+cp "$repo/scripts/lib/deploy-controlplane-remote.sh" "$repo/scripts/lib/deploy-runner-remote.sh" "$repo/scripts/lib/bluegreen.sh" "$repo/scripts/lib/availability-probe.sh" "$src/scripts/lib/"
 cp "$repo/docker-compose.yaml" "$repo/docker-compose.bluegreen.yaml" "$src/"
 git -C "$src" init -q
 git -C "$src" add -A
@@ -310,6 +310,7 @@ grep -q 'postgres: postgres:12.13-alpine (unchanged)' <<<"$out" || fail "postgre
 [ "$(grep -c '^manifest inspect ' "$work/docker-calls")" = 3 ] || fail "no-drift deploy did not check every image it pulls"
 [ "$(compose_calls)" = "$converge_calls" ] || fail "no-drift deploy converged the wrong services: $(compose_calls)"
 grep -q '^snapshot data/helix-postgres@pre-9.8.7-' "$work/zfs-calls" || fail "no-drift deploy took no snapshot"
+grep -qE 'public API availability during the deploy: requests=[0-9]+ failed=0 ' <<<"$out" || fail "no-drift deploy did not report availability: $out"
 cmp -s "$stack/docker-compose.yaml" "$repo/docker-compose.yaml" || fail "no-drift deploy changed the compose file"
 [ -f "$stack/docker-compose.override.yaml" ] || fail "override file removed"
 [ "$(grep -c '^CHROME_LAUNCHER_TOKEN=' "$stack/.env")" = 1 ] || fail "existing launcher token was replaced"

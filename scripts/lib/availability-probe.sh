@@ -21,7 +21,7 @@ trap 'stop=true' TERM INT
 
 while [ "$stop" = false ]; do
   requests=$((requests + 1))
-  if curl -fsS -o /dev/null --max-time "$timeout" "$@" "$url" 2> /dev/null; then
+  if curl -fsS -o /dev/null --max-time "$timeout" "$@" "$url" > /dev/null 2>&1; then
     last_ok=$(now)
   else
     failed=$((failed + 1))

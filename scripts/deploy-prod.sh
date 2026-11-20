@@ -103,6 +103,7 @@ rsh() { # rsh <user@host> <script>
 }
 
 DEPLOYED=""
+AVAILABILITY=""
 
 # --- 1. controlplane (london) ----------------------------------------------
 if [ "$DEPLOY_CONTROLPLANE" = "true" ]; then
@@ -128,10 +129,24 @@ if [ "$DEPLOY_CONTROLPLANE" = "true" ]; then
     REPO_BLUEGREEN_B64 "$(base64 < "$REPO_DIR/docker-compose.bluegreen.yaml" | tr -d '\n')")
 $(cat "$REPO_DIR/scripts/lib/bluegreen.sh" "$REPO_DIR/scripts/lib/deploy-controlplane-remote.sh")"
 
+  # What users see during the deploy: the public API polled from outside the
+  # host for its whole duration (scripts/lib/availability-probe.sh).
+  probe_out=$(mktemp)
+  PROBE_INTERVAL=0.5 "$REPO_DIR/scripts/lib/availability-probe.sh" "https://${LONDON_HEALTH_HOST}/api/v1/config" > "$probe_out" &
+  probe_pid=$!
+  probe_report() {
+    kill -TERM "$probe_pid" 2>/dev/null || return 0
+    wait "$probe_pid" 2>/dev/null || true
+    AVAILABILITY=$(cat "$probe_out")
+    rm -f "$probe_out"
+    log "public API availability during the deploy: ${AVAILABILITY}"
+  }
   # shellcheck disable=SC2086
   if ! ssh $SSH_OPTS "$LONDON_SSH" 'bash -s' <<<"$CP_DEPLOY"; then
-    fail "controlplane deploy failed: see the log above (nothing changes before the snapshot; a failed health-check rolls back in place). DB snapshot, if taken: ${SNAP}"
+    probe_report
+    fail "controlplane deploy failed: see the log above (nothing changes before the snapshot; a failed health-check rolls back in place). DB snapshot, if taken: ${SNAP}. Availability: ${AVAILABILITY}"
   fi
+  probe_report
   log "controlplane on ${VERSION}"
   DEPLOYED="control plane"
 
@@ -186,5 +201,5 @@ else
   log "DEPLOY_RUNNER=false - skipping runner upgrade"
 fi
 
-notify ":rocket: *prod deployed ${VERSION}*: ${DEPLOYED}"
+notify ":rocket: *prod deployed ${VERSION}*: ${DEPLOYED}${AVAILABILITY:+ (public API during the control-plane deploy: ${AVAILABILITY})}"
 log "prod deploy of ${VERSION} complete: ${DEPLOYED}"
