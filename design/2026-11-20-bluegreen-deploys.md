@@ -74,7 +74,7 @@ this is deployed in place. It prints the resolved config diff between `api`
 and `api-blue`, migrates, then stops `api` (the embedded NATS must stop before
 the external one opens its JetStream directory), starts `nats` and
 `api-blue`, installs the host's nginx.conf from helixml/infra and reloads.
-That is the only downtime: 7-11s in rehearsal, plus image boot. On failure it
+That is the only downtime: 7-27s across rehearsal runs (mostly the new container's boot). On failure it
 restores `.env`, nginx.conf and `api`. Runbook: helixml/infra
 `docs/helix-bluegreen-cutover.md`.
 
@@ -86,7 +86,7 @@ compose, nginx, NATS, Postgres and this checkout's API binary, probing
 
 | step | failed requests |
 |---|---|
-| cutover from single `api` | 65-101 (7-11s, expected) |
+| cutover from single `api` | 65-237 (7-27s, expected) |
 | deploy v2 → green, broken build → rollback, v1 → blue | 0, 0, 0 |
 | London's `deploy-controlplane-remote.sh`: v2, broken → rollback | 0, 0 |
 | nginx/.env disagree | deploy refused before any change |
