@@ -132,6 +132,7 @@ steps:
       - ./desktop/shared/test-helix-browser.sh
       - ./scripts/test-deploy-prod.sh
       - sh scripts/test-image-publish.sh
+      - sh scripts/test-image-layer-depth.sh
       - sh scripts/check-postgres-defaults.sh
       - bash scripts/test-install-postgres-pin.sh
     when:
@@ -2170,6 +2171,7 @@ steps:
           --build-arg SKILLS_COMMIT=$${SKILLS_COMMIT} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64 \
           .
+        scripts/check-image-layer-depth.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
         scripts/publish-image.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-amd64
         echo "helix-ubuntu:$${VERSION}-linux-amd64 pushed to registry"
       # Write version refs for sandbox
@@ -2367,6 +2369,7 @@ steps:
           --build-arg SKILLS_COMMIT=$${SKILLS_COMMIT} \
           -t registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64 \
           .
+        scripts/check-image-layer-depth.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
         scripts/publish-image.sh registry.helixml.tech/helix/helix-ubuntu:$${VERSION}-linux-arm64
         echo "helix-ubuntu:$${VERSION}-linux-arm64 pushed to registry"
       # Write version refs for sandbox
