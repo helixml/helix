@@ -3875,6 +3875,21 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// to an idle agent it is an ordinary turn.
 	steered := false
 	if steersMidTurn && !threadNotEstablished {
+		// A steer re-claimed after a failed send must not be dispatched twice:
+		// if its interaction is still Waiting, it is already in flight. Looked
+		// up by prompt, because later steers may have started newer turns.
+		existing, err := apiServer.Store.GetLatestInteractionByPromptID(ctx, prompt.ID)
+		if err != nil {
+			return fmt.Errorf("check whether steer prompt %s is in flight: %w", prompt.ID, err)
+		}
+		if existing != nil && existing.GenerationID == session.GenerationID && existing.State == types.InteractionStateWaiting {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("interaction_id", existing.ID).
+				Str("prompt_id", prompt.ID).
+				Msg("✅ [STEER] Steer is already in flight via existing Waiting interaction — skipping duplicate dispatch")
+			return nil
+		}
 		latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,

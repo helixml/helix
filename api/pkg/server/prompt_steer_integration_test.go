@@ -129,3 +129,34 @@ func TestSteerPrompt_CapabilityArrival_DeliversWaitingSteer(t *testing.T) {
 		t.Fatal("the waiting steer was not delivered when the capability arrived")
 	}
 }
+
+// A steer whose send failed is re-claimed for retry. If its interaction is
+// still Waiting it is already in flight and must not be dispatched again, even
+// when a later steer has started a newer turn since.
+func TestSteerPrompt_RetryAfterFailedSend_DoesNotDispatchTwice(t *testing.T) {
+	srv, mem, conn, sessionID := steerTestSession(t, true)
+	ctx := context.Background()
+
+	promptID, err := srv.EnqueueSteerPrompt(sessionID, "change of plan")
+	require.NoError(t, err)
+	<-conn.SendChan
+	_, err = srv.EnqueueSteerPrompt(sessionID, "and another thing")
+	require.NoError(t, err)
+	<-conn.SendChan
+
+	require.NoError(t, mem.MarkPromptAsFailed(ctx, promptID, "send channel full"))
+	srv.processPendingPromptsForSession(ctx, sessionID)
+
+	select {
+	case cmd := <-conn.SendChan:
+		t.Fatalf("an in-flight steer was dispatched again: %+v", cmd)
+	case <-time.After(200 * time.Millisecond):
+	}
+	count := 0
+	for _, in := range mem.GetAllInteractions() {
+		if in.PromptID == promptID {
+			count++
+		}
+	}
+	require.Equal(t, 1, count, "a retried steer must not create a second interaction")
+}
