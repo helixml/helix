@@ -16,6 +16,7 @@ import { getUserInitials } from '../../utils/user'
 import PresenceDot from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
 import ProjectChatShowMore from './ProjectChatShowMore'
+import { SidebarTreeChildren, SidebarTreeIconSlot, sidebarTreeChevronSize, sidebarTreeHeaderSx } from './SidebarTree'
 import {
   buildPersonChatItems,
   filterProjectChatGroups,
@@ -153,13 +154,8 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
           }
         }}
         sx={{
+          ...sidebarTreeHeaderSx,
           width: '100%',
-          height: 32,
-          px: 0.75,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.65,
-          borderRadius: '6px',
           color: sidebarColors.foreground,
           cursor: 'pointer',
           outline: 'none',
@@ -171,8 +167,8 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
         <Box
           component="span"
           sx={{
-            width: isPhone ? 28 : 16,
-            height: isPhone ? 28 : 16,
+            width: sidebarTreeChevronSize(isPhone),
+            height: sidebarTreeChevronSize(isPhone),
             flexShrink: 0,
             display: 'inline-flex',
             alignItems: 'center',
@@ -182,18 +178,20 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
         >
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </Box>
-        <Box sx={{ position: 'relative', width: 18, height: 18, flexShrink: 0 }}>
-          <Avatar sx={{ width: 18, height: 18, fontSize: '0.55rem' }}>
-            {getUserInitials(member.user)}
-          </Avatar>
-          <Box sx={{ position: 'absolute', right: -2, bottom: -2, display: 'inline-flex' }}>
-            <PresenceDot
-              online={member.online}
-              size={7}
-              ringColor={lightTheme.isLight ? '#fafafa' : '#000000'}
-            />
+        <SidebarTreeIconSlot>
+          <Box sx={{ position: 'relative', width: 18, height: 18, flexShrink: 0 }}>
+            <Avatar sx={{ width: 18, height: 18, fontSize: '0.55rem' }}>
+              {getUserInitials(member.user)}
+            </Avatar>
+            <Box sx={{ position: 'absolute', right: -2, bottom: -2, display: 'inline-flex' }}>
+              <PresenceDot
+                online={member.online}
+                size={7}
+                ringColor={lightTheme.isLight ? '#fafafa' : '#000000'}
+              />
+            </Box>
           </Box>
-        </Box>
+        </SidebarTreeIconSlot>
         <Typography
           component="span"
           sx={{
@@ -214,7 +212,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
       </Box>
 
       {open && (
-        <Box sx={{ pl: 1.15 }}>
+        <SidebarTreeChildren isPhone={isPhone}>
           {hasError && (
             <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
               Failed to load their work
@@ -250,7 +248,7 @@ const ProjectChatPersonGroup: FC<ProjectChatPersonGroupProps> = ({
             />
           ))}
           <ProjectChatShowMore pagination={pagination} hasMore={hasMore} fetching={isFetchingMore} />
-        </Box>
+        </SidebarTreeChildren>
       )}
     </Box>
   )

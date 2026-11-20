@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ProjectChatBotEntry } from './ProjectChatBotsGroup'
 import type { SidebarBot } from './ProjectChatSidebar.logic'
+import { sidebarTreeIconInset } from './SidebarTree'
 
 vi.mock('../../hooks/useLightTheme', () => ({
   default: () => ({ isLight: false }),
@@ -52,60 +53,56 @@ describe('ProjectChatBotEntry', () => {
   // settings) must be reachable from a visible button.
   it('opens the bot menu from its actions button', () => {
     const onOpenMenu = vi.fn()
-    renderBot({ id: 'chief', name: 'Chief of Staff', running: true, working: false, restartRequired: false }, '', true, onOpenMenu)
+    renderBot({ id: 'chief', name: 'Chief of Staff', running: true, activity: null, restartRequired: false }, '', true, onOpenMenu)
 
     fireEvent.click(screen.getByRole('button', { name: 'More actions for Chief of Staff' }))
     expect(onOpenMenu).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the online dot with a trailing working label', () => {
+  it('shows working as a pulsing activity dot', () => {
     const { container } = renderBot({
       id: 'chief',
       name: 'Chief of Staff',
       running: true,
-      working: true,
+      activity: { label: 'Working', color: '#34d399', working: true },
       restartRequired: false,
       portraitIndex: 0,
     })
 
-    const trailingSlot = screen.getByTestId('sidebar-bot-trailing-slot')
-    const workingLabel = screen.getByRole('status', { name: 'Working' })
-    expect(workingLabel).toHaveTextContent('Working')
-    expect(workingLabel).toHaveStyle({ color: '#34d399' })
+    const workingDot = screen.getByRole('status', { name: 'Working' })
+    expect(workingDot).toHaveStyle({ backgroundColor: '#34d399' })
+    expect(workingDot).not.toHaveStyle({ animation: 'none' })
+    expect(workingDot).not.toHaveTextContent('Working')
     expect(container.querySelector('img')).toHaveStyle({ filter: 'grayscale(1)' })
-    expect(trailingSlot).toContainElement(workingLabel)
-    expect(trailingSlot).toContainElement(screen.getByRole('button', { name: 'More actions for Chief of Staff' }))
-    expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
+    expect(screen.getByTestId('sidebar-bot-trailing-slot')).toContainElement(screen.getByRole('button', { name: 'More actions for Chief of Staff' }))
   })
 
-  it('keeps the presence dot when the bot is idle', () => {
-    const { container } = renderBot({
+  it('shows a running but idle bot with a quiet gray dot', () => {
+    renderBot({
       id: 'chief',
       name: 'Chief of Staff',
       running: true,
-      working: false,
+      activity: { label: 'Idle', color: '#a1a1aa', working: false },
       restartRequired: false,
     })
 
-    expect(screen.queryByRole('status', { name: 'Working' })).toBeNull()
-    expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Idle' })).toHaveStyle({
+      backgroundColor: '#a1a1aa',
+      animation: 'none',
+    })
   })
 
-  it.each([
-    ['bot id', 'chief'],
-    ['session id', 'ses-chief'],
-  ])('hides the working indicator when selected by %s', (_, activeItemId) => {
-    const { container } = renderBot({
+  it('keeps activity visible when selected', () => {
+    renderBot({
       id: 'chief',
       name: 'Chief of Staff',
       running: true,
-      working: true,
+      activity: { label: 'Working', color: '#34d399', working: true },
       restartRequired: false,
       sessionId: 'ses-chief',
-    }, activeItemId)
+    }, 'ses-chief')
 
-    expect(screen.queryByRole('status', { name: 'Working' })).toBeNull()
-    expect(container.querySelector('[data-bot-status="running"]')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Working' })).toBeInTheDocument()
   })
 
   it('lists instances under the bot with a delete action and sandbox status', () => {
@@ -120,7 +117,7 @@ describe('ProjectChatBotEntry', () => {
       id: 'b-broker',
       name: 'Broker',
       running: false,
-      working: false,
+      activity: { label: 'Offline', color: '#a1a1aa', working: false },
       restartRequired: false,
     }, '', false)
 
@@ -135,10 +132,25 @@ describe('ProjectChatBotEntry', () => {
       { session_id: 'ses_1', name: 'One', sandbox_status: 'running' },
       { session_id: 'ses_2', name: 'Two', sandbox_status: '' },
     ]
-    renderBot({ id: 'b-broker', name: 'Broker', running: false, working: false, restartRequired: false })
+    renderBot({ id: 'b-broker', name: 'Broker', running: false, activity: { label: 'Offline', color: '#a1a1aa', working: false }, restartRequired: false })
 
     expect(screen.getByTestId('sidebar-bot-instance-count')).toHaveTextContent('2')
     expect(screen.queryByText('One')).toBeNull()
+    botInstances.data = []
+  })
+
+  // A bot's tasks and instances must read as nested inside it: they start on
+  // the bot portrait's column, never under its chevron.
+  it('indents its rows to the bot portrait column whether or not the bot shows activity', () => {
+    botInstances.data = [{ session_id: 'ses_instance', name: 'Broker for ACME', sandbox_status: 'running' }]
+    const { container } = renderBot({ id: 'b-broker', name: 'Broker', running: false, activity: null, restartRequired: false }, '', false)
+
+    const children = screen.getByTestId('sidebar-tree-children')
+    // Child rows add their own 8px padding on top of the group indent.
+    expect(children).toHaveStyle({ paddingLeft: `${sidebarTreeIconInset(false) - 8}px` })
+    expect(children).toContainElement(screen.getByText('Broker for ACME'))
+    // The activity dot is badged on the portrait, never a column of its own.
+    expect(container.querySelectorAll('.project-chat-agent > *')[1]).toBe(screen.getByTestId('sidebar-tree-icon-slot'))
     botInstances.data = []
   })
 })

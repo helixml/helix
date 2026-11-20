@@ -28,6 +28,9 @@ func TestReapOrphanResources_CallsRecentSandboxesWithCorrectRequest(t *testing.T
 	mockStore.EXPECT().
 		ListExternalAgentSessionIDs(gomock.Any(), gomock.Any()).
 		Return(liveSessions, nil)
+	mockStore.EXPECT().
+		ListActiveDesktopSessionIDs(gomock.Any()).
+		Return([]string{"ses_live1"}, nil)
 
 	// Two spec tasks: one live (implementation), one terminal+old (done) → excluded.
 	mockStore.EXPECT().
@@ -87,6 +90,7 @@ func TestReapOrphanResources_SandboxReconcileErrorContinues(t *testing.T) {
 	now := time.Now()
 
 	mockStore.EXPECT().ListExternalAgentSessionIDs(gomock.Any(), gomock.Any()).Return([]string{}, nil)
+	mockStore.EXPECT().ListActiveDesktopSessionIDs(gomock.Any()).Return([]string{}, nil)
 	mockStore.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{}, nil)
 	mockStore.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{
 		{ID: "sbox_a", LastSeen: now},
@@ -118,7 +122,6 @@ func TestLiveSpecTaskIDsForReaper_KeepAliveOutranksTerminalStatus(t *testing.T) 
 
 	mockStore := store.NewMockStore(ctrl)
 	now := time.Now()
-	cutoff := now.Add(-6 * time.Hour)
 	stale := now.Add(-30 * 24 * time.Hour) // long past any grace window
 
 	mockStore.EXPECT().
@@ -132,11 +135,9 @@ func TestLiveSpecTaskIDsForReaper_KeepAliveOutranksTerminalStatus(t *testing.T) 
 			{ID: "spt_done_stale", Status: types.TaskStatusDone, UpdatedAt: stale},
 			// Not pinned but still working -> live on status alone.
 			{ID: "spt_running", Status: types.TaskStatusImplementation, UpdatedAt: stale},
-			// Not pinned, terminal, but touched inside the grace window -> live.
-			{ID: "spt_done_recent", Status: types.TaskStatusDone, UpdatedAt: now},
 		}, nil)
 
-	ids, err := liveSpecTaskIDsForReaper(context.Background(), mockStore, cutoff, nil)
+	ids, err := liveSpecTaskIDsForReaper(context.Background(), mockStore, nil)
 	assert.NoError(t, err)
 
 	assert.Contains(t, ids, "spt_keepalive_done",
@@ -144,7 +145,6 @@ func TestLiveSpecTaskIDsForReaper_KeepAliveOutranksTerminalStatus(t *testing.T) 
 	assert.Contains(t, ids, "spt_keepalive_archived",
 		"Keep Alive is explicit user intent and must outrank archived+terminal too")
 	assert.Contains(t, ids, "spt_running", "a non-terminal task is live")
-	assert.Contains(t, ids, "spt_done_recent", "a recently-touched task is live")
 	assert.NotContains(t, ids, "spt_done_stale",
 		"an unpinned, terminal, stale task must still be reapable, or the GC stops reclaiming anything")
 }
@@ -166,8 +166,77 @@ func TestLiveSpecTaskIDsForReaper_LiveSessionKeepsFinishedTask(t *testing.T) {
 		{ID: "spt_done_idle", Status: types.TaskStatusDone, PlanningSessionID: "ses_gone", UpdatedAt: stale},
 	}, nil)
 
-	ids, err := liveSpecTaskIDsForReaper(context.Background(), mockStore, now.Add(-30*24*time.Hour), []string{"ses_running", "ses_running_2"})
+	ids, err := liveSpecTaskIDsForReaper(context.Background(), mockStore, []string{"ses_running", "ses_running_2"})
 	assert.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{"spt_done_in_use", "spt_archived_in_use"}, ids)
+}
+
+// Regression: a finished or archived task's workspace is retained one grace
+// period after it stopped being live, not two.
+//
+// The live set used to include every task updated within the grace window, and
+// hydra writes a liveness mark for each id on every tick it is live, then waits
+// a full grace from the last mark. So a task archived at T was marked live
+// until T+grace and reaped at T+2*grace: ~48h with a 24h grace, ~60 days with
+// the 720h default. Recency now comes only from hydra's mark (or, for an id it
+// never saw live, the workspace's own mtimes), so these tasks must be absent.
+func TestLiveSpecTaskIDsForReaper_RecentlyFinishedTaskIsNotPaddedLive(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	now := time.Now()
+	mockStore.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{
+		// Archived the moment it finished; its desktop was stopped (or
+		// destroyed) by the archive, so its session is recent but not active.
+		{ID: "spt_archived_now", Status: types.TaskStatusDone, Archived: true, PlanningSessionID: "ses_just_stopped", UpdatedAt: now},
+		// Finished an hour ago, never archived, desktop stopped.
+		{ID: "spt_done_1h", Status: types.TaskStatusDone, PlanningSessionID: "ses_stopped", UpdatedAt: now.Add(-time.Hour)},
+		// Archived mid-flight: archived alone ends liveness too.
+		{ID: "spt_archived_in_review", Status: types.TaskStatusSpecReview, Archived: true, UpdatedAt: now},
+		{ID: "spt_failed_now", Status: types.TaskStatusImplementationFailed, UpdatedAt: now},
+		// Controls: still working, and finished but with a desktop booting.
+		{ID: "spt_working", Status: types.TaskStatusImplementation, UpdatedAt: now},
+		{ID: "spt_done_restarting", Status: types.TaskStatusDone, PlanningSessionID: "ses_restarting", UpdatedAt: now.Add(-90 * 24 * time.Hour)},
+	}, nil)
+
+	ids, err := liveSpecTaskIDsForReaper(context.Background(), mockStore, []string{"ses_restarting"})
+	assert.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"spt_working", "spt_done_restarting"}, ids,
+		"a terminal or archived task is live only while pinned or while its desktop is active; recency is hydra's job")
+}
+
+// The reaper hands liveSpecTaskIDsForReaper the active-desktop set, not the
+// recency-padded session set it sends hydra for session resources: a stopped
+// desktop whose session row changed recently must not keep its task live.
+func TestReapOrphanResources_TaskLivenessUsesActiveDesktopsOnly(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockExec := NewMockExecutor(ctrl)
+	now := time.Now()
+
+	// ses_stopped is in the padded live set (recently updated) but not active.
+	mockStore.EXPECT().ListExternalAgentSessionIDs(gomock.Any(), gomock.Any()).
+		Return([]string{"ses_stopped", "ses_running"}, nil)
+	mockStore.EXPECT().ListActiveDesktopSessionIDs(gomock.Any()).
+		Return([]string{"ses_running"}, nil)
+	mockStore.EXPECT().ListSpecTasks(gomock.Any(), gomock.Any()).Return([]*types.SpecTask{
+		{ID: "spt_archived", Status: types.TaskStatusDone, Archived: true, PlanningSessionID: "ses_stopped", UpdatedAt: now},
+		{ID: "spt_in_use", Status: types.TaskStatusDone, PlanningSessionID: "ses_running", UpdatedAt: now},
+	}, nil)
+	mockStore.EXPECT().ListSandboxInstances(gomock.Any()).
+		Return([]*types.SandboxInstance{{ID: "sbox", LastSeen: now}}, nil)
+	mockExec.EXPECT().ReconcileSandboxResources(gomock.Any(), "sbox", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, req *hydra.GCReconcileRequest) (*hydra.GCReconcileResponse, error) {
+			assert.Equal(t, []string{"ses_stopped", "ses_running"}, req.LiveSessionIDs,
+				"session resources keep their recency padding")
+			assert.Equal(t, []string{"spt_in_use"}, req.LiveSpecTaskIDs)
+			return &hydra.GCReconcileResponse{}, nil
+		})
+
+	reapOrphanResources(context.Background(), mockExec, mockStore, 24*time.Hour, false)
 }

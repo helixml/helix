@@ -68,7 +68,7 @@ import {
 import { splitSystemPrefix } from '../components/session/CollapsibleSystemPrefix'
 import OrgAgentSessionWorkspace from '../components/helix-org/OrgAgentSessionWorkspace'
 import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
-import { useActivateBot, useApplyBotConfig, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
+import { useActivateBot, useHelixOrgBot, useRestartBotAgent, useStopBotAgent } from '../services/helixOrgService'
 import { isBotInstanceSessionMetadata } from '../components/session/ProjectChatSidebar.logic'
 import { mergeStreamingInteraction } from '../components/session/subagentActivity'
 import { deriveSandboxState } from '../components/external-agent/sandboxState'
@@ -144,7 +144,9 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       isAdmin={props.isAdmin}
       session_id={props.session_id}
     >
-      {isLive && (props.isOwner || props.isAdmin) && (
+      {/* Every viewer who may read the session, not just the owner — see
+          EmbeddedSessionView. */}
+      {isLive && (
         <InteractionLiveStream
           session_id={props.session_id}
           interaction={props.interaction}
@@ -356,7 +358,6 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
     }
   }
   const restartOrgBotAgent = useRestartBotAgent()
-  const applyBotConfig = useApplyBotConfig()
   const activateOrgBotAgent = useActivateBot()
   const stopOrgBotAgent = useStopBotAgent()
   const orgBotLifecycleBusy = restartOrgBotAgent.isPending || activateOrgBotAgent.isPending || stopOrgBotAgent.isPending
@@ -1739,8 +1740,8 @@ const Session: FC<SessionProps> = ({ previewMode = false, orgChatView = false, s
         key={orgWorkerId}
         visible={!!orgBot?.restart_required}
         working={!!sessionID && isStreaming}
-        busy={restartOrgBotAgent.isPending || applyBotConfig.isPending}
-        onRestart={() => { if (orgWorkerId) void applyBotConfig.mutateAsync(orgWorkerId) }}
+        busy={orgBotLifecycleBusy}
+        onRestart={() => { if (orgWorkerId) void restartOrgBotAgent.mutateAsync(orgWorkerId) }}
       />
       {isExternalAgent ? (
         <OrgAgentSessionWorkspace

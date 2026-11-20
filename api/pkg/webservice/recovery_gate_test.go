@@ -167,6 +167,36 @@ func (s *RecoveryGateSuite) TestMissingSandboxUsesPinnedHostBeforeRedeploy() {
 	s.True(IsRecoveryDeferred(err))
 }
 
+func (s *RecoveryGateSuite) TestRunnerPinMismatchDoesNotRecover() {
+	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").Return(&types.ProjectWebServiceState{
+		ProjectID: "prj_findai", Enabled: true, ActiveSandboxID: "sbx_web", HostDeviceID: "host-with-data",
+	}, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_findai").Return(&types.Project{ID: "prj_findai", UserID: "usr_1"}, nil)
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_web").Return(&types.Sandbox{
+		ID: "sbx_web", HostDeviceID: "host-empty", Status: types.SandboxStatusStopped,
+	}, nil)
+
+	deploy, err := s.ctlr.RecoverWebService(s.ctx, "prj_findai")
+	s.Nil(deploy)
+	s.True(IsRecoveryDeferred(err))
+	s.Contains(err.Error(), `does not match persistent data runner "host-with-data"`)
+}
+
+func (s *RecoveryGateSuite) TestMissingRunnerPinDoesNotRecover() {
+	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").Return(&types.ProjectWebServiceState{
+		ProjectID: "prj_findai", Enabled: true, ActiveSandboxID: "sbx_web",
+	}, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "prj_findai").Return(&types.Project{ID: "prj_findai", UserID: "usr_1"}, nil)
+	s.store.EXPECT().GetSandbox(gomock.Any(), "sbx_web").Return(&types.Sandbox{
+		ID: "sbx_web", Status: types.SandboxStatusStopped,
+	}, nil)
+
+	deploy, err := s.ctlr.RecoverWebService(s.ctx, "prj_findai")
+	s.Nil(deploy)
+	s.True(IsRecoveryDeferred(err))
+	s.Contains(err.Error(), "pinned runner is unknown")
+}
+
 func (s *RecoveryGateSuite) TestSandboxLookupFailureIsNotTreatedAsMissing() {
 	s.store.EXPECT().GetProjectWebServiceState(gomock.Any(), "prj_findai").Return(&types.ProjectWebServiceState{
 		ProjectID: "prj_findai", Enabled: true, ActiveSandboxID: "sbx_web", HostDeviceID: "host-pinned",

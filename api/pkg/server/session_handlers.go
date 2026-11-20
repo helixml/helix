@@ -3020,6 +3020,13 @@ func (s *HelixAPIServer) lastTurnFailedToConnectAgent(ctx context.Context, sessi
 // crashed prompts → kick the queue. Returns the count of prompts that were
 // reset. Callers must have already authorized the user against the session.
 func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *types.User, session *types.Session, resetThread bool) (int, *system.HTTPError) {
+	return s.restartSessionContainerWith(ctx, user, session, resetThread, nil)
+}
+
+// restartSessionContainerWith runs afterStop once the old container is gone
+// and before the new one starts, so state the old container owned can be
+// settled without racing it.
+func (s *HelixAPIServer) restartSessionContainerWith(ctx context.Context, user *types.User, session *types.Session, resetThread bool, afterStop func(context.Context) error) (int, *system.HTTPError) {
 	sessionID := session.ID
 
 	if session.Metadata.AgentType != "zed_external" {
@@ -3039,6 +3046,11 @@ func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *type
 	if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("StopDesktop during crash-restart failed")
 		return 0, system.NewHTTPError500(fmt.Sprintf("failed to stop agent for restart: %s", err.Error()))
+	}
+	if afterStop != nil {
+		if err := afterStop(ctx); err != nil {
+			return 0, system.NewHTTPError500(fmt.Sprintf("failed to settle the stopped agent's work: %s", err.Error()))
+		}
 	}
 
 	// Mark the boot only after teardown succeeds. A failed stop leaves the old
@@ -3112,6 +3124,10 @@ const autoRestartMaxAttempts = 3
 // wait grows exponentially per consecutive attempt (autoRestartMinBackoff <<
 // count → 15s, 30s, 60s), so a fast crash loop is throttled. It is a var (not a
 // const) only so tests can drop it to zero; production never reassigns it.
+// errDeliveryIDConflict means a caller-supplied delivery id is already bound to
+// a different session or message. Retrying the same delivery can never succeed.
+var errDeliveryIDConflict = errors.New("delivery ID conflict")
+
 var autoRestartMinBackoff = 15 * time.Second
 
 // maybeAutoRestartCrashedAgent automatically recovers a crashed external agent
@@ -3405,7 +3421,7 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		}
 		if existingDelivery != nil {
 			if existingDelivery.SessionID != session.ID || existingDelivery.PromptMessage != message {
-				return nil, fmt.Errorf("interaction delivery ID %s conflicts with another message", req.InteractionID)
+				return nil, fmt.Errorf("%w: interaction delivery ID %s conflicts with another message", errDeliveryIDConflict, req.InteractionID)
 			}
 			if existingDelivery.State != types.InteractionStateWaiting {
 				return session, nil

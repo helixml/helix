@@ -63,8 +63,13 @@ type Nodes interface {
 	List(ctx context.Context, orgID string) ([]orgchart.Node, error)
 	Update(ctx context.Context, node orgchart.Node) error
 	UpdateCodeAgentConfig(ctx context.Context, orgID string, id orgchart.NodeID, config *types.CodeAgentExecutionConfig, updatedAt time.Time) error
+	UpdateKeepAlive(ctx context.Context, orgID string, id orgchart.NodeID, keepAlive bool, updatedAt time.Time) error
+	UpdatePRAutoApprove(ctx context.Context, orgID string, id orgchart.NodeID, enabled bool, by string, updatedAt time.Time) error
 	ClaimLegacyApp(ctx context.Context, orgID string, id orgchart.NodeID, appID string, config *types.CodeAgentExecutionConfig) (bool, error)
 	Delete(ctx context.Context, orgID string, id orgchart.NodeID) error
+	// ListAllIDs deliberately crosses tenant boundaries: the orphan reaper
+	// needs every existing Node so it never reclaims a live bot's home.
+	ListAllIDs(ctx context.Context) ([]OrgScopedID, error)
 }
 
 // ReportingLines persists the org's many-to-many reporting graph:

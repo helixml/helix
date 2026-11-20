@@ -9,13 +9,15 @@
 import { FC, ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import Stack from '@mui/material/Stack'
+import Switch from '@mui/material/Switch'
 import Typography from '@mui/material/Typography'
 import { Box as BoxIcon, Cpu, FolderKanban, Monitor, SquareTerminal } from 'lucide-react'
 
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
-import { BotDTO, useHelixOrgBot } from '../../services/helixOrgService'
+import { BotDTO, useHelixOrgBot, useSetBotPRAutoApprove } from '../../services/helixOrgService'
 import { TypesSandboxRuntime } from '../../api/api'
 import OrgAgentSettings from '../app/OrgAgentSettings'
 import CopyButton from '../common/CopyButton'
@@ -130,7 +132,9 @@ const Section: FC<{ title: string; description?: string; children: ReactNode; sx
 const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, organizationId, indicatorState, instance }) => {
   const router = useRouter()
   const lightTheme = useLightTheme()
-  const { data: detail, refetch } = useHelixOrgBot(bot.id || undefined, { enabled: !!bot.id })
+  // The org is explicit: embeds have no :org_id route param.
+  const { data: detail, refetch } = useHelixOrgBot(bot.id || undefined, { enabled: !!bot.id, orgID: organizationId })
+  const setAutoApprove = useSetBotPRAutoApprove(organizationId)
   // The server decides who may change this bot; everyone else gets the
   // read-only forms.
   const canEdit = detail?.bot?.can_edit === true
@@ -264,6 +268,31 @@ const OrgAgentSettingsPane: FC<OrgAgentSettingsPaneProps> = ({ bot, sessionId, o
           >
             <OrgAgentSettings agentID={agentID} section="runtime" readOnly={!canEdit} embedded detail={detail} onCanonicalUpdate={onSaved} />
           </Section>
+          {!instance && (
+            <Section
+              sx={panelSx}
+              title="Pull requests"
+              description="The agent opens pull requests — for example to its own playbook — only through proposals you approve in its chat."
+            >
+              <FormControlLabel
+                disabled={!canEdit || setAutoApprove.isPending}
+                control={(
+                  <Switch
+                    checked={!!detail.bot.auto_approve_pull_requests}
+                    onChange={(e) => setAutoApprove.mutate(
+                      { botId: detail.bot!.id!, enabled: e.target.checked },
+                      { onSuccess: onSaved },
+                    )}
+                  />
+                )}
+                label={(
+                  <Typography variant="body2">
+                    Approve this agent&apos;s pull requests without asking, using your credentials
+                  </Typography>
+                )}
+              />
+            </Section>
+          )}
           <Section sx={panelSx} title="Instructions" description="Markdown the agent reads on every run.">
             <OrgAgentSettings agentID={agentID} section="instructions" readOnly={!canEdit} embedded detail={detail} onCanonicalUpdate={onSaved} />
           </Section>

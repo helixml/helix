@@ -10,10 +10,10 @@ export interface UsageSectionInfo {
 }
 
 export const USAGE_SECTIONS: UsageSectionInfo[] = [
-  { key: 'overview', title: 'Overview', description: 'What the organization spent on LLM tokens and sandbox compute, and how it trended.' },
+  { key: 'overview', title: 'Overview', description: 'LLM token spend and sandbox runtime, and how they trended.' },
   { key: 'tokens', title: 'LLM tokens', description: 'What each provider, model and token type processed, and its cost at API rates.' },
   { key: 'performance', title: 'Performance', description: 'LLM latency, tool call errors and prompt-cache hits.' },
-  { key: 'compute', title: 'Compute', description: 'Credits spent running desktops and headless sandboxes.' },
+  { key: 'compute', title: 'Compute', description: 'How long desktops and headless sandboxes ran, and what they cost.' },
   { key: 'breakdowns', title: 'Breakdowns', description: 'Tokens, cost and latency by project, agent, task, session and user.' },
 ]
 

@@ -12,6 +12,9 @@ const (
 	EventMCPCall       EventType = "mcp_call"
 	EventSSHConnection EventType = "ssh_connection"
 	EventSSHCommand    EventType = "ssh_command"
+	// EventBotLifecycle records destructive Org Bot lifecycle operations
+	// such as an explicit reset.
+	EventBotLifecycle EventType = "bot_lifecycle"
 )
 
 type Status string

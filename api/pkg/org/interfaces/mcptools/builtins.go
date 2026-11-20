@@ -482,6 +482,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		NewStartBot(deps),
 		NewStopBot(deps),
 		NewRestartBot(deps),
+		NewResetBot(deps),
 		NewCreateBotInstance(deps),
 		NewListBotInstances(deps),
 		NewDeleteBotInstance(deps),

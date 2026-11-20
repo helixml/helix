@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
   },
   bots: [] as Array<{ id: string; legacy_app_id: string; restart_required?: boolean }>,
   restartMutateAsync: vi.fn(),
-  applyMutateAsync: vi.fn(),
   restartIsPending: false,
 }))
 
@@ -69,7 +68,6 @@ vi.mock('../services/helixOrgService', () => ({
     mutateAsync: mocks.restartMutateAsync,
     isPending: mocks.restartIsPending,
   }),
-  useApplyBotConfig: () => ({ mutateAsync: mocks.applyMutateAsync, isPending: false }),
 }))
 vi.mock('../components/system/Page', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -84,7 +82,6 @@ describe('App agent settings page restart banner', () => {
     mocks.router.params = { org_id: 'acme', app_id: 'app-target', tab: 'general' }
     mocks.bots = []
     mocks.restartMutateAsync.mockReset()
-    mocks.applyMutateAsync.mockReset()
     mocks.restartIsPending = false
   })
 
@@ -94,15 +91,14 @@ describe('App agent settings page restart banner', () => {
     expect(await screen.findByTestId('agent-restart-required-banner')).toBeInTheDocument()
   })
 
-  it('applies config without using the fresh-session restart', async () => {
+  it('uses the non-destructive restart', async () => {
     mocks.bots = [{ id: 'bot-one', legacy_app_id: 'app-target', restart_required: true }]
     render(<App />)
 
     fireEvent.click(await screen.findByRole('button', { name: /^restart$/i }))
     fireEvent.click(screen.getByTestId('agent-restart-confirm'))
 
-    expect(mocks.applyMutateAsync).toHaveBeenCalledWith('bot-one')
-    expect(mocks.restartMutateAsync).not.toHaveBeenCalled()
+    expect(mocks.restartMutateAsync).toHaveBeenCalledWith('bot-one')
   })
 
   it('does not show the restart banner when the matched bot is current', async () => {

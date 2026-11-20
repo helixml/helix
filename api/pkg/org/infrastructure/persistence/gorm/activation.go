@@ -95,6 +95,16 @@ func (r *activationsRepo) Complete(ctx context.Context, orgID string, id activat
 	)
 }
 
+func (r *activationsRepo) ListOpenForWorker(ctx context.Context, orgID string, workerID orgchart.NodeID) ([]*activation.Activation, error) {
+	return r.Repository.Find(ctx,
+		store.WithOrg(orgID),
+		store.WithCondition("worker_id", string(workerID)),
+		store.WithWhere("ended_at IS NULL"),
+		store.WithOrderDesc("started_at"),
+		store.WithOrderDesc("id"),
+	)
+}
+
 func (r *activationsRepo) Get(ctx context.Context, orgID string, id activation.ID) (*activation.Activation, error) {
 	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }

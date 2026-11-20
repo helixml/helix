@@ -99,6 +99,7 @@ func (s *proposalStore) ListSpecTaskPRProposals(_ context.Context, f *types.Spec
 	var out []*types.SpecTaskPRProposal
 	for _, p := range s.proposals {
 		if (f.SpecTaskID != "" && p.SpecTaskID != f.SpecTaskID) ||
+			(f.OrgBotID != "" && (p.OrgBotID != f.OrgBotID || p.OrganizationID != f.OrganizationID)) ||
 			(f.RepositoryID != "" && p.RepositoryID != f.RepositoryID) ||
 			(f.HeadBranch != "" && p.HeadBranch != f.HeadBranch) {
 			continue
@@ -146,6 +147,8 @@ type fakeProvider struct {
 	// onCreate, if set, runs inside CreatePullRequest (e.g. to pause it).
 	onCreate func()
 	locks    sync.Map // key -> *sync.Mutex, like GitRepositoryService
+	// states overrides a PR's state by id; unset PRs are open.
+	states map[string]types.PullRequestState
 }
 
 func (f *fakeProvider) WithRepoLock(key string, fn func() error) error {
@@ -163,7 +166,11 @@ func (f *fakeProvider) ListPullRequests(context.Context, string) ([]*types.PullR
 }
 func (f *fakeProvider) GetPullRequest(_ context.Context, _ string, id string) (*types.PullRequest, error) {
 	n, _ := strconv.Atoi(id)
-	return &types.PullRequest{ID: id, Number: n, URL: "https://github.example/pull/" + id, State: types.PullRequestStateOpen}, nil
+	state := types.PullRequestStateOpen
+	if st, ok := f.states[id]; ok {
+		state = st
+	}
+	return &types.PullRequest{ID: id, Number: n, URL: "https://github.example/pull/" + id, State: state}, nil
 }
 func (f *fakeProvider) CreatePullRequest(_ context.Context, _ string, title, _, head, _ string, _ string) (string, error) {
 	if f.onCreate != nil {

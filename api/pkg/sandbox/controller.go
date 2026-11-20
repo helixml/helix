@@ -276,6 +276,11 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	// Once teardown starts it must reach the soft-delete even if the caller
+	// goes away: a hydra teardown can outlast an HTTP client's timeout, and a
+	// cancelled ctx would then leave the row stuck in "stopping" with its
+	// container already gone.
+	ctx = context.WithoutCancel(ctx)
 
 	if err := c.billSandboxFinal(ctx, sandbox, time.Now()); err != nil {
 		// Same policy as closeSession: a failed final charge must not block

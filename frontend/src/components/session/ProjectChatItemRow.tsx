@@ -19,7 +19,7 @@ import { deriveSandboxState } from '../external-agent/sandboxState'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
 import { activeStatusDotPulse, TaskStatusIcons } from './ProjectChatItemBadges'
 import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
-import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus } from './ProjectChatSidebar.logic'
+import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskActivity, getSidebarTaskStatus } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 
 export type ProjectChatItemRowProps = {
@@ -67,7 +67,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   const isBotInstance = !!item.botInstanceOf
   const archiveVerb = archived ? 'Unarchive' : 'Archive'
   const status = item.kind === 'spec-task' ? getSidebarTaskStatus(item.task) : null
-  const isAgentWorking = item.kind === 'spec-task' && item.task?.agent_work_state === 'working'
+  const activity = item.kind === 'spec-task' ? getSidebarTaskActivity(item.task) : null
   const pullRequestIcon = item.kind === 'spec-task'
     ? getSidebarPullRequestIcon(item.task)
     : undefined
@@ -154,7 +154,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     <TaskStatusIcons
       status={status}
       pullRequestIcon={pullRequestIcon}
-      isAgentWorking={isAgentWorking}
+      activity={activity}
     />
   ) : isBotInstance && (
     <Tooltip title={instanceStatusTitle}>

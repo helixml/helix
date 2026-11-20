@@ -62,6 +62,19 @@ func OrgHandleFromContext(ctx context.Context) string {
 	return v
 }
 
+// actorUserIDKey carries the authenticated user behind a REST request, for
+// audit records of destructive bot operations.
+type actorUserIDKey struct{}
+
+func WithActorUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, actorUserIDKey{}, userID)
+}
+
+func ActorUserIDFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(actorUserIDKey{}).(string)
+	return v
+}
+
 // orgAuthorizationKey carries the organization membership resolved by the
 // authenticated outer API middleware. The standalone org server deliberately
 // has no implicit privileged identity: callers that do not pass through that

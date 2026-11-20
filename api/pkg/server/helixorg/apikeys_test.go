@@ -2,6 +2,7 @@ package helixorg
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"go.uber.org/mock/gomock"
@@ -62,6 +63,73 @@ func TestAPIKeys_User_MintsWhenNone(t *testing.T) {
 
 	k := NewHelixAPIKeys(st, newTestConfigs(t))
 	got, err := k.User(context.Background(), "usr-2")
+	if err != nil {
+		t.Fatalf("User: %v", err)
+	}
+	if got == "" {
+		t.Fatal("expected a minted key")
+	}
+}
+
+// TestAPIKeys_User_SkipsScopedKeys pins the load-bearing filter: the key an
+// org bot's activation runs under (BearerForUser) starts the bot's OWN
+// session, and a scoped key — bound to an organization, session, spec task,
+// project or app — is refused there. Every activation then fails before the
+// session row exists and the durable queue retries with a growing backoff, so
+// the bot's run events land while no session ever starts. A scoped key must
+// therefore never be returned, no matter where it sits in the (unordered)
+// key list.
+func TestAPIKeys_User_SkipsScopedKeys(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	st := store.NewMockStore(ctrl)
+
+	st.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return([]*types.ApiKey{
+		{Key: "hl-org-scoped", OrganizationID: "org_other"},
+		{Key: "hl-project-scoped", ProjectID: "prj_other"},
+		{Key: "hl-session-scoped", SessionID: "ses_other"},
+		{Key: "hl-task-scoped", SpecTaskID: "spec_other"},
+		{Key: "hl-app-scoped", AppID: &sql.NullString{String: "app_other", Valid: true}},
+		{Key: "hl-personal"},
+	}, nil)
+	// No CreateAPIKey expected: a personal key exists.
+
+	k := NewHelixAPIKeys(st, newTestConfigs(t))
+	got, err := k.User(context.Background(), "usr-1")
+	if err != nil {
+		t.Fatalf("User: %v", err)
+	}
+	if got != "hl-personal" {
+		t.Fatalf("got %q, want the personal key", got)
+	}
+}
+
+// TestAPIKeys_User_MintsWhenOnlyScoped: a user whose every key is scoped gets
+// a fresh personal one minted, rather than being handed a scoped key that
+// would fail every activation's session start.
+func TestAPIKeys_User_MintsWhenOnlyScoped(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	st := store.NewMockStore(ctrl)
+
+	st.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return([]*types.ApiKey{
+		{Key: "hl-org-scoped", OrganizationID: "org_other"},
+		{Key: "hl-project-scoped", ProjectID: "prj_other"},
+	}, nil)
+	st.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, k *types.ApiKey) (*types.ApiKey, error) {
+			if k.Owner != "usr-3" || k.Type != types.APIkeytypeAPI || k.Name != "helix-org (per-user)" {
+				t.Errorf("unexpected key: %+v", k)
+			}
+			// The minted key must itself be personal.
+			if k.OrganizationID != "" || k.ProjectID != "" || k.SessionID != "" || k.SpecTaskID != "" {
+				t.Errorf("minted key is scoped: %+v", k)
+			}
+			return k, nil
+		})
+
+	k := NewHelixAPIKeys(st, newTestConfigs(t))
+	got, err := k.User(context.Background(), "usr-3")
 	if err != nil {
 		t.Fatalf("User: %v", err)
 	}

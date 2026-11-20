@@ -72,7 +72,12 @@ func (s *PostgresStore) CreateSandbox(ctx context.Context, sandbox *types.Sandbo
 		sandbox.ExpiresAt = &exp
 	}
 
-	if err := s.gdb.WithContext(ctx).Create(sandbox).Error; err != nil {
+	if err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(sandbox).Error; err != nil {
+			return err
+		}
+		return syncSandboxRun(tx, sandbox.ID, now)
+	}); err != nil {
 		return nil, err
 	}
 	return s.GetSandbox(ctx, sandbox.ID)
@@ -149,7 +154,12 @@ func (s *PostgresStore) UpdateSandbox(ctx context.Context, sandbox *types.Sandbo
 		return nil, fmt.Errorf("id not specified")
 	}
 	sandbox.UpdatedAt = time.Now()
-	if err := s.gdb.WithContext(ctx).Save(sandbox).Error; err != nil {
+	if err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(sandbox).Error; err != nil {
+			return err
+		}
+		return syncSandboxRun(tx, sandbox.ID, sandbox.UpdatedAt)
+	}); err != nil {
 		return nil, err
 	}
 	return s.GetSandbox(ctx, sandbox.ID)
@@ -187,26 +197,27 @@ func (s *PostgresStore) SetSandboxStatus(ctx context.Context, id string, status 
 		"status_message": message,
 		"updated_at":     time.Now(),
 	}
+	now := time.Now()
 	switch status {
 	case types.SandboxStatusRunning:
 		// Open the billing window only on the transition to running. A repeat
 		// running write (a duplicate start) must not move the cursor past
 		// usage that has not been billed yet.
-		now := time.Now()
 		updates["started_at"] = gorm.Expr("CASE WHEN status = ? THEN started_at ELSE ? END", types.SandboxStatusRunning, now)
 		updates["billing_last_charged_at"] = gorm.Expr("CASE WHEN status = ? THEN billing_last_charged_at ELSE ? END", types.SandboxStatusRunning, now)
 	case types.SandboxStatusStopped, types.SandboxStatusFailed:
-		now := time.Now()
 		updates["stopped_at"] = &now
 	}
-	res := s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ? AND deleted_at IS NULL", id).Updates(updates)
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&types.Sandbox{}).Where("id = ? AND deleted_at IS NULL", id).Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return syncSandboxRun(tx, id, now)
+	})
 }
 
 // SandboxCharge bills one window of a running sandbox's usage to its org.
@@ -358,20 +369,28 @@ func (s *PostgresStore) SetSandboxResources(ctx context.Context, id string, vcpu
 	if vcpus <= 0 || memoryMB <= 0 {
 		return fmt.Errorf("vcpus and memory_mb must be positive")
 	}
-	// Column is `v_cpus`, not `vcpus` — GORM's naming strategy splits the
-	// leading acronym in the VCPUs field name.
-	res := s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{
-		"v_cpus":     vcpus,
-		"memory_mb":  memoryMB,
-		"updated_at": time.Now(),
+	now := time.Now()
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Column is `v_cpus`, not `vcpus` — GORM's naming strategy splits the
+		// leading acronym in the VCPUs field name.
+		res := tx.Model(&types.Sandbox{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{
+			"v_cpus":     vcpus,
+			"memory_mb":  memoryMB,
+			"updated_at": now,
+		})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		// A running sandbox's current run was measured at the old size: close
+		// it and let the sync open a new one at the new size.
+		if err := closeSandboxRuns(tx, id, now); err != nil {
+			return err
+		}
+		return syncSandboxRun(tx, id, now)
 	})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
 // DeleteSandbox soft-deletes by setting deleted_at + status=stopped.
@@ -380,12 +399,78 @@ func (s *PostgresStore) DeleteSandbox(ctx context.Context, id string) error {
 		return fmt.Errorf("id not specified")
 	}
 	now := time.Now()
-	return s.gdb.WithContext(ctx).Model(&types.Sandbox{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"deleted_at": &now,
-		"status":     types.SandboxStatusStopped,
-		"stopped_at": &now,
-		"updated_at": now,
-	}).Error
+	return s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&types.Sandbox{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"deleted_at": &now,
+			"status":     types.SandboxStatusStopped,
+			"stopped_at": &now,
+			"updated_at": now,
+		}).Error; err != nil {
+			return err
+		}
+		return closeSandboxRuns(tx, id, now)
+	})
+}
+
+// syncSandboxRun makes the run ledger agree with the sandbox row just written
+// in tx: a running row has exactly one open run, any other row has none.
+// Callers write the sandbox row first in the same transaction, so its row
+// lock serialises concurrent syncs and a duplicate running write cannot open
+// a second run.
+func syncSandboxRun(tx *gorm.DB, sandboxID string, now time.Time) error {
+	var sb types.Sandbox
+	if err := tx.Where("id = ?", sandboxID).First(&sb).Error; err != nil {
+		return fmt.Errorf("load sandbox %s for run ledger: %w", sandboxID, err)
+	}
+	if sb.Status != types.SandboxStatusRunning || sb.DeletedAt != nil {
+		return closeSandboxRuns(tx, sandboxID, now)
+	}
+	var open int64
+	if err := tx.Model(&types.SandboxRun{}).Where("sandbox_id = ? AND stopped_at IS NULL", sandboxID).Count(&open).Error; err != nil {
+		return fmt.Errorf("count open runs of sandbox %s: %w", sandboxID, err)
+	}
+	if open > 0 {
+		return nil
+	}
+	// The row only remembers when the sandbox last started. A run already
+	// closed since then (a resize closes one) covers that time, so the new run
+	// starts where the last one ended rather than overlapping it.
+	startedAt := now
+	if sb.StartedAt != nil && sb.StartedAt.Before(now) {
+		startedAt = *sb.StartedAt
+	}
+	var last []types.SandboxRun
+	if err := tx.Where("sandbox_id = ? AND stopped_at IS NOT NULL", sandboxID).
+		Order("stopped_at DESC").Limit(1).Find(&last).Error; err != nil {
+		return fmt.Errorf("find last run of sandbox %s: %w", sandboxID, err)
+	}
+	if len(last) == 1 && last[0].StoppedAt.After(startedAt) {
+		startedAt = *last[0].StoppedAt
+	}
+	vcpus := sb.VCPUs
+	if vcpus < 1 {
+		vcpus = 1
+	}
+	if err := tx.Create(&types.SandboxRun{
+		ID:             system.GenerateSandboxRunID(),
+		SandboxID:      sb.ID,
+		OrganizationID: sb.OrganizationID,
+		Runtime:        sb.Runtime,
+		VCPUs:          vcpus,
+		StartedAt:      startedAt,
+	}).Error; err != nil {
+		return fmt.Errorf("open run for sandbox %s: %w", sandboxID, err)
+	}
+	return nil
+}
+
+func closeSandboxRuns(tx *gorm.DB, sandboxID string, now time.Time) error {
+	if err := tx.Model(&types.SandboxRun{}).
+		Where("sandbox_id = ? AND stopped_at IS NULL", sandboxID).
+		Update("stopped_at", now).Error; err != nil {
+		return fmt.Errorf("close runs of sandbox %s: %w", sandboxID, err)
+	}
+	return nil
 }
 
 // SumSandboxCharges totals the magnitude of every transaction tagged with

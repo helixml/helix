@@ -1320,6 +1320,10 @@ type Usage struct {
 // this is returned by the api server so that clients can see what
 // config it's using e.g. filestore prefix
 type ServerConfigForFrontend struct {
+	// CodeAgentModels is the vendor model catalogue per coding-agent harness,
+	// best first (see CodeAgentModels). The UI pickers and their defaults read it
+	// from here so the backend list is the only place it is maintained.
+	CodeAgentModels map[CodeAgentRuntime][]CodeAgentModelOption `json:"code_agent_models"`
 	// used to prepend onto raw filestore paths to download files
 	// the filestore path will have the user info in it - i.e.
 	// it's a low level filestore path
@@ -1806,7 +1810,7 @@ type AssistantConfig struct {
 	// CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
 	// which the claude-agent-acp package reads (resolveModelPreference) to pick the
 	// model — otherwise Claude Code defaults to Sonnet. Empty means
-	// "claude-opus-5-5" (the current 1M-context Opus model).
+	// DefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.
 	ClaudeSubscriptionModel string `json:"claude_subscription_model,omitempty" yaml:"claude_subscription_model,omitempty"`
 
 	// GooseRecipeRepoURL is the external git URL of the attached repository
@@ -3201,19 +3205,22 @@ type AggregatedUsageMetric struct {
 	ToolCallErrorRequests int `json:"tool_call_error_requests"`
 }
 
-// UsageComputeDailyPoint is one day of sandbox compute spend, split by
-// pricing class so the chart can show what the desktops cost versus the
-// headless containers.
+// UsageComputeDailyPoint is one day of sandbox compute, split by pricing
+// class so the chart can show desktops versus headless containers. Credits
+// are what was debited; hours are how long containers ran, billed or not.
 type UsageComputeDailyPoint struct {
-	Date     time.Time `json:"date"`
-	Desktop  float64   `json:"desktop"`
-	Headless float64   `json:"headless"`
-	Total    float64   `json:"total"`
+	Date          time.Time `json:"date"`
+	Desktop       float64   `json:"desktop"`
+	Headless      float64   `json:"headless"`
+	Total         float64   `json:"total"`
+	DesktopHours  float64   `json:"desktop_hours"`
+	HeadlessHours float64   `json:"headless_hours"`
+	TotalHours    float64   `json:"total_hours"`
 }
 
-// UsageComputeBreakdownRow is one sandbox's compute spend over the range.
-// Rows survive the sandbox itself — charges are ledger entries, so a torn-down
-// desktop still accounts for what it cost.
+// UsageComputeBreakdownRow is one sandbox's compute over the range. Rows
+// survive the sandbox itself — charges and runs are ledger entries, so a
+// torn-down desktop still accounts for what it cost and how long it ran.
 type UsageComputeBreakdownRow struct {
 	SandboxID   string  `json:"sandbox_id"`
 	Name        string  `json:"name,omitempty"`
@@ -3223,17 +3230,21 @@ type UsageComputeBreakdownRow struct {
 	ProjectID   string  `json:"project_id,omitempty"`
 	VCPUs       int     `json:"vcpus,omitempty"`
 	Credits     float64 `json:"credits"`
+	Hours       float64 `json:"hours"`
 }
 
-// OrgComputeUsage is the sandbox-compute half of an org's bill: the credits
-// actually debited for running containers, as opposed to LLM tokens.
-//
-// Sourced from the wallet ledger rather than from live sandbox rows, so the
+// OrgComputeUsage is the sandbox-compute half of an org's usage, as opposed to
+// LLM tokens: the credits debited for running containers (wallet ledger) and
+// how long they ran (sandbox run ledger). Runtime is recorded whether or not
+// billing is on. Both are ledgers rather than live sandbox rows, so the
 // numbers hold for sandboxes that have since been deleted.
 type OrgComputeUsage struct {
 	TotalCredits    float64                    `json:"total_credits"`
 	DesktopCredits  float64                    `json:"desktop_credits"`
 	HeadlessCredits float64                    `json:"headless_credits"`
+	TotalHours      float64                    `json:"total_hours"`
+	DesktopHours    float64                    `json:"desktop_hours"`
+	HeadlessHours   float64                    `json:"headless_hours"`
 	Daily           []UsageComputeDailyPoint   `json:"daily"`
 	Sandboxes       []UsageComputeBreakdownRow `json:"sandboxes"`
 	// RunningSandboxes is a point-in-time count, not a range aggregate.

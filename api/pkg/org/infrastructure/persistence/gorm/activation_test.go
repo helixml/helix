@@ -3,6 +3,7 @@ package gorm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"gorm.io/driver/sqlite"
+	gormio "gorm.io/gorm"
 )
 
 // newActivationStore opens a per-test Postgres-schema Store for
@@ -185,5 +188,55 @@ func TestActivationListForWorkerReturnsNewestFirst(t *testing.T) {
 	}
 	if len(limited) != 2 {
 		t.Fatalf("len(limit=2) = %d, want 2", len(limited))
+	}
+}
+
+// ListOpenForWorker returns every open row, however old, scoped to one
+// Worker in one org: Reset closes what it purged even past any page size.
+func TestActivationListOpenForWorkerIsUncappedAndScoped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	// The SQL implementation, not the in-memory store GetOrgTestDB returns.
+	db, err := gormio.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gormio.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&activationRow{}); err != nil {
+		t.Fatal(err)
+	}
+	s := &store.Store{Activations: newActivationsRepo(db)}
+	base := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	create := func(id activation.ID, org, w string, at time.Time, done bool) {
+		a, err := activation.New(id, orgchart.NodeID(w), []activation.Trigger{{Kind: activation.TriggerHire}}, at, org)
+		if err != nil {
+			t.Fatalf("new: %v", err)
+		}
+		if err := s.Activations.Create(ctx, a); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if done {
+			if err := s.Activations.Complete(ctx, org, id, activation.OutcomeFromError(nil), at.Add(time.Second)); err != nil {
+				t.Fatalf("complete: %v", err)
+			}
+		}
+	}
+	create("a-stale", "org-test", "w-alice", base, false)
+	for i := 0; i < 60; i++ {
+		create(activation.ID(fmt.Sprintf("a-done-%02d", i)), "org-test", "w-alice", base.Add(time.Duration(i+1)*time.Minute), true)
+	}
+	create("a-open-new", "org-test", "w-alice", base.Add(2*time.Hour), false)
+	create("a-other-bot", "org-test", "w-bob", base, false)
+	create("a-other-org", "org-other", "w-alice", base, false)
+
+	rows, err := s.Activations.ListOpenForWorker(ctx, "org-test", "w-alice")
+	if err != nil {
+		t.Fatalf("list open: %v", err)
+	}
+	var got []activation.ID
+	for _, r := range rows {
+		got = append(got, r.ID)
+	}
+	if len(got) != 2 || got[0] != "a-open-new" || got[1] != "a-stale" {
+		t.Fatalf("open rows = %v, want [a-open-new a-stale]", got)
 	}
 }

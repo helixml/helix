@@ -43,12 +43,7 @@ import {
   useGetWallet,
 } from "../services/useBilling";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
-import {
-  CLAUDE_SUBSCRIPTION_MODELS,
-  CODEX_SUBSCRIPTION_MODELS,
-  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
-  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-} from "../components/agent/CodingAgentForm";
+import { useCodeAgentModelCatalogue } from "../hooks/useCodeAgentModelCatalogue";
 import {
   findHarnessStatus,
   useOrgCodeAgentHarnesses,
@@ -272,6 +267,7 @@ export default function Onboarding() {
   // Final step: choose Helix credits or an external coding subscription.
   const [codingAccessOption, setCodingAccessOption] =
     useState<CodingAccessOption>("helix");
+  const catalogue = useCodeAgentModelCatalogue();
   const [claudeModel, setClaudeModel] = useState("");
   const [codexModel, setCodexModel] = useState("");
   const [helixProvider, setHelixProvider] = useState("");
@@ -332,12 +328,13 @@ export default function Onboarding() {
 
   useEffect(() => {
     if (codingAccessOption === "claude" && hasClaudeSubscription && !claudeModel) {
-      setClaudeModel(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL);
+      setClaudeModel(catalogue.defaultClaudeModel);
     }
     if (codingAccessOption === "codex" && hasCodexSubscription && !codexModel) {
-      setCodexModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL);
+      setCodexModel(catalogue.defaultCodexModel);
     }
   }, [
+    catalogue.version,
     claudeModel,
     codexModel,
     codingAccessOption,
@@ -1608,7 +1605,7 @@ export default function Onboarding() {
                     onChange={(event) => setClaudeModel(event.target.value)}
                   >
                     <MenuItem value="" disabled>Select a model</MenuItem>
-                    {CLAUDE_SUBSCRIPTION_MODELS.map((model) => (
+                    {catalogue.claudeModels.map((model) => (
                       <MenuItem key={model.id} value={model.id}>{model.label}</MenuItem>
                     ))}
                   </Select>
@@ -1648,7 +1645,7 @@ export default function Onboarding() {
                     onChange={(event) => setCodexModel(event.target.value)}
                   >
                     <MenuItem value="" disabled>Select a model</MenuItem>
-                    {CODEX_SUBSCRIPTION_MODELS.map((model) => (
+                    {catalogue.codexModels.map((model) => (
                       <MenuItem key={model.id} value={model.id}>{model.label}</MenuItem>
                     ))}
                   </Select>

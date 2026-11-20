@@ -219,6 +219,44 @@ func TestQueueCancelOutstandingAllowsFreshActivation(t *testing.T) {
 	}
 }
 
+// A bot re-created under a reused id must not inherit work its earlier
+// incarnation left queued: the stale delivery fails forever and, with one
+// delivery in flight per agent, blocks the new hire behind it.
+func TestQueuePrepareNewAgentClearsUndeletedStaleWork(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	seen := make(chan string, 16)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		seen <- triggers[0].EventID
+		if triggers[0].EventID == "old-hire" {
+			return errors.New("interaction delivery ID conflicts with another message")
+		}
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerHire, EventID: "old-hire"})
+	require.Equal(t, "old-hire", <-seen)
+
+	require.NoError(t, q.PrepareNewAgent(context.Background(), "org-test", "agent-a"))
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerHire, EventID: "new-hire"})
+
+	select {
+	case got := <-seen:
+		require.Equal(t, "new-hire", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("new hire stayed blocked behind the stale delivery")
+	}
+	select {
+	case got := <-seen:
+		t.Fatalf("stale delivery was replayed: %s", got)
+	case <-time.After(3 * time.Second):
+	}
+}
+
 func TestQueueCleanupAgentCancelsRunningActivation(t *testing.T) {
 	n, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)

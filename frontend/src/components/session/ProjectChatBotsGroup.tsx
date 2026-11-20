@@ -35,12 +35,11 @@ import {
 import { useSpecTasks } from '../../services/specTaskService'
 import { getSidebarColors } from '../../styles/themeTokens'
 import { TYPOGRAPHY } from '../../styles/typography'
-import { PRESENCE_OFFLINE_COLOR, PRESENCE_ONLINE_COLOR } from '../widgets/PresenceDot'
 import ProjectChatItemRow from './ProjectChatItemRow'
+import { ActivityStatusDot } from './ProjectChatItemBadges'
 import ProjectChatShowMore from './ProjectChatShowMore'
 import {
   botInstanceSidebarItem,
-  SIDEBAR_WORKING_COLOR,
   buildPersonChatItems,
   filterProjectChatGroups,
   pinnedAtByItemKeyFrom,
@@ -49,6 +48,7 @@ import {
 import type { SidebarBot, SidebarItem, SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
 import { useSidebarItemPagination, windowSidebarItems } from './useSidebarItemPagination'
 import BotPortrait from '../helix-org/BotPortrait'
+import { SidebarTreeChildren, SidebarTreeIconSlot, sidebarTreeChevronSize, sidebarTreeHeaderSx } from './SidebarTree'
 
 export const botGroupId = (botId: string): string => `bot:${botId}`
 
@@ -328,11 +328,6 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   const renderedItems = windowSidebarItems(filteredItems, activeItemId, pagination.visibleCount)
   const hasMore = filteredItems.length > pagination.visibleCount || tasks.length >= pagination.requestCount
   const active = bot.id === activeItemId || (!!bot.sessionId && bot.sessionId === activeItemId)
-  const showWorkingIndicator = bot.working && !active
-  const statusTitle = bot.running
-    ? (bot.restartRequired ? 'Running · restart required to apply changes' : 'Agent running')
-    : 'Agent stopped'
-
   if (searching && !tasksQuery.isLoading && !instancesQuery.isLoading && filteredItems.length === 0 && !sidebarBotMatchesQuery(bot, query)) {
     return null
   }
@@ -356,15 +351,9 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
           }
         }}
         sx={{
+          ...sidebarTreeHeaderSx,
           width: '100%',
           minWidth: 0,
-          height: 32,
-          pl: 0.75,
-          pr: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.65,
-          borderRadius: '6px',
           cursor: 'pointer',
           position: 'relative',
           outline: 'none',
@@ -375,10 +364,8 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             backgroundColor: active ? sidebarColors.rowSelected : sidebarColors.rowHover,
           },
           '&:hover .sidebar-bot-actions, &:focus-within .sidebar-bot-actions': { opacity: 1 },
-          '&:hover .sidebar-bot-working, &:focus-within .sidebar-bot-working': { opacity: 0 },
           '@media (hover: none)': {
             '& .sidebar-bot-actions': { opacity: 1 },
-            '& .sidebar-bot-working': { opacity: 1 },
           },
         }}
       >
@@ -404,8 +391,8 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: isPhone ? 28 : 16,
-            height: isPhone ? 28 : 16,
+            width: sidebarTreeChevronSize(isPhone),
+            height: sidebarTreeChevronSize(isPhone),
             borderRadius: '4px',
             '&:hover': {
               backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
@@ -414,22 +401,27 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         >
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </Box>
-        <Tooltip title={statusTitle}>
-          <Box
-            component="span"
-            data-bot-status={bot.running ? 'running' : 'stopped'}
-            onMouseOver={(event) => event.stopPropagation()}
-            sx={{
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              flexShrink: 0,
-              backgroundColor: bot.running ? PRESENCE_ONLINE_COLOR : PRESENCE_OFFLINE_COLOR,
-              boxShadow: bot.running && bot.restartRequired ? '0 0 0 2px rgba(251,191,36,0.55)' : 'none',
-            }}
-          />
-        </Tooltip>
-        <BotPortrait portraitIndex={bot.portraitIndex} size={22} sx={{ filter: 'grayscale(1)' }} />
+        <SidebarTreeIconSlot>
+          <BotPortrait portraitIndex={bot.portraitIndex} size={22} sx={{ filter: 'grayscale(1)' }} />
+          {/* Badged on the portrait rather than inline, so bots with and
+              without activity keep their names on the same column. */}
+          {bot.activity && (
+            <Box
+              component="span"
+              sx={{
+                position: 'absolute',
+                right: -2,
+                bottom: -2,
+                p: '1.5px',
+                borderRadius: '50%',
+                display: 'inline-flex',
+                backgroundColor: sidebarColors.background,
+              }}
+            >
+              <ActivityStatusDot activity={bot.activity} restartRequired={bot.running && bot.restartRequired} />
+            </Box>
+          )}
+        </SidebarTreeIconSlot>
         <Typography
           component="span"
           sx={{
@@ -479,37 +471,12 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
           <Box
             data-testid="sidebar-bot-trailing-slot"
             sx={{
-              width: showWorkingIndicator ? 64 : 24,
+              width: 24,
               height: 24,
               position: 'relative',
               flexShrink: 0,
-              '@media (hover: none)': { width: showWorkingIndicator ? 88 : 24 },
             }}
           >
-            {showWorkingIndicator && (
-              <Tooltip title="Working">
-                <Typography
-                  className="sidebar-bot-working"
-                  component="span"
-                  role="status"
-                  aria-label="Working"
-                  sx={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: SIDEBAR_WORKING_COLOR,
-                    fontSize: TYPOGRAPHY.sidebar.statusFontSize,
-                    lineHeight: TYPOGRAPHY.sidebar.statusLineHeight,
-                    transition: 'opacity 100ms ease',
-                    '@media (hover: none)': { right: 24 },
-                  }}
-                >
-                  Working
-                </Typography>
-              </Tooltip>
-            )}
             <Tooltip title="More actions">
               <Box
                 component="span"
@@ -538,14 +505,16 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
         )}
       </Box>
       {open && tasksQuery.isError && (
-        <Typography color="error" sx={{ pl: 2.15, py: 0.5, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
-          Failed to load tasks
-        </Typography>
+        <SidebarTreeChildren isPhone={isPhone}>
+          <Typography color="error" sx={{ px: 1, py: 0.5, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
+            Failed to load tasks
+          </Typography>
+        </SidebarTreeChildren>
       )}
       {/* An agent with nothing to show keeps a quiet row rather than an empty
           "no tasks" line under every idle agent. */}
       {open && renderedItems.length > 0 && (
-        <Box sx={{ pl: 1.15 }}>
+        <SidebarTreeChildren isPhone={isPhone}>
           {renderedItems.map((item) => (
             <ProjectChatItemRow
               key={`${item.kind}:${item.id}`}
@@ -563,7 +532,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
             />
           ))}
           <ProjectChatShowMore pagination={pagination} hasMore={hasMore} fetching={tasksQuery.isFetching} />
-        </Box>
+        </SidebarTreeChildren>
       )}
     </Box>
   )
