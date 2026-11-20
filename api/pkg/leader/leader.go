@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,7 @@ type Elector struct {
 	tasks     []task
 	leaderCtx context.Context // nil while not leader
 	running   sync.WaitGroup
+	active    map[string]int // running tasks by name, guarded by mu
 	leader    atomic.Bool
 }
 
@@ -71,11 +73,22 @@ func (e *Elector) Go(name string, fn func(ctx context.Context)) {
 	}
 }
 
-// start runs t; e.mu must be held.
+// start runs t in its own goroutine. The caller holds e.mu.
 func (e *Elector) start(ctx context.Context, t task) {
 	e.running.Add(1)
+	if e.active == nil {
+		e.active = map[string]int{}
+	}
+	e.active[t.name]++
 	go func() {
 		defer e.running.Done()
+		defer func() {
+			e.mu.Lock()
+			if e.active[t.name]--; e.active[t.name] == 0 {
+				delete(e.active, t.name)
+			}
+			e.mu.Unlock()
+		}()
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error().Str("task", t.name).Interface("panic", r).Msg("leader task panicked")
@@ -206,6 +219,18 @@ func (e *Elector) hold(ctx context.Context, conn *sql.Conn, until time.Time) err
 
 // waitTasks waits for the tasks of the leadership that just ended, logging
 // while any is slow to stop.
+// Running names the leader tasks that have not returned yet, sorted.
+func (e *Elector) Running() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	names := make([]string, 0, len(e.active))
+	for name := range e.active {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func (e *Elector) waitTasks() {
 	done := make(chan struct{})
 	go func() {
@@ -217,7 +242,7 @@ func (e *Elector) waitTasks() {
 		case <-done:
 			return
 		case <-time.After(30 * time.Second):
-			log.Warn().Str("lease", e.key).Msg("waiting for leader tasks to stop")
+			log.Warn().Str("lease", e.key).Strs("tasks", e.Running()).Msg("waiting for leader tasks to stop")
 		}
 	}
 }

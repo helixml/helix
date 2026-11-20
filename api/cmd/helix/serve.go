@@ -550,7 +550,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	select {
 	case <-electorDone:
 	case <-time.After(10 * time.Second):
-		log.Warn().Msg("leader tasks still stopping; exiting")
+		log.Warn().Strs("tasks", elector.Running()).Msg("leader tasks still stopping; exiting")
 	}
 	return nil
 }

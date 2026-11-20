@@ -192,6 +192,10 @@ bg_remove() { # SIGTERM, wait for the drain, remove the container
   local started=$SECONDS
   bg_dc stop -t "$BG_DRAIN_SECONDS" "api-$1"
   bg_log "api-$1 stopped $((SECONDS - started))s after SIGTERM (limit ${BG_DRAIN_SECONDS}s)"
+  # A drain should take seconds; show what a slow one was doing.
+  if [ $((SECONDS - started)) -gt 10 ]; then
+    bg_dc logs --tail 30 --no-log-prefix "api-$1" >&2 || true
+  fi
   bg_dc rm -f "api-$1" > /dev/null
 }
 

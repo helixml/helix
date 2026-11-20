@@ -165,3 +165,30 @@ func TestTaskRegisteredWhileLeaderStartsAtOnce(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestRunningNamesTasksUntilTheyReturn(t *testing.T) {
+	db := openDB(t)
+	e := New(db, fmt.Sprintf("leader-test-%d", time.Now().UnixNano()))
+	e.SetInterval(50 * time.Millisecond)
+	release := make(chan struct{})
+	e.Go("stubborn", func(_ context.Context) { <-release }) // ignores cancellation
+	e.Go("polite", func(ctx context.Context) { <-ctx.Done() })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { e.Run(ctx); close(done) }()
+	waitFor(t, "both tasks", func() bool { return len(e.Running()) == 2 })
+	if got := e.Running(); got[0] != "polite" || got[1] != "stubborn" {
+		t.Fatalf("Running() = %v", got)
+	}
+
+	cancel()
+	waitFor(t, "the polite task to stop", func() bool { return len(e.Running()) == 1 })
+	if got := e.Running(); got[0] != "stubborn" {
+		t.Fatalf("Running() after cancel = %v, want [stubborn]", got)
+	}
+	close(release)
+	<-done
+	if got := e.Running(); len(got) != 0 {
+		t.Fatalf("Running() after stop = %v", got)
+	}
+}

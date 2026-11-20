@@ -2134,11 +2134,9 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	go func() {
 		<-ctx.Done()
 		log.Info().Msg("shutting down embeddings socket server")
+		// Shutdown also closes the listener.
 		if err := srv.Shutdown(context.Background()); err != nil {
 			log.Error().Err(err).Msg("error shutting down embeddings socket server")
-		}
-		if err := listener.Close(); err != nil {
-			log.Error().Err(err).Msg("error closing embeddings socket listener")
 		}
 	}()
 
