@@ -214,6 +214,12 @@ func formatGitHubReviewFeedback(payload *githubReviewWebhookPayload, comments []
 
 // formatGitHubPRCommentFeedback renders one PR conversation comment with the
 // same trust shape as formatGitHubReviewFeedback.
+//
+// ponytail: text fences can be spoofed inside the quoted content (a fake END
+// marker in the comment body); full isolation needs structured delivery
+// (content as attachment / tool result with separate metadata fields) —
+// upgrade if prompt-injection via comment text becomes a live problem beyond
+// the author-association gate.
 func formatGitHubPRCommentFeedback(payload *githubIssueCommentPayload) string {
 	actor := payload.Comment.User.Login
 	if actor == "" {
