@@ -38,6 +38,11 @@ of `processPendingPromptsForSession` dispatches a steer prompt immediately
 and the agent WebSocket is live. `sendQueuedPromptToSession` exempts it from the busy
 check on the same terms and forwards `steer` on `chat_message`.
 
+A steer saved before the capability is known waits like a queued prompt. When
+`agent_capabilities` reports steering, the handler re-runs the session's queue so that
+steer is delivered straight away. The frontend reads the flag from the session query
+the spec-task page already polls, and refetches it when a new turn starts.
+
 ## Turn split (Zed)
 
 Helix creates the steer's interaction at dispatch. When the injection succeeds Zed
@@ -46,6 +51,13 @@ subscription splits the turn at it: entries before it are flushed and
 `message_completed` is sent for the steered-from request; later output streams under
 the steer's request_id, and the agent's final stop completes it. Helix therefore sees
 two ordinary turns.
+
+The steer task is one serial queue per Zed process, so the `_session/steering` call is
+bounded at 10s. Past that the message goes through the follow-up path, which has its own
+silence watchdog. If the agent injects the message after Zed gave up, the agent gets it
+twice; that is preferred to a wedged steer queue or a lost message. Pending splits are
+keyed by entry index, so two steers into one turn each split it. Closing a thread drops
+its splits and pending native steers, and releases its steered-turn guards.
 
 Known edge: if steering lands before the turn produced any output, Zed falls back to a
 follow-up (the steered entry would merge into the turn's own user message).
