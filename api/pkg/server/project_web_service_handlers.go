@@ -204,7 +204,7 @@ func (s *HelixAPIServer) putProjectWebService(_ http.ResponseWriter, r *http.Req
 	}
 
 	if err := s.Store.UpsertProjectWebServiceState(r.Context(), current); err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, projectWebServiceStoreError(err)
 	}
 
 	// Newly enabled → try to allocate a default subdomain.
@@ -273,7 +273,7 @@ func (s *HelixAPIServer) setActiveWebServiceSandbox(_ http.ResponseWriter, r *ht
 	}
 
 	if err := s.Store.SetActiveWebServiceSandbox(r.Context(), project.ID, req.SandboxID); err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return nil, projectWebServiceStoreError(err)
 	}
 
 	// Record a manual-deploy row so the deploys list reflects it.
@@ -294,6 +294,13 @@ func (s *HelixAPIServer) setActiveWebServiceSandbox(_ http.ResponseWriter, r *ht
 		return nil, system.NewHTTPError500(err.Error())
 	}
 	return state, nil
+}
+
+func projectWebServiceStoreError(err error) *system.HTTPError {
+	if errors.Is(err, store.ErrConflict) {
+		return system.NewHTTPError409(err.Error())
+	}
+	return system.NewHTTPError500(err.Error())
 }
 
 // deployProjectWebService godoc
