@@ -2,7 +2,9 @@ package spa
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -28,6 +30,31 @@ type ShellPolicy struct {
 	// framing unrestricted. /embed/* routes are never restricted: they exist
 	// to be framed by other sites.
 	FrameAncestors string
+	// HeadTags returns per-page <head> tags (link previews) for a request, or
+	// "" to keep the shell's own. Optional.
+	HeadTags func(*http.Request) string
+}
+
+// The shell's default link-preview tags sit between these markers in
+// index.html; per-page tags replace them so crawlers see one set.
+var (
+	headTagsStart = []byte("<!-- helix:og -->")
+	headTagsEnd   = []byte("<!-- /helix:og -->")
+)
+
+// injectHeadTags swaps the marked default tags for tags, or inserts tags
+// before </head> when the shell has no markers.
+func injectHeadTags(shell []byte, tags string) []byte {
+	if i := bytes.Index(shell, headTagsStart); i >= 0 {
+		if j := bytes.Index(shell[i:], headTagsEnd); j >= 0 {
+			j += i + len(headTagsEnd)
+			return bytes.Join([][]byte{shell[:i], []byte(tags), shell[j:]}, nil)
+		}
+	}
+	if i := bytes.Index(shell, []byte("</head>")); i >= 0 {
+		return bytes.Join([][]byte{shell[:i], []byte(tags), shell[i:]}, nil)
+	}
+	return shell
 }
 
 // shellPermissionsPolicy turns off browser features the web UI never uses,
@@ -119,6 +146,12 @@ func (s *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// SPA fallback - serving index.html for client-side routing
 		setCacheHeaders(true)
 		setShellHeaders()
+		if s.policy.HeadTags != nil {
+			if tags := s.policy.HeadTags(r); tags != "" {
+				s.serveShellWithTags(w, tags)
+				return
+			}
+		}
 		r.URL.Path = ""
 		s.fileServer.ServeHTTP(w, r)
 		return
@@ -128,13 +161,33 @@ func (s *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *FileServer) serveShellWithTags(w http.ResponseWriter, tags string) {
+	f, err := s.fileSystem.Open("/index.html")
+	if err != nil {
+		log.Error().Err(err).Msg("open index.html")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+	shell, err := io.ReadAll(f)
+	if err != nil {
+		log.Error().Err(err).Msg("read index.html")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(injectHeadTags(shell, tags))
+}
+
 // ReverseProxyServer is used for local development or in theory it could be used
 // if the frontend is running on a different container
 type ReverseProxyServer struct {
 	reverseProxy *httputil.ReverseProxy
 }
 
-func NewSPAReverseProxyServer(frontend string) *ReverseProxyServer {
+// NewSPAReverseProxyServer proxies to a frontend dev server. headTags is
+// optional; see ShellPolicy.HeadTags.
+func NewSPAReverseProxyServer(frontend string, headTags func(*http.Request) string) *ReverseProxyServer {
 	u, err := url.Parse(frontend)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse frontend URL")
@@ -173,12 +226,34 @@ func NewSPAReverseProxyServer(frontend string) *ReverseProxyServer {
 				Str("upstream", fmt.Sprintf("%s://%s", u.Scheme, u.Host)).
 				Msg("spa reverse proxy: upstream returned error status")
 		}
-		return nil
+		return injectProxiedHeadTags(resp, headTags)
 	}
 
 	return &ReverseProxyServer{
 		reverseProxy: reverseProxy,
 	}
+}
+
+func injectProxiedHeadTags(resp *http.Response, headTags func(*http.Request) string) error {
+	if headTags == nil || resp.StatusCode != http.StatusOK ||
+		resp.Header.Get("Content-Encoding") != "" ||
+		!strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+		return nil
+	}
+	tags := headTags(resp.Request)
+	if tags == "" {
+		return nil
+	}
+	shell, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read proxied shell: %w", err)
+	}
+	_ = resp.Body.Close()
+	shell = injectHeadTags(shell, tags)
+	resp.Body = io.NopCloser(bytes.NewReader(shell))
+	resp.ContentLength = int64(len(shell))
+	resp.Header.Set("Content-Length", fmt.Sprint(len(shell)))
+	return nil
 }
 
 func (s *ReverseProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {

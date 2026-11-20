@@ -1060,6 +1060,11 @@ type WebServer struct {
 	// Can either be a URL to frontend (for dev proxy) or a path to static files (for prod)
 	// Default is dev proxy; Dockerfile sets FRONTEND_URL=/www for production
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081" description:"URL to proxy to or filesystem path to serve from"`
+	// LinkPreviewsEnabled serves Open Graph tags and a rendered preview image
+	// for spec task URLs so Slack and other chat apps can unfurl them. These
+	// are public (crawlers have no cookies) and show only the task title,
+	// number, status, PR counts and project name.
+	LinkPreviewsEnabled bool `envconfig:"HELIX_LINK_PREVIEWS_ENABLED" default:"true" description:"Serve unauthenticated link previews (title, status, PR counts) for spec task URLs."`
 
 	RunnerToken string `envconfig:"RUNNER_TOKEN" description:"The token for runner auth."`
 	// RunnerNATSProxyEnabled exposes the embedded NATS bus to runner-token

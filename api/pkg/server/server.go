@@ -1658,6 +1658,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	router.Handle("/artifacts/{artifact_id}/download", artifactDownloadHandler).Methods(http.MethodGet, http.MethodHead)
 	artifactViewerHandler := apiServer.authMiddleware.extractMiddleware(http.HandlerFunc(apiServer.getArtifactViewer))
 	insecureRouter.Handle("/public/artifacts/{artifact_id}", artifactViewerHandler).Methods(http.MethodGet)
+	// Public: Slack and other chat apps fetch link preview images without
+	// cookies. Only a task's title, number, status, PR counts and project name
+	// are drawn; see linkpreview.Preview.
+	insecureRouter.HandleFunc("/public/spec-tasks/{taskId}/preview.png", apiServer.serveSpecTaskPreviewImage).Methods(http.MethodGet, http.MethodHead)
 	apiServer.registerSecretIntakeRoutes(router, authRouter)
 
 	// Set a custom NotFoundHandler for /api/v1/ routes to log unknown paths
@@ -1943,11 +1947,11 @@ func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
 	// Otherwise, serve from filesystem (prod mode, e.g. /www)
 	if strings.HasPrefix(frontendURL, "http://") || strings.HasPrefix(frontendURL, "https://") {
 		log.Info().Msgf("proxying frontend requests to %s", frontendURL)
-		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(frontendURL))
+		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(frontendURL, apiServer.linkPreviewHead))
 	} else {
 		log.Info().Msgf("serving static UI files from %s", frontendURL)
 		fileSystem := http.Dir(frontendURL)
-		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem, spa.ShellPolicy{FrameAncestors: apiServer.Cfg.WebServer.FrameAncestors}))
+		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem, spa.ShellPolicy{FrameAncestors: apiServer.Cfg.WebServer.FrameAncestors, HeadTags: apiServer.linkPreviewHead}))
 	}
 }
 
