@@ -1120,6 +1120,10 @@ function build-desktop() {
     exit 1
   fi
 
+  if ! "$DIR/scripts/check-image-layer-depth.sh" "${IMAGE_NAME}:latest"; then
+    return 1
+  fi
+
   # Capture image hash AFTER build
   local IMAGE_HASH_AFTER=$(docker images "${IMAGE_NAME}:latest" --format '{{.ID}}')
 
@@ -1159,7 +1163,9 @@ function build-desktop() {
   # Transfer to running sandbox via local registry
   # Skip if SKIP_DESKTOP_TRANSFER is set (called from build-sandbox)
   if [ -z "${SKIP_DESKTOP_TRANSFER:-}" ]; then
-    transfer-desktop-to-sandbox "$DESKTOP_NAME" "$IMAGE_TAG"
+    if ! transfer-desktop-to-sandbox "$DESKTOP_NAME" "$IMAGE_TAG"; then
+      return 1
+    fi
   fi
 
   echo ""
@@ -1668,7 +1674,8 @@ function build-sandbox() {
     _bs_elapsed "📤 Transferring helix-${desktop} to sandbox..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     if ! transfer-desktop-to-sandbox "$desktop"; then
-      echo "⚠️  Failed to transfer helix-${desktop} - continuing anyway"
+      echo "ERROR: Failed to transfer required production desktop helix-${desktop}"
+      return 1
     fi
   done
 
