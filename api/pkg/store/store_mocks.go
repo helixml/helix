@@ -25,7 +25,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -3498,6 +3497,21 @@ func (m *MockStore) GetNextQueuedCommentForSession(ctx context.Context, planning
 func (mr *MockStoreMockRecorder) GetNextQueuedCommentForSession(ctx, planningSessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNextQueuedCommentForSession", reflect.TypeOf((*MockStore)(nil).GetNextQueuedCommentForSession), ctx, planningSessionID)
+}
+
+// GetNextSteerPrompt mocks base method.
+func (m *MockStore) GetNextSteerPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNextSteerPrompt", ctx, sessionID)
+	ret0, _ := ret[0].(*types.PromptHistoryEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNextSteerPrompt indicates an expected call of GetNextSteerPrompt.
+func (mr *MockStoreMockRecorder) GetNextSteerPrompt(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNextSteerPrompt", reflect.TypeOf((*MockStore)(nil).GetNextSteerPrompt), ctx, sessionID)
 }
 
 // GetOAuthConnection mocks base method.
@@ -8731,7 +8745,6 @@ func (mr *MockStoreMockRecorder) UpsertZedSettingsOverride(ctx, override any) *g
 type MockSecretIntakeStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockSecretIntakeStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockSecretIntakeStoreMockRecorder is the mock recorder for MockSecretIntakeStore.

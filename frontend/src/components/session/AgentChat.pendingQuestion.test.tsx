@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TypesInteractionState, type TypesInteraction } from "../../api/api";
 import AgentChat from "./AgentChat";
+import { ActionCardCollapseScope, useCollapseOnUserMessage } from "./actionCardCollapse";
 
 const pendingQuestion = {
   request_id: "request-1",
@@ -41,6 +42,8 @@ vi.mock("../../hooks/useSnackbar", () => ({
 }));
 
 vi.mock("../../services/sessionService", () => ({
+  // AgentChat reads the session for the agent's steering capability.
+  useGetSession: () => ({ data: undefined }),
   useListInteractions: (
     _sessionId: string,
     _page: number,
@@ -373,5 +376,63 @@ describe("AgentChat pending question placement", () => {
     view.rerender(<AgentChat sessionId="session-1" />);
 
     expect(screen.queryByTestId("pending-question")).not.toBeInTheDocument();
+  });
+});
+
+function CollapsibleCard({ id }: { id: string }) {
+  const [expanded, setExpanded] = React.useState(true);
+  useCollapseOnUserMessage(() => setExpanded(false));
+  return <div data-testid={id} data-expanded={String(expanded)} />;
+}
+
+describe("AgentChat action card collapse", () => {
+  beforeEach(() => {
+    latestInteractions.current = {
+      totalCount: 12,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    };
+    newInference.mockReset();
+    newInference.mockResolvedValue(undefined);
+    sessionQueueEntries.current = [];
+    pendingQuestionInteractions.current = [];
+  });
+
+  it("collapses its action cards when the user sends from the composer", () => {
+    render(<AgentChat sessionId="session-1" actionCards={<CollapsibleCard id="card-a" />} />);
+    expect(screen.getByTestId("card-a")).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.click(screen.getByTestId("composer"));
+
+    expect(screen.getByTestId("card-a")).toHaveAttribute("data-expanded", "false");
+  });
+
+  it("leaves a card that arrives after the message expanded", () => {
+    // Keyed like the real proposal list, so card-a stays mounted.
+    const cardA = <CollapsibleCard key="a" id="card-a" />;
+    const view = render(<AgentChat sessionId="session-1" actionCards={[cardA]} />);
+    fireEvent.click(screen.getByTestId("composer"));
+
+    view.rerender(
+      <AgentChat
+        sessionId="session-1"
+        actionCards={[cardA, <CollapsibleCard key="b" id="card-b" />]}
+      />,
+    );
+
+    expect(screen.getByTestId("card-a")).toHaveAttribute("data-expanded", "false");
+    expect(screen.getByTestId("card-b")).toHaveAttribute("data-expanded", "true");
+  });
+
+  it("collapses cards rendered beside the chat in an enclosing scope", () => {
+    render(
+      <ActionCardCollapseScope>
+        <CollapsibleCard id="beside-chat" />
+        <AgentChat sessionId="session-1" />
+      </ActionCardCollapseScope>,
+    );
+
+    fireEvent.click(screen.getByTestId("composer"));
+
+    expect(screen.getByTestId("beside-chat")).toHaveAttribute("data-expanded", "false");
   });
 });
