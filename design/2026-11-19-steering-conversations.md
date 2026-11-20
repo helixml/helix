@@ -12,8 +12,9 @@ When idle, Enter just sends. A hint next to the composer says what Enter will do
 
 ## Who can steer
 
-Zed reports `agent_capabilities {acp_thread_id, steering_supported}` per thread; Helix
-stores it as `session.config.agent_steering_supported`.
+Zed reports `agent_capabilities {acp_thread_id, steering_supported}` per thread when it
+subscribes to the thread, and again after every `agent_ready` for that thread so a
+reconnected Helix relearns it. Helix stores it as `session.config.agent_steering_supported`.
 
 - **Claude Code** (claude-agent-acp): ACP extension `_session/steering`, advertised via
   `InitializeResponse._meta.steering.supported`. Zed sends it with
@@ -59,11 +60,16 @@ twice; that is preferred to a wedged steer queue or a lost message. Pending spli
 keyed by entry index, so two steers into one turn each split it. Closing a thread drops
 its splits and pending native steers, and releases its steered-turn guards.
 
+An agent may answer `injected` for a turn that has already stopped (it should answer
+`promptRequired`). Zed re-checks that the thread is still generating before splitting; if
+not, it delivers the message as a follow-up, like `promptRequired`.
+
 Known edge: if steering lands before the turn produced any output, Zed falls back to a
 follow-up (the steered entry would merge into the turn's own user message).
 
 Tests: Go `TestPromptHistoryHandlersSuite` (steer rules, capability handler), frontend
-`RobustPromptInput.test.tsx` (keys + hint), Zed E2E Phase 18 (the scripted ACP agent
+`RobustPromptInput.test.tsx` (keys + hint), Zed
+`steer_splits_the_running_turn_on_the_wire` (the split through the real subscription), Zed E2E Phase 18 (the scripted ACP agent
 implements `_session/steering`, so the split is asserted exactly).
 
 ## In the chat
