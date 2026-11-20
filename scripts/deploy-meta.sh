@@ -47,8 +47,9 @@ env_backup=
 report_failure() {
   status=$?
   if (( status != 0 )); then
-    # A failed API switch puts the previous colour back in front.
-    if [[ "$bluegreen" == true && -n "$BG_STAGE" ]]; then
+    # A failed API deploy restores .env and puts the previous colour back
+    # in front (bg_rollback undoes only the steps that ran).
+    if [[ "$bluegreen" == true && -n "$env_backup" ]]; then
       (cd "$HELIX_DIR" && sudo cp -p "$env_backup" .env && bg_rollback) ||
         echo "CRITICAL: Meta API rollback failed; check api-blue/api-green and /etc/nginx/helix-active" >&2
     fi
@@ -132,8 +133,8 @@ if bg_enabled; then
   sudo cp -p .env "$env_backup"
   bg_deploy "${TARGET_SHA:0:7}-linux-amd64"
   # The API is committed: a later failure (sandbox, Zed) must not revert it.
-  BG_STAGE=
   sudo rm -f "$env_backup"
+  env_backup=
 else
   (cd frontend && yarn build)
   if [[ -z "$deployed_helix_sha" ]] ||

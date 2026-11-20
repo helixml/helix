@@ -189,7 +189,9 @@ bg_watch() {
 }
 
 bg_remove() { # SIGTERM, wait for the drain, remove the container
+  local started=$SECONDS
   bg_dc stop -t "$BG_DRAIN_SECONDS" "api-$1"
+  bg_log "api-$1 stopped $((SECONDS - started))s after SIGTERM (limit ${BG_DRAIN_SECONDS}s)"
   bg_dc rm -f "api-$1" > /dev/null
 }
 
