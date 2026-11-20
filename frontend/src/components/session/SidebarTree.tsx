@@ -9,8 +9,9 @@ import { getSidebarColors } from '../../styles/themeTokens'
 //
 //   [pad][chevron][gap][icon][gap][label ...]
 //
-// and the group's rows start at the header's label column, so a child always
-// reads as nested inside its parent no matter which icon the parent shows.
+// and the group's rows start at the header's icon column: clearly inside the
+// parent (right of its chevron) without spending the label inset on every
+// child title.
 export const SIDEBAR_TREE_ROW_PADDING_X = 6
 export const SIDEBAR_TREE_CHEVRON_SIZE = 16
 export const SIDEBAR_TREE_CHEVRON_SIZE_PHONE = 28
@@ -26,11 +27,6 @@ export const sidebarTreeChevronSize = (isPhone: boolean): number => (
 // x offset of the header's icon column, from the group's left edge.
 export const sidebarTreeIconInset = (isPhone: boolean): number => (
   SIDEBAR_TREE_ROW_PADDING_X + sidebarTreeChevronSize(isPhone) + SIDEBAR_TREE_GAP
-)
-
-// x offset of the header's label column, from the group's left edge.
-export const sidebarTreeLabelInset = (isPhone: boolean): number => (
-  sidebarTreeIconInset(isPhone) + SIDEBAR_TREE_ICON_SIZE + SIDEBAR_TREE_GAP
 )
 
 // Spread into a group header row's `sx` so every header shares the columns.
@@ -63,18 +59,18 @@ export const SidebarTreeIconSlot: FC<{ children: ReactNode }> = ({ children }) =
   </Box>
 )
 
-// The rows of an expanded group: indented to the header's label column, with
-// a hairline guide under the header icon tying them to their parent.
+// The rows of an expanded group: indented to the header's icon column, with
+// a hairline guide under the header chevron tying them to their parent.
 export const SidebarTreeChildren: FC<{ isPhone: boolean; children: ReactNode }> = ({ isPhone, children }) => {
   const lightTheme = useLightTheme()
   const sidebarColors = getSidebarColors(lightTheme.isLight)
-  const guideX = sidebarTreeIconInset(isPhone) + Math.floor(SIDEBAR_TREE_ICON_SIZE / 2)
+  const guideX = SIDEBAR_TREE_ROW_PADDING_X + Math.floor(sidebarTreeChevronSize(isPhone) / 2)
   return (
     <Box
       data-testid="sidebar-tree-children"
       sx={{
         position: 'relative',
-        pl: `${sidebarTreeLabelInset(isPhone) - CHILD_ROW_PADDING_X}px`,
+        pl: `${sidebarTreeIconInset(isPhone) - CHILD_ROW_PADDING_X}px`,
         '&::before': {
           content: '""',
           position: 'absolute',
