@@ -124,6 +124,21 @@ describe('OrgAgentSessionWorkspace', () => {
     expect(screen.getByText('Ready to chat')).toBeInTheDocument()
     expect(screen.getByTestId('bot-profile-compact')).toBeInTheDocument()
     expect(screen.queryByTestId('bot-profile-expanded')).not.toBeInTheDocument()
+    // Beside the chat, the bot is named once — not again over its desktop.
+    expect(screen.queryByRole('heading', { name: "Chief of Staff's desktop" })).not.toBeInTheDocument()
+  })
+
+  it('names the desktop when it has the screen to itself', () => {
+    localStorage.setItem('helix.orgAgentSession.chatCollapsed.acme', 'true')
+    render(
+      <OrgAgentSessionWorkspace
+        sessionId="session-chief"
+        organizationId="acme"
+        bot={{ ...runningBot, id: 'chief-of-staff', name: 'Chief of Staff' } as any}
+      >
+        <div>Session chat</div>
+      </OrgAgentSessionWorkspace>,
+    )
     expect(screen.getByRole('heading', { name: "Chief of Staff's desktop" })).toBeInTheDocument()
   })
 
@@ -141,7 +156,7 @@ describe('OrgAgentSessionWorkspace', () => {
 
     expect(screen.getByTestId('bot-profile-expanded')).toBeInTheDocument()
     expect(screen.queryByTestId('bot-profile-compact')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: "Chief of Staff's desktop" })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: "Chief of Staff's desktop" })).not.toBeInTheDocument()
   })
 
   it('reports bot work and failure states without claiming it is available', () => {
