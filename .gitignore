@@ -149,6 +149,11 @@ nohup.out
 !docs/images/
 !docs/images/**
 
+# ...and assets the build needs: the link-preview card logo (go:embed) and
+# the default Open Graph image.
+!api/pkg/server/linkpreview/logo.png
+!frontend/assets/img/og-default.png
+
 # Playwright MCP trace dir (per-session screenshots, console logs,
 # accessibility snapshots). Local only — never check in.
 .playwright-mcp/
