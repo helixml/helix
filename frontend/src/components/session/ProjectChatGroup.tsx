@@ -33,6 +33,7 @@ import type { SidebarThreadSortOrder } from './ProjectChatSidebar.logic'
 import type { SortableProjectHandleProps } from './SortableProject'
 import ProjectChatItemRow from './ProjectChatItemRow'
 import ProjectChatShowMore from './ProjectChatShowMore'
+import { SidebarTreeChildren, SidebarTreeIconSlot, sidebarTreeChevronSize, sidebarTreeHeaderSx } from './SidebarTree'
 import { useSidebarItemPagination, windowSidebarItems } from './useSidebarItemPagination'
 
 type GroupVisibility = 'unknown' | 'visible' | 'empty'
@@ -267,13 +268,8 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         }}
         aria-label={onNewTask ? `New task in ${groupName}` : groupName}
         sx={{
+          ...sidebarTreeHeaderSx,
           width: '100%',
-          height: 32,
-          px: 0.75,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.65,
-          borderRadius: '6px',
           backgroundColor: 'transparent',
           color: sidebarColors.foreground,
           cursor: manualSorting ? 'grab' : 'pointer',
@@ -311,8 +307,8 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             alignItems: 'center',
             justifyContent: 'center',
             // A 13px glyph is not a touch target; the box around it is.
-            width: isPhone ? 28 : 16,
-            height: isPhone ? 28 : 16,
+            width: sidebarTreeChevronSize(isPhone),
+            height: sidebarTreeChevronSize(isPhone),
             borderRadius: '4px',
             '&:hover': {
               backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(241,243,247,0.12)',
@@ -321,7 +317,9 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
         >
           {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
         </Box>
-        <Folder size={14} style={{ opacity: 0.72 }} />
+        <SidebarTreeIconSlot>
+          <Folder size={14} style={{ opacity: 0.72 }} />
+        </SidebarTreeIconSlot>
         <Typography
           component="span"
           sx={{
@@ -422,7 +420,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
       </Box>
 
       {!collapsed && (
-        <Box sx={{ pl: 1.15 }}>
+        <SidebarTreeChildren isPhone={isPhone}>
           {hasError && (
             <Typography color="error" sx={{ px: 1, py: 0.75, fontSize: TYPOGRAPHY.sidebar.statusFontSize }}>
               Failed to load chats
@@ -447,7 +445,7 @@ const ProjectChatGroup: FC<ProjectChatGroupProps> = ({
             />
           ))}
           <ProjectChatShowMore pagination={pagination} hasMore={hasMore} fetching={isFetchingMore} />
-        </Box>
+        </SidebarTreeChildren>
       )}
     </Box>
   )

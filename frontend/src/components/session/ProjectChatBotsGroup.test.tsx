@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ProjectChatBotEntry } from './ProjectChatBotsGroup'
 import type { SidebarBot } from './ProjectChatSidebar.logic'
+import { sidebarTreeLabelInset } from './SidebarTree'
 
 vi.mock('../../hooks/useLightTheme', () => ({
   default: () => ({ isLight: false }),
@@ -135,6 +136,21 @@ describe('ProjectChatBotEntry', () => {
 
     expect(screen.getByTestId('sidebar-bot-instance-count')).toHaveTextContent('2')
     expect(screen.queryByText('One')).toBeNull()
+    botInstances.data = []
+  })
+
+  // A bot's tasks and instances must read as nested inside it: they start on
+  // the bot name's column, never under its chevron or portrait.
+  it('indents its rows to the bot name column whether or not the bot shows activity', () => {
+    botInstances.data = [{ session_id: 'ses_instance', name: 'Broker for ACME', sandbox_status: 'running' }]
+    const { container } = renderBot({ id: 'b-broker', name: 'Broker', running: false, activity: null, restartRequired: false }, '', false)
+
+    const children = screen.getByTestId('sidebar-tree-children')
+    // Child rows add their own 8px padding on top of the group indent.
+    expect(children).toHaveStyle({ paddingLeft: `${sidebarTreeLabelInset(false) - 8}px` })
+    expect(children).toContainElement(screen.getByText('Broker for ACME'))
+    // The activity dot is badged on the portrait, never a column of its own.
+    expect(container.querySelectorAll('.project-chat-agent > *')[1]).toBe(screen.getByTestId('sidebar-tree-icon-slot'))
     botInstances.data = []
   })
 })
