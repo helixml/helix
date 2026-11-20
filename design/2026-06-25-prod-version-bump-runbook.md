@@ -43,6 +43,12 @@ a green `main` build. Principles:
   `.env` and compose file and brings the previous services back.
 - Database services (by name or PostgreSQL-family image) are never created or recreated
   without `RECREATE_POSTGRES=true`.
+- **Blue/green hosts restart nothing in place.** Once a host's `.env` has
+  `HELIX_ACTIVE_COLOUR` (converted once with `scripts/bluegreen-cutover.sh`), the API is
+  deployed to the idle colour (`api-blue`/`api-green`), health-checked, switched to in nginx,
+  and the old colour drained and removed; any failure leaves the old colour serving. See
+  `design/2026-11-20-bluegreen-deploys.md`. The deploy also polls the public API from the CI
+  runner for its whole duration and reports `requests/failed/max_gap_s` in the log and Slack.
 
 ### Runner step: desktop-only rollout (`RUNNER_FORCE_RECREATE`)
 A runner deploy recreates `helix-sandbox-app`, which stops every desktop on that host, so
@@ -90,12 +96,23 @@ The manual steps below remain the reference and the fallback when CI is unavaila
 3. Confirm the build is green and images exist on ghcr before touching prod.
 
 ## Step 2 — back up the controlplane DB (do this every time)
-```bash
-gcloud compute ssh --zone europe-west2-a helix-cloud-london --project helixml --command \
-  'docker exec helix-postgres-1 pg_dumpall -U postgres | gzip > /data/helix-app/backup-<OLD_VERSION>-$(date +%F).sql.gz && ls -la /data/helix-app/backup-*.sql.gz'
-```
+The deploy takes a crash-consistent ZFS snapshot of `data/helix-postgres` itself
+(`@pre-<VERSION>-<timestamp>`); that is the rollback point.
+
+**Never `pg_dump`/`pg_dumpall` the live database.** A dump holds `ACCESS SHARE` locks on every
+table for its whole run; any `ALTER` then queues behind it, and every query behind the `ALTER`.
+That took prod down on 2026-11-18. For a logical dump, dump a clone of a snapshot in a
+throwaway postgres: helixml/infra `docs/helix-postgres-backups.md`.
 
 ## Step 3 — upgrade the controlplane (london) — HIGHEST RISK (customer-facing)
+**Blue/green (London after its cutover):** run `scripts/deploy-prod.sh <NEW_VERSION>` from a
+checkout of the release; don't do it by hand. **Rollback** is deploying `<OLD_VERSION>` the same
+way: it goes to the other colour with no downtime (schema changes are expand-only, so the old
+release runs on the new schema). Restore the ZFS snapshot only for a bad data migration, and
+that is downtime.
+
+The steps below are the in-place path for a host that is not yet blue/green.
+
 1. SSH to london. The version pin is `HELIX_VERSION` in `/data/helix-app/helix/.env`. Diff
    `/data/helix-app/helix/docker-compose.yaml` against the release's first: compose-level fixes
    (image pins, new env, log rotation) only reach prod if that file is current.
