@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -214,5 +215,70 @@ func TestCreateWithAttachSendsAttachmentsInCreateRequest(t *testing.T) {
 	first, _ := attachments[0].(map[string]any)
 	if first["name"] != "scope.json" || first["content_base64"] != base64.StdEncoding.EncodeToString(content) {
 		t.Fatalf("unexpected inline attachment: %#v", first)
+	}
+}
+
+func TestCreateRequestTimeoutOutlivesIngestion(t *testing.T) {
+	if got := createRequestTimeout(0); got != 60*time.Second {
+		t.Fatalf("no attachments: got %v", got)
+	}
+	if got := createRequestTimeout(1); got <= types.SpecTaskInlineAttachmentIngestionTimeout {
+		t.Fatalf("with attachments timeout %v must exceed server ingestion %v", got, types.SpecTaskInlineAttachmentIngestionTimeout)
+	}
+}
+
+func TestCreateWithAttachRejectsBadFilesWithoutRequest(t *testing.T) {
+	dir := t.TempDir()
+	sub1, sub2 := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	for _, d := range []string{sub1, sub2} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "log.txt"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := map[string][]string{
+		"missing file":  {filepath.Join(dir, "nope.txt")},
+		"same basename": {filepath.Join(sub1, "log.txt"), filepath.Join(sub2, "log.txt")},
+	}
+	for name, attach := range cases {
+		t.Run(name, func(t *testing.T) {
+			var hits int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt32(&hits, 1)
+			}))
+			defer server.Close()
+			t.Setenv("HELIX_URL", server.URL)
+			t.Setenv("HELIX_API_KEY", "test-token")
+
+			args := []string{"--project", "prj_test", "--prompt", "do it", "--quiet"}
+			for _, a := range attach {
+				args = append(args, "--attach", a)
+			}
+			command := newCreateCommand()
+			command.SetArgs(args)
+			if err := command.Execute(); err == nil {
+				t.Fatal("expected an error")
+			}
+			if n := atomic.LoadInt32(&hits); n != 0 {
+				t.Fatalf("expected no HTTP request, got %d", n)
+			}
+		})
+	}
+}
+
+func TestBuildInlineAttachmentsRejectsOversizeFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "big.bin")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(types.SpecTaskAttachmentMaxBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, err := buildInlineAttachments([]string{path}); err == nil {
+		t.Fatal("expected oversize error")
 	}
 }
