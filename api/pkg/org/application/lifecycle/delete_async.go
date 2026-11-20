@@ -2,9 +2,11 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 )
 
@@ -23,7 +25,7 @@ type deleteKey struct {
 // no-op. A failed background delete leaves the Node in place (Delete is
 // retry-safe), logs the error, and clears the in-flight marker so the Node is
 // visible and deletable again.
-func (s *Service) StartDelete(ctx context.Context, orgID string, id orgchart.NodeID) error {
+func (s *Service) StartDelete(ctx context.Context, orgID string, id orgchart.NodeID, actor Actor) error {
 	if id == "" {
 		return errors.New("node id is empty")
 	}
@@ -39,11 +41,17 @@ func (s *Service) StartDelete(ctx context.Context, orgID string, id orgchart.Nod
 	if !s.claimDelete(orgID, id) {
 		return nil
 	}
+	if err := s.recordDelete(ctx, orgID, id, actor, audit.StatusAttempted, nil); err != nil {
+		s.releaseDelete(orgID, id)
+		return fmt.Errorf("audit delete: %w", err)
+	}
 	s.deletes.Add(1)
 	go func() {
 		defer s.deletes.Done()
 		defer s.releaseDelete(orgID, id)
-		if err := s.recoverDelete(ctx, orgID, id); err != nil {
+		err := s.recoverDelete(ctx, orgID, id)
+		s.recordDeleteOutcome(context.WithoutCancel(ctx), orgID, id, actor, err)
+		if err != nil {
 			s.logger().Error("background delete failed", "org", orgID, "node", id, "err", err)
 			return
 		}
@@ -96,4 +104,53 @@ func (s *Service) releaseDelete(orgID string, id orgchart.NodeID) {
 	s.deleteMu.Lock()
 	defer s.deleteMu.Unlock()
 	delete(s.deleting, deleteKey{orgID: orgID, id: id})
+}
+
+// Actor identifies who asked for an explicit delete, for the audit log.
+type Actor struct {
+	Type audit.ActorType
+	ID   string
+}
+
+const deleteAuditAction = "delete_bot"
+
+func (s *Service) recordDelete(ctx context.Context, orgID string, id orgchart.NodeID, actor Actor, status audit.Status, deleteErr error) error {
+	if s.Audit == nil {
+		return nil
+	}
+	args, err := json.Marshal(struct {
+		BotID orgchart.NodeID `json:"bot_id"`
+	}{id})
+	if err != nil {
+		return err
+	}
+	entry := audit.Entry{
+		OrganizationID: orgID,
+		ActorID:        actor.ID,
+		ActorType:      actor.Type,
+		AssetID:        string(id),
+		EventType:      audit.EventBotLifecycle,
+		Action:         deleteAuditAction,
+		Status:         status,
+		Metadata:       audit.Metadata{Arguments: args},
+	}
+	if actor.Type == audit.ActorUser {
+		entry.UserID = actor.ID
+	}
+	if deleteErr != nil {
+		entry.Metadata.Error = deleteErr.Error()
+	}
+	return s.Audit.Record(ctx, entry)
+}
+
+// recordDeleteOutcome logs an audit failure instead of returning it: the
+// delete has already run, and its own result is what the caller needs.
+func (s *Service) recordDeleteOutcome(ctx context.Context, orgID string, id orgchart.NodeID, actor Actor, deleteErr error) {
+	status := audit.StatusSucceeded
+	if deleteErr != nil {
+		status = audit.StatusFailed
+	}
+	if err := s.recordDelete(ctx, orgID, id, actor, status, deleteErr); err != nil {
+		s.logger().Error("audit delete outcome", "org", orgID, "node", id, "status", status, "err", err)
+	}
 }

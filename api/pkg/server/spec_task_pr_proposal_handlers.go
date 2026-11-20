@@ -11,7 +11,6 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -82,23 +81,7 @@ func (s *HelixAPIServer) decideSpecTaskPRProposal(w http.ResponseWriter, r *http
 
 	proposal, err := s.prProposals.Decide(ctx, getRequestUser(r), proposalID, &req)
 	if err != nil {
-		var oauthErr *services.OAuthRequiredError
-		switch {
-		case errors.As(err, &oauthErr):
-			writeResponse(w, map[string]interface{}{
-				"error":         "oauth_required",
-				"message":       oauthErr.Error(),
-				"provider_type": oauthErr.ProviderType,
-			}, http.StatusUnprocessableEntity)
-		case errors.Is(err, services.ErrPRProposalInvalid):
-			writeErrResponse(w, err, http.StatusBadRequest)
-		case errors.Is(err, services.ErrPRProposalConflict):
-			writeErrResponse(w, err, http.StatusConflict)
-		case errors.Is(err, store.ErrNotFound):
-			writeErrResponse(w, err, http.StatusNotFound)
-		default:
-			writeErrResponse(w, err, http.StatusInternalServerError)
-		}
+		writePRProposalError(w, err)
 		return
 	}
 	writeResponse(w, proposal, http.StatusOK)

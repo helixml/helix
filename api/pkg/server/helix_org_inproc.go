@@ -999,6 +999,13 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 			return fmt.Errorf("destroy linked agent desktop %s: %w", sessionID, err)
 		}
 	}
+	if c.server.externalAgentExecutor != nil {
+		// Every desktop of the bot is destroyed by now, so nothing mounts
+		// the home. Purge it before the runtime state that records it.
+		if err := purgeBotHomeUnlessHostGone(ctx, c.server.externalAgentExecutor, orgID, string(botID)); err != nil {
+			return fmt.Errorf("purge bot home of %s: %w", botID, err)
+		}
+	}
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
 	if !ok {
 		return fmt.Errorf("delete linked agent: store %T has no shared database", c.server.Store)
@@ -1152,7 +1159,7 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		AgentType:      params.AgentType,
 		Provider:       types.Provider(params.Provider),
 		Model:          params.Model,
-		SessionRole:    "exploratory",
+		SessionRole:    types.SessionRoleExploratory,
 		// Org workers are fully autonomous — nobody is watching to click the
 		// in-chat Restart button — so recover the agent automatically on crash.
 		AutoRestartOnCrash:  true,
@@ -1175,7 +1182,11 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	}
 	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID, types.SystemTurn(types.SystemTurnOrgActivation))
 	if err != nil {
-		return runtimehelix.DeliveryResult{}, fmt.Errorf("start external agent session: %w", err)
+		err = fmt.Errorf("start external agent session: %w", err)
+		if errors.Is(err, errDeliveryIDConflict) {
+			return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(err)
+		}
+		return runtimehelix.DeliveryResult{}, err
 	}
 	result := runtimehelix.DeliveryResult{SessionID: session.ID, InteractionID: req.InteractionID}
 	if req.InteractionID != "" {
@@ -1214,7 +1225,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		interaction, err := c.server.Store.GetInteraction(ctx, interactionID)
 		if err == nil {
 			if interaction.SessionID != sessionID || interaction.PromptMessage != prompt {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("activation interaction %s does not match delivery", interactionID)
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("%w: activation interaction %s does not match delivery", errDeliveryIDConflict, interactionID))
 			}
 			if interaction.State != types.InteractionStateError {
 				return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interactionID, Completed: interactionCompleted(interaction)}, nil
@@ -1231,7 +1242,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		}
 		if entry != nil {
 			if entry.SessionID != sessionID || entry.Content != prompt {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("prompt delivery ID %s conflicts with another message", promptID)
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("%w: prompt delivery ID %s conflicts with another message", errDeliveryIDConflict, promptID))
 			}
 			if entry.DeletedAt != nil {
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("%w: activation prompt %s was deleted", orgactivation.ErrNonRetryable, promptID)
@@ -1286,7 +1297,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("reload activation prompt: %w", err)
 			}
 			if entry == nil || entry.SessionID != sessionID || entry.Content != prompt {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("prompt delivery ID %s conflicts with another message", promptID)
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("%w: prompt delivery ID %s conflicts with another message", errDeliveryIDConflict, promptID))
 			}
 			if entry.DeletedAt != nil {
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("%w: activation prompt %s was deleted", orgactivation.ErrNonRetryable, promptID)

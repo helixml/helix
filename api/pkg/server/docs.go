@@ -12568,6 +12568,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/keep-alive": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "When on, the bot's desktop is not shut down when idle. A bot's own key cannot change it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Turn an org bot's Keep Alive on or off",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Setting",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.OrgBotKeepAliveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/parents": {
             "post": {
                 "security": [
@@ -12671,6 +12718,272 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/pr-auto-approve": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "When on, the bot's proposals are approved as the user who turned it on. A bot's own key cannot change it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Turn auto-approval of an org bot's pull request proposals on or off",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Setting",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.OrgBotPRAutoApproveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/pr-proposals": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "An org bot opens pull requests (e.g. to its own playbook) only through proposals a user approves.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "List an org bot's pull request proposals",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.SpecTaskPRProposal"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/pr-proposals/{proposal_id}/decide": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approving opens the pull request as soon as the branch has commits beyond the base. Edited fields override the bot's proposal. A bot's own key cannot decide.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Approve or reject an org bot's pull request proposal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Proposal ID",
+                        "name": "proposal_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PRProposalDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskPRProposal"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/reset": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: describe what resetting a bot would erase",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotResetPlanDTO"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: reset a bot (destructive; erases the declared scope)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Scope and confirmation",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.BotResetRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotResetDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/restart": {
             "post": {
                 "security": [
@@ -12681,7 +12994,8 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: restart a bot (fresh session + desktop)",
+                "summary": "Helix-org: DEPRECATED fresh-session restart (use runtime-restart or reset)",
+                "deprecated": true,
                 "parameters": [
                     {
                         "type": "string",
@@ -12696,6 +13010,60 @@ const docTemplate = `{
                         "description": "Accepted",
                         "schema": {
                             "$ref": "#/definitions/api.BotActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/runtime-restart": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: restart a bot's runtime (keeps session, home and queue)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotRestartDTO"
                         }
                     },
                     "404": {
@@ -22580,7 +22948,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.",
+                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly. Pass destroy_workspace=true to destroy the desktop instead of stopping it, deleting its container data and the task's workspace checkout (ignored when unarchiving, with stop_agent=false, or for a Keep Alive task).",
                 "consumes": [
                     "application/json"
                 ],
@@ -26118,6 +26486,13 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "auto_approve_pull_requests": {
+                    "description": "AutoApprovePullRequests approves the bot's PR proposals as\nAutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests_by": {
+                    "type": "string"
+                },
                 "can_edit": {
                     "description": "CanEdit is true when the caller may change this Bot: organization\nowners and platform admins, or a member who may update the Bot's\nagent app. The UI hides edit, delete and re-parent controls when false.",
                     "type": "boolean"
@@ -26154,6 +26529,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.BotInstanceProfile"
                         }
                     ]
+                },
+                "keep_alive": {
+                    "description": "KeepAlive exempts the bot's desktop from idle shutdown. Changed through\nPUT /orgs/{org}/bots/{id}/keep-alive.",
+                    "type": "boolean"
                 },
                 "legacy_app_id": {
                     "type": "string"
@@ -26293,6 +26672,129 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotResetDTO": {
+            "type": "object",
+            "properties": {
+                "activation_id": {
+                    "type": "string"
+                },
+                "erases": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "home": {
+                    "$ref": "#/definitions/api.BotResetHomeDTO"
+                },
+                "keeps": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "previous_session_id": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotResetHomeDTO": {
+            "type": "object",
+            "properties": {
+                "existed": {
+                    "type": "boolean"
+                },
+                "generation": {
+                    "type": "string"
+                },
+                "retired_path": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotResetPlanDTO": {
+            "type": "object",
+            "properties": {
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.BotResetScopeDTO"
+                    }
+                }
+            }
+        },
+        "api.BotResetRequestDTO": {
+            "type": "object",
+            "properties": {
+                "confirm": {
+                    "description": "Confirm must equal the bot id.",
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "Scope is \"session\" or \"session_and_home\".",
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotResetScopeDTO": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "description": "Available is false when the scope would be refused right now.",
+                    "type": "boolean"
+                },
+                "erases": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "keeps": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "unavailable_reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotRestartDTO": {
+            "type": "object",
+            "properties": {
+                "activation_id": {
+                    "type": "string"
+                },
+                "legacy_app_id": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "preserves": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "session_id": {
                     "type": "string"
                 }
             }
@@ -27418,6 +27920,73 @@ const docTemplate = `{
                 },
                 "timestamp": {
                     "type": "integer"
+                }
+            }
+        },
+        "hydra.BotHomeInventory": {
+            "type": "object",
+            "properties": {
+                "chrome_profiles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/hydra.ChromeProfileStatus"
+                    }
+                },
+                "top_level_entries": {
+                    "type": "integer"
+                }
+            }
+        },
+        "hydra.BotHomeOutcome": {
+            "type": "string",
+            "enum": [
+                "existing",
+                "created",
+                "migrated"
+            ],
+            "x-enum-varnames": [
+                "BotHomeOutcomeExisting",
+                "BotHomeOutcomeCreated",
+                "BotHomeOutcomeMigrated"
+            ]
+        },
+        "hydra.BotHomeResult": {
+            "type": "object",
+            "properties": {
+                "generation": {
+                    "type": "string"
+                },
+                "inventory": {
+                    "$ref": "#/definitions/hydra.BotHomeInventory"
+                },
+                "migrated_from_session": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "$ref": "#/definitions/hydra.BotHomeOutcome"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "hydra.ChromeProfileStatus": {
+            "type": "object",
+            "properties": {
+                "cookies_db_present": {
+                    "type": "boolean"
+                },
+                "default_prefs_valid": {
+                    "type": "boolean"
+                },
+                "local_state_valid": {
+                    "type": "boolean"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "singleton_lock": {
+                    "type": "boolean"
                 }
             }
         },
@@ -28652,9 +29221,6 @@ const docTemplate = `{
         "server.ClaudeModel": {
             "type": "object",
             "properties": {
-                "description": {
-                    "type": "string"
-                },
                 "id": {
                     "type": "string"
                 },
@@ -28782,6 +29348,14 @@ const docTemplate = `{
         "server.DevContainerWithClients": {
             "type": "object",
             "properties": {
+                "bot_home": {
+                    "description": "BotHome reports how the bot home was bound, when the request had one.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/hydra.BotHomeResult"
+                        }
+                    ]
+                },
                 "clients": {
                     "type": "array",
                     "items": {
@@ -29950,6 +30524,22 @@ const docTemplate = `{
                 },
                 "reason": {
                     "type": "string"
+                }
+            }
+        },
+        "server.OrgBotKeepAliveRequest": {
+            "type": "object",
+            "properties": {
+                "keep_alive": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.OrgBotPRAutoApproveRequest": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -31219,24 +31809,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "github",
-                "gitlab",
-                "email",
                 "slack",
+                "github",
+                "email",
+                "gitlab",
+                "webhook",
                 "cron",
-                "helix_events",
                 "local",
-                "webhook"
+                "helix_events"
             ],
             "x-enum-varnames": [
-                "KindGitHub",
-                "KindGitLab",
-                "KindEmail",
                 "KindSlack",
+                "KindGitHub",
+                "KindEmail",
+                "KindGitLab",
+                "KindWebhook",
                 "KindCron",
-                "KindHelixEvents",
                 "KindLocal",
-                "KindWebhook"
+                "KindHelixEvents"
             ]
         },
         "transport.ResolvedActivation": {
@@ -32202,7 +32792,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "claude_subscription_model": {
-                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5-5\" (the current 1M-context Opus model).",
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\nDefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.",
                     "type": "string"
                 },
                 "code_agent_credential_type": {
@@ -33749,6 +34339,21 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CodeAgentModelOption": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "description": "Current marks a current-generation model. Pickers list current models\nfirst and group the rest as legacy.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -35762,10 +36367,6 @@ const docTemplate = `{
                 },
                 "sync_in_progress_since": {
                     "description": "Set while an upstream operation is running",
-                    "type": "string"
-                },
-                "trusted_startup_sha": {
-                    "description": "TrustedStartupSHA is the helix-specs commit whose tree sandboxes run\n.helix/startup.sh from. Only a human write moves it (a push with a human\ncredential, or a startup-script save in the UI/API); agent pushes never\ndo. Written only via SetGitRepositoryTrustedStartupSHA.",
                     "type": "string"
                 },
                 "updated_at": {
@@ -37846,7 +38447,13 @@ const docTemplate = `{
                 "desktop_credits": {
                     "type": "number"
                 },
+                "desktop_hours": {
+                    "type": "number"
+                },
                 "headless_credits": {
+                    "type": "number"
+                },
+                "headless_hours": {
                     "type": "number"
                 },
                 "running_sandboxes": {
@@ -37860,6 +38467,9 @@ const docTemplate = `{
                     }
                 },
                 "total_credits": {
+                    "type": "number"
+                },
+                "total_hours": {
                     "type": "number"
                 }
             }
@@ -40698,6 +41308,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "name": {
+                    "description": "SandboxNameMaxLen",
                     "type": "string"
                 },
                 "org_bot_id": {
@@ -41256,6 +41867,16 @@ const docTemplate = `{
                 "billing_enabled": {
                     "description": "Charging for usage",
                     "type": "boolean"
+                },
+                "code_agent_models": {
+                    "description": "CodeAgentModels is the vendor model catalogue per coding-agent harness,\nbest first (see CodeAgentModels). The UI pickers and their defaults read it\nfrom here so the backend list is the only place it is maintained.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/types.CodeAgentModelOption"
+                        }
+                    }
                 },
                 "default_chat_system_prompt": {
                     "description": "DefaultChatSystemPrompt is the system prompt the platform applies to\ndirect model chats when the user has not customised one. Surfaced to\nthe frontend so the chat-settings page can prefill the textbox.",
@@ -43363,6 +43984,10 @@ const docTemplate = `{
                 "archived": {
                     "type": "boolean"
                 },
+                "destroy_workspace": {
+                    "description": "DestroyWorkspace tears the task's desktop down for good instead of\nstopping it: the container, the session's on-host data and the task's\nworkspace checkout are deleted, so a finished task stops holding disk.\nOnly honoured when the request archives and stop is enabled; the same\nlive-agent guard as stop_agent applies.",
+                    "type": "boolean"
+                },
                 "stop_agent": {
                     "description": "StopAgent controls whether archiving stops the task's external agent and\nfrees its sandbox. Omitted (nil) means yes. Archiving never kills an agent\nthat is mid-turn unless the caller says so explicitly.",
                     "type": "boolean"
@@ -43844,6 +44469,13 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "org_bot_id": {
+                    "description": "OrgBotID is the proposing org bot, unique within OrganizationID.",
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 },
                 "pr_id": {
@@ -46177,6 +46809,9 @@ const docTemplate = `{
                 "credits": {
                     "type": "number"
                 },
+                "hours": {
+                    "type": "number"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -46209,10 +46844,19 @@ const docTemplate = `{
                 "desktop": {
                     "type": "number"
                 },
+                "desktop_hours": {
+                    "type": "number"
+                },
                 "headless": {
                     "type": "number"
                 },
+                "headless_hours": {
+                    "type": "number"
+                },
                 "total": {
+                    "type": "number"
+                },
+                "total_hours": {
                     "type": "number"
                 }
             }

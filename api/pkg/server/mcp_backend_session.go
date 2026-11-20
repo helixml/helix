@@ -112,24 +112,24 @@ func NewSessionMCPBackend(s store.Store, notifier notification.Notifier, authori
 	// Spec-task pull requests. Helix never opens a PR on its own: the agent
 	// proposes one and a user approves the exact branch, base, title and body.
 	proposePRTool := mcp.NewTool("propose_pull_request",
-		mcp.WithDescription("Ask the user to approve opening a pull request for your spec task. "+
-			"This is the ONLY way a pull request gets opened — never use gh, the GitHub API or other tools to create one. "+
-			"A task can have several pull requests: to ship work in slices, propose each one with its own head_branch. "+
-			"You may only push to your task branch and to branches the user approved through this tool; propose a new branch BEFORE pushing to it. "+
+		mcp.WithDescription("Ask the user to approve opening a pull request for your spec task, or — as an org bot — for changes you made to a repository, such as your own playbook. "+
+			"This is the ONLY way a pull request gets opened — never use gh, the GitHub API or other tools to create one, and never hand the user a compare link instead. "+
+			"You can have several pull requests: to ship work in slices, propose each one with its own head_branch. "+
+			"A spec task may only push to its task branch and to branches the user approved through this tool, so it proposes a new branch BEFORE pushing to it; an org bot pushes its branch first, then proposes it. "+
 			"Returns immediately; the user's decision (and the PR link once opened) arrives later as a message in this session."),
 		mcp.WithString("reason", mcp.Required(),
 			mcp.Description("What this pull request contains and why it should be opened now. Shown to the user next to the approve button.")),
-		mcp.WithString("title", mcp.Description("Pull request title. Defaults to the task name.")),
+		mcp.WithString("title", mcp.Description("Pull request title. Defaults to the task name; required for an org bot.")),
 		mcp.WithString("body", mcp.Description("Pull request description (markdown).")),
-		mcp.WithString("head_branch", mcp.Description("Branch to open the pull request from. Defaults to your task branch. "+
-			"A new name gives you push rights to that branch once approved.")),
-		mcp.WithString("base_branch", mcp.Description("Branch to merge into. Defaults to the task's base branch.")),
+		mcp.WithString("head_branch", mcp.Description("Branch to open the pull request from. Defaults to your task branch; required for an org bot. "+
+			"For a task, a new name gives you push rights to that branch once approved.")),
+		mcp.WithString("base_branch", mcp.Description("Branch to merge into. Defaults to the task's base branch, or the repository's default branch for an org bot.")),
 		mcp.WithString("repository", mcp.Description("Repository name or ID. Defaults to the project's primary repository.")),
 	)
 	backend.mcpServer.AddTool(proposePRTool, backend.handleProposePullRequest)
 
 	listProposalsTool := mcp.NewTool("list_pull_request_proposals",
-		mcp.WithDescription("List the pull request proposals of your spec task with their status (pending, approved, opened, rejected, failed), branches and PR links."),
+		mcp.WithDescription("List your pull request proposals (as a spec task or an org bot) with their status (pending, approved, opened, rejected, failed), branches and PR links."),
 	)
 	backend.mcpServer.AddTool(listProposalsTool, backend.handleListPullRequestProposals)
 
@@ -226,23 +226,65 @@ func (b *SessionMCPBackend) specTaskForCall(ctx context.Context) (*types.Session
 	return session, task, nil
 }
 
+// orgBotForCall resolves the org bot whose own session is calling, verifying
+// the caller owns that session. A bot instance session is refused: instances
+// read untrusted input and have read-only git.
+func (b *SessionMCPBackend) orgBotForCall(ctx context.Context) (*types.Session, bool, error) {
+	sessionID := b.getSessionID(ctx, "")
+	if sessionID == "" {
+		return nil, false, errors.New("session_id is required")
+	}
+	session, err := b.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get session: %w", err)
+	}
+	if session.Metadata.SpecTaskID != "" || session.Metadata.OrgWorkerID == "" {
+		return session, false, nil
+	}
+	user, ok := ctx.Value("user").(*types.User)
+	if !ok || user == nil || session.Owner != user.ID || enforceKeySessionScope(user, session) != nil {
+		return nil, false, errors.New("not authorized for this session")
+	}
+	if session.Metadata.BotInstance != nil {
+		return nil, false, errors.New("a bot instance cannot propose pull requests")
+	}
+	if session.OrganizationID == "" {
+		return nil, false, errors.New("this bot session has no organization")
+	}
+	return session, true, nil
+}
+
 func (b *SessionMCPBackend) handleProposePullRequest(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if b.proposals == nil {
 		return mcp.NewToolResultError("pull request proposals are not available on this server"), nil
 	}
-	session, task, err := b.specTaskForCall(ctx)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	p, err := b.proposals.Propose(ctx, task, services.ProposePRInput{
+	in := services.ProposePRInput{
 		RepositoryID: request.GetString("repository", ""),
 		HeadBranch:   request.GetString("head_branch", ""),
 		BaseBranch:   request.GetString("base_branch", ""),
 		Title:        request.GetString("title", ""),
 		Body:         request.GetString("body", ""),
 		Reason:       request.GetString("reason", ""),
-		SessionID:    session.ID,
-	})
+	}
+	botSession, isBot, err := b.orgBotForCall(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	var p *types.SpecTaskPRProposal
+	ownBranch, owner := "", "this task"
+	if isBot {
+		in.SessionID = botSession.ID
+		owner = "this bot"
+		p, err = b.proposals.ProposeForOrgBot(ctx, botSession.OrganizationID, botSession.Metadata.OrgWorkerID, in)
+	} else {
+		session, task, terr := b.specTaskForCall(ctx)
+		if terr != nil {
+			return mcp.NewToolResultError(terr.Error()), nil
+		}
+		in.SessionID = session.ID
+		ownBranch = task.BranchName
+		p, err = b.proposals.Propose(ctx, task, in)
+	}
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
@@ -250,19 +292,19 @@ func (b *SessionMCPBackend) handleProposePullRequest(ctx context.Context, reques
 		switch p.Status {
 		case types.PRProposalStatusOpened:
 			return mcp.NewToolResultText(fmt.Sprintf(
-				"Auto-approved (this task approves pull requests without asking). Pull request #%d is open in %s from %s into %s: %s. "+
-					"Pushing more commits to %s updates it.", p.PRNumber, p.RepositoryName, p.HeadBranch, p.BaseBranch, p.PRURL, p.HeadBranch)), nil
+				"Auto-approved (%s approves pull requests without asking). Pull request #%d is open in %s from %s into %s: %s. "+
+					"Pushing more commits to %s updates it.", owner, p.PRNumber, p.RepositoryName, p.HeadBranch, p.BaseBranch, p.PRURL, p.HeadBranch)), nil
 		case types.PRProposalStatusApproved:
 			return mcp.NewToolResultText(fmt.Sprintf(
-				"Auto-approved (this task approves pull requests without asking). You may now push to %s; "+
-					"Helix opens the pull request into %s as soon as the branch has commits that are not on %s.", p.HeadBranch, p.BaseBranch, p.BaseBranch)), nil
+				"Auto-approved (%s approves pull requests without asking). You may now push to %s; "+
+					"Helix opens the pull request into %s as soon as the branch has commits that are not on %s.", owner, p.HeadBranch, p.BaseBranch, p.BaseBranch)), nil
 		case types.PRProposalStatusFailed:
 			return mcp.NewToolResultText(fmt.Sprintf(
 				"Auto-approved, but opening the pull request failed: %s. You still have push rights to %s; the user can retry from Helix.", p.Error, p.HeadBranch)), nil
 		}
 	}
 	pushNote := ""
-	if p.HeadBranch != task.BranchName {
+	if !isBot && p.HeadBranch != ownBranch {
 		pushNote = fmt.Sprintf("You cannot push to %s until it is approved. ", p.HeadBranch)
 	}
 	return mcp.NewToolResultText(fmt.Sprintf(
@@ -297,11 +339,21 @@ func (b *SessionMCPBackend) handleMarkTaskComplete(ctx context.Context, request 
 }
 
 func (b *SessionMCPBackend) handleListPullRequestProposals(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	_, task, err := b.specTaskForCall(ctx)
+	botSession, isBot, err := b.orgBotForCall(ctx)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	proposals, err := b.store.ListSpecTaskPRProposals(ctx, &types.SpecTaskPRProposalFilter{SpecTaskID: task.ID})
+	filter := &types.SpecTaskPRProposalFilter{}
+	if isBot {
+		filter.OrgBotID, filter.OrganizationID = botSession.Metadata.OrgWorkerID, botSession.OrganizationID
+	} else {
+		_, task, err := b.specTaskForCall(ctx)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		filter.SpecTaskID = task.ID
+	}
+	proposals, err := b.store.ListSpecTaskPRProposals(ctx, filter)
 	if err != nil {
 		return mcp.NewToolResultError("failed to list proposals: " + err.Error()), nil
 	}

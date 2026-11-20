@@ -472,6 +472,17 @@ const routes: IApplicationRoute[] = [
     <OrgUsage />
   ),
 }, {
+  // One Usage section (tokens, performance, compute, breakdowns); the overview is org_usage.
+  name: 'org_usage_section',
+  path: '/orgs/:org_id/usage/:section',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgUsage />
+  ),
+}, {
   name: 'org_people',
   path: '/orgs/:org_id/people',
   meta: {

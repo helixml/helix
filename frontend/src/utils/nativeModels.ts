@@ -2,9 +2,12 @@ import { TypesCodeAgentRuntime, TypesProviderEndpoint } from '../api/api'
 
 type NativeProvider = 'anthropic' | 'openai'
 
-const CURRENT_NATIVE_MODELS: Record<NativeProvider, string[]> = {
-  anthropic: ['claude-opus-5-5', 'claude-opus-5', 'claude-fable-5'],
-  openai: ['gpt-6-sol', 'gpt-6-astra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
+// The current-model lists themselves come from the backend catalogue
+// (useCodeAgentModelCatalogue). This file only maps runtimes and provider
+// endpoints onto the vendor whose list applies.
+const RUNTIME_FOR_PROVIDER: Record<NativeProvider, TypesCodeAgentRuntime> = {
+  anthropic: TypesCodeAgentRuntime.CodeAgentRuntimeClaudeCode,
+  openai: TypesCodeAgentRuntime.CodeAgentRuntimeCodexCLI,
 }
 
 export function nativeProviderForRuntime(runtime: TypesCodeAgentRuntime): NativeProvider | undefined {
@@ -20,13 +23,17 @@ export function nativeProviderForEndpoint(provider: TypesProviderEndpoint): Nati
   return undefined
 }
 
-export function currentNativeModels(provider: NativeProvider | undefined): string[] {
-  return provider ? CURRENT_NATIVE_MODELS[provider] : []
+/** The runtime whose catalogue lists a native provider's current models. */
+export function runtimeForNativeProvider(provider: NativeProvider): TypesCodeAgentRuntime {
+  return RUNTIME_FOR_PROVIDER[provider]
 }
 
-export function isLegacyNativeModel(modelID: string, provider: NativeProvider | undefined): boolean {
-  if (!provider) return false
+/**
+ * Whether a native vendor model is older than the vendor's current set.
+ * currentIds is undefined for non-native providers, which are never legacy.
+ */
+export function isLegacyNativeModel(modelID: string, currentIds: string[] | undefined): boolean {
+  if (!currentIds || currentIds.length === 0) return false
   const normalized = (modelID.split('/').pop() || modelID).toLowerCase()
-  return !CURRENT_NATIVE_MODELS[provider].some((id) =>
-    normalized === id || normalized.startsWith(`${id}-`))
+  return !currentIds.some((id) => normalized === id || normalized.startsWith(`${id}-`))
 }

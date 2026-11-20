@@ -11,6 +11,7 @@ const (
 	OrgAuditEventMCPCall       OrgAuditEventType = "mcp_call"
 	OrgAuditEventSSHConnection OrgAuditEventType = "ssh_connection"
 	OrgAuditEventSSHCommand    OrgAuditEventType = "ssh_command"
+	OrgAuditEventBotLifecycle  OrgAuditEventType = "bot_lifecycle"
 )
 
 type OrgAuditStatus string

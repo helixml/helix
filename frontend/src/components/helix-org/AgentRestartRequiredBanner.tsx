@@ -3,9 +3,11 @@
 // fetched once at agent startup and never refreshed, so the only way to
 // apply those changes is a restart.
 //
-// The restart recreates the current container while preserving the session and
-// healthy ACP thread. It is never automatic because an in-flight turn would be
-// interrupted, so the button is gated while the agent is working.
+// This is the non-destructive Restart: it recreates the runtime on the same
+// session, keeping the bot home (files, browser profiles and logins), the
+// conversation and queued work. An interrupted turn is settled and replayed,
+// but the button is still gated while the agent is working so a turn is not
+// needlessly redone. The destructive Reset lives only in bot settings.
 
 import { FC, useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
@@ -148,8 +150,9 @@ const AgentRestartRequiredBanner: FC<AgentRestartRequiredBannerProps> = ({
         <DialogTitle>Restart the org bot?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            The org bot container restarts with the latest configuration. The
-            workspace and current conversation are kept.
+            The org bot's runtime restarts with the latest configuration. Its
+            files, browser profiles and logins, conversation, and queued work
+            are kept. Nothing is deleted.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

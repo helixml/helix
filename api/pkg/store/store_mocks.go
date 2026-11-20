@@ -4998,6 +4998,21 @@ func (mr *MockStoreMockRecorder) ListAccessGrants(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAccessGrants", reflect.TypeOf((*MockStore)(nil).ListAccessGrants), ctx, q)
 }
 
+// ListActiveDesktopSessionIDs mocks base method.
+func (m *MockStore) ListActiveDesktopSessionIDs(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveDesktopSessionIDs", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveDesktopSessionIDs indicates an expected call of ListActiveDesktopSessionIDs.
+func (mr *MockStoreMockRecorder) ListActiveDesktopSessionIDs(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveDesktopSessionIDs", reflect.TypeOf((*MockStore)(nil).ListActiveDesktopSessionIDs), ctx)
+}
+
 // ListActiveWebServices mocks base method.
 func (m *MockStore) ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error) {
 	m.ctrl.T.Helper()

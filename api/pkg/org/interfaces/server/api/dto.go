@@ -68,6 +68,13 @@ type BotDTO struct {
 	// Bot's chat session before each re-activation, so it accumulates
 	// context across triggers (e.g. Slack). Defaults to false.
 	PreserveContext bool `json:"preserve_context"`
+	// KeepAlive exempts the bot's desktop from idle shutdown. Changed through
+	// PUT /orgs/{org}/bots/{id}/keep-alive.
+	KeepAlive bool `json:"keep_alive"`
+	// AutoApprovePullRequests approves the bot's PR proposals as
+	// AutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.
+	AutoApprovePullRequests   bool   `json:"auto_approve_pull_requests"`
+	AutoApprovePullRequestsBy string `json:"auto_approve_pull_requests_by,omitempty"`
 	// Status is "running" when the bot's desktop sandbox is online,
 	// "stopped" otherwise (no session, paused, never activated). Drives
 	// the green/grey presence dot on the org chart.
@@ -139,6 +146,59 @@ type BotActivateDTO struct {
 	ProjectID    string `json:"project_id,omitempty"`
 	LegacyAppID  string `json:"legacy_app_id,omitempty"`
 	SessionID    string `json:"session_id,omitempty"`
+}
+
+// BotRestartDTO is the POST /bots/{id}/restart response. Mode "runtime"
+// recreated the container on the same session; "first_start" activated a
+// bot that had no session (the activate fields are then set).
+type BotRestartDTO struct {
+	Mode         string   `json:"mode"`
+	SessionID    string   `json:"session_id,omitempty"`
+	Preserves    []string `json:"preserves"`
+	ActivationID string   `json:"activation_id,omitempty"`
+	ProjectID    string   `json:"project_id,omitempty"`
+	LegacyAppID  string   `json:"legacy_app_id,omitempty"`
+}
+
+// BotResetRequestDTO is the POST /bots/{id}/reset body.
+type BotResetRequestDTO struct {
+	// Scope is "session" or "session_and_home".
+	Scope string `json:"scope"`
+	// Confirm must equal the bot id.
+	Confirm string `json:"confirm"`
+}
+
+// BotResetHomeDTO reports what happened to the bot home.
+type BotResetHomeDTO struct {
+	Existed     bool   `json:"existed"`
+	Generation  string `json:"generation,omitempty"`
+	RetiredPath string `json:"retired_path,omitempty"`
+}
+
+// BotResetDTO is the POST /bots/{id}/reset response.
+type BotResetDTO struct {
+	Scope             string           `json:"scope"`
+	Erases            []string         `json:"erases"`
+	Keeps             []string         `json:"keeps"`
+	PreviousSessionID string           `json:"previous_session_id,omitempty"`
+	Home              *BotResetHomeDTO `json:"home,omitempty"`
+	ActivationID      string           `json:"activation_id,omitempty"`
+	SessionID         string           `json:"session_id,omitempty"`
+}
+
+// BotResetScopeDTO describes one reset scope.
+type BotResetScopeDTO struct {
+	Scope  string   `json:"scope"`
+	Erases []string `json:"erases"`
+	Keeps  []string `json:"keeps"`
+	// Available is false when the scope would be refused right now.
+	Available         bool   `json:"available"`
+	UnavailableReason string `json:"unavailable_reason,omitempty"`
+}
+
+// BotResetPlanDTO is the GET /bots/{id}/reset response.
+type BotResetPlanDTO struct {
+	Scopes []BotResetScopeDTO `json:"scopes"`
 }
 
 // BotDetailDTO is the full GET /bots/{id} response — the Bot plus the

@@ -12,6 +12,7 @@ import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAge
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard'
 import SpecTaskDetailContent from '../components/tasks/SpecTaskDetailContent'
 import NewSpecTaskForm from '../components/tasks/NewSpecTaskForm'
+import EmbedOrgBotWorkspace from '../components/helix-org/EmbedOrgBotWorkspace'
 import { useGetProject, useGetProjectExploratorySession } from '../services'
 import { initialQueryParams } from '../router'
 
@@ -76,6 +77,9 @@ const EmbedProjectPage: FC = () => {
   // Polls (5.3s): a bot's session is created asynchronously after it is hired or run.
   const { data: session } = useGetProjectExploratorySession(projectId, !!projectId)
   const sessionId = session?.id
+  // An org bot's session gets the full bot workspace; any other project
+  // session keeps the plain chat + desktop split.
+  const orgWorkerId = session?.config?.org_worker_id
 
   const openHref = openInHelixPath(
     (name, params) => router.buildPath(name, params),
@@ -164,7 +168,14 @@ const EmbedProjectPage: FC = () => {
 
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {view === 'bot' &&
-          (sessionId ? (
+          (sessionId && orgWorkerId && project?.organization_id ? (
+            <EmbedOrgBotWorkspace
+              sessionId={sessionId}
+              projectId={projectId}
+              organizationId={project.organization_id}
+              botId={orgWorkerId}
+            />
+          ) : sessionId ? (
             <PanelGroup id={`embed-project-${projectId}`} orientation="horizontal" style={{ height: '100%', flex: 1 }}>
               <Panel id="embed-project-chat" defaultSize="40%" minSize="20%" style={{ overflow: 'hidden' }}>
                 <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
