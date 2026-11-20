@@ -40,6 +40,28 @@ func TestLimitInteractionsIncludesNewestPendingTurn(t *testing.T) {
 	require.Equal(t, "int_pending", limited[1].ID)
 }
 
+func TestApplyCurrentAgentInfoToSummaryPreservesSessionCodeAgentConfig(t *testing.T) {
+	summary := &types.SessionSummary{
+		ModelName: "session-model",
+		Metadata: types.SessionMetadata{
+			CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+			ZedAgentName:     types.CodeAgentRuntimeZedAgent.ZedAgentName(),
+			CodeAgentConfig: &types.CodeAgentExecutionConfig{
+				Runtime: types.CodeAgentRuntimeZedAgent, Model: "session-model",
+			},
+		},
+	}
+	app := &types.App{Config: types.AppConfig{Helix: types.AppHelixConfig{Assistants: []types.AssistantConfig{{
+		AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeOpenCode, Model: "app-model",
+	}}}}}
+
+	applyCurrentAgentInfoToSummary(summary, app)
+
+	require.Equal(t, types.CodeAgentRuntimeZedAgent, summary.Metadata.CodeAgentRuntime)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent.ZedAgentName(), summary.Metadata.ZedAgentName)
+	require.Equal(t, "session-model", summary.ModelName)
+}
+
 type AppendOrOverwriteSuite struct {
 	suite.Suite
 }

@@ -1450,7 +1450,7 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 		}
 		changed = true
 	}
-	if session.ParentApp != "" {
+	if session.ParentApp != "" && session.Metadata.CodeAgentConfig == nil {
 		app, appErr := c.server.Store.GetApp(ctx, session.ParentApp)
 		if appErr != nil {
 			return fmt.Errorf("get agent app %s for session %s: %w", session.ParentApp, sessionID, appErr)
