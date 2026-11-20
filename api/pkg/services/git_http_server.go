@@ -94,7 +94,16 @@ var (
 	uploadPackLockWait    = 5 * time.Second
 	uploadPackSyncTimeout = 30 * time.Second
 	uploadPackSyncBackoff = 2 * time.Minute
-	receivePackLockWait   = 60 * time.Second
+	// uploadPackSyncFreshness is how long after a successful full mirror sync
+	// pulls are served from the mirror without fetching upstream again. Without
+	// it every upload-pack (two per clone) refetched all branches: a client
+	// re-cloning every few seconds turned into one upstream fetch per request.
+	// 30s caps that at two fetches a minute per repo, while a change made
+	// upstream (outside Helix) is at most 30s late, less than it takes a person
+	// to switch from the forge to Helix. Pushes through Helix don't wait on it:
+	// the mirror already holds them.
+	uploadPackSyncFreshness = 30 * time.Second
+	receivePackLockWait     = 60 * time.Second
 )
 
 type GitHTTPServer struct {
@@ -552,31 +561,8 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// If this is an external repository, sync from upstream BEFORE serving the pull.
-	// Acquire repo lock to serialize with concurrent pushes and prevent race conditions.
-	// Wrap in func() to ensure defer works correctly for panic safety.
-	// The pre-sync is best-effort: skip it and serve the local mirror when the
-	// lock is held (e.g. an upstream push is still running) or the upstream
-	// failed recently, and bound it so a stalled upstream can't stall pulls.
-	if repo != nil && repo.ExternalURL != "" && s.gitRepoService.UpstreamFailedWithin(repoID, uploadPackSyncBackoff) {
-		log.Info().Str("repo_id", repoID).Msg("Upstream failed recently - serving pull from local mirror without upstream sync")
-	} else if repo != nil && repo.ExternalURL != "" {
-		func() {
-			lock := s.gitRepoService.GetRepoLock(repoID)
-			if err := lock.LockTimeout(r.Context(), uploadPackLockWait); err != nil {
-				log.Warn().Err(err).Str("repo_id", repoID).Msg("Repository busy - serving pull from local mirror without upstream sync")
-				return
-			}
-			defer lock.Unlock()
-			log.Info().Str("repo_id", repoID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before serving pull")
-			syncCtx, cancel := context.WithTimeout(r.Context(), uploadPackSyncTimeout)
-			defer cancel()
-			if err := s.gitRepoService.SyncAllBranches(syncCtx, repoID, true); err != nil {
-				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to sync from upstream before pull - serving cached data")
-			} else {
-				log.Info().Str("repo_id", repoID).Msg("Successfully synced from upstream before pull")
-			}
-		}()
+	if repo != nil && repo.ExternalURL != "" {
+		s.syncBeforePull(r.Context(), repo)
 	}
 
 	// Handle GZIP-encoded request body (following gitea's pattern)
@@ -628,6 +614,45 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 	}
 
 	log.Info().Str("repo_id", repoID).Msg("Upload-pack completed")
+}
+
+// syncBeforePull refreshes an external repository's mirror from upstream
+// before a pull is served. It is best-effort: the pull is served from the local
+// mirror when the mirror synced recently, the upstream failed recently, the
+// repo lock is held (e.g. an upstream push is still running), or the sync
+// fails or times out.
+func (s *GitHTTPServer) syncBeforePull(ctx context.Context, repo *types.GitRepository) {
+	if s.gitRepoService.UpstreamFailedWithin(repo.ID, uploadPackSyncBackoff) {
+		log.Info().Str("repo_id", repo.ID).Msg("Upstream failed recently - serving pull from local mirror without upstream sync")
+		return
+	}
+	if s.gitRepoService.UpstreamSyncedWithin(repo.ID, uploadPackSyncFreshness) {
+		log.Debug().Str("repo_id", repo.ID).Msg("Mirror synced recently - serving pull without upstream sync")
+		return
+	}
+
+	// Serialize with concurrent pushes and syncs.
+	lock := s.gitRepoService.GetRepoLock(repo.ID)
+	if err := lock.LockTimeout(ctx, uploadPackLockWait); err != nil {
+		log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Repository busy - serving pull from local mirror without upstream sync")
+		return
+	}
+	defer lock.Unlock()
+	// Concurrent pulls queue on the lock behind the first one's sync; they are
+	// served from what it fetched.
+	if s.gitRepoService.UpstreamSyncedWithin(repo.ID, uploadPackSyncFreshness) {
+		log.Debug().Str("repo_id", repo.ID).Msg("Mirror synced while waiting for the lock - serving pull without upstream sync")
+		return
+	}
+
+	log.Info().Str("repo_id", repo.ID).Str("external_url", RedactURLCredentials(repo.ExternalURL)).Msg("Syncing from upstream before serving pull")
+	syncCtx, cancel := context.WithTimeout(ctx, uploadPackSyncTimeout)
+	defer cancel()
+	if err := s.gitRepoService.SyncAllBranches(syncCtx, repo.ID, true); err != nil {
+		log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to sync from upstream before pull - serving cached data")
+		return
+	}
+	log.Info().Str("repo_id", repo.ID).Msg("Successfully synced from upstream before pull")
 }
 
 // handleReceivePack handles POST /git-receive-pack (push)
