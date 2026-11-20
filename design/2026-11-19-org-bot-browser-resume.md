@@ -61,6 +61,12 @@ profile wins over the MCP server's `--user-data-dir` (logged).
   containers are excluded by Hydra's one-container-per-home fence.
 - A browser on 9223 that does not own the configured profile (declaration
   switched while it ran) → fail until `helix-browser stop`.
+- Every launch path (MCP relay, desktop `open`, `login-check`) starts the
+  same browser: helix-browser owns the base flags (`--no-first-run`,
+  `--disable-blink-features=AutomationControlled`, `--disable-infobars`,
+  `--disable-extensions`, Wayland when headful) and adds the MCP server's
+  `--chrome-arg`s without duplicates. `zed_config.go` still passes them for
+  `--isolated` and older images.
 - Only Helix's relay may hold 9222. Anything else there (a guard script's
   Chrome) fails the MCP server start with the PID instead of silently
   attaching to an unknown profile.
@@ -77,7 +83,10 @@ profile wins over the MCP server's `--user-data-dir` (logged).
 | invalid declaration | refused, profile untouched |
 
 Workspace setup links `~/.config/google-chrome` to the configured profile
-only when it is usable, and never creates or seeds a declared profile.
+only when it is usable, and never creates, seeds or merges into a declared
+profile. A real `~/.config/google-chrome` that Chrome already used (it has a
+`Local State`) is moved to `.helix/preserved-chrome-config/` in the
+workspace, not deleted; image skel sentinels are dropped.
 Browser death or a refusal never deletes anything.
 
 ### Separate results
@@ -91,8 +100,9 @@ Browser death or a refusal never deletes anything.
 - `cdp`: ready / not_answering / not_running / other_profile; debug-port listener relay / foreign / absent
 - `login`: not_configured / not_checked
 
-`helix-browser login-check` opens the declared URL in a new tab through
-DevTools' HTTP API, waits for redirects to settle and closes the tab. It reads
+`helix-browser login-check` opens the declared URL (percent-encoded, since
+Chrome decodes the whole `/json/new` query) in a new tab through DevTools'
+HTTP API, waits for redirects to settle and closes the tab. It reads
 only the tab's URL and title. `logged_in` needs positive evidence: an http(s)
 page at the declared URL (or a declared `--logged-in-match` URL) **and** a
 title containing the declared `--logged-in-title`. The URL alone is not
@@ -110,7 +120,7 @@ work; its browser requests fail with the reason.
 
 ## Verification (2026-11-19)
 
-**Unit:** `desktop/shared/test-helix-browser.sh` (66 checks, fake Chrome with
+**Unit:** `desktop/shared/test-helix-browser.sh` (75 checks, fake Chrome with
 singleton hand-off and DevTools HTTP API; runs in CI `shell-script-tests`,
 also passes on alpine:3.21). `TestDeclaredBrowserProfile` (hydra).
 
@@ -133,6 +143,17 @@ also passes on alpine:3.21). `TestDeclaredBrowserProfile` (hydra).
 | Review fix: profile reached through a symlink to other storage | `declare` refused; swapped-in symlink to a full copy → `ensure` exit 1, status `outside_workspace`, no Chrome |
 | Review fix: login URL with nothing listening (real Chrome error page, URL unchanged, title `127.0.0.1`) | `unknown`, exit 1 (was `logged_in`) |
 | Review fix: logged in after stop/resume, declared title present / wrong title declared | `logged_in` exit 0 / `unknown` exit 1 |
+| Review 2: login URL `…/home?a=1&b=x%2Fy` (raw query was cut at `&` by Chrome) | server received it intact; `logged_in` exit 0 |
+| Review 2: `ensure` with no MCP server args (as `open`/`login-check` without a relay) | Chrome runs with AutomationControlled, infobars and extensions disabled |
+| Review 2: workspace-setup block, declared, real `~/.config/google-chrome` with `Local State` + skel-only `chromium` | first moved to `.helix/preserved-chrome-config/`, second dropped, declared profile unchanged; default branch still copies into `.chrome-state` |
+
+Regression checks pinned by mutation: removing the URL encoding, or
+replacing `open`'s relay health request with a listener check (which would
+start a second browser on a switched declaration), each fails the suite.
+
+`Local State` is validated on every launch decision. Chrome writes it through
+`ImportantFileWriter` (temporary file, then rename), so a reader never sees a
+partial file; no retry was added.
 
 Chrome writes new cookies to disk on its ~30 s commit timer. A login less than
 about 30 s old is lost if Chrome is killed, and SIGTERM did not flush

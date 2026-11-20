@@ -45,7 +45,8 @@ reply() { printf 'HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n%s' "
 case "$path" in
     /json/version) reply '{"Browser":"FakeChrome/1.0"}' ;;
     /json/new\?*)
-        printf '%s' "${path#/json/new?}" > "$FAKE_DIR/tab"
+        # Chrome percent-decodes the query.
+        q=${path#/json/new?}; printf '%b' "${q//%/\\x}" > "$FAKE_DIR/tab"; cp "$FAKE_DIR/tab" "$FAKE_DIR/opened"
         reply '{"id":"T1"}' ;;
     /json/list)
         url=$(cat "$FAKE_DIR/tab" 2>/dev/null || echo about:blank)
@@ -84,6 +85,7 @@ mkdir -p "$profile"
 [ -f "$profile/Local State" ] || echo '{"profile":{}}' > "$profile/Local State"
 ln -s "$(hostname)-$$" "$profile/SingletonLock"
 printf '%s\n' "$profile" >> "$FAKE_DIR/launches"
+printf '%s\n' "$*" > "$FAKE_DIR/last-args"
 socat_pid=""
 trap 'kill $socat_pid 2>/dev/null; rm -f "$profile/SingletonLock"; exit 0' TERM
 if [ -n "$port" ] && [ -z "${FAKE_NO_CDP:-}" ]; then
@@ -124,7 +126,7 @@ kill_chrome() {
     for _ in $(seq 1 50); do curl -fs --max-time 1 "$INTERNAL/json/version" >/dev/null 2>&1 || return 0; sleep 0.1; done
 }
 DEFAULT="$HELIX_BROWSER_WORK_DIR/.chrome-state"
-MCP_ARGS=(--user-data-dir=$DEFAULT --viewport 1280x800 --chrome-arg=--no-first-run)
+MCP_ARGS=(--user-data-dir=$DEFAULT --viewport 1280x800 --chrome-arg=--no-first-run --chrome-arg=--lang=en-US)
 
 # --- lazy start -------------------------------------------------------------
 check "status reports no browser" "stopped not_running new" "$(status '"\(.process.state) \(.cdp.state) \(.profile.state)"')"
@@ -140,6 +142,8 @@ for _ in $(seq 1 8); do
 done
 wait
 check "8 concurrent browser requests launch one Chrome" "1" "$(launches)"
+contains "the MCP server's browser options reach Chrome" " --lang=en-US " " $(cat "$FAKE_DIR/last-args") "
+check "a flag set by both is passed once" "1" "$(tr ' ' '\n' < "$FAKE_DIR/last-args" | grep -cx -- --no-first-run)"
 check "every request reached it" "8" "$(cat "$TMP"/c.* | grep -o FakeChrome | wc -l | tr -d " ")"
 for _ in $(seq 1 4); do "$BROWSER" ensure "${MCP_ARGS[@]}" & done
 wait
@@ -203,10 +207,10 @@ contains "declare refuses a symlink out of the workspace" "outside the persisten
 check "nothing written for it" "no no" \
     "$([ -e "$HELIX_BROWSER_WORK_DIR/.helix/browser.json" ] && echo yes || echo no) $([ -e "$OUTSIDE/.helix-profile.json" ] && echo yes || echo no)"
 rm "$HELIX_BROWSER_WORK_DIR/linked-profile"
-"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login --logged-in-title Home >/dev/null
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1&y=a%2Fb" --logged-out-match /login --logged-in-title Home >/dev/null
 id=$(jq -r .profile_id "$HELIX_BROWSER_WORK_DIR/.helix/browser.json")
 check "identity written into the profile" "$id" "$(jq -r .profile_id "$CUSTOM/.helix-profile.json")"
-"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login --logged-in-title Home >/dev/null
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1&y=a%2Fb" --logged-out-match /login --logged-in-title Home >/dev/null
 check "re-declaring keeps the identity" "$id" "$(jq -r .profile_id "$CUSTOM/.helix-profile.json")"
 if "$BROWSER" declare .chrome-state 2>"$TMP/err"; then echo "FAIL: switched profile without --replace"; exit 1; fi
 contains "switching needs --replace" "pass --replace" "$(cat "$TMP/err")"
@@ -225,6 +229,7 @@ check "logged out: landed on the login page" "logged_out https://site.test/login
 check "no token in the output" "no" "$([[ "$out" == *secret-token* ]] && echo yes || echo no)"
 touch "$FAKE_DIR/session"
 check "logged in" "logged_in https://site.test/home" "$("$BROWSER" login-check | jq -r '"\(.login.state) \(.login.landed)"')"
+check "the tab opened the declared URL intact (& and %)" "https://site.test/home?x=1&y=a%2Fb" "$(cat "$FAKE_DIR/opened")"
 
 # logged_in needs positive evidence; anything else is unknown and fails.
 login_state() {
@@ -247,11 +252,11 @@ echo "https://other.test/home" > "$FAKE_DIR/landing"
 check "another origin is unknown" "unknown 1" "$(login_state)"
 echo "https://site.test/somewhere-else" > "$FAKE_DIR/landing"
 check "an unexpected page on the site is unknown" "unknown 1" "$(login_state)"
-"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login \
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1&y=a%2Fb" --logged-out-match /login \
     --logged-in-title Home --logged-in-match /somewhere-else >/dev/null
 check "a declared logged-in page counts" "logged_in 0" "$(login_state)"
 rm "$FAKE_DIR/landing"
-"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login \
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1&y=a%2Fb" --logged-out-match /login \
     --logged-in-title "Inbox" >/dev/null
 check "expected page without the declared title is unknown" "unknown 1" "$(login_state)"
 echo "Inbox (3)" > "$FAKE_DIR/title"
@@ -260,7 +265,7 @@ rm "$FAKE_DIR/title"
 if "$BROWSER" declare chrome-profile --login-url "file:///etc/passwd" --logged-out-match x 2>/dev/null; then
     echo "FAIL: accepted a non-http login URL"; exit 1
 fi
-"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1" --logged-out-match /login --logged-in-title Home >/dev/null
+"$BROWSER" declare chrome-profile --login-url "https://site.test/home?x=1&y=a%2Fb" --logged-out-match /login --logged-in-title Home >/dev/null
 check "re-declaring the login check keeps the identity" "$id" "$(jq -r .profile_id "$HELIX_BROWSER_WORK_DIR/.helix/browser.json")"
 
 # Open from the desktop: hand-off to the owner, never a second browser.
@@ -336,9 +341,23 @@ before=$(launches)
 if "$BROWSER" ensure 2>"$TMP/err"; then echo "FAIL: used a browser on the previous profile"; exit 1; fi
 contains "browser on the previous profile is reported" "does not own $CUSTOM" "$(cat "$TMP/err")"
 check "status: other profile" "other_profile" "$(status .cdp.state)"
+# open must fail closed too, with the relay up and with it down: the running
+# browser is not on the declared profile, and a second one must not start.
+if timeout 20 "$BROWSER" open https://example.test/ 2>/dev/null; then echo "FAIL: open (relay up) ran with a switched declaration"; exit 1; fi
+check "open fails closed on a switched declaration (relay up)" "$before" "$(launches)"
+pkill -f "TCP-LISTEN:$HELIX_CHROME_DEBUG_PORT" || true
+for _ in $(seq 1 50); do ss -Hltn "sport = :$HELIX_CHROME_DEBUG_PORT" | grep -q . || break; sleep 0.1; done
+if timeout 20 "$BROWSER" open https://example.test/ 2>/dev/null; then echo "FAIL: open (relay down) ran with a switched declaration"; exit 1; fi
+check "open fails closed on a switched declaration (relay down)" "$before" "$(launches)"
+"$BROWSER" relay "${MCP_ARGS[@]}"
 "$BROWSER" stop
 "$BROWSER" ensure 2>/dev/null
 check "after stop the declared profile starts" "$((before + 1)) $CUSTOM" "$(launches) $(tail -1 "$FAKE_DIR/launches")"
+# Started without an MCP server (desktop open, login check), the browser
+# still gets the automation and extension flags.
+for flag in --disable-blink-features=AutomationControlled --disable-infobars --disable-extensions --no-first-run; do
+    contains "launch without MCP flags has $flag" " $flag " " $(cat "$FAKE_DIR/last-args") "
+done
 
 # --- the default profile is held to the same rule --------------------------------
 "$BROWSER" stop

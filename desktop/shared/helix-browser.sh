@@ -316,22 +316,31 @@ launch_chrome() {
         "--no-default-browser-check"
         # The first-run dialog blocks the DevTools endpoint until dismissed.
         "--no-first-run"
+        # Whoever starts the browser (MCP, desktop, login check), it is the
+        # same browser: less detectable as automation, no extension probing.
+        "--disable-blink-features=AutomationControlled"
+        "--disable-infobars"
+        "--disable-extensions"
     )
     detect_display
     if $HEADLESS; then
         flags+=("--headless=new")
-        for flag in "${CHROME_FLAGS[@]}"; do
-            [[ "$flag" == --user-agent=* ]] && ua_set=true
-            [ "$flag" = "--ozone-platform=wayland" ] || flags+=("$flag")
-        done
         # Headless Chrome announces "HeadlessChrome", which bot detection
         # may treat differently from the desktop browser.
+        for flag in "${CHROME_FLAGS[@]}"; do
+            [[ "$flag" == --user-agent=* ]] && ua_set=true
+        done
         if ! $ua_set && ua=$(headless_user_agent); then
             flags+=("--user-agent=$ua")
         fi
     else
-        flags+=("${CHROME_FLAGS[@]}")
+        flags+=("--ozone-platform=wayland")
     fi
+    # The MCP server's own browser options, minus those already set here.
+    for flag in "${CHROME_FLAGS[@]}"; do
+        [ "$flag" != "--ozone-platform=wayland" ] || continue
+        [[ " ${flags[*]} " == *" $flag "* ]] || flags+=("$flag")
+    done
     # Detached: the browser outlives whatever asked for it, and must not
     # inherit the lock descriptor.
     setsid "$CHROME_BIN" "${flags[@]}" about:blank >"$CHROME_LOG" 2>&1 < /dev/null 9>&- &
@@ -603,7 +612,8 @@ cmd_login_check() {
     [ -n "$LOGIN_URL" ] || die "no login check declared; run: helix-browser declare <profile> --login-url URL --logged-out-match TEXT --logged-in-title TEXT"
     [ -n "$LOGGED_IN_TITLE" ] || die "the login check has no logged-in title, so it cannot prove a login; re-declare with --logged-in-title TEXT"
     cmd_ensure
-    target=$(curl -fsS --max-time 10 -X PUT "$CHROME_INTERNAL_URL/json/new?$LOGIN_URL") \
+    # Chrome percent-decodes the whole query; a raw & or % would cut the URL.
+    target=$(curl -fsS --max-time 10 -X PUT "$CHROME_INTERNAL_URL/json/new?$(jq -rn --arg u "$LOGIN_URL" '$u|@uri')") \
         || die "could not open a tab for the login check"
     id=$(jq -r '.id' <<< "$target")
     for i in $(seq 1 30); do

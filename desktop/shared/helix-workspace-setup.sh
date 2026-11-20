@@ -877,6 +877,15 @@ if [ -e "$WORK_DIR/.helix/browser.json" ]; then
         echo "  Chrome: $(cat /tmp/helix-browser-setup.err)"
         CHROME_PROFILE_DIR=""
     fi
+    # Never merged into the declared profile. A Chrome that already ran here
+    # (Local State) is kept in the workspace; skel sentinels are not.
+    for ephemeral_dir in ~/.config/google-chrome ~/.config/chromium; do
+        if [ -d "$ephemeral_dir" ] && [ ! -L "$ephemeral_dir" ] && [ -e "$ephemeral_dir/Local State" ]; then
+            preserved="$WORK_DIR/.helix/preserved-chrome-config/$(basename "$ephemeral_dir")-$(date +%Y%m%d%H%M%S)"
+            mkdir -p "$(dirname "$preserved")"
+            mv "$ephemeral_dir" "$preserved" && echo "  Chrome: kept $ephemeral_dir in $preserved"
+        fi
+    done
 else
     CHROME_PROFILE_DIR=$CHROME_STATE_DIR
     mkdir -p $CHROME_STATE_DIR
