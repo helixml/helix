@@ -145,7 +145,7 @@ deploy() {
     set -euo pipefail
     BG_WATCH_SECONDS=10
     cp -p .env /work/env.prev
-    trap 'st=\$?; if [ \$st -ne 0 ] && [ -n \"\$BG_STAGE\" ]; then cp -p /work/env.prev .env; bg_rollback; fi; exit \$st' EXIT
+    trap 'st=\$?; if [ \$st -ne 0 ]; then cp -p /work/env.prev .env; bg_rollback; fi; exit \$st' EXIT
     bg_preflight
     bg_deploy $1"
 }
@@ -237,4 +237,40 @@ H 'cmp -s .env /work/env.before-mismatch && [ ! -s /work/zfs.log ]' || fail "the
 H 'sed -i "s/^# active: blue/# active: green/" /etc/nginx/helix-active/stream.conf'
 [ "$(active)" = green ] || fail "green stopped serving"
 
-log "PASS: cutover ($cutover), v2 ($v2), broken+rollback ($broken), v1 ($v1), London v2 ($lon_v2), London broken+rollback ($lon_broken)"
+log "10. a pg_dump-style ACCESS SHARE lock is held during deploys"
+psql() { H "docker compose exec -T postgres psql -U postgres -tAc \"$1\""; }
+H 'nohup docker compose exec -T postgres psql -U postgres -c "BEGIN; LOCK TABLE prompt_history_entries IN ACCESS SHARE MODE; SELECT pg_sleep(900);" > /dev/null 2>&1 & echo $! > /work/lock.pid'
+sleep 2
+[ "$(psql "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation WHERE c.relname = 'prompt_history_entries' AND l.mode = 'AccessShareLock' AND l.granted")" -ge 1 ] ||
+  fail "the ACCESS SHARE lock was not taken"
+log "10a. no schema change: migrations only read, so the deploy goes through"
+probe_start
+deploy v1 || fail "a deploy without DDL failed under the lock"
+locked_ok=$(probe_stop)
+log "deploy under the lock: $locked_ok"
+[ "$(failed_of "$locked_ok")" = 0 ] || fail "requests failed during the deploy under the lock: $locked_ok"
+active_before=$(active)
+log "10b. a migration needing ACCESS EXCLUSIVE fails fast and nothing changes"
+# Undo a guarded fix so the next migration has a real ALTER to run.
+psql "SET lock_timeout = '2s'; ALTER TABLE prompt_history_entries ALTER COLUMN interrupt SET DEFAULT true" > /dev/null 2>&1 &&
+  fail "the ALTER should have waited for the lock" || true
+H 'kill $(cat /work/lock.pid)'; sleep 1
+psql "ALTER TABLE prompt_history_entries ALTER COLUMN interrupt SET DEFAULT true" > /dev/null
+H 'nohup docker compose exec -T postgres psql -U postgres -c "BEGIN; LOCK TABLE prompt_history_entries IN ACCESS SHARE MODE; SELECT pg_sleep(900);" > /dev/null 2>&1 & echo $! > /work/lock.pid'
+sleep 2
+H 'cp -p .env /work/env.before-locked'
+probe_start
+started=$(date +%s)
+if deploy v2; then fail "the migration ran its ALTER through the lock"; fi
+took=$(($(date +%s) - started))
+locked_fail=$(probe_stop)
+log "failed deploy under the lock: ${took}s, $locked_fail"
+[ "$took" -lt 120 ] || fail "the blocked migration took ${took}s to give up"
+[ "$(failed_of "$locked_fail")" = 0 ] || fail "requests failed while the migration was blocked: $locked_fail"
+[ "$(active)" = "$active_before" ] || fail "the active colour changed"
+H 'cmp -s .env /work/env.before-locked' || fail ".env was not restored after the failed migration"
+H 'kill $(cat /work/lock.pid)'; sleep 1
+[ "$(psql "SELECT column_default FROM information_schema.columns WHERE table_name = 'prompt_history_entries' AND column_name = 'interrupt'")" = true ] ||
+  fail "the ALTER ran despite the failure"
+
+log "PASS: cutover ($cutover), v2 ($v2), broken+rollback ($broken), v1 ($v1), London v2 ($lon_v2), London broken+rollback ($lon_broken), under a dump lock ($locked_ok; DDL refused in ${took}s)"
