@@ -1,0 +1,107 @@
+# Blue/green overlay: two API services, api-blue and api-green, behind the
+# host's nginx, sharing one external NATS. A deploy starts the new release on
+# the idle colour, health-checks it, points nginx at it and drains the old one
+# (scripts/lib/bluegreen.sh). design/2026-11-20-bluegreen-deploys.md.
+#
+# Layered on a host's usual compose files through .env:
+#
+#   COMPOSE_FILE=docker-compose.yaml:docker-compose.override.yaml:docker-compose.bluegreen.yaml
+#   HELIX_COMPOSE_BASE=docker-compose.yaml    # the file whose `api` the colours extend
+#   HELIX_ACTIVE_COLOUR=blue                  # written by the deploy
+#   HELIX_VERSION_BLUE=2.12.63                # written by the deploy
+#   HELIX_VERSION_GREEN=2.12.64
+#
+# The single `api` service moves to the `single` profile so `docker compose up`
+# never starts it next to the colours.
+#
+# Ports: every colour port is published on 127.0.0.1 only, at container port +
+# 10000 (blue) or + 20000 (green). nginx owns the public ports and forwards to
+# the active colour (/etc/nginx/helix-active/, written by the deploy).
+
+x-bluegreen-api: &bluegreen-api
+  extends:
+    file: ${HELIX_COMPOSE_BASE:-docker-compose.yaml}
+    service: api
+  profiles: [bluegreen]
+  # The release image, also on hosts whose base `api` builds from source.
+  build: !reset null
+  # Hosts whose base `api` bind-mounts a checkout (air hot reload, ./frontend/dist
+  # at /www) must not shadow the image's binary and frontend.
+  volumes: !override
+    - ${FILESTORE_DATA:-helix-filestore}:/filestore
+    - helix-socket:/socket
+    - /var/run/sandbox:/var/run/sandbox:rw
+  depends_on: [nats]
+  restart: always
+  # SIGTERM drains: websockets close at once, requests get up to 45s
+  # (api/pkg/server/graceful.go).
+  stop_grace_period: 60s
+  networks:
+    default:
+      aliases: [api]
+
+services:
+  api:
+    profiles: [single]
+
+  api-blue:
+    <<: *bluegreen-api
+    image: ${HELIX_CONTROLPLANE_IMAGE:-ghcr.io/helixml/controlplane}:${HELIX_VERSION_BLUE:-unset}
+    ports: !override
+      - 127.0.0.1:10080:80
+      - 127.0.0.1:10443:443
+      - 127.0.0.1:12224:2224
+      - 127.0.0.1:18080:8080
+      - 127.0.0.1:19110:9110
+    environment:
+      - HELIX_INSTANCE_ID=blue
+      - HELIX_SKIP_AUTOMIGRATE=1
+      - HELIX_METRICS_LISTEN=0.0.0.0:9110
+      - NATS_SERVER_EMBEDDED_ENABLED=false
+      - NATS_SERVER_HOST=nats
+      - NATS_SERVER_PORT=4222
+      - NATS_SERVER_WEBSOCKET_URL=ws://nats:8433
+
+  api-green:
+    <<: *bluegreen-api
+    image: ${HELIX_CONTROLPLANE_IMAGE:-ghcr.io/helixml/controlplane}:${HELIX_VERSION_GREEN:-unset}
+    ports: !override
+      - 127.0.0.1:20080:80
+      - 127.0.0.1:20443:443
+      - 127.0.0.1:22224:2224
+      - 127.0.0.1:28080:8080
+      - 127.0.0.1:29110:9110
+    environment:
+      - HELIX_INSTANCE_ID=green
+      - HELIX_SKIP_AUTOMIGRATE=1
+      - HELIX_METRICS_LISTEN=0.0.0.0:9110
+      - NATS_SERVER_EMBEDDED_ENABLED=false
+      - NATS_SERVER_HOST=nats
+      - NATS_SERVER_PORT=4222
+      - NATS_SERVER_WEBSOCKET_URL=ws://nats:8433
+
+  # Replaces the NATS server each API process used to embed, so both colours
+  # share pub/sub and JetStream. Same token (RUNNER_TOKEN unless
+  # NATS_SERVER_TOKEN is set) and the same JetStream store directory under the
+  # filestore, so streams carry over from the embedded server at cutover.
+  nats:
+    image: nats:2.15.3-alpine
+    restart: always
+    command: ["-c", "/etc/nats/helix.conf"]
+    environment:
+      - NATS_TOKEN=${NATS_SERVER_TOKEN:-${RUNNER_TOKEN-oh-hallo-insecure-token}}
+    configs:
+      - source: nats-config
+        target: /etc/nats/helix.conf
+    volumes:
+      - ${FILESTORE_DATA:-helix-filestore}:/filestore
+    stop_grace_period: 30s
+
+configs:
+  nats-config:
+    content: |
+      port: 4222
+      max_payload: 33554432
+      authorization { token: $$NATS_TOKEN }
+      jetstream { store_dir: /filestore/nats }
+      websocket { port: 8433, no_tls: true }

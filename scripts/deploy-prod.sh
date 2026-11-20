@@ -111,8 +111,8 @@ if [ "$DEPLOY_CONTROLPLANE" = "true" ]; then
   want=$(git -C "$REPO_DIR" rev-parse -q --verify "${VERSION}^{commit}") ||
     fail "${VERSION} is not a tag or commit in ${REPO_DIR}; run from a checkout of ${VERSION}"
   [ "$head" = "$want" ] || fail "${REPO_DIR} is at ${head}, not ${VERSION} (${want})"
-  git -C "$REPO_DIR" diff --quiet HEAD -- docker-compose.yaml ||
-    fail "${REPO_DIR}/docker-compose.yaml has uncommitted changes"
+  git -C "$REPO_DIR" diff --quiet HEAD -- docker-compose.yaml docker-compose.bluegreen.yaml ||
+    fail "${REPO_DIR}/docker-compose.yaml or docker-compose.bluegreen.yaml has uncommitted changes"
 
   SNAP="${LONDON_DB_DATASET}@pre-${VERSION}-$(date +%Y%m%d-%H%M%S)"
   log "Deploying controlplane ${VERSION} to ${LONDON_SSH} (snapshot ${SNAP}) ..."
@@ -124,8 +124,9 @@ if [ "$DEPLOY_CONTROLPLANE" = "true" ]; then
     HEALTH_HOST "$LONDON_HEALTH_HOST" \
     COMPOSE_SYNC "$COMPOSE_SYNC" \
     RECREATE_POSTGRES "$RECREATE_POSTGRES" \
-    REPO_COMPOSE_B64 "$(base64 < "$REPO_DIR/docker-compose.yaml" | tr -d '\n')")
-$(cat "$REPO_DIR/scripts/lib/deploy-controlplane-remote.sh")"
+    REPO_COMPOSE_B64 "$(base64 < "$REPO_DIR/docker-compose.yaml" | tr -d '\n')" \
+    REPO_BLUEGREEN_B64 "$(base64 < "$REPO_DIR/docker-compose.bluegreen.yaml" | tr -d '\n')")
+$(cat "$REPO_DIR/scripts/lib/bluegreen.sh" "$REPO_DIR/scripts/lib/deploy-controlplane-remote.sh")"
 
   # shellcheck disable=SC2086
   if ! ssh $SSH_OPTS "$LONDON_SSH" 'bash -s' <<<"$CP_DEPLOY"; then

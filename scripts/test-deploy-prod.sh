@@ -189,8 +189,8 @@ chmod +x "$work/bin/"*
 src="$work/src"
 mkdir -p "$src/scripts/lib"
 cp "$repo/scripts/deploy-prod.sh" "$repo/scripts/cleanup-runner-images.sh" "$src/scripts/"
-cp "$repo/scripts/lib/deploy-controlplane-remote.sh" "$repo/scripts/lib/deploy-runner-remote.sh" "$src/scripts/lib/"
-cp "$repo/docker-compose.yaml" "$src/"
+cp "$repo/scripts/lib/deploy-controlplane-remote.sh" "$repo/scripts/lib/deploy-runner-remote.sh" "$repo/scripts/lib/bluegreen.sh" "$src/scripts/lib/"
+cp "$repo/docker-compose.yaml" "$repo/docker-compose.bluegreen.yaml" "$src/"
 git -C "$src" init -q
 git -C "$src" add -A
 git -C "$src" -c user.name=t -c user.email=t@example.com commit -qm release

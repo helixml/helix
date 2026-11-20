@@ -2996,8 +2996,11 @@ kind: pipeline
 type: docker
 name: deploy-meta
 
+# build-controlplane-amd64 publishes the controlplane:<sha7>-linux-amd64 image
+# Meta's blue/green API runs (scripts/deploy-meta.sh).
 depends_on:
   - build-sandbox-amd64
+  - build-controlplane-amd64
 
 trigger:
   event:

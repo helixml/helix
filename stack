@@ -15,8 +15,8 @@ export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 # via the .env file (HELIX_VHOST_TLS_MODE=auto) or the shell. The
 # overlay adds :443 / :80 host port mappings to the api service so the
 # certmagic listener inside the container is reachable.
-COMPOSE_TLS_OVERLAY_ARGS=()
-function detect_tls_overlay() {
+COMPOSE_OVERLAY_ARGS=()
+function detect_compose_overlays() {
   local mode=""
   if [[ -f "$DIR/.env" ]]; then
     # Last assignment wins; tolerate quoted values and trailing whitespace.
@@ -27,11 +27,31 @@ function detect_tls_overlay() {
   # resolves variables.
   mode="${HELIX_VHOST_TLS_MODE:-$mode}"
   if [[ "$mode" == "auto" ]]; then
-    COMPOSE_TLS_OVERLAY_ARGS=(-f docker-compose.tls.yaml)
+    COMPOSE_OVERLAY_ARGS=(-f docker-compose.tls.yaml)
     echo "🔒 HELIX_VHOST_TLS_MODE=auto detected — including docker-compose.tls.yaml"
   fi
+  # A blue/green host (Meta) runs the API as api-blue/api-green, managed only
+  # by its deploy (scripts/lib/bluegreen.sh); the overlay disables the single
+  # `api` service, whose ports nginx now owns.
+  if [[ -f "$DIR/.env" ]] && grep -qE '^HELIX_ACTIVE_COLOUR=' "$DIR/.env"; then
+    COMPOSE_OVERLAY_ARGS+=(-f docker-compose.bluegreen.yaml)
+    echo "🔵🟢 blue/green host — including docker-compose.bluegreen.yaml"
+  fi
 }
-detect_tls_overlay
+detect_compose_overlays
+
+# refuse_single_api stops `up api`/`rebuild api` on a blue/green host: it
+# would start the single api service next to the colours.
+function refuse_single_api() {
+  local arg
+  [[ " ${COMPOSE_OVERLAY_ARGS[*]} " == *" docker-compose.bluegreen.yaml "* ]] || return 0
+  for arg in "$@"; do
+    if [[ "$arg" == api ]]; then
+      echo "❌ blue/green host: the API runs as api-blue/api-green and is deployed by scripts/deploy-meta.sh, not ./stack" >&2
+      exit 1
+    fi
+  done
+}
 
 # docker-compose.dev.yaml defaults postgres to 17, which refuses a data
 # directory created by an older major. Keep an existing dev database on its
@@ -153,7 +173,7 @@ SANDBOX_START_ATTEMPTS=${SANDBOX_START_ATTEMPTS:-3}
 SANDBOX_PREVIOUS_IMAGE=helix-sandbox:previous
 
 function sandbox_compose() {
-  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" "$@"
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_OVERLAY_ARGS[@]}" "$@"
 }
 
 # stop_sandbox stops and removes every $SANDBOX_SERVICE container, including
@@ -418,13 +438,13 @@ function setup_sandbox_profile() {
 function build() {
   if [[ -n "$WITH_DEMOS" ]]; then
     echo "🔨 Building demos"
-    docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos build
+    docker compose -f docker-compose.dev.yaml "${COMPOSE_OVERLAY_ARGS[@]}" --profile demos build
     return
   fi
 
   # No profiles specified, just build everything
   echo "🔨 Building all services"
-  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" build
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_OVERLAY_ARGS[@]}" build
 }
 
 function static-compile() {
@@ -659,11 +679,11 @@ function _start_services() {
   if [[ -n "$WITH_DEMOS" ]]; then
     # Just demos
     echo "🚀 Starting services with demos profile"
-    docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos up -d
+    docker compose -f docker-compose.dev.yaml "${COMPOSE_OVERLAY_ARGS[@]}" --profile demos up -d
   else
     # No special profiles
     echo "🚀 Starting base services"
-    docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d
+    docker compose -f docker-compose.dev.yaml "${COMPOSE_OVERLAY_ARGS[@]}" up -d
   fi
 
   sleep 2
@@ -799,11 +819,11 @@ function stop() {
     if [[ -n "$WITH_DEMOS" ]]; then
       # Just demos
       echo "🔄 Stopping services with demos profile"
-      docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
+      docker compose -f docker-compose.dev.yaml "${COMPOSE_OVERLAY_ARGS[@]}" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     else
       # Include all profiles when no environment variables are set
       echo "🔄 Stopping all services (all profiles)"
-      docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
+      docker compose -f docker-compose.dev.yaml "${COMPOSE_OVERLAY_ARGS[@]}" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     fi
   else
     # Create exclude list for display and grep pattern
@@ -855,7 +875,8 @@ function up() {
   # Sandbox services are enabled via COMPOSE_PROFILES in .env or auto-detected above
   # Profile 'code-nvidia' = NVIDIA GPU, 'code-amd-intel' = AMD/Intel GPU
 
-  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d $@
+  refuse_single_api "$@"
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_OVERLAY_ARGS[@]}" up -d $@
 }
 
 function build-zed-agent() {
@@ -923,7 +944,8 @@ function zed-agent-logs() {
 }
 
 function rebuild() {
-  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d --build $@
+  refuse_single_api "$@"
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_OVERLAY_ARGS[@]}" up -d --build $@
 }
 
 # Helper function to build image tags string (commit hash + git tag if available)
