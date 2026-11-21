@@ -71,7 +71,10 @@ func (s *PostgresStore) GetProjectsCount(ctx context.Context, query *GetProjects
 
 // ListProjects lists all projects for a given user
 func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery) ([]*types.Project, error) {
-	if req.UserID == "" && req.OrganizationID == "" {
+	if req.AllScopes && (req.UserID != "" || req.OrganizationID != "") {
+		return nil, fmt.Errorf("all_scopes cannot be combined with a user or organization")
+	}
+	if req.UserID == "" && req.OrganizationID == "" && !req.AllScopes {
 		return []*types.Project{}, nil
 	}
 
@@ -85,7 +88,7 @@ func (s *PostgresStore) ListProjects(ctx context.Context, req *ListProjectsQuery
 
 	if req.OrganizationID != "" {
 		q = q.Where("organization_id = ?", req.OrganizationID)
-	} else {
+	} else if !req.AllScopes {
 		// If we are listing just for the user, we don't want to filter by organization
 		q = q.Where("organization_id IS NULL OR organization_id = ''")
 	}
