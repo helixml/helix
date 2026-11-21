@@ -786,6 +786,39 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/models/replace": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "When a provider stops serving a model, every org default\nruntime, agent, org bot, project, spec task and session that\nstill selects it fails on its next turn. This moves all of them\nto another model on the same provider. The replacement must be\nserved by the provider now. Use dry_run to list them first.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Replace a model everywhere it is selected",
+                "parameters": [
+                    {
+                        "description": "Provider and models",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ReplaceModelRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ReplaceModelResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/organization-domains": {
             "get": {
                 "security": [
@@ -31847,24 +31880,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "github",
-                "webhook",
-                "email",
-                "slack",
-                "local",
-                "cron",
                 "helix_events",
-                "gitlab"
+                "email",
+                "cron",
+                "gitlab",
+                "github",
+                "local",
+                "webhook",
+                "slack"
             ],
             "x-enum-varnames": [
-                "KindGitHub",
-                "KindWebhook",
-                "KindEmail",
-                "KindSlack",
-                "KindLocal",
-                "KindCron",
                 "KindHelixEvents",
-                "KindGitLab"
+                "KindEmail",
+                "KindCron",
+                "KindGitLab",
+                "KindGitHub",
+                "KindLocal",
+                "KindWebhook",
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {
@@ -37932,6 +37965,28 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ModelReference": {
+            "type": "object",
+            "properties": {
+                "fields": {
+                    "description": "Fields names the fields holding the model, e.g. \"code_agent_config\".",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind is org_default, agent, org_bot, project, spec_task or session.",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ModelType": {
             "type": "string",
             "enum": [
@@ -40728,6 +40783,38 @@ const docTemplate = `{
                 },
                 "password_confirm": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ReplaceModelRequest": {
+            "type": "object",
+            "properties": {
+                "dry_run": {
+                    "description": "DryRun reports what would change without writing anything.",
+                    "type": "boolean"
+                },
+                "from_model": {
+                    "type": "string"
+                },
+                "provider_ref": {
+                    "type": "string"
+                },
+                "to_model": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ReplaceModelResponse": {
+            "type": "object",
+            "properties": {
+                "dry_run": {
+                    "type": "boolean"
+                },
+                "references": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ModelReference"
+                    }
                 }
             }
         },

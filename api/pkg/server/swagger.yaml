@@ -3991,24 +3991,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - github
-    - webhook
-    - email
-    - slack
-    - local
-    - cron
     - helix_events
+    - email
+    - cron
     - gitlab
+    - github
+    - local
+    - webhook
+    - slack
     type: string
     x-enum-varnames:
-    - KindGitHub
-    - KindWebhook
-    - KindEmail
-    - KindSlack
-    - KindLocal
-    - KindCron
     - KindHelixEvents
+    - KindEmail
+    - KindCron
     - KindGitLab
+    - KindGitHub
+    - KindLocal
+    - KindWebhook
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -8522,6 +8522,21 @@ definitions:
       supports_reasoning_effort:
         type: boolean
     type: object
+  types.ModelReference:
+    properties:
+      fields:
+        description: Fields names the fields holding the model, e.g. "code_agent_config".
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      kind:
+        description: Kind is org_default, agent, org_bot, project, spec_task or session.
+        type: string
+      organization_id:
+        type: string
+    type: object
   types.ModelType:
     enum:
     - chat
@@ -10546,6 +10561,27 @@ definitions:
         type: string
       password_confirm:
         type: string
+    type: object
+  types.ReplaceModelRequest:
+    properties:
+      dry_run:
+        description: DryRun reports what would change without writing anything.
+        type: boolean
+      from_model:
+        type: string
+      provider_ref:
+        type: string
+      to_model:
+        type: string
+    type: object
+  types.ReplaceModelResponse:
+    properties:
+      dry_run:
+        type: boolean
+      references:
+        items:
+          $ref: '#/definitions/types.ModelReference'
+        type: array
     type: object
   types.RepoPR:
     properties:
@@ -17415,6 +17451,31 @@ paths:
       security:
       - BearerAuth: []
       summary: Get Kodit system stats (admin)
+      tags:
+      - admin
+  /api/v1/admin/models/replace:
+    post:
+      description: |-
+        When a provider stops serving a model, every org default
+        runtime, agent, org bot, project, spec task and session that
+        still selects it fails on its next turn. This moves all of them
+        to another model on the same provider. The replacement must be
+        served by the provider now. Use dry_run to list them first.
+      parameters:
+      - description: Provider and models
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ReplaceModelRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ReplaceModelResponse'
+      security:
+      - BearerAuth: []
+      summary: Replace a model everywhere it is selected
       tags:
       - admin
   /api/v1/admin/organization-domains:
