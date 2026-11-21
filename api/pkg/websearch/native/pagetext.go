@@ -20,7 +20,7 @@ import (
 // Sections, when given, select parts of the full document and override
 // verbosity. Verbosity levels:
 //   - compact (default): readability's main content, found within the body
-//     section.
+//     section; the body section itself when readability finds nothing.
 //   - standard: the whole <body> minus header, navigation, banner, sidebar
 //     and footer, so it keeps tables, captions and asides-in-article that
 //     readability drops.
@@ -41,6 +41,14 @@ func (h *htmlPage) text(opts websearch.TextOptions) (string, error) {
 		content = h.sections(websearch.Sections, []string{websearch.SectionMetadata})
 	default:
 		content, err = h.readableContent()
+		// Readability skips what CSS hides, and some server-rendered pages
+		// are hidden until their scripts run (visibility:hidden on the app
+		// root, against a flash of unstyled content): it then finds no
+		// content and the page came back as empty text, reported as a
+		// success. The body section has the same content without that check.
+		if err == nil && strings.TrimSpace(content.Text()) == "" {
+			content = h.sections([]string{websearch.SectionBody}, nil)
+		}
 	}
 	if err != nil {
 		return "", err
