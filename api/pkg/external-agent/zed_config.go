@@ -796,7 +796,7 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	}
 	provider, model := AssistantModelSelection(assistant)
 	if provider == "" || model == "" {
-		return fmt.Sprintf("agent %q is missing a provider or model selection — open the agent settings and pick a provider and model", app.ID)
+		return fmt.Sprintf("%s is missing a provider or model selection — pick a provider and model", modelConfigSubject(app))
 	}
 	if snapshot == nil {
 		return ""
@@ -806,7 +806,7 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		if app.OrganizationID != "" {
 			return types.OrganizationProviderUnavailableMessage
 		}
-		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
+		return fmt.Sprintf("%s references provider %q which does not match any current provider — the provider may have been renamed or deleted. Re-pick a provider, or restore/rename the provider in admin.", modelConfigSubject(app), provider)
 	}
 	if required := requiredProviderForCodeAgentRuntime(assistant.CodeAgentRuntime); required != "" &&
 		!CodeAgentRuntimeAllowsProvider(assistant.CodeAgentRuntime, resolved.Name) {
@@ -817,10 +817,19 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		normalizedModel := strings.TrimPrefix(model, resolved.ID+"/")
 		normalizedModel = strings.TrimPrefix(normalizedModel, resolved.Name+"/")
 		if !slices.Contains(resolved.Models, normalizedModel) {
-			return fmt.Sprintf("agent %q references model %q which is not currently available from provider %q - open the agent settings and pick an available model", app.ID, model, resolved.Name)
+			return fmt.Sprintf("%s references model %q which is not currently available from provider %q - pick an available model", modelConfigSubject(app), model, resolved.Name)
 		}
 	}
 	return ""
+}
+
+// modelConfigSubject names what holds the model choice. Configs built from a
+// task or project code_agent_config have no stored agent, so no ID.
+func modelConfigSubject(app *types.App) string {
+	if app.ID == "" {
+		return "the coding-agent config"
+	}
+	return fmt.Sprintf("agent %q", app.ID)
 }
 
 func usesUpstreamSubscription(assistant *types.AssistantConfig) bool {
