@@ -31848,23 +31848,23 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "github",
+                "cron",
+                "local",
+                "gitlab",
                 "webhook",
                 "email",
-                "slack",
-                "local",
-                "cron",
                 "helix_events",
-                "gitlab"
+                "slack"
             ],
             "x-enum-varnames": [
                 "KindGitHub",
+                "KindCron",
+                "KindLocal",
+                "KindGitLab",
                 "KindWebhook",
                 "KindEmail",
-                "KindSlack",
-                "KindLocal",
-                "KindCron",
                 "KindHelixEvents",
-                "KindGitLab"
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {
@@ -46816,6 +46816,14 @@ const docTemplate = `{
                 "provider": {
                     "type": "string"
                 },
+                "provider_kind": {
+                    "description": "ProviderKind says who a provider row was paid through; set on provider rows only.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.UsageProviderKind"
+                        }
+                    ]
+                },
                 "request_size_bytes": {
                     "type": "integer"
                 },
@@ -46967,9 +46975,29 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UsageProviderKind": {
+            "type": "string",
+            "enum": [
+                "helix",
+                "added",
+                "local",
+                "subscription",
+                "unknown"
+            ],
+            "x-enum-varnames": [
+                "UsageProviderKindHelix",
+                "UsageProviderKindAdded",
+                "UsageProviderKindLocal",
+                "UsageProviderKindSubscription",
+                "UsageProviderKindUnknown"
+            ]
+        },
         "types.UsageProviderTimeSeries": {
             "type": "object",
             "properties": {
+                "kind": {
+                    "$ref": "#/definitions/types.UsageProviderKind"
+                },
                 "metrics": {
                     "type": "array",
                     "items": {
