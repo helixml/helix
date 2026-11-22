@@ -1214,6 +1214,35 @@ func TestInProcSpawnerClient_SyncAgentProfileRenamesStoppedSession(t *testing.T)
 	require.Equal(t, "instructions", got.Metadata.RuntimeInstructions)
 }
 
+func TestInProcSpawnerClient_SyncAgentProfilePreservesSessionCodeAgentConfig(t *testing.T) {
+	_, store, client, _, ctx := newInProcTestSetup(t)
+	store.SeedApp(&types.App{ID: "app_opencode", Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeOpenCode, Model: "app-model",
+		}},
+	}}})
+	_, err := store.CreateSession(ctx, types.Session{
+		ID: "ses_profile_config", ParentApp: "app_opencode", ModelName: "session-model",
+		Metadata: types.SessionMetadata{
+			AssistantID: "0", CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+			ZedAgentName: types.CodeAgentRuntimeZedAgent.ZedAgentName(),
+			CodeAgentConfig: &types.CodeAgentExecutionConfig{
+				Runtime: types.CodeAgentRuntimeZedAgent, Model: "session-model",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	err = client.SyncAgentProfile(ctx, "ses_profile_config", "Chief of Staff", "chief-of-staff", "instructions", runtimehelix.SessionLaunchConfig{})
+	require.ErrorContains(t, err, "external agent executor is not configured")
+
+	got, err := store.GetSession(ctx, "ses_profile_config")
+	require.NoError(t, err)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent, got.Metadata.CodeAgentRuntime)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent.ZedAgentName(), got.Metadata.ZedAgentName)
+	require.Equal(t, "session-model", got.ModelName)
+}
+
 // TestParseEnvVarsToMap pins the KEY=value split that backs
 // ListProjectSecrets / list_secrets. A value containing `=` (base64,
 // tokens, URL query strings) must survive intact — Cut on the FIRST `=`

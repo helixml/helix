@@ -60,6 +60,13 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, pr
 		if entry.Interrupt != nil {
 			interrupt = *entry.Interrupt
 		}
+		steer := false
+		if entry.Steer != nil {
+			steer = *entry.Steer
+		}
+		if interrupt && steer {
+			return nil, fmt.Errorf("prompt %s: interrupt and steer are mutually exclusive", entry.ID)
+		}
 
 		// Check if entry already exists
 		var existingEntry types.PromptHistoryEntry
@@ -91,6 +98,7 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, pr
 				Content:       entry.Content,
 				Status:        entry.Status,
 				Interrupt:     interrupt,
+				Steer:         steer,
 				QueuePosition: entry.QueuePosition,
 				Provenance:    provenance,
 				CreatedAt:     createdAt,
@@ -106,6 +114,7 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, pr
 			// Preserve backend-owned fields: status, retryCount, nextRetryAt
 			updateFields := map[string]interface{}{
 				"interrupt":      interrupt,
+				"steer":          steer,
 				"queue_position": entry.QueuePosition,
 				"content":        entry.Content,
 				"updated_at":     time.Now(),
@@ -284,6 +293,36 @@ func (s *PostgresStore) GetNextInterruptPrompt(ctx context.Context, sessionID st
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
 			WHERE session_id = ? AND interrupt = true AND deleted_at IS NULL
+			AND (status = 'pending' OR (status = 'failed' AND retry_count < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING *
+	`, sessionID, maxPromptQueueRetries(), now).Scan(&entry)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
+	}
+
+	return &entry, nil
+}
+
+// GetNextSteerPrompt claims the next pending or failed steer prompt for a
+// session. Used while the agent is mid-turn and supports steering: steers are
+// delivered into the running turn instead of waiting for message_completed.
+func (s *PostgresStore) GetNextSteerPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	var entry types.PromptHistoryEntry
+
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).Raw(`
+		UPDATE prompt_history_entries SET status = 'sending', updated_at = NOW()
+		WHERE id = (
+			SELECT id FROM prompt_history_entries
+			WHERE session_id = ? AND steer = true AND interrupt = false AND deleted_at IS NULL
 			AND (status = 'pending' OR (status = 'failed' AND retry_count < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1

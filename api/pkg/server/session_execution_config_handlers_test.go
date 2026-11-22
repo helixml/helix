@@ -187,6 +187,34 @@ func TestUpdateSessionExecutionConfigPersistsCompleteConfigAndKeepsAgent(t *test
 	assert.Equal(t, types.CodeAgentRuntimeOpenCode, updated.Metadata.CodeAgentRuntime)
 }
 
+func TestUpdateSessionExecutionConfigRepairsStaleRuntimeForIdenticalConfig(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+	seedCodingAgent(mem, "app_parent", "anthropic", "claude-opus-4-7")
+	config := &types.CodeAgentExecutionConfig{
+		Runtime:        types.CodeAgentRuntimeOpenCode,
+		CredentialType: types.CodeAgentCredentialTypeAPIKey,
+		ProviderRef:    "anthropic",
+		Model:          "claude-sonnet-4-7",
+	}
+	session := newOrgChatSession("user_a")
+	session.Metadata.CodeAgentConfig = config
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeZedAgent
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeZedAgent.ZedAgentName()
+	session.Metadata.ZedThreadID = "thread_from_zed"
+	seedParentWithInteractions(t, mem, session, 1)
+
+	rr := callUpdateSessionExecutionConfig(t, srv, types.User{ID: "user_a", TokenType: types.TokenTypeOIDC}, session.ID,
+		types.SessionExecutionConfigUpdateRequest{CodeAgentConfig: config})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, types.CodeAgentRuntimeOpenCode, updated.Metadata.CodeAgentRuntime)
+	assert.Equal(t, types.CodeAgentRuntimeOpenCode.ZedAgentName(), updated.Metadata.ZedAgentName)
+	assert.Empty(t, updated.Metadata.ZedThreadID)
+}
+
 func TestCodeAgentConfigValidationDiscoversSelectedProviderOnColdCache(t *testing.T) {
 	tests := []struct {
 		name           string

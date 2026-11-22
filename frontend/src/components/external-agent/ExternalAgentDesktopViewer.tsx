@@ -825,6 +825,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
                 onImagePaste={handleImagePaste}
                 onCancel={handleCancelTurn}
                 isAgentBusy={isAgentBusy}
+                steeringSupported={!!sessionForCancel?.data?.config?.agent_steering_supported}
                 enableSandboxCompletions
                 showContextUsage
               />

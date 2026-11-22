@@ -13,7 +13,7 @@ vi.mock('../../hooks/usePromptHistory', () => ({
       markAsSent: vi.fn(),
       markAsFailed: vi.fn(),
       updateContent: vi.fn(),
-      updateInterrupt: vi.fn(),
+      updateDeliveryMode: vi.fn(),
       removeFromQueue: vi.fn(),
       reorderQueue: vi.fn(),
       pendingPrompts: [],

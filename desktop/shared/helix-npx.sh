@@ -76,7 +76,7 @@ ISOLATED_CACHE=$(mktemp -d -t helix-npx-XXXXXX)
 # Run the real npx (absolute path so we don't recurse into ourselves)
 # with the isolated cache. Forward signals to the child so MCP shutdown
 # is clean and the temp cache is removed even on TERM/INT.
-NPM_CONFIG_CACHE="$ISOLATED_CACHE" /usr/bin/npx "$@" &
+NPM_CONFIG_CACHE="$ISOLATED_CACHE" /usr/bin/npx "$@" <&0 &
 CHILD=$!
 
 trap 'kill -TERM "$CHILD" 2>/dev/null || true' TERM INT HUP

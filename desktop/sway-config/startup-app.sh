@@ -336,7 +336,7 @@ GTK_EOF
     "format": "🌐",
     "tooltip": true,
     "tooltip-format": "Chrome",
-    "on-click": "google-chrome-stable"
+    "on-click": "helix-browser open"
   },
   "custom/kitty": {
     "format": "🐱",
@@ -444,7 +444,7 @@ EOF
     echo "" >> $HOME/.config/sway/config
     echo "# Additional key bindings for our tools" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+Return exec kitty" >> $HOME/.config/sway/config
-    echo "bindsym \$mod+Shift+f exec google-chrome-stable" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Shift+f exec helix-browser open" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
 
     # =====================================================================

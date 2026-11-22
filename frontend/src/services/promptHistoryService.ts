@@ -17,6 +17,7 @@ export interface LocalPromptHistoryEntry {
   sessionId?: string
   userId?: string           // Who queued it; absent on entries created locally before sync
   interrupt?: boolean       // If true, interrupts current conversation
+  steer?: boolean           // If true, delivered into the running turn (see utils/promptDeliveryMode)
   queuePosition?: number    // Position in queue for ordering
   // Retry tracking
   retryCount?: number       // Number of retry attempts
@@ -44,6 +45,7 @@ export async function syncPromptHistory(
       status: e.status,
       timestamp: e.timestamp,
       interrupt: e.interrupt,
+      steer: e.steer,
       queue_position: e.queuePosition,
     })),
   })
@@ -100,6 +102,7 @@ export function backendToLocal(entry: TypesPromptHistoryEntry): LocalPromptHisto
     // teammates and bots too; the UI attributes them and keeps them read-only.
     userId: entry.user_id,
     interrupt: entry.interrupt ?? true,
+    steer: entry.steer ?? false,
     queuePosition: entry.queue_position,
     // Retry tracking
     retryCount: entry.retry_count ?? 0,

@@ -1214,6 +1214,13 @@ definitions:
     type: object
   hydra.BotHomeInventory:
     properties:
+      browser_profile:
+        allOf:
+        - $ref: '#/definitions/hydra.DeclaredBrowserProfile'
+        description: |-
+          BrowserProfile is the profile declared in .helix/browser.json (see
+          desktop/shared/helix-browser.sh); nil when none is declared, in which
+          case the browser uses .chrome-state.
       chrome_profiles:
         items:
           $ref: '#/definitions/hydra.ChromeProfileStatus'
@@ -1266,6 +1273,29 @@ definitions:
       write_bytes:
         type: integer
     type: object
+  hydra.DeclaredBrowserProfile:
+    properties:
+      path:
+        type: string
+      state:
+        $ref: '#/definitions/hydra.DeclaredBrowserProfileState'
+    type: object
+  hydra.DeclaredBrowserProfileState:
+    enum:
+    - ok
+    - missing
+    - outside_workspace
+    - wrong_identity
+    - inconsistent
+    - invalid_declaration
+    type: string
+    x-enum-varnames:
+    - DeclaredBrowserProfileOK
+    - DeclaredBrowserProfileMissing
+    - DeclaredBrowserProfileOutsideWorkspace
+    - DeclaredBrowserProfileWrongIdentity
+    - DeclaredBrowserProfileInconsistent
+    - DeclaredBrowserProfileInvalidDeclaration
   hydra.DevContainerStatus:
     enum:
     - starting
@@ -3961,24 +3991,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - webhook
-    - cron
-    - gitlab
-    - local
     - github
-    - slack
-    - helix_events
+    - cron
+    - local
+    - gitlab
+    - webhook
     - email
+    - helix_events
+    - slack
     type: string
     x-enum-varnames:
-    - KindWebhook
-    - KindCron
-    - KindGitLab
-    - KindLocal
     - KindGitHub
-    - KindSlack
-    - KindHelixEvents
+    - KindCron
+    - KindLocal
+    - KindGitLab
+    - KindWebhook
     - KindEmail
+    - KindHelixEvents
+    - KindSlack
   transport.ResolvedActivation:
     properties:
       address:
@@ -7749,6 +7779,12 @@ definitions:
         $ref: '#/definitions/types.InteractionState'
       status:
         type: string
+      steered:
+        description: |-
+          Steered is true when this turn's prompt was a steer delivered while the
+          agent was still working on an earlier turn. The chat labels it, and the
+          earlier turn reads as continuing rather than incomplete.
+        type: boolean
       summary:
         description: |-
           Summary is a one-line description of this interaction for search/indexing.
@@ -10020,6 +10056,12 @@ definitions:
           Status tracks whether this was successfully sent
           Values: "pending", "sent", "failed"
         type: string
+      steer:
+        description: |-
+          Steer delivers this message into the agent's running turn without
+          cancelling it, when the agent supports steering. Otherwise it waits for
+          the turn to finish like a queued message. Mutually exclusive with Interrupt.
+        type: boolean
       updated_at:
         type: string
       user_id:
@@ -10041,6 +10083,10 @@ definitions:
         type: string
       status:
         type: string
+      steer:
+        description: If true, delivered into the running turn when the agent supports
+          it
+        type: boolean
       timestamp:
         description: Unix timestamp in milliseconds
         type: integer
@@ -12006,6 +12052,12 @@ definitions:
         type: string
       agent_handoff_delivered_at:
         type: string
+      agent_steering_supported:
+        description: |-
+          AgentSteeringSupported is reported by Zed for the session's thread: true
+          when the agent can take a message into its running turn. Without it a
+          steer prompt waits for the turn to finish.
+        type: boolean
       agent_switched_at:
         description: |-
           AgentSwitchedAt is set when the agent framework is switched IN PLACE on
