@@ -2558,14 +2558,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindSlack = "slack",
-  KindGitHub = "github",
-  KindEmail = "email",
-  KindGitLab = "gitlab",
   KindWebhook = "webhook",
   KindCron = "cron",
+  KindGitLab = "gitlab",
   KindLocal = "local",
+  KindGitHub = "github",
+  KindSlack = "slack",
   KindHelixEvents = "helix_events",
+  KindEmail = "email",
 }
 
 export interface TransportResolvedActivation {
@@ -9623,6 +9623,8 @@ export interface TypesUsageBreakdownRow {
   prompt_cost?: number;
   prompt_tokens?: number;
   provider?: string;
+  /** ProviderKind says who a provider row was paid through; set on provider rows only. */
+  provider_kind?: TypesUsageProviderKind;
   request_size_bytes?: number;
   response_size_bytes?: number;
   session_count?: number;
@@ -9679,7 +9681,16 @@ export interface TypesUsageModelTimeSeries {
   provider?: string;
 }
 
+export enum TypesUsageProviderKind {
+  UsageProviderKindHelix = "helix",
+  UsageProviderKindAdded = "added",
+  UsageProviderKindLocal = "local",
+  UsageProviderKindSubscription = "subscription",
+  UsageProviderKindUnknown = "unknown",
+}
+
 export interface TypesUsageProviderTimeSeries {
+  kind?: TypesUsageProviderKind;
   metrics?: TypesAggregatedUsageMetric[];
   name?: string;
   provider?: string;

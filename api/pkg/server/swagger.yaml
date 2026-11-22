@@ -3961,24 +3961,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - slack
-    - github
-    - email
-    - gitlab
     - webhook
     - cron
+    - gitlab
     - local
+    - github
+    - slack
     - helix_events
+    - email
     type: string
     x-enum-varnames:
-    - KindSlack
-    - KindGitHub
-    - KindEmail
-    - KindGitLab
     - KindWebhook
     - KindCron
+    - KindGitLab
     - KindLocal
+    - KindGitHub
+    - KindSlack
     - KindHelixEvents
+    - KindEmail
   transport.ResolvedActivation:
     properties:
       address:
@@ -15172,6 +15172,11 @@ definitions:
         type: integer
       provider:
         type: string
+      provider_kind:
+        allOf:
+        - $ref: '#/definitions/types.UsageProviderKind'
+        description: ProviderKind says who a provider row was paid through; set on
+          provider rows only.
       request_size_bytes:
         type: integer
       response_size_bytes:
@@ -15271,8 +15276,24 @@ definitions:
       provider:
         type: string
     type: object
+  types.UsageProviderKind:
+    enum:
+    - helix
+    - added
+    - local
+    - subscription
+    - unknown
+    type: string
+    x-enum-varnames:
+    - UsageProviderKindHelix
+    - UsageProviderKindAdded
+    - UsageProviderKindLocal
+    - UsageProviderKindSubscription
+    - UsageProviderKindUnknown
   types.UsageProviderTimeSeries:
     properties:
+      kind:
+        $ref: '#/definitions/types.UsageProviderKind'
       metrics:
         items:
           $ref: '#/definitions/types.AggregatedUsageMetric'
