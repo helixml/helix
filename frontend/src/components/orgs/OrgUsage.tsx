@@ -18,7 +18,7 @@ import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps, YAxisTickContentProps } from 'recharts'
-import { Cloud, Download, Search, SlidersHorizontal, X } from 'lucide-react'
+import { Download, Search, SlidersHorizontal, X } from 'lucide-react'
 
 import type { TypesAggregatedUsageMetric, TypesUsageAgentRuntimeTimeSeries, TypesUsageBreakdownRow, TypesUsageFilterOption } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
@@ -28,10 +28,10 @@ import useLightTheme from '../../hooks/useLightTheme'
 import Page from '../system/Page'
 import SimpleTable, { ITableField } from '../widgets/SimpleTable'
 import ShadcnAreaChart, { ShadcnSeries } from '../usage/ShadcnAreaChart'
-import { PROVIDERS } from '../providers/types'
 import { useGetOrgUsage } from '../../services/orgService'
 import { USAGE_TABLES, UsageTableKey, usageSection, usageSectionRoute } from './usageSections'
-import helixLogo from '../../../assets/img/logo.png'
+import { CHART_COLORS, UsageProviderIcon, assignProviderColors } from '../usage/usageProviders'
+import UsageSummary, { SegmentedTabs, UsageCostMode, UsageSummaryView } from '../usage/UsageSummary'
 import {
   buildCacheHitRatioChartData,
   getAggregateCacheHitRatio,
@@ -50,7 +50,6 @@ import {
   UsageChartGrid,
   USAGE_RANGE_DAYS,
   UsagePageHeader,
-  UsageRangeControls,
   UsageRangeKey,
   UsageSection,
   SegmentBar,
@@ -81,33 +80,12 @@ const ACTIVITY_METRIC_OPTIONS: Array<{ value: ActivityMetric; label: string }> =
   { value: 'calls', label: 'Calls' },
 ]
 
-// Series colours for models, runtimes and providers. They skip green and purple,
-// which mean cache read and output on every token chart.
-const CHART_COLORS = ['#2563eb', '#db2777', '#0891b2', '#ea580c', '#64748b', '#ca8a04']
-
 // Two hues from the page palette so compute reads as part of the same system
 // as the token charts above it. Desktops first: they are the expensive half.
 const COMPUTE_SERIES: ShadcnSeries[] = [
   { key: 'desktop', label: 'Desktops', color: CHART_COLORS[0] },
   { key: 'headless', label: 'Headless', color: CHART_COLORS[2] },
 ]
-
-const PROVIDER_COLORS: Record<string, string> = {
-  anthropic: '#d97757',
-  openai: '#e6e6e6',
-  google: '#4285f4',
-  gemini: '#4285f4',
-  xai: '#ffffff',
-  groq: '#f55036',
-  cerebras: '#f59e0b',
-  nvidia: '#76b900',
-  togetherai: '#7c3aed',
-  fireworks: '#ec4899',
-  azure: '#0078d4',
-  'amazon-bedrock': '#ff9900',
-  deepseek: '#4d6bfe',
-  helix: '#2563eb',
-}
 
 const toRFC3339 = (value: string, endOfDay = false) => {
   if (!value) return undefined
@@ -126,11 +104,6 @@ const currentSearchParams = () => new URLSearchParams(window.location.search)
 
 const formatMs = (value?: number) => `${Math.round(value ?? 0).toLocaleString()} ms`
 
-const computeSpendDetail = (billingEnabled: boolean, credits: number) => {
-  if (billingEnabled) return `${formatCost(credits)} debited`
-  return credits > 0 ? `${formatCost(credits)} historical spend` : 'Compute billing off'
-}
-
 const computeShareDetail = (hours: number, totalHours: number, credits: number, kind: string) => {
   if (hours <= 0) return `No ${kind} runtime`
   const share = `${formatPercent(hours / totalHours)} of runtime`
@@ -146,35 +119,6 @@ const filterOptionLabel = (option: TypesUsageFilterOption) => {
   if (option.email && option.email !== label) return `${label} (${option.email})`
   if (option.provider && option.model) return `${option.provider} / ${option.model}`
   return label
-}
-
-const providerKey = (provider?: string) => (provider || 'unknown').toLowerCase().replace(/^user\//, '')
-
-const providerColor = (provider: string, index: number, isLight: boolean) => {
-  const key = providerKey(provider)
-  if (key === 'openai' || key === 'xai') return isLight ? '#111827' : PROVIDER_COLORS[key]
-  if (key === 'helix' || key.startsWith('helix/')) return PROVIDER_COLORS.helix
-  return PROVIDER_COLORS[key] || CHART_COLORS[index % CHART_COLORS.length]
-}
-
-const providerDefinition = (provider?: string) => {
-  const rawKey = providerKey(provider)
-  const key = rawKey === 'amazon-bedrock' ? 'aws' : rawKey
-  return PROVIDERS.find(item => item.id === `user/${key}` || item.alias.includes(key))
-}
-
-export const UsageProviderIcon: FC<{ provider?: string; size?: number }> = ({ provider, size = 16 }) => {
-  const key = providerKey(provider)
-  if (key === 'helix' || key.startsWith('helix/')) {
-    return <Box component="img" src={helixLogo} alt="" sx={{ width: size, height: size, objectFit: 'contain' }} />
-  }
-  const definition = providerDefinition(provider)
-  if (!definition) return <Cloud size={size} aria-hidden="true" />
-  if (typeof definition.logo === 'string') {
-    return <Box component="img" src={definition.logo} alt="" sx={{ width: size, height: size, objectFit: 'contain' }} />
-  }
-  const Logo = definition.logo
-  return <Logo width={size} height={size} aria-hidden="true" />
 }
 
 const FilterAutocomplete: FC<{
@@ -397,7 +341,6 @@ const ExportButtons: FC<{ filename: string; rows: TypesUsageBreakdownRow[] }> = 
 // 'usage' — nothing charged in range, as on a self-hosted install or an org on
 // its own providers — leads with tokens, calls and runtime, and shows API-rate
 // cost last, and only when some of the usage has a price at all.
-type UsageCostMode = 'billed' | 'usage' | 'unpriced'
 
 const COST_FIELD: ITableField = { name: 'cost', title: 'API-rate cost', numeric: true }
 
@@ -783,6 +726,11 @@ const OrgUsage: FC = () => {
   // Null until the user picks one: the default follows the page's cost mode.
   const [activityMetricChoice, setActivityMetric] = useState<ActivityMetric | null>(null)
   const [activitySplit, setActivitySplit] = useState<ActivitySplit>('provider')
+  // Null until the user picks one: the default follows the page's cost mode.
+  const [summaryViewChoice, setSummaryView] = useState<UsageSummaryView | null>(() => {
+    const value = initialParam('view')
+    return value === 'cost' || value === 'tokens' || value === 'limits' ? value : null
+  })
   const [latencyMetric, setLatencyMetric] = useState<LatencyMetric>('per-request')
   const [loadingScope, setLoadingScope] = useState<UsageLoadingScope | null>(null)
   const sessionId = useDebounce(sessionIdInput.trim(), 400)
@@ -833,6 +781,8 @@ const OrgUsage: FC = () => {
     setParam('provider', provider)
     setParam('model', model)
     setParam('user_search', userSearchInput.trim())
+    if (section.key === 'overview' && summaryViewChoice) setParam('view', summaryViewChoice)
+    else url.searchParams.delete('view')
     if (section.key === 'breakdowns') setParam('table', table, 'projects')
     else url.searchParams.delete('table')
     url.searchParams.delete('user_page')
@@ -845,7 +795,7 @@ const OrgUsage: FC = () => {
     url.searchParams.delete('session_rows')
 
     window.history.replaceState({}, '', url.toString())
-  }, [from, to, userId, projectId, taskId, appId, sessionIdInput, provider, model, userSearchInput, section.key, table])
+  }, [from, to, userId, projectId, taskId, appId, sessionIdInput, provider, model, userSearchInput, section.key, table, summaryViewChoice])
 
   useEffect(() => {
     if (!usage.isFetching) {
@@ -856,8 +806,6 @@ const OrgUsage: FC = () => {
   const metrics = usage.data?.metrics || []
   const totals = useMemo(() => sumMetrics(metrics), [metrics])
   const rawTokenCost = usage.data?.raw_token_cost ?? totals.cost
-  const subscriptionSavings = usage.data?.subscription_savings ?? 0
-  const cacheSavings = usage.data?.cache_savings ?? 0
   const helixCredits = usage.data?.helix_credits ?? 0
   const compute = usage.data?.compute
   // Runtime is measured whether or not compute is billed, so it leads; credits
@@ -894,6 +842,11 @@ const OrgUsage: FC = () => {
   const costMode: UsageCostMode = helixCredits > 0 || computeHasSpend || compute?.billing_enabled
     ? 'billed'
     : rawTokenCost > 0 ? 'usage' : 'unpriced'
+  const summaryView: UsageSummaryView = summaryViewChoice && !(summaryViewChoice === 'cost' && costMode === 'unpriced')
+    ? summaryViewChoice
+    : costMode === 'unpriced' ? 'tokens' : 'cost'
+  // Limits are a current state, not a range: date and filters don't apply.
+  const limitsOnly = section.key === 'overview' && summaryView === 'limits'
   const activityMetricOptions = costMode === 'unpriced'
     ? ACTIVITY_METRIC_OPTIONS.filter(option => option.value !== 'cost')
     : ACTIVITY_METRIC_OPTIONS
@@ -964,14 +917,18 @@ const OrgUsage: FC = () => {
 
   const activeDays = metrics.filter(metric => (metric.total_tokens ?? 0) > 0).length
   const averageTokens = activeDays > 0 ? totals.total / activeDays : 0
-  const cachedShare = totals.input > 0 ? totals.cacheRead / totals.input : 0
   const cacheHitRatio = useMemo(() => getAggregateCacheHitRatio(metrics), [metrics])
 
   const providerTimeSeries = usage.data?.provider_time_series || []
-  const providerChartSeries: ShadcnSeries[] = providerTimeSeries.map((item, index) => ({
+  // One colour per provider for the whole page, so a provider reads the same on every chart.
+  const providerColors = useMemo(
+    () => assignProviderColors(usage.data?.providers || [], lightTheme.isLight),
+    [usage.data?.providers, lightTheme.isLight],
+  )
+  const providerChartSeries: ShadcnSeries[] = providerTimeSeries.map(item => ({
     key: item.provider || 'unknown',
     label: item.name || item.provider || 'Unknown',
-    color: providerColor(item.provider || 'unknown', index, lightTheme.isLight),
+    color: providerColors[item.provider || 'unknown'],
   }))
   const modelSeries = (usage.data?.model_time_series || []).slice(0, CHART_COLORS.length)
   const modelChartSeries: ShadcnSeries[] = modelSeries.map((item, index) => ({
@@ -1014,12 +971,12 @@ const OrgUsage: FC = () => {
   }[activityMetric]
 
   const providerSegments = useMemo<UsageSegment[]>(() => [...(usage.data?.providers || [])]
-    .map((row, index) => ({
+    .map(row => ({
       label: row.name || row.provider || 'Unknown',
       value: metricValue(row, activityMetric),
-      color: providerColor(row.provider || '', index, lightTheme.isLight),
+      color: providerColors[row.provider || 'unknown'],
     }))
-    .sort((a, b) => b.value - a.value), [usage.data?.providers, activityMetric, lightTheme.isLight])
+    .sort((a, b) => b.value - a.value), [usage.data?.providers, activityMetric, providerColors])
   const tokenTypeSegments: UsageSegment[] = [
     { label: 'Uncached input', value: Math.max(totals.input - totals.cacheRead - totals.cacheWrite, 0), color: TOKEN_SERIES[0].color },
     { label: 'Cache read', value: totals.cacheRead, color: TOKEN_SERIES[1].color },
@@ -1081,10 +1038,10 @@ const OrgUsage: FC = () => {
     }
     return Array.from(byDate.values()).sort((a, b) => String(a.date).localeCompare(String(b.date)))
   }, [providerTimeSeries, latencyMetric])
-  const latencyChartSeries: ShadcnSeries[] = providerTimeSeries.map((item, index) => ({
+  const latencyChartSeries: ShadcnSeries[] = providerTimeSeries.map(item => ({
     key: item.provider || 'unknown',
     label: item.name || item.provider || 'Unknown',
-    color: providerColor(item.provider || 'unknown', index, lightTheme.isLight),
+    color: providerColors[item.provider || 'unknown'],
   }))
   // Tool call error rate per provider: of the requests that came back with
   // tool calls, how many contained a call the caller could not dispatch —
@@ -1266,8 +1223,25 @@ const OrgUsage: FC = () => {
             <UsagePageHeader
               title={section.key === 'overview' ? 'Usage' : section.title}
               description={section.description}
-              actions={(
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+              actions={limitsOnly ? null : (
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ width: { xs: '100%', md: 'auto' } }}>
+                  <Box sx={{ flex: 1, minWidth: { md: 300 } }}>
+                    <SegmentedTabs<UsageRangeKey | 'custom'>
+                      compact
+                      label="Date range"
+                      value={range ?? 'custom'}
+                      options={[
+                        { value: '7d', label: '7d' },
+                        { value: '30d', label: '30d' },
+                        { value: '90d', label: '90d' },
+                        { value: 'custom', label: 'Custom' },
+                      ]}
+                      onChange={next => {
+                        if (next === 'custom') setFiltersOpen(true)
+                        else handleRangeChange(next)
+                      }}
+                    />
+                  </Box>
                   <Button
                     variant={filtersOpen || activeFilters > 0 ? 'contained' : 'outlined'}
                     color={filtersOpen || activeFilters > 0 ? 'secondary' : 'inherit'}
@@ -1275,18 +1249,10 @@ const OrgUsage: FC = () => {
                     startIcon={<SlidersHorizontal size={16} />}
                     onClick={() => setFiltersOpen(open => !open)}
                     aria-expanded={filtersOpen}
-                    sx={{ textTransform: 'none', minHeight: 40, whiteSpace: 'nowrap' }}
+                    sx={{ textTransform: 'none', minHeight: 40, borderRadius: 999, px: 1.75, whiteSpace: 'nowrap', flexShrink: 0, ...(!(filtersOpen || activeFilters > 0) && { borderColor: 'divider', color: 'text.secondary', '&:hover': { borderColor: 'text.secondary', color: 'text.primary' } }) }}
                   >
                     {activeFilters > 0 ? `Filters · ${activeFilters}` : 'Filters'}
                   </Button>
-                  <UsageRangeControls
-                    range={range}
-                    from={from}
-                    to={to}
-                    onRangeChange={handleRangeChange}
-                    onFromChange={value => { markFilterChange(); setFrom(value); setRange(null) }}
-                    onToChange={value => { markFilterChange(); setTo(value); setRange(null) }}
-                  />
                 </Stack>
               )}
             />
@@ -1298,7 +1264,7 @@ const OrgUsage: FC = () => {
             )}
 
             {/* Filters apply to every section; they fold away until asked for. */}
-            <Collapse in={filtersOpen} unmountOnExit>
+            <Collapse in={filtersOpen && !limitsOnly} unmountOnExit>
               <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
                 <Box
                   sx={{
@@ -1307,6 +1273,8 @@ const OrgUsage: FC = () => {
                     gap: 1.25,
                   }}
                 >
+                  <TextField size="small" label="From" type="date" value={from} onChange={e => { markFilterChange(); setFrom(e.target.value); setRange(null) }} InputLabelProps={{ shrink: true }} />
+                  <TextField size="small" label="To" type="date" value={to} onChange={e => { markFilterChange(); setTo(e.target.value); setRange(null) }} InputLabelProps={{ shrink: true }} />
                   <FilterAutocomplete
                     label="User"
                     options={userOptions}
@@ -1375,84 +1343,20 @@ const OrgUsage: FC = () => {
             ) : (
               <>
                 {section.key === 'overview' && (
-                  <>
-                    {costMode === 'billed' ? (
-                      <OverviewStatStrip columns={6}>
-                        <OverviewStat emphasis primary label="LLM credits debited" value={formatCost(helixCredits)} detail={`≈ ${formatCost(rawTokenCost)} at API rates`} />
-                        <OverviewStat
-                          emphasis
-                          label="Sandbox runtime"
-                          value={compute ? formatHours(computeTotals.hours) : '—'}
-                          detail={compute ? computeSpendDetail(compute.billing_enabled ?? false, computeTotals.total) : 'No compute in this range'}
-                        />
-                        <OverviewStat emphasis label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatNumber(totals.requests)} LLM calls`} />
-                        <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
-                        <OverviewStat emphasis label="Cache savings" value={formatCost(cacheSavings)} detail={rawTokenCost > 0 ? `${(cacheSavings / rawTokenCost).toFixed(1)}× API-rate cost` : 'vs full input rates'} />
-                        <OverviewStat
-                          emphasis
-                          label="Subscription savings"
-                          value={formatCost(subscriptionSavings)}
-                          detail={rawTokenCost > 0 ? `${formatPercent(subscriptionSavings / rawTokenCost)} of API-rate cost` : 'No subscription usage'}
-                        />
-                      </OverviewStatStrip>
-                    ) : (
-                      <OverviewStatStrip columns={6}>
-                        <OverviewStat emphasis primary label="Processed tokens" value={formatCompact(totals.total)} detail={`${formatCompact(totals.completion)} output`} />
-                        <OverviewStat emphasis label="LLM calls" value={formatNumber(totals.requests)} detail={`${activeDays} ${activeDays === 1 ? 'day' : 'days'} with LLM calls`} />
-                        <OverviewStat
-                          emphasis
-                          label="Sandbox runtime"
-                          value={compute ? formatHours(computeTotals.hours) : '—'}
-                          detail={compute ? `${compute.running_sandboxes ?? 0} running now` : 'No compute in this range'}
-                        />
-                        <OverviewStat emphasis label="Cached input" value={formatPercent(cachedShare)} detail={`${formatCompact(totals.cacheRead)} from cache`} />
-                        <OverviewStat emphasis label="Sessions" value={formatNumber(usage.data?.active_sessions)} detail={`${formatNumber(usage.data?.active_projects)} projects`} />
-                        <OverviewStat
-                          emphasis
-                          label="API-rate cost"
-                          value={costMode === 'usage' ? formatCost(rawTokenCost) : '—'}
-                          detail={costMode === 'usage' ? 'Not charged; reference only' : 'No priced models used'}
-                        />
-                      </OverviewStatStrip>
-                    )}
-                    <ShadcnAreaChart
-                      title={activityTitle}
-                      headline={`${activityFormat(activityTotal)} in range${activityHeadlineDetail}`}
-                      action={(
-                        <>
-                          <UsageSwitch<ActivityMetric> label="Metric" value={activityMetric} options={activityMetricOptions} onChange={setActivityMetric} />
-                          <UsageSwitch<ActivitySplit>
-                            label="Split by"
-                            value={split}
-                            options={[
-                              { value: 'provider', label: 'Provider' },
-                              { value: 'model', label: 'Model' },
-                              { value: 'type', label: 'Type', disabled: activityMetric === 'calls' },
-                            ]}
-                            onChange={setActivitySplit}
-                          />
-                        </>
-                      )}
-                      data={activity.data}
-                      series={activity.series}
-                      valueFormatter={activityFormat}
-                      variant="trend"
-                      cardHeight="auto"
-                      chartHeight={260}
-                    />
-                    {compute && (
-                      <ShadcnAreaChart
-                        title="Daily sandbox runtime"
-                        headline={`${formatHours(computeTotals.hours)} in range`}
-                        data={computeRuntimeChartData}
-                        series={COMPUTE_SERIES}
-                        valueFormatter={formatHours}
-                        zeroIsData
-                        variant="trend"
-                        cardHeight="auto"
-                      />
-                    )}
-                  </>
+                  <UsageSummary
+                    orgId={orgID}
+                    data={usage.data}
+                    from={from}
+                    to={to}
+                    costMode={costMode}
+                    providerColors={providerColors}
+                    view={summaryView}
+                    onViewChange={setSummaryView}
+                    onShowAllModels={() => {
+                      const target = usageSectionRoute('tokens', orgID, window.location.search)
+                      router.navigate(target.name, target.params)
+                    }}
+                  />
                 )}
 
                 {section.key === 'tokens' && (

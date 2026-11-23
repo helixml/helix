@@ -1,7 +1,8 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { UsageProviderIcon, buildSeriesChart, buildTypeChart } from './OrgUsage'
+import { buildSeriesChart, buildTypeChart } from './OrgUsage'
+import { UsageProviderIcon } from '../usage/usageProviders'
 
 describe('UsageProviderIcon', () => {
   it('uses the Helix logo for globally managed inference providers', () => {

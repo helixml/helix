@@ -15,10 +15,15 @@ export const formatCost = (value?: number) => {
   // A real charge too small for four decimals still reads as non-zero.
   if (n < 0.0001) return '<$0.0001'
   if (n < 0.01) return `$${n.toFixed(4)}`
-  return `$${n.toFixed(2)}`
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export const formatPercent = (ratio: number | null) => ratio === null ? '—' : `${(ratio * 100).toFixed(1)}%`
+// A share too small for one decimal still reads as non-zero.
+export const formatPercent = (ratio: number | null) => {
+  if (ratio === null) return '—'
+  if (ratio > 0 && ratio < 0.0005) return '<0.1%'
+  return `${(ratio * 100).toFixed(1)}%`
+}
 
 // Runtime reads in minutes below an hour, so a short-lived sandbox doesn't
 // round to "0.0 h".
