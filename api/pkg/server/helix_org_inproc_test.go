@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v76"
 	"go.uber.org/mock/gomock"
@@ -1009,6 +1010,103 @@ func TestInProcSpawnerClient_InterruptedQueuedDeliveryRetriesOnce(t *testing.T) 
 	interactions, _, err := store.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID, GenerationID: -1})
 	require.NoError(t, err)
 	require.Len(t, interactions, 2)
+}
+
+func TestInProcSpawnerClient_UnregisteredAgentServerRetriesOnce(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/unregistered-agent"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_unregistered_agent", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry startup failure", Status: "sent",
+	}))
+	dispatchedAt := time.Now()
+	oldInteraction, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_unregistered_agent", SessionID: session.ID, PromptID: promptID,
+		State: types.InteractionStateError, Error: "agent connect failed: Custom agent server `opencode` is not registered",
+		ExternalAgentDispatchedAt: &dispatchedAt,
+	})
+	require.NoError(t, err)
+
+	delivery, err := client.SendMessage(ctx, session.ID, "retry startup failure", deliveryID, false)
+	require.NoError(t, err)
+	require.Equal(t, oldInteraction.ID, delivery.PreviousInteractionID)
+	require.Empty(t, delivery.InteractionID)
+	out, err := client.GetDeliveryOutput(ctx, delivery)
+	require.NoError(t, err)
+	require.NotEqual(t, oldInteraction.ID, out.InteractionID)
+	require.NotContains(t, out.Output, "Custom agent server")
+
+	require.Eventually(t, func() bool {
+		retry, getErr := store.GetLatestInteractionByPromptID(ctx, promptID)
+		return getErr == nil && retry != nil && retry.ID != oldInteraction.ID
+	}, time.Second, 10*time.Millisecond)
+	retry, err := store.GetLatestInteractionByPromptID(ctx, promptID)
+	require.NoError(t, err)
+	retry.State = types.InteractionStateComplete
+	retry.ResponseMessage = "recovered"
+	_, err = store.UpdateInteraction(ctx, retry)
+	require.NoError(t, err)
+	require.NoError(t, store.MarkPromptAsSent(ctx, promptID))
+
+	replayed, err := client.SendMessage(ctx, session.ID, "retry startup failure", deliveryID, false)
+	require.NoError(t, err)
+	require.True(t, replayed.Completed)
+	require.Equal(t, retry.ID, replayed.InteractionID)
+	interactions, _, err := store.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID, GenerationID: -1})
+	require.NoError(t, err)
+	require.Len(t, interactions, 2)
+}
+
+func TestInProcSpawnerClient_AgentConnectErrorOutsideSafeCaseRemainsTerminal(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    string
+		mutate func(*types.Interaction)
+	}{
+		{name: "text", mutate: func(i *types.Interaction) { i.ResponseMessage = "partial output" }},
+		{name: "tool call", mutate: func(i *types.Interaction) {
+			i.ResponseEntries = []byte(`[{"type":"tool_call","content":"ran a command"}]`)
+		}},
+		{name: "legacy tool call", mutate: func(i *types.Interaction) {
+			i.ToolCalls = []openai.ToolCall{{ID: "call_1"}}
+		}},
+		{name: "streamed message", mutate: func(i *types.Interaction) { i.LastZedMessageID = "message_1" }},
+		{name: "other connect failure", err: "agent connect failed: registry unavailable"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, store, client, user, ctx := newInProcTestSetup(t)
+			deliveryID := "stream/unregistered-agent-output-" + tc.name
+			session, err := store.CreateSession(ctx, types.Session{ID: "ses_unregistered_agent_output_" + tc.name, Owner: user.ID})
+			require.NoError(t, err)
+			promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+			require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+				ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "do not duplicate", Status: "sent",
+			}))
+			interaction := &types.Interaction{
+				ID: "int_unregistered_agent_output_" + tc.name, SessionID: session.ID, PromptID: promptID,
+				State: types.InteractionStateError, Error: "agent connect failed: Custom agent server `opencode` is not registered",
+			}
+			if tc.err != "" {
+				interaction.Error = tc.err
+			}
+			if tc.mutate != nil {
+				tc.mutate(interaction)
+			}
+			interaction, err = store.CreateInteraction(ctx, interaction)
+			require.NoError(t, err)
+
+			delivery, err := client.SendMessage(ctx, session.ID, "do not duplicate", deliveryID, false)
+			require.NoError(t, err)
+			require.Equal(t, interaction.ID, delivery.InteractionID)
+			require.Empty(t, delivery.PreviousInteractionID)
+			entry, err := store.GetPromptHistoryEntry(ctx, promptID)
+			require.NoError(t, err)
+			require.Equal(t, "sent", entry.Status)
+		})
+	}
 }
 
 func TestInProcSpawnerClient_UnlinkedProviderFailureSchedulesRecovery(t *testing.T) {

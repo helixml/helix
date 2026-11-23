@@ -1144,6 +1144,20 @@ func interactionCompleted(interaction *types.Interaction) bool {
 
 const externalAgentStoppedTurnError = "External agent stopped before completing the turn"
 
+func recoverableActivationDeliveryError(interaction *types.Interaction) bool {
+	if interaction == nil || interaction.State != types.InteractionStateError {
+		return false
+	}
+	if interaction.Error == externalAgentStoppedTurnError {
+		return true
+	}
+	// Zed emits this registration error before it starts the harness command.
+	return strings.HasPrefix(interaction.Error, "agent connect failed: Custom agent server `") &&
+		strings.HasSuffix(interaction.Error, "` is not registered") &&
+		interaction.ResponseMessage == "" && len(interaction.ResponseEntries) == 0 &&
+		len(interaction.ToolCalls) == 0 && interaction.LastZedMessageID == ""
+}
+
 func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimehelix.StartSessionParams) (runtimehelix.DeliveryResult, error) {
 	if params.Prompt == "" {
 		return runtimehelix.DeliveryResult{}, errors.New("StartSession: Prompt is required")
@@ -1271,11 +1285,10 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
 		}
 		defer c.server.lockPromptDrain(sessionID)()
-		if entry != nil && entry.Status == "sent" && interaction != nil &&
-			interaction.State == types.InteractionStateError && interaction.Error == externalAgentStoppedTurnError {
+		if entry != nil && entry.Status == "sent" && recoverableActivationDeliveryError(interaction) {
 			_, recoverErr := c.server.Store.RecoverFailedPrompt(ctx, sessionID, promptID, interaction.ID)
 			if recoverErr != nil {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("recover interrupted activation: %w", recoverErr)
+				return runtimehelix.DeliveryResult{}, fmt.Errorf("recover failed activation: %w", recoverErr)
 			}
 		}
 		entry = &types.PromptHistoryEntry{
@@ -1310,8 +1323,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		if interactionCompleted(interaction) {
 			return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interaction.ID, PromptID: promptID, Completed: true}, nil
 		}
-		if interaction != nil && interaction.State == types.InteractionStateError &&
-			interaction.Error == externalAgentStoppedTurnError && entry.Status != "sent" {
+		if recoverableActivationDeliveryError(interaction) && entry.Status != "sent" {
 			previousInteractionID = interaction.ID
 		}
 		if entry.Status == "reserved" {
