@@ -58,8 +58,9 @@ const (
 	// session's legacy workspace or creates an empty home, and is idempotent
 	// for a home it already created with the same generation.
 	BotHomeExpectNew BotHomeExpectation = "new"
-	// BotHomeExpectExisting: the home was established on this runner. A
-	// missing or different home is an error; hydra never seeds a fresh one.
+	// BotHomeExpectExisting: the home was established on this runner. Hydra
+	// reuses its owner record. If both the record and data are absent, it adopts
+	// the legacy workspace or creates a fresh home.
 	BotHomeExpectExisting BotHomeExpectation = "existing"
 )
 
@@ -303,8 +304,7 @@ func legacySessionWorkspace(sessionID string) string {
 }
 
 // prepareBotHome binds a bot home for sessionID according to spec. It never
-// overwrites a populated directory and never creates an empty home when the
-// control plane says one already exists.
+// overwrites a populated directory or replaces a partial or ambiguous home.
 func prepareBotHome(spec *BotHomeSpec, sessionID string) (*BotHomeResult, error) {
 	if spec == nil {
 		return nil, errors.New("bot home spec is required")
@@ -363,6 +363,12 @@ func prepareBotHome(spec *BotHomeSpec, sessionID string) (*BotHomeResult, error)
 	if err != nil {
 		return nil, fmt.Errorf("inspect legacy session workspace: %w", err)
 	}
+	if !hasOwner && homeState == dirEmpty {
+		if err := os.Remove(home); err != nil {
+			return nil, fmt.Errorf("remove incomplete empty bot home: %w", err)
+		}
+		homeState = dirMissing
+	}
 
 	result := &BotHomeResult{Path: home, Generation: spec.Generation}
 	switch {
@@ -382,9 +388,6 @@ func prepareBotHome(spec *BotHomeSpec, sessionID string) (*BotHomeResult, error)
 			result.Outcome = BotHomeOutcomeMigrated
 			result.MigratedFromSession = migration.SessionID
 		}
-	case spec.Expect == BotHomeExpectExisting:
-		return nil, fmt.Errorf("bot home for %s is not present on this runner (data dir %s); refusing to seed a fresh home",
-			BotHomeKey(spec.OrganizationID, spec.BotID), homeState)
 	case homeState != dirMissing:
 		return nil, fmt.Errorf("bot home %s exists without an owner record; refusing to adopt data of unknown origin", home)
 	case legacyState == dirPopulated:
@@ -415,6 +418,15 @@ func prepareBotHome(spec *BotHomeSpec, sessionID string) (*BotHomeResult, error)
 		result.Outcome = BotHomeOutcomeCreated
 	}
 	result.Inventory = inventoryBotHome(home)
+	if spec.Expect == BotHomeExpectExisting && !hasOwner {
+		log.Warn().
+			Str("organization_id", spec.OrganizationID).
+			Str("bot_id", spec.BotID).
+			Str("session_id", sessionID).
+			Str("bot_home", home).
+			Str("outcome", string(result.Outcome)).
+			Msg("Recovered missing recorded Org Bot home")
+	}
 	return result, nil
 }
 
