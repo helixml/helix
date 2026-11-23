@@ -1019,7 +1019,7 @@ func TestInProcSpawnerClient_UnregisteredAgentServerRetriesOnce(t *testing.T) {
 	require.NoError(t, err)
 	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
 	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
-		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry startup failure", Status: "sent",
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry startup failure", Status: "sending",
 	}))
 	dispatchedAt := time.Now()
 	oldInteraction, err := store.CreateInteraction(ctx, &types.Interaction{
@@ -1083,7 +1083,7 @@ func TestInProcSpawnerClient_AgentConnectErrorOutsideSafeCaseRemainsTerminal(t *
 			require.NoError(t, err)
 			promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
 			require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
-				ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "do not duplicate", Status: "sent",
+				ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "do not duplicate", Status: "sending",
 			}))
 			interaction := &types.Interaction{
 				ID: "int_unregistered_agent_output_" + tc.name, SessionID: session.ID, PromptID: promptID,
@@ -1102,11 +1102,45 @@ func TestInProcSpawnerClient_AgentConnectErrorOutsideSafeCaseRemainsTerminal(t *
 			require.NoError(t, err)
 			require.Equal(t, interaction.ID, delivery.InteractionID)
 			require.Empty(t, delivery.PreviousInteractionID)
+			out, err := client.GetDeliveryOutput(ctx, delivery)
+			require.NoError(t, err)
+			require.Equal(t, string(types.InteractionStateError), out.Status)
 			entry, err := store.GetPromptHistoryEntry(ctx, promptID)
 			require.NoError(t, err)
-			require.Equal(t, "sent", entry.Status)
+			require.Equal(t, "sending", entry.Status)
 		})
 	}
+}
+
+func TestInProcSpawnerClient_ThreadLoadFailureKeepsBoundedRetry(t *testing.T) {
+	_, store, _, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/thread-load-failure"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_thread_load_failure", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	nextRetryAt := time.Now().Add(time.Hour)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry through queue", Status: "failed",
+		RetryCount: 1, NextRetryAt: &nextRetryAt,
+	}))
+	interaction, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_thread_load_failure", SessionID: session.ID, PromptID: promptID,
+		State: types.InteractionStateError,
+		Error: "Thread load failed: Failed to load thread: agent connect failed: Other(\"Custom agent server `opencode` is not registered\")",
+	})
+	require.NoError(t, err)
+
+	require.False(t, recoverableActivationDeliveryError(interaction))
+	recovered, err := store.RecoverFailedPrompt(ctx, session.ID, promptID, interaction.ID)
+	require.NoError(t, err)
+	require.False(t, recovered)
+	entry, err := store.GetPromptHistoryEntry(ctx, promptID)
+	require.NoError(t, err)
+	require.Equal(t, "failed", entry.Status)
+	require.Equal(t, 1, entry.RetryCount)
+	latest, err := store.GetLatestInteractionByPromptID(ctx, promptID)
+	require.NoError(t, err)
+	require.Equal(t, interaction.ID, latest.ID)
 }
 
 func TestInProcSpawnerClient_UnlinkedProviderFailureSchedulesRecovery(t *testing.T) {

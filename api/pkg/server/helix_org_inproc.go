@@ -1285,7 +1285,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
 		}
 		defer c.server.lockPromptDrain(sessionID)()
-		if entry != nil && entry.Status == "sent" && recoverableActivationDeliveryError(interaction) {
+		if entry != nil && (entry.Status == "sent" || entry.Status == "sending") && recoverableActivationDeliveryError(interaction) {
 			_, recoverErr := c.server.Store.RecoverFailedPrompt(ctx, sessionID, promptID, interaction.ID)
 			if recoverErr != nil {
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("recover failed activation: %w", recoverErr)
@@ -1323,9 +1323,6 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		if interactionCompleted(interaction) {
 			return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interaction.ID, PromptID: promptID, Completed: true}, nil
 		}
-		if recoverableActivationDeliveryError(interaction) && entry.Status != "sent" {
-			previousInteractionID = interaction.ID
-		}
 		if entry.Status == "reserved" {
 			if resetSession {
 				if err := c.ClearSession(ctx, sessionID); err != nil {
@@ -1348,6 +1345,9 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			return runtimehelix.DeliveryResult{}, fmt.Errorf("activation prompt %s is pending retry", promptID)
 		}
 		if entry.Status == "pending" {
+			if recoverableActivationDeliveryError(interaction) {
+				previousInteractionID = interaction.ID
+			}
 			c.server.nudgeSessionQueue(sessionID)
 		}
 		queuedInteractionID := ""

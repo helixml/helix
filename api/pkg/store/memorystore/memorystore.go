@@ -1025,7 +1025,7 @@ func (m *MemoryStore) RecoverFailedPrompt(_ context.Context, sessionID, promptID
 			latest = candidate
 		}
 	}
-	if prompt == nil || prompt.SessionID != sessionID || prompt.Status != "sent" || prompt.DeletedAt != nil ||
+	if prompt == nil || prompt.SessionID != sessionID || (prompt.Status != "sent" && prompt.Status != "sending") || prompt.DeletedAt != nil ||
 		interaction == nil || latest != interaction || interaction.State != types.InteractionStateError {
 		return false, nil
 	}
