@@ -249,7 +249,7 @@ func TestRecoverFailedPromptOnlyClaimsLatestUncancelledFailure(t *testing.T) {
 		t.Fatalf("cancelled failure: claimed=%v err=%v", claimed, err)
 	}
 
-	if err := memory.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{ID: "eligible-prompt", SessionID: "session-1", Status: "sent"}); err != nil {
+	if err := memory.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{ID: "eligible-prompt", SessionID: "session-1", Status: "sending"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := memory.CreateInteraction(ctx, &types.Interaction{

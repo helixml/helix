@@ -471,7 +471,7 @@ func (s *PostgresStore) RecoverFailedPrompt(ctx context.Context, sessionID, prom
 			return nil
 		}
 		result := tx.Model(&types.PromptHistoryEntry{}).
-			Where("id = ? AND session_id = ? AND status = 'sent' AND deleted_at IS NULL", promptID, sessionID).
+			Where("id = ? AND session_id = ? AND status IN ('sent', 'sending') AND deleted_at IS NULL", promptID, sessionID).
 			Updates(map[string]any{"status": "pending", "next_retry_at": nil, "error_message": ""})
 		if result.Error != nil || result.RowsAffected == 0 {
 			return result.Error

@@ -201,7 +201,7 @@ func (suite *PostgresStoreTestSuite) TestRecoverFailedPromptOnlyClaimsLatestUnca
 
 	eligiblePromptID := "prompt_activation_eligible_" + system.GenerateUUID()
 	suite.Require().NoError(suite.db.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
-		ID: eligiblePromptID, UserID: session.Owner, SessionID: session.ID, Content: "eligible", Status: "sent",
+		ID: eligiblePromptID, UserID: session.Owner, SessionID: session.ID, Content: "eligible", Status: "sending",
 	}))
 	eligibleInteraction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
 		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptID: eligiblePromptID,
