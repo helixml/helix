@@ -363,6 +363,12 @@ func prepareBotHome(spec *BotHomeSpec, sessionID string) (*BotHomeResult, error)
 	if err != nil {
 		return nil, fmt.Errorf("inspect legacy session workspace: %w", err)
 	}
+	if !hasOwner && homeState == dirEmpty {
+		if err := os.Remove(home); err != nil {
+			return nil, fmt.Errorf("remove incomplete empty bot home: %w", err)
+		}
+		homeState = dirMissing
+	}
 
 	result := &BotHomeResult{Path: home, Generation: spec.Generation}
 	switch {

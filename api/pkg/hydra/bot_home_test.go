@@ -1,12 +1,15 @@
 package hydra
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
 )
 
@@ -156,6 +159,76 @@ func TestPrepareBotHome_MigratesRollbackWorkspaceAfterVolumeReplacement(t *testi
 	info, err := os.Stat(filepath.Join(res.Path, "scripts", "post.sh"))
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
+func TestPrepareBotHome_RecoversEmptyHomeWithoutOwnerRecord(t *testing.T) {
+	for _, expect := range []BotHomeExpectation{BotHomeExpectNew, BotHomeExpectExisting} {
+		t.Run(string(expect), func(t *testing.T) {
+			useTempWorkspaces(t)
+			home, err := BotHomeDir(testOrg, testBot)
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(home, 0o755))
+
+			res, err := prepareBotHome(spec(expect), testSession)
+			require.NoError(t, err)
+			require.Equal(t, BotHomeOutcomeCreated, res.Outcome)
+			require.Equal(t, testGen, res.Generation)
+
+			res, err = prepareBotHome(spec(BotHomeExpectExisting), "ses_replacement")
+			require.NoError(t, err)
+			require.Equal(t, BotHomeOutcomeExisting, res.Outcome)
+			require.Equal(t, testGen, res.Generation)
+		})
+	}
+}
+
+func TestPrepareBotHome_MigratesLegacyWorkspacePastEmptyUnownedHome(t *testing.T) {
+	useTempWorkspaces(t)
+	home, err := BotHomeDir(testOrg, testBot)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(home, 0o755))
+	legacy := populateLegacy(t, testSession)
+
+	res, err := prepareBotHome(spec(BotHomeExpectExisting), testSession)
+	require.NoError(t, err)
+	require.Equal(t, BotHomeOutcomeMigrated, res.Outcome)
+	require.Equal(t, testGen, res.Generation)
+	require.NoDirExists(t, legacy)
+	require.Equal(t, "home-canary-1", readFile(t, filepath.Join(res.Path, "canary.txt")))
+}
+
+func TestPrepareBotHome_LogsRecoveryWarning(t *testing.T) {
+	useTempWorkspaces(t)
+	var logs bytes.Buffer
+	previous := log.Logger
+	log.Logger = zerolog.New(&logs)
+	t.Cleanup(func() { log.Logger = previous })
+
+	res, err := prepareBotHome(spec(BotHomeExpectExisting), testSession)
+	require.NoError(t, err)
+
+	var event struct {
+		Level          string `json:"level"`
+		OrganizationID string `json:"organization_id"`
+		BotID          string `json:"bot_id"`
+		SessionID      string `json:"session_id"`
+		BotHome        string `json:"bot_home"`
+		Outcome        string `json:"outcome"`
+		Message        string `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &event))
+	require.Equal(t, "warn", event.Level)
+	require.Equal(t, testOrg, event.OrganizationID)
+	require.Equal(t, testBot, event.BotID)
+	require.Equal(t, testSession, event.SessionID)
+	require.Equal(t, res.Path, event.BotHome)
+	require.Equal(t, string(BotHomeOutcomeCreated), event.Outcome)
+	require.Equal(t, "Recovered missing recorded Org Bot home", event.Message)
+
+	logs.Reset()
+	_, err = prepareBotHome(spec(BotHomeExpectExisting), "ses_replacement")
+	require.NoError(t, err)
+	require.Empty(t, logs.String())
 }
 
 func TestPrepareBotHome_RefusesMissingDataDirectoryWithOwnerRecord(t *testing.T) {
