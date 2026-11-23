@@ -441,7 +441,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.CodeAgentConfig != nil {
 		if err := s.validateProjectCodeAgentConfig(r.Context(), req.CodeAgentConfig, user.ID, user.ID, req.OrganizationID); err != nil {
-			return nil, system.NewHTTPError400(err.Error())
+			return nil, system.NewHTTPError400(s.explainOrgDefaultRuntimeError(r.Context(), req.OrganizationID, req.CodeAgentConfig, err))
 		}
 		defaultApp = external_agent.AppFromCodeAgentConfig(req.CodeAgentConfig, user.ID, req.OrganizationID)
 	}

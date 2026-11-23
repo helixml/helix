@@ -2578,14 +2578,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindGitHub = "github",
   KindCron = "cron",
-  KindLocal = "local",
+  KindGitHub = "github",
+  KindHelixEvents = "helix_events",
   KindGitLab = "gitlab",
   KindWebhook = "webhook",
   KindEmail = "email",
-  KindHelixEvents = "helix_events",
   KindSlack = "slack",
+  KindLocal = "local",
 }
 
 export interface TransportResolvedActivation {
@@ -5458,6 +5458,15 @@ export interface TypesModelInfo {
   supports_reasoning_effort?: boolean;
 }
 
+export interface TypesModelReference {
+  /** Fields names the fields holding the model, e.g. "code_agent_config". */
+  fields?: string[];
+  id?: string;
+  /** Kind is org_default, agent, org_bot, project, spec_task or session. */
+  kind?: string;
+  organization_id?: string;
+}
+
 export enum TypesModelType {
   ModelTypeChat = "chat",
   ModelTypeImage = "image",
@@ -6699,6 +6708,19 @@ export interface TypesRegisterRequest {
   invitation_token?: string;
   password?: string;
   password_confirm?: string;
+}
+
+export interface TypesReplaceModelRequest {
+  /** DryRun reports what would change without writing anything. */
+  dry_run?: boolean;
+  from_model?: string;
+  provider_ref?: string;
+  to_model?: string;
+}
+
+export interface TypesReplaceModelResponse {
+  dry_run?: boolean;
+  references?: TypesModelReference[];
 }
 
 export interface TypesRepoPR {
@@ -11149,6 +11171,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description When a provider stops serving a model, every org default runtime, agent, org bot, project, spec task and session that still selects it fails on its next turn. This moves all of them to another model on the same provider. The replacement must be served by the provider now. Use dry_run to list them first.
+     *
+     * @tags admin
+     * @name V1AdminModelsReplaceCreate
+     * @summary Replace a model everywhere it is selected
+     * @request POST:/api/v1/admin/models/replace
+     * @secure
+     */
+    v1AdminModelsReplaceCreate: (request: TypesReplaceModelRequest, params: RequestParams = {}) =>
+      this.request<TypesReplaceModelResponse, any>({
+        path: `/api/v1/admin/models/replace`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
