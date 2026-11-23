@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
@@ -18,6 +19,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -46,6 +48,69 @@ type ExploratorySessionActivationSuite struct {
 
 func TestExploratorySessionActivationSuite(t *testing.T) {
 	suite.Run(t, new(ExploratorySessionActivationSuite))
+}
+
+type exploratoryUserStore struct {
+	*memorystore.MemoryStore
+	user    *types.User
+	session *types.Session
+}
+
+func (s *exploratoryUserStore) GetUser(context.Context, *store.GetUserQuery) (*types.User, error) {
+	return s.user, nil
+}
+
+func (s *exploratoryUserStore) GetProjectExploratorySession(context.Context, string) (*types.Session, error) {
+	return s.session, nil
+}
+
+func (s *exploratoryUserStore) ListGitRepositories(context.Context, *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error) {
+	return nil, nil
+}
+
+func (s *exploratoryUserStore) CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error {
+	for _, interaction := range interactions {
+		if _, err := s.CreateInteraction(ctx, interaction); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func TestStartExternalAgentSessionRepairsOwnedRuntimeBeforeDesktopStart(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctrl := gomock.NewController(t)
+	executor := external_agent.NewMockExecutor(ctrl)
+	srv.externalAgentExecutor = executor
+	ctx := context.Background()
+	user := &types.User{ID: "user_owned_runtime", Type: types.OwnerTypeUser}
+	session := newTestParentSession(user.ID)
+	session.ParentApp = ""
+	session.ProjectID = "prj_owned_runtime"
+	session.Metadata.ProjectID = session.ProjectID
+	session.Metadata.SessionRole = "exploratory"
+	session.Metadata.CodeAgentConfig = &types.CodeAgentExecutionConfig{Runtime: types.CodeAgentRuntimeZedAgent}
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeOpenCode
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeOpenCode.ZedAgentName()
+	session.Metadata.ZedThreadID = "thread_from_opencode"
+	seedParentWithInteractions(t, mem, session, 1)
+	wrappedStore := &exploratoryUserStore{MemoryStore: mem, user: user, session: session}
+	srv.Store = wrappedStore
+	srv.Controller.Options.Store = wrappedStore
+
+	executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_repaired"}, nil)
+	got, err := srv.StartExternalAgentSession(ctx, &types.SessionChatRequest{
+		ProjectID:   session.ProjectID,
+		SessionRole: "exploratory",
+		AgentType:   "zed_external",
+		Messages: []*types.Message{{
+			Role: "user", Content: types.MessageContent{Parts: []any{"continue"}},
+		}},
+	}, user.ID, types.SystemTurn(types.SystemTurnOrgActivation))
+	require.NoError(t, err)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent, got.Metadata.CodeAgentRuntime)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent.ZedAgentName(), got.Metadata.ZedAgentName)
+	require.Empty(t, got.Metadata.ZedThreadID)
 }
 
 func (s *ExploratorySessionActivationSuite) SetupTest() {

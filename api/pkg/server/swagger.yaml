@@ -3991,24 +3991,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - cron
     - github
+    - helix_events
+    - gitlab
     - webhook
     - email
     - slack
     - local
-    - cron
-    - helix_events
-    - gitlab
     type: string
     x-enum-varnames:
+    - KindCron
     - KindGitHub
+    - KindHelixEvents
+    - KindGitLab
     - KindWebhook
     - KindEmail
     - KindSlack
     - KindLocal
-    - KindCron
-    - KindHelixEvents
-    - KindGitLab
   transport.ResolvedActivation:
     properties:
       address:
@@ -8522,6 +8522,21 @@ definitions:
       supports_reasoning_effort:
         type: boolean
     type: object
+  types.ModelReference:
+    properties:
+      fields:
+        description: Fields names the fields holding the model, e.g. "code_agent_config".
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      kind:
+        description: Kind is org_default, agent, org_bot, project, spec_task or session.
+        type: string
+      organization_id:
+        type: string
+    type: object
   types.ModelType:
     enum:
     - chat
@@ -10546,6 +10561,27 @@ definitions:
         type: string
       password_confirm:
         type: string
+    type: object
+  types.ReplaceModelRequest:
+    properties:
+      dry_run:
+        description: DryRun reports what would change without writing anything.
+        type: boolean
+      from_model:
+        type: string
+      provider_ref:
+        type: string
+      to_model:
+        type: string
+    type: object
+  types.ReplaceModelResponse:
+    properties:
+      dry_run:
+        type: boolean
+      references:
+        items:
+          $ref: '#/definitions/types.ModelReference'
+        type: array
     type: object
   types.RepoPR:
     properties:
@@ -15224,6 +15260,11 @@ definitions:
         type: integer
       provider:
         type: string
+      provider_kind:
+        allOf:
+        - $ref: '#/definitions/types.UsageProviderKind'
+        description: ProviderKind says who a provider row was paid through; set on
+          provider rows only.
       request_size_bytes:
         type: integer
       response_size_bytes:
@@ -15323,8 +15364,24 @@ definitions:
       provider:
         type: string
     type: object
+  types.UsageProviderKind:
+    enum:
+    - helix
+    - added
+    - local
+    - subscription
+    - unknown
+    type: string
+    x-enum-varnames:
+    - UsageProviderKindHelix
+    - UsageProviderKindAdded
+    - UsageProviderKindLocal
+    - UsageProviderKindSubscription
+    - UsageProviderKindUnknown
   types.UsageProviderTimeSeries:
     properties:
+      kind:
+        $ref: '#/definitions/types.UsageProviderKind'
       metrics:
         items:
           $ref: '#/definitions/types.AggregatedUsageMetric'
@@ -17415,6 +17472,31 @@ paths:
       security:
       - BearerAuth: []
       summary: Get Kodit system stats (admin)
+      tags:
+      - admin
+  /api/v1/admin/models/replace:
+    post:
+      description: |-
+        When a provider stops serving a model, every org default
+        runtime, agent, org bot, project, spec task and session that
+        still selects it fails on its next turn. This moves all of them
+        to another model on the same provider. The replacement must be
+        served by the provider now. Use dry_run to list them first.
+      parameters:
+      - description: Provider and models
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ReplaceModelRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ReplaceModelResponse'
+      security:
+      - BearerAuth: []
+      summary: Replace a model everywhere it is selected
       tags:
       - admin
   /api/v1/admin/organization-domains:

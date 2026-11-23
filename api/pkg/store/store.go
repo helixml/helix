@@ -16,6 +16,9 @@ type ListProjectsQuery struct {
 	UserID         string
 	OrganizationID string
 	IncludeStats   bool
+	// AllScopes lists every project of every user and organization. Only
+	// for admin maintenance; UserID and OrganizationID must be empty.
+	AllScopes bool
 }
 
 type GetProjectsCountQuery struct {
@@ -80,6 +83,9 @@ type ListSessionsQuery struct {
 	AnyOwner                  bool     `json:"any_owner"`
 	AnyOrganization           bool     `json:"-"`
 	ProviderRecoveryProviders []string `json:"-"`
+	// CodeAgentModels keeps sessions whose code_agent_config or
+	// code_agent_overrides selects one of these model IDs.
+	CodeAgentModels []string `json:"-"`
 }
 
 type ListAPIKeysQuery struct {

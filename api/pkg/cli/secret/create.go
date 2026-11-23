@@ -18,6 +18,7 @@ func init() {
 	createCmd.Flags().StringP("value", "v", "", "Value of the secret")
 	createCmd.Flags().StringP("app-id", "a", "", "App ID to associate the secret with")
 	createCmd.Flags().StringP("project", "p", "", "Project ID or name to associate the secret with (injected as env var in project sessions)")
+	createCmd.Flags().String("scope", string(types.SecretScopeDev), "Project secret environment: dev (project sessions), prod (web services), or both")
 	_ = createCmd.MarkFlagRequired("name")
 }
 
@@ -30,6 +31,14 @@ var createCmd = &cobra.Command{
 		value, _ := cmd.Flags().GetString("value")
 		appID, _ := cmd.Flags().GetString("app-id")
 		projectID, _ := cmd.Flags().GetString("project")
+		scopeValue, _ := cmd.Flags().GetString("scope")
+		scope := types.SecretScope(scopeValue)
+		if !scope.Valid() {
+			return fmt.Errorf("invalid secret scope %q, must be one of: dev, prod, both", scopeValue)
+		}
+		if projectID == "" && cmd.Flags().Changed("scope") {
+			return fmt.Errorf("--scope requires --project")
+		}
 
 		if value == "" {
 			fmt.Print("Enter secret value (input will be hidden): ")
@@ -50,6 +59,7 @@ var createCmd = &cobra.Command{
 			Name:  name,
 			Value: value,
 			AppID: appID,
+			Scope: string(scope),
 		}
 
 		if projectID != "" {
@@ -67,9 +77,16 @@ var createCmd = &cobra.Command{
 		}
 
 		if projectID != "" {
-			fmt.Printf("Secret '%s' created for project %s (will be injected as env var)\n", name, projectID)
+			target := "project sessions"
+			switch scope {
+			case types.SecretScopeProd:
+				target = "web services"
+			case types.SecretScopeBoth:
+				target = "project sessions and web services"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Secret '%s' created for project %s with %s scope (injected into %s)\n", name, projectID, scope, target)
 		} else {
-			fmt.Printf("Secret created successfully\n")
+			fmt.Fprintln(cmd.OutOrStdout(), "Secret created successfully")
 		}
 
 		return nil

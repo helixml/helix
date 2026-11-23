@@ -38,6 +38,11 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("config->'provider_recovery'->>'provider' IN ?", query.ProviderRecoveryProviders)
 	}
 
+	if len(query.CodeAgentModels) > 0 {
+		q = q.Where("(config->'code_agent_config'->>'model' IN ? OR config->'code_agent_overrides'->>'model' IN ?)",
+			query.CodeAgentModels, query.CodeAgentModels)
+	}
+
 	if query.AppID != "" {
 		q = q.Where("parent_app = ?", query.AppID)
 	}

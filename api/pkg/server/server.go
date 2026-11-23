@@ -1556,6 +1556,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	adminRouter.HandleFunc("/admin/orgs", apiServer.adminListOrganizations).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/admin/orgs/{id}/plan", apiServer.adminSetOrgPlan).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/admin/models/replace", system.Wrapper(apiServer.adminReplaceModel)).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/admin/service-accounts", system.Wrapper(apiServer.adminCreateServiceAccount)).Methods(http.MethodPost)
 
 	// Request audit trail reads (incident forensics): newest first, filterable.

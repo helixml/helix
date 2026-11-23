@@ -225,6 +225,11 @@ func (m *MemoryStore) ListSessions(_ context.Context, query store.ListSessionsQu
 		if len(query.ProviderRecoveryProviders) > 0 && (s.Metadata.Recovery == nil || !containsString(query.ProviderRecoveryProviders, s.Metadata.Recovery.Provider)) {
 			continue
 		}
+		if len(query.CodeAgentModels) > 0 &&
+			(s.Metadata.CodeAgentConfig == nil || !containsString(query.CodeAgentModels, s.Metadata.CodeAgentConfig.Model)) &&
+			(s.Metadata.CodeAgentOverrides == nil || !containsString(query.CodeAgentModels, s.Metadata.CodeAgentOverrides.Model)) {
+			continue
+		}
 		if query.RestrictToProjects && !containsString(query.ProjectIDs, s.ProjectID) {
 			continue
 		}
@@ -1021,7 +1026,7 @@ func (m *MemoryStore) RecoverFailedPrompt(_ context.Context, sessionID, promptID
 			latest = candidate
 		}
 	}
-	if prompt == nil || prompt.SessionID != sessionID || prompt.Status != "sent" || prompt.DeletedAt != nil ||
+	if prompt == nil || prompt.SessionID != sessionID || (prompt.Status != "sent" && prompt.Status != "sending") || prompt.DeletedAt != nil ||
 		interaction == nil || latest != interaction || interaction.State != types.InteractionStateError {
 		return false, nil
 	}
@@ -1450,6 +1455,57 @@ func (m *MemoryStore) SeedProject(p *types.Project) {
 	defer m.mu.Unlock()
 	cp := *p
 	m.projects[p.ID] = &cp
+}
+
+func (m *MemoryStore) ListApps(_ context.Context, q *store.ListAppsQuery) ([]*types.App, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*types.App, 0, len(m.apps))
+	for _, a := range m.apps {
+		if q != nil && q.OrganizationID != "" && a.OrganizationID != q.OrganizationID {
+			continue
+		}
+		if q != nil && q.Owner != "" && a.Owner != q.Owner {
+			continue
+		}
+		cp := *a
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) ListProjects(_ context.Context, q *store.ListProjectsQuery) ([]*types.Project, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if q.UserID == "" && q.OrganizationID == "" && !q.AllScopes {
+		return []*types.Project{}, nil
+	}
+	out := make([]*types.Project, 0, len(m.projects))
+	for _, p := range m.projects {
+		if q.UserID != "" && p.UserID != q.UserID {
+			continue
+		}
+		if q.OrganizationID != "" && p.OrganizationID != q.OrganizationID {
+			continue
+		}
+		if q.OrganizationID == "" && !q.AllScopes && p.OrganizationID != "" {
+			continue
+		}
+		cp := *p
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) UpdateProject(_ context.Context, p *types.Project) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.projects[p.ID]; !ok {
+		return store.ErrNotFound
+	}
+	cp := *p
+	m.projects[p.ID] = &cp
+	return nil
 }
 
 // --- Golden builds (golden_builds) ---

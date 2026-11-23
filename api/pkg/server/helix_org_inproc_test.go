@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v76"
 	"go.uber.org/mock/gomock"
@@ -1011,6 +1012,137 @@ func TestInProcSpawnerClient_InterruptedQueuedDeliveryRetriesOnce(t *testing.T) 
 	require.Len(t, interactions, 2)
 }
 
+func TestInProcSpawnerClient_UnregisteredAgentServerRetriesOnce(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/unregistered-agent"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_unregistered_agent", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry startup failure", Status: "sending",
+	}))
+	dispatchedAt := time.Now()
+	oldInteraction, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_unregistered_agent", SessionID: session.ID, PromptID: promptID,
+		State: types.InteractionStateError, Error: "agent connect failed: Custom agent server `opencode` is not registered",
+		ExternalAgentDispatchedAt: &dispatchedAt,
+	})
+	require.NoError(t, err)
+
+	delivery, err := client.SendMessage(ctx, session.ID, "retry startup failure", deliveryID, false)
+	require.NoError(t, err)
+	require.Equal(t, oldInteraction.ID, delivery.PreviousInteractionID)
+	require.Empty(t, delivery.InteractionID)
+	out, err := client.GetDeliveryOutput(ctx, delivery)
+	require.NoError(t, err)
+	require.NotEqual(t, oldInteraction.ID, out.InteractionID)
+	require.NotContains(t, out.Output, "Custom agent server")
+
+	require.Eventually(t, func() bool {
+		retry, getErr := store.GetLatestInteractionByPromptID(ctx, promptID)
+		return getErr == nil && retry != nil && retry.ID != oldInteraction.ID
+	}, time.Second, 10*time.Millisecond)
+	retry, err := store.GetLatestInteractionByPromptID(ctx, promptID)
+	require.NoError(t, err)
+	retry.State = types.InteractionStateComplete
+	retry.ResponseMessage = "recovered"
+	_, err = store.UpdateInteraction(ctx, retry)
+	require.NoError(t, err)
+	require.NoError(t, store.MarkPromptAsSent(ctx, promptID))
+
+	replayed, err := client.SendMessage(ctx, session.ID, "retry startup failure", deliveryID, false)
+	require.NoError(t, err)
+	require.True(t, replayed.Completed)
+	require.Equal(t, retry.ID, replayed.InteractionID)
+	interactions, _, err := store.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID, GenerationID: -1})
+	require.NoError(t, err)
+	require.Len(t, interactions, 2)
+}
+
+func TestInProcSpawnerClient_AgentConnectErrorOutsideSafeCaseRemainsTerminal(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    string
+		mutate func(*types.Interaction)
+	}{
+		{name: "text", mutate: func(i *types.Interaction) { i.ResponseMessage = "partial output" }},
+		{name: "tool call", mutate: func(i *types.Interaction) {
+			i.ResponseEntries = []byte(`[{"type":"tool_call","content":"ran a command"}]`)
+		}},
+		{name: "legacy tool call", mutate: func(i *types.Interaction) {
+			i.ToolCalls = []openai.ToolCall{{ID: "call_1"}}
+		}},
+		{name: "streamed message", mutate: func(i *types.Interaction) { i.LastZedMessageID = "message_1" }},
+		{name: "other connect failure", err: "agent connect failed: registry unavailable"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, store, client, user, ctx := newInProcTestSetup(t)
+			deliveryID := "stream/unregistered-agent-output-" + tc.name
+			session, err := store.CreateSession(ctx, types.Session{ID: "ses_unregistered_agent_output_" + tc.name, Owner: user.ID})
+			require.NoError(t, err)
+			promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+			require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+				ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "do not duplicate", Status: "sending",
+			}))
+			interaction := &types.Interaction{
+				ID: "int_unregistered_agent_output_" + tc.name, SessionID: session.ID, PromptID: promptID,
+				State: types.InteractionStateError, Error: "agent connect failed: Custom agent server `opencode` is not registered",
+			}
+			if tc.err != "" {
+				interaction.Error = tc.err
+			}
+			if tc.mutate != nil {
+				tc.mutate(interaction)
+			}
+			interaction, err = store.CreateInteraction(ctx, interaction)
+			require.NoError(t, err)
+
+			delivery, err := client.SendMessage(ctx, session.ID, "do not duplicate", deliveryID, false)
+			require.NoError(t, err)
+			require.Equal(t, interaction.ID, delivery.InteractionID)
+			require.Empty(t, delivery.PreviousInteractionID)
+			out, err := client.GetDeliveryOutput(ctx, delivery)
+			require.NoError(t, err)
+			require.Equal(t, string(types.InteractionStateError), out.Status)
+			entry, err := store.GetPromptHistoryEntry(ctx, promptID)
+			require.NoError(t, err)
+			require.Equal(t, "sending", entry.Status)
+		})
+	}
+}
+
+func TestInProcSpawnerClient_ThreadLoadFailureKeepsBoundedRetry(t *testing.T) {
+	_, store, _, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/thread-load-failure"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_thread_load_failure", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	nextRetryAt := time.Now().Add(time.Hour)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "retry through queue", Status: "failed",
+		RetryCount: 1, NextRetryAt: &nextRetryAt,
+	}))
+	interaction, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_thread_load_failure", SessionID: session.ID, PromptID: promptID,
+		State: types.InteractionStateError,
+		Error: "Thread load failed: Failed to load thread: agent connect failed: Other(\"Custom agent server `opencode` is not registered\")",
+	})
+	require.NoError(t, err)
+
+	require.False(t, recoverableActivationDeliveryError(interaction))
+	recovered, err := store.RecoverFailedPrompt(ctx, session.ID, promptID, interaction.ID)
+	require.NoError(t, err)
+	require.False(t, recovered)
+	entry, err := store.GetPromptHistoryEntry(ctx, promptID)
+	require.NoError(t, err)
+	require.Equal(t, "failed", entry.Status)
+	require.Equal(t, 1, entry.RetryCount)
+	latest, err := store.GetLatestInteractionByPromptID(ctx, promptID)
+	require.NoError(t, err)
+	require.Equal(t, interaction.ID, latest.ID)
+}
+
 func TestInProcSpawnerClient_UnlinkedProviderFailureSchedulesRecovery(t *testing.T) {
 	server, store, client, user, ctx := newInProcTestSetup(t)
 	const deliveryID = "stream/provider-failure"
@@ -1212,6 +1344,35 @@ func TestInProcSpawnerClient_SyncAgentProfileRenamesStoppedSession(t *testing.T)
 	require.Equal(t, 4, got.Metadata.SandboxResourceOverrides.VCPUs)
 	require.Equal(t, 8192, got.Metadata.SandboxResourceOverrides.MemoryMB)
 	require.Equal(t, "instructions", got.Metadata.RuntimeInstructions)
+}
+
+func TestInProcSpawnerClient_SyncAgentProfilePreservesSessionCodeAgentConfig(t *testing.T) {
+	_, store, client, _, ctx := newInProcTestSetup(t)
+	store.SeedApp(&types.App{ID: "app_opencode", Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeOpenCode, Model: "app-model",
+		}},
+	}}})
+	_, err := store.CreateSession(ctx, types.Session{
+		ID: "ses_profile_config", ParentApp: "app_opencode", ModelName: "session-model",
+		Metadata: types.SessionMetadata{
+			AssistantID: "0", CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+			ZedAgentName: types.CodeAgentRuntimeZedAgent.ZedAgentName(),
+			CodeAgentConfig: &types.CodeAgentExecutionConfig{
+				Runtime: types.CodeAgentRuntimeZedAgent, Model: "session-model",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	err = client.SyncAgentProfile(ctx, "ses_profile_config", "Chief of Staff", "chief-of-staff", "instructions", runtimehelix.SessionLaunchConfig{})
+	require.ErrorContains(t, err, "external agent executor is not configured")
+
+	got, err := store.GetSession(ctx, "ses_profile_config")
+	require.NoError(t, err)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent, got.Metadata.CodeAgentRuntime)
+	require.Equal(t, types.CodeAgentRuntimeZedAgent.ZedAgentName(), got.Metadata.ZedAgentName)
+	require.Equal(t, "session-model", got.ModelName)
 }
 
 // TestParseEnvVarsToMap pins the KEY=value split that backs

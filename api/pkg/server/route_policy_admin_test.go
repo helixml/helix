@@ -16,6 +16,7 @@ func init() {
 		"GET /api/v1/admin/users/{id}/owned-orgs":                    admin(),
 		"GET /api/v1/admin/orgs":                                     admin(),
 		"POST /api/v1/admin/orgs/{id}/plan":                          admin(),
+		"POST /api/v1/admin/models/replace":                          admin(),
 		"POST /api/v1/admin/service-accounts":                        admin(),
 		"GET /api/v1/admin/audit-events":                             admin(),
 		"GET /api/v1/admin/runners/{runner_id}/logs":                 admin(),

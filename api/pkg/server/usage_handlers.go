@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -304,7 +305,8 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 	modelProviders := make(map[string]string)
 	modelInfo := make(map[string]*types.ModelInfo)
 	missingModelInfo := make(map[string]bool)
-	endpointProviders := make(map[string]string)
+	endpoints := make(map[string]*types.ProviderEndpoint)
+	removedEndpoints := make(map[string]bool)
 	checkedEndpoints := make(map[string]bool)
 
 	for _, row := range summary.CostBreakdown {
@@ -357,45 +359,42 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 			summary.SubscriptionSavings += estimatedCost
 		}
 		modelCosts[key] += estimatedCost
-		displayProvider := ""
+		var endpoint *types.ProviderEndpoint
 		if strings.HasPrefix(row.Provider, system.ProviderEndpointPrefix) && s.Store != nil {
 			if !checkedEndpoints[row.Provider] {
 				checkedEndpoints[row.Provider] = true
-				endpoint, endpointErr := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: row.Provider})
-				if endpointErr != nil {
+				found, endpointErr := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: row.Provider})
+				switch {
+				case errors.Is(endpointErr, store.ErrNotFound):
+					removedEndpoints[row.Provider] = true
+				case endpointErr != nil:
 					log.Debug().Err(endpointErr).Str("provider", row.Provider).
 						Msg("failed to resolve provider endpoint for organization usage")
-				} else if endpoint != nil && endpoint.EndpointType == types.ProviderEndpointTypeGlobal && endpoint.OwnerType == types.OwnerTypeSystem {
-					// Database-backed system globals are Helix-managed inference routes
-					// (for example vLLM or SGLang), not the catalog provider for the model ID.
-					endpointProviders[row.Provider] = "helix/" + endpoint.Name
+				default:
+					endpoints[row.Provider] = found
 				}
 			}
-			displayProvider = endpointProviders[row.Provider]
+			endpoint = endpoints[row.Provider]
 		}
-		if displayProvider == "" && info != nil && info.ProviderSlug != "" {
-			displayProvider = info.ProviderSlug
+		catalogSlug := ""
+		if info != nil {
+			catalogSlug = info.ProviderSlug
 		}
-		if displayProvider == "" {
-			displayProvider = row.Provider
-		}
-		modelProviders[key] = displayProvider
+		modelProviders[key] = usageModelProvider(row.Provider, endpoint, catalogSlug)
 
-		providerKey := displayProvider
-		if providerKey == "" {
-			providerKey = "unknown"
-		}
-		aggregate := providers[providerKey]
+		source := usageProviderSource(row, endpoint, removedEndpoints[row.Provider], catalogSlug)
+		aggregate := providers[source.key]
 		if aggregate == nil {
 			aggregate = &providerAggregate{
 				row: types.UsageBreakdownRow{
-					ID:       providerKey,
-					Name:     usageProviderName(providerKey),
-					Provider: providerKey,
+					ID:           source.key,
+					Name:         source.name,
+					Provider:     source.key,
+					ProviderKind: source.kind,
 				},
 				byDate: make(map[time.Time]*types.AggregatedUsageMetric),
 			}
-			providers[providerKey] = aggregate
+			providers[source.key] = aggregate
 		}
 		aggregate.row.PromptTokens += row.PromptTokens
 		aggregate.row.CompletionTokens += row.CompletionTokens
@@ -452,6 +451,7 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 		series := types.UsageProviderTimeSeries{
 			Provider: key,
 			Name:     aggregate.row.Name,
+			Kind:     aggregate.row.ProviderKind,
 		}
 		for _, totalMetric := range summary.Metrics {
 			metric := aggregate.byDate[totalMetric.Date]
@@ -475,6 +475,83 @@ func (s *HelixAPIServer) enrichOrgUsageCosts(ctx context.Context, summary *types
 	}
 }
 
+type usageProviderSourceInfo struct {
+	key  string
+	name string
+	kind types.UsageProviderKind
+}
+
+// usageModelProvider names the provider a model row is drawn with: the catalog
+// provider for its icon, except Helix-managed inference routes, which are
+// Helix's own whatever model they serve.
+func usageModelProvider(provider string, endpoint *types.ProviderEndpoint, catalogSlug string) string {
+	if endpoint != nil && endpoint.EndpointType == types.ProviderEndpointTypeGlobal && endpoint.OwnerType == types.OwnerTypeSystem {
+		return "helix/" + endpoint.Name
+	}
+	if catalogSlug != "" {
+		return catalogSlug
+	}
+	return provider
+}
+
+// usageProviderSource says who a usage row was paid through. A provider the
+// org added keeps its own name, so it never merges with the Helix-supplied
+// provider of the same brand; subscription usage stays apart from metered
+// API usage for the same reason.
+// removed is true when the row names a provider endpoint that has since been deleted.
+func usageProviderSource(row types.UsageCostBreakdownRow, endpoint *types.ProviderEndpoint, removed bool, catalogSlug string) usageProviderSourceInfo {
+	catalog := types.CanonicalProviderName(row.Provider)
+	if catalogSlug != "" {
+		catalog = catalogSlug
+	}
+	if row.Source == types.UsageMetricSourceACP {
+		if catalog == "" {
+			return usageProviderSourceInfo{key: "subscription/unknown", name: "Agent subscription", kind: types.UsageProviderKindSubscription}
+		}
+		return usageProviderSourceInfo{key: "subscription/" + catalog, name: usageSubscriptionName(catalog), kind: types.UsageProviderKindSubscription}
+	}
+	if endpoint != nil {
+		switch {
+		case endpoint.EndpointType == types.ProviderEndpointTypeGlobal && endpoint.OwnerType == types.OwnerTypeSystem:
+			name := "helix/" + endpoint.Name
+			return usageProviderSourceInfo{key: name, name: name, kind: types.UsageProviderKindLocal}
+		case endpoint.EndpointType == types.ProviderEndpointTypeGlobal:
+			return usageProviderSourceInfo{key: endpoint.ID, name: endpoint.Name, kind: types.UsageProviderKindHelix}
+		default:
+			return usageProviderSourceInfo{key: endpoint.ID, name: endpoint.Name, kind: types.UsageProviderKindAdded}
+		}
+	}
+	switch types.CanonicalProviderName(row.Provider) {
+	case string(types.ProviderHelix), string(types.ProviderVLLM):
+		return usageProviderSourceInfo{key: "helix", name: "Helix runners", kind: types.UsageProviderKindLocal}
+	}
+	if catalog == "" {
+		return usageProviderSourceInfo{key: "unknown", name: "Unknown", kind: types.UsageProviderKindUnknown}
+	}
+	if strings.HasPrefix(row.Provider, system.ProviderEndpointPrefix) {
+		name := usageProviderName(catalog)
+		if removed {
+			name = "Removed provider"
+			if catalogSlug != "" {
+				name = "Removed provider · " + usageProviderName(catalogSlug)
+			}
+		}
+		return usageProviderSourceInfo{key: row.Provider, name: name, kind: types.UsageProviderKindUnknown}
+	}
+	return usageProviderSourceInfo{key: catalog, name: usageProviderName(catalog), kind: types.UsageProviderKindHelix}
+}
+
+func usageSubscriptionName(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "Claude subscription"
+	case "openai":
+		return "ChatGPT subscription"
+	default:
+		return usageProviderName(provider) + " subscription"
+	}
+}
+
 func usageProviderName(provider string) string {
 	switch strings.ToLower(provider) {
 	case "openai":
@@ -491,6 +568,8 @@ func usageProviderName(provider string) string {
 		return "Amazon Bedrock"
 	case "deepseek":
 		return "DeepSeek"
+	case "openrouter":
+		return "OpenRouter"
 	case "unknown":
 		return "Unknown"
 	default:

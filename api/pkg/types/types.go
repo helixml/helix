@@ -3269,28 +3269,30 @@ type OrgComputeUsage struct {
 }
 
 type UsageBreakdownRow struct {
-	ID                string  `json:"id"`
-	Name              string  `json:"name"`
-	Email             string  `json:"email,omitempty"`
-	Username          string  `json:"username,omitempty"`
-	Provider          string  `json:"provider,omitempty"`
-	Model             string  `json:"model,omitempty"`
-	SessionID         string  `json:"session_id,omitempty"`
-	InteractionID     string  `json:"interaction_id,omitempty"`
-	PromptTokens      int     `json:"prompt_tokens"`
-	CompletionTokens  int     `json:"completion_tokens"`
-	TotalTokens       int     `json:"total_tokens"`
-	CacheReadTokens   int     `json:"cache_read_tokens"`
-	CacheWriteTokens  int     `json:"cache_write_tokens"`
-	PromptCost        float64 `json:"prompt_cost"`
-	CompletionCost    float64 `json:"completion_cost"`
-	CacheReadCost     float64 `json:"cache_read_cost"`
-	CacheWriteCost    float64 `json:"cache_write_cost"`
-	TotalCost         float64 `json:"total_cost"`
-	LatencyMs         float64 `json:"latency_ms"`
-	RequestSizeBytes  int     `json:"request_size_bytes"`
-	ResponseSizeBytes int     `json:"response_size_bytes"`
-	TotalRequests     int     `json:"total_requests"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email,omitempty"`
+	Username string `json:"username,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	// ProviderKind says who a provider row was paid through; set on provider rows only.
+	ProviderKind      UsageProviderKind `json:"provider_kind,omitempty"`
+	Model             string            `json:"model,omitempty"`
+	SessionID         string            `json:"session_id,omitempty"`
+	InteractionID     string            `json:"interaction_id,omitempty"`
+	PromptTokens      int               `json:"prompt_tokens"`
+	CompletionTokens  int               `json:"completion_tokens"`
+	TotalTokens       int               `json:"total_tokens"`
+	CacheReadTokens   int               `json:"cache_read_tokens"`
+	CacheWriteTokens  int               `json:"cache_write_tokens"`
+	PromptCost        float64           `json:"prompt_cost"`
+	CompletionCost    float64           `json:"completion_cost"`
+	CacheReadCost     float64           `json:"cache_read_cost"`
+	CacheWriteCost    float64           `json:"cache_write_cost"`
+	TotalCost         float64           `json:"total_cost"`
+	LatencyMs         float64           `json:"latency_ms"`
+	RequestSizeBytes  int               `json:"request_size_bytes"`
+	ResponseSizeBytes int               `json:"response_size_bytes"`
+	TotalRequests     int               `json:"total_requests"`
 
 	ToolCallRequests      int `json:"tool_call_requests"`
 	ToolCallErrorRequests int `json:"tool_call_error_requests"`
@@ -3319,9 +3321,25 @@ type UsageAgentRuntimeTimeSeries struct {
 	Metrics []AggregatedUsageMetric `json:"metrics"`
 }
 
+// UsageProviderKind is who LLM usage was paid through.
+type UsageProviderKind string
+
+const (
+	// UsageProviderKindHelix is a provider the Helix deployment supplies.
+	UsageProviderKindHelix UsageProviderKind = "helix"
+	// UsageProviderKindAdded is a provider endpoint an org or user added.
+	UsageProviderKindAdded UsageProviderKind = "added"
+	// UsageProviderKindLocal is a model served by Helix's own runners or inference routes.
+	UsageProviderKindLocal UsageProviderKind = "local"
+	// UsageProviderKindSubscription is a coding agent on its own subscription (ACP-reported).
+	UsageProviderKindSubscription UsageProviderKind = "subscription"
+	UsageProviderKindUnknown      UsageProviderKind = "unknown"
+)
+
 type UsageProviderTimeSeries struct {
 	Provider string                  `json:"provider"`
 	Name     string                  `json:"name"`
+	Kind     UsageProviderKind       `json:"kind"`
 	Metrics  []AggregatedUsageMetric `json:"metrics"`
 }
 
