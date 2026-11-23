@@ -121,16 +121,48 @@ func TestPrepareBotHome_MigratesLegacyWorkspacePreservingData(t *testing.T) {
 	require.Equal(t, "home-canary-1", readFile(t, filepath.Join(res.Path, "canary.txt")))
 }
 
-func TestPrepareBotHome_RefusesToSeedMissingEstablishedHome(t *testing.T) {
-	base := useTempWorkspaces(t)
-	_, err := prepareBotHome(spec(BotHomeExpectExisting), testSession)
-	require.ErrorContains(t, err, "refusing to seed a fresh home")
-	home, _ := BotHomeDir(testOrg, testBot)
-	require.NoDirExists(t, home)
-
-	// Recorded home whose data dir vanished.
-	_, err = prepareBotHome(spec(BotHomeExpectNew), testSession)
+func TestPrepareBotHome_RecreatesEstablishedHomeAfterWorkspaceVolumeReplacement(t *testing.T) {
+	useTempWorkspaces(t)
+	_, err := prepareBotHome(spec(BotHomeExpectNew), testSession)
 	require.NoError(t, err)
+
+	workspacesBaseDir = t.TempDir()
+	res, err := prepareBotHome(spec(BotHomeExpectExisting), testSession)
+	require.NoError(t, err)
+	require.Equal(t, BotHomeOutcomeCreated, res.Outcome)
+	require.Equal(t, testGen, res.Generation)
+	require.DirExists(t, res.Path)
+
+	res, err = prepareBotHome(spec(BotHomeExpectExisting), "ses_replacement")
+	require.NoError(t, err)
+	require.Equal(t, BotHomeOutcomeExisting, res.Outcome)
+}
+
+func TestPrepareBotHome_MigratesRollbackWorkspaceAfterVolumeReplacement(t *testing.T) {
+	useTempWorkspaces(t)
+	_, err := prepareBotHome(spec(BotHomeExpectNew), testSession)
+	require.NoError(t, err)
+
+	workspacesBaseDir = t.TempDir()
+	legacy := populateLegacy(t, testSession)
+	res, err := prepareBotHome(spec(BotHomeExpectExisting), testSession)
+	require.NoError(t, err)
+	require.Equal(t, BotHomeOutcomeMigrated, res.Outcome)
+	require.Equal(t, testGen, res.Generation)
+	require.Equal(t, testSession, res.MigratedFromSession)
+	require.NoDirExists(t, legacy)
+	require.Equal(t, "home-canary-1", readFile(t, filepath.Join(res.Path, "canary.txt")))
+	require.Equal(t, "profile-canary-1", readFile(t, filepath.Join(res.Path, "chrome-profile", "profile-canary.txt")))
+	info, err := os.Stat(filepath.Join(res.Path, "scripts", "post.sh"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
+func TestPrepareBotHome_RefusesMissingDataDirectoryWithOwnerRecord(t *testing.T) {
+	base := useTempWorkspaces(t)
+	_, err := prepareBotHome(spec(BotHomeExpectNew), testSession)
+	require.NoError(t, err)
+	home, _ := BotHomeDir(testOrg, testBot)
 	require.NoError(t, os.Rename(home, filepath.Join(base, "moved-away")))
 	_, err = prepareBotHome(spec(BotHomeExpectExisting), testSession)
 	require.ErrorContains(t, err, "data directory is missing")
@@ -165,12 +197,16 @@ func TestPrepareBotHome_RefusesWhenBothSidesPopulated(t *testing.T) {
 }
 
 func TestPrepareBotHome_RefusesHomeWithoutOwnerRecord(t *testing.T) {
-	useTempWorkspaces(t)
-	home, _ := BotHomeDir(testOrg, testBot)
-	writeFile(t, filepath.Join(home, "unknown.txt"), "x", 0o600)
-	_, err := prepareBotHome(spec(BotHomeExpectNew), testSession)
-	require.ErrorContains(t, err, "without an owner record")
-	require.Equal(t, "x", readFile(t, filepath.Join(home, "unknown.txt")))
+	for _, expect := range []BotHomeExpectation{BotHomeExpectNew, BotHomeExpectExisting} {
+		t.Run(string(expect), func(t *testing.T) {
+			useTempWorkspaces(t)
+			home, _ := BotHomeDir(testOrg, testBot)
+			writeFile(t, filepath.Join(home, "unknown.txt"), "x", 0o600)
+			_, err := prepareBotHome(spec(expect), testSession)
+			require.ErrorContains(t, err, "without an owner record")
+			require.Equal(t, "x", readFile(t, filepath.Join(home, "unknown.txt")))
+		})
+	}
 }
 
 func TestPrepareBotHome_RefusesAnotherTenantsOwnerRecord(t *testing.T) {
