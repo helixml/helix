@@ -11,6 +11,9 @@ import (
 // dump was cancelled. Migrations must instead give up within a bounded time,
 // name the blocking session, and succeed once the lock is gone.
 func TestMigrationFailsFastBehindALock(t *testing.T) {
+	// CI runs the migrations once up front and the tests with
+	// HELIX_SKIP_AUTOMIGRATE=1; this test is about running them.
+	t.Setenv("HELIX_SKIP_AUTOMIGRATE", "")
 	db := GetTestDB()
 
 	saved := lockTimeoutRetryDelays
