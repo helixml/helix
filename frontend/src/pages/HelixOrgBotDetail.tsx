@@ -141,6 +141,9 @@ const HelixOrgBotDetail: FC = () => {
   const switchAgent = useSwitchAgent(chatSessionId ?? '')
 
   const bot = data?.bot
+  // The streak warning carries the latest error, so it replaces the single
+  // activation_error alert instead of repeating it.
+  const showActivationFailureStreak = (bot?.activation_failure_streak ?? 0) >= ACTIVATION_FAILURE_ALERT_STREAK
   // The server decides who may change this bot (owners, admins, or whoever
   // can edit its agent); members who cannot get a read-only page.
   const canEdit = bot?.can_edit === true
@@ -517,13 +520,13 @@ const HelixOrgBotDetail: FC = () => {
                   onRestart={() => { void handleRestartSession() }}
                 />
 
-                {bot.activation_error && (
+                {bot.activation_error && !showActivationFailureStreak && (
                   <Alert severity="error" role="alert" sx={{ mb: 2 }}>
                     {bot.activation_error}
                   </Alert>
                 )}
 
-                {(bot.activation_failure_streak ?? 0) >= ACTIVATION_FAILURE_ALERT_STREAK && (
+                {showActivationFailureStreak && (
                   <Alert severity="warning" role="alert" sx={{ mb: 2 }}>
                     The last {bot.activation_failure_streak} activations of this bot failed, so its scheduled and
                     triggered work is not running (chat may still work). Latest error: {bot.last_activation_failure?.replace(/\.$/, '')}.

@@ -86,11 +86,12 @@ type BotDTO struct {
 	// when a newer activation starts or succeeds.
 	ActivationError string `json:"activation_error,omitempty"`
 	// ActivationFailureStreak counts the newest activations that failed in a
-	// row; LastActivationFailure is the newest one's error. Operator chat turns
-	// do not reset them, so repeated bounces of scheduled deliveries surface
-	// even while the desktop answers chat.
-	ActivationFailureStreak int    `json:"activation_failure_streak,omitempty"`
-	LastActivationFailure   string `json:"last_activation_failure,omitempty"`
+	// row. Operator chat turns do not reset it, so repeated bounces of
+	// scheduled deliveries surface even while the desktop answers chat.
+	ActivationFailureStreak int `json:"activation_failure_streak,omitempty"`
+	// LastActivationFailure is the error of the newest failed activation in
+	// ActivationFailureStreak.
+	LastActivationFailure string `json:"last_activation_failure,omitempty"`
 	// RestartRequired is true when the sandbox is running but still holds
 	// the tool list and instructions from before the last save. Drives the
 	// restart banner on the bot page and the org chat panel.

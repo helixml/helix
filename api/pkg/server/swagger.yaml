@@ -144,9 +144,8 @@ definitions:
       activation_failure_streak:
         description: |-
           ActivationFailureStreak counts the newest activations that failed in a
-          row; LastActivationFailure is the newest one's error. Operator chat turns
-          do not reset them, so repeated bounces of scheduled deliveries surface
-          even while the desktop answers chat.
+          row. Operator chat turns do not reset it, so repeated bounces of
+          scheduled deliveries surface even while the desktop answers chat.
         type: integer
       agent_model:
         type: string
@@ -206,6 +205,9 @@ definitions:
           PUT /orgs/{org}/bots/{id}/keep-alive.
         type: boolean
       last_activation_failure:
+        description: |-
+          LastActivationFailure is the error of the newest failed activation in
+          ActivationFailureStreak.
         type: string
       legacy_app_id:
         type: string
@@ -4000,24 +4002,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - email
-    - local
     - github
-    - webhook
-    - cron
-    - helix_events
-    - gitlab
     - slack
+    - local
+    - cron
+    - email
+    - gitlab
+    - webhook
+    - helix_events
     type: string
     x-enum-varnames:
-    - KindEmail
-    - KindLocal
     - KindGitHub
-    - KindWebhook
-    - KindCron
-    - KindHelixEvents
-    - KindGitLab
     - KindSlack
+    - KindLocal
+    - KindCron
+    - KindEmail
+    - KindGitLab
+    - KindWebhook
+    - KindHelixEvents
   transport.ResolvedActivation:
     properties:
       address:

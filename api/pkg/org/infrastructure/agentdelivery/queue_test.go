@@ -364,3 +364,28 @@ func TestQueueAbandonsDeliveryThatKeepsFailingSoLaterDeliveriesRun(t *testing.T)
 	require.Equal(t, 2, poisonAttempts)
 	mu.Unlock()
 }
+
+func TestQueueDropsUndecodableDeliverySoLaterDeliveriesRun(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	ran := make(chan string, 1)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		ran <- triggers[0].EventID
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	require.NoError(t, q.consume(consumerName("org-test", "agent-a"), subjectFor("org-test", "agent-a")))
+	require.NoError(t, n.PublishDurable(context.Background(), streamName, subjectFor("org-test", "agent-a"), []byte("not json")))
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "hourly"})
+
+	select {
+	case id := <-ran:
+		require.Equal(t, "hourly", id)
+	case <-time.After(3 * time.Second):
+		t.Fatal("an undecodable delivery blocked the agent's queue")
+	}
+}

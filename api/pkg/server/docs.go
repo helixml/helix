@@ -26506,7 +26506,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "activation_failure_streak": {
-                    "description": "ActivationFailureStreak counts the newest activations that failed in a\nrow; LastActivationFailure is the newest one's error. Operator chat turns\ndo not reset them, so repeated bounces of scheduled deliveries surface\neven while the desktop answers chat.",
+                    "description": "ActivationFailureStreak counts the newest activations that failed in a\nrow. Operator chat turns do not reset it, so repeated bounces of\nscheduled deliveries surface even while the desktop answers chat.",
                     "type": "integer"
                 },
                 "agent_model": {
@@ -26572,6 +26572,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "last_activation_failure": {
+                    "description": "LastActivationFailure is the error of the newest failed activation in\nActivationFailureStreak.",
                     "type": "string"
                 },
                 "legacy_app_id": {
@@ -31887,24 +31888,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "email",
-                "local",
                 "github",
-                "webhook",
+                "slack",
+                "local",
                 "cron",
-                "helix_events",
+                "email",
                 "gitlab",
-                "slack"
+                "webhook",
+                "helix_events"
             ],
             "x-enum-varnames": [
-                "KindEmail",
-                "KindLocal",
                 "KindGitHub",
-                "KindWebhook",
+                "KindSlack",
+                "KindLocal",
                 "KindCron",
-                "KindHelixEvents",
+                "KindEmail",
                 "KindGitLab",
-                "KindSlack"
+                "KindWebhook",
+                "KindHelixEvents"
             ]
         },
         "transport.ResolvedActivation": {
