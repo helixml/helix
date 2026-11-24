@@ -218,6 +218,12 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		dto.ActivationError = displayActivationError(dto.ActivationError)
+		dto.ActivationFailureStreak, dto.LastActivationFailure, err = a.deps.Activations.FailureStreak(ctx, orgID, id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("get bot %s activation failures: %w", id, err))
+			return
+		}
+		dto.LastActivationFailure = displayActivationError(dto.LastActivationFailure)
 	}
 	// Seeded nodes carry their built-in prompt so the UI can offer a
 	// reset to it; operator-created nodes have none and the field stays

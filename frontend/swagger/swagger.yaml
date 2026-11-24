@@ -141,6 +141,13 @@ definitions:
           ActivationError is the latest completed activation failure. It clears
           when a newer activation starts or succeeds.
         type: string
+      activation_failure_streak:
+        description: |-
+          ActivationFailureStreak counts the newest activations that failed in a
+          row; LastActivationFailure is the newest one's error. Operator chat turns
+          do not reset them, so repeated bounces of scheduled deliveries surface
+          even while the desktop answers chat.
+        type: integer
       agent_model:
         type: string
       agent_runtime:
@@ -198,6 +205,8 @@ definitions:
           KeepAlive exempts the bot's desktop from idle shutdown. Changed through
           PUT /orgs/{org}/bots/{id}/keep-alive.
         type: boolean
+      last_activation_failure:
+        type: string
       legacy_app_id:
         type: string
       model:
@@ -3991,24 +4000,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
-    - cron
+    - email
+    - local
     - github
+    - webhook
+    - cron
     - helix_events
     - gitlab
-    - webhook
-    - email
     - slack
-    - local
     type: string
     x-enum-varnames:
-    - KindCron
+    - KindEmail
+    - KindLocal
     - KindGitHub
+    - KindWebhook
+    - KindCron
     - KindHelixEvents
     - KindGitLab
-    - KindWebhook
-    - KindEmail
     - KindSlack
-    - KindLocal
   transport.ResolvedActivation:
     properties:
       address:

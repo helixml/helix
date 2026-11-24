@@ -38,6 +38,18 @@ func maxPromptQueueRetries() int {
 	return defaultMaxPromptQueueRetries
 }
 
+// PromptRetriesExhausted reports whether the queue will never re-select a
+// failed prompt again: it was crash-marked or used its whole retry budget.
+func PromptRetriesExhausted(entry *types.PromptHistoryEntry) bool {
+	if entry == nil || entry.Status != "failed" {
+		return false
+	}
+	if entry.NextRetryAt != nil && entry.NextRetryAt.Equal(crashedPromptRetrySentinel) {
+		return true
+	}
+	return entry.RetryCount >= maxPromptQueueRetries()
+}
+
 // SyncPromptHistory syncs prompt history entries from the frontend
 // For new entries: creates them with all frontend fields
 // For existing entries: updates only frontend-owned fields (interrupt, queuePosition)

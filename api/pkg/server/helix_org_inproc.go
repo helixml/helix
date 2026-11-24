@@ -1148,7 +1148,10 @@ func recoverableActivationDeliveryError(interaction *types.Interaction) bool {
 	if interaction == nil || interaction.State != types.InteractionStateError {
 		return false
 	}
-	if interaction.Error == externalAgentStoppedTurnError {
+	// The agent never came online, so no work happened and the turn is safe
+	// to replay. Without this a retried activation re-reads the old error
+	// forever instead of delivering again.
+	if interaction.Error == externalAgentStoppedTurnError || interaction.Error == agentNeverConnectedReason {
 		return true
 	}
 	// Zed emits this registration error before it starts the harness command.
@@ -1341,8 +1344,14 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			entry.Status = "pending"
 		}
 		if entry.Status == "failed" {
+			if store.PromptRetriesExhausted(entry) {
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("activation prompt %s will not be retried: %s", promptID, entry.ErrorMessage))
+			}
 			c.server.nudgeSessionQueue(sessionID)
 			return runtimehelix.DeliveryResult{}, fmt.Errorf("activation prompt %s is pending retry", promptID)
+		}
+		if interaction != nil && interaction.State == types.InteractionStateError && entry.Status == "sent" {
+			return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("activation turn %s failed: %s", interaction.ID, interaction.Error))
 		}
 		if entry.Status == "pending" {
 			if recoverableActivationDeliveryError(interaction) {

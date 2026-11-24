@@ -26505,6 +26505,10 @@ const docTemplate = `{
                     "description": "ActivationError is the latest completed activation failure. It clears\nwhen a newer activation starts or succeeds.",
                     "type": "string"
                 },
+                "activation_failure_streak": {
+                    "description": "ActivationFailureStreak counts the newest activations that failed in a\nrow; LastActivationFailure is the newest one's error. Operator chat turns\ndo not reset them, so repeated bounces of scheduled deliveries surface\neven while the desktop answers chat.",
+                    "type": "integer"
+                },
                 "agent_model": {
                     "type": "string"
                 },
@@ -26566,6 +26570,9 @@ const docTemplate = `{
                 "keep_alive": {
                     "description": "KeepAlive exempts the bot's desktop from idle shutdown. Changed through\nPUT /orgs/{org}/bots/{id}/keep-alive.",
                     "type": "boolean"
+                },
+                "last_activation_failure": {
+                    "type": "string"
                 },
                 "legacy_app_id": {
                     "type": "string"
@@ -31880,24 +31887,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
+                "email",
+                "local",
                 "github",
+                "webhook",
+                "cron",
                 "helix_events",
                 "gitlab",
-                "webhook",
-                "email",
-                "slack",
-                "local"
+                "slack"
             ],
             "x-enum-varnames": [
-                "KindCron",
+                "KindEmail",
+                "KindLocal",
                 "KindGitHub",
+                "KindWebhook",
+                "KindCron",
                 "KindHelixEvents",
                 "KindGitLab",
-                "KindWebhook",
-                "KindEmail",
-                "KindSlack",
-                "KindLocal"
+                "KindSlack"
             ]
         },
         "transport.ResolvedActivation": {

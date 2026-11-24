@@ -76,4 +76,25 @@ describe('HelixOrgBotDetail activation error', () => {
       '32 bot activations are already running for this organization; stop another bot and try again.',
     )
   })
+
+  it('warns about repeated activation failures even when chat cleared the latest error', () => {
+    mocks.bot = {
+      id: 'b-one',
+      name: 'Agent One',
+      status: 'running',
+      activation_failure_streak: 3,
+      last_activation_failure: "session error: The AI agent didn't come online in time",
+    }
+    render(<HelixOrgBotDetail />)
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('The last 3 activations of this bot failed')
+    expect(alert).toHaveTextContent("didn't come online in time")
+  })
+
+  it('does not warn about a single failure', () => {
+    mocks.bot = { id: 'b-one', name: 'Agent One', status: 'running', activation_failure_streak: 1, last_activation_failure: 'once' }
+    render(<HelixOrgBotDetail />)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
 })

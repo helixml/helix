@@ -101,6 +101,10 @@ import {
 } from '../services/workerChatSession'
 import { useSwitchAgent } from '../services/sessionService'
 
+// One failure is already shown as activation_error; a streak means the bot's
+// queued work is stuck, which chat turns would otherwise hide.
+const ACTIVATION_FAILURE_ALERT_STREAK = 2
+
 const HelixOrgBotDetail: FC = () => {
   const router5 = useRouter5()
   const router = useRouter()
@@ -516,6 +520,14 @@ const HelixOrgBotDetail: FC = () => {
                 {bot.activation_error && (
                   <Alert severity="error" role="alert" sx={{ mb: 2 }}>
                     {bot.activation_error}
+                  </Alert>
+                )}
+
+                {(bot.activation_failure_streak ?? 0) >= ACTIVATION_FAILURE_ALERT_STREAK && (
+                  <Alert severity="warning" role="alert" sx={{ mb: 2 }}>
+                    The last {bot.activation_failure_streak} activations of this bot failed, so its scheduled and
+                    triggered work is not running (chat may still work). Latest error: {bot.last_activation_failure}.
+                    Restart the bot if this keeps happening.
                   </Alert>
                 )}
 

@@ -21,6 +21,11 @@ const (
 	streamName    = "HELIX_ORG_AGENT_ACTIVATIONS"
 	subjectPrefix = "helix-org.agent-activations"
 	maxRetryDelay = 30 * time.Minute
+	// maxDeliveryAttempts bounds how long one failing delivery may hold its
+	// agent's single-slot FIFO. Backoff doubles from 1s, so the last attempt
+	// lands roughly 35 minutes after the first; then the delivery is
+	// abandoned and the deliveries queued behind it run.
+	maxDeliveryAttempts = 12
 )
 
 type envelope struct {
@@ -43,6 +48,8 @@ type Queue struct {
 	removed map[string]struct{}
 	publish map[string]*sync.Mutex
 	running map[string]*inflight
+	// maxAttempts is maxDeliveryAttempts; tests shorten it.
+	maxAttempts uint64
 }
 
 // inflight is the activation a consumer is currently running.
@@ -63,7 +70,7 @@ func New(ctx context.Context, provider pubsub.DurablePubSub, spawn activation.Sp
 		return nil, err
 	}
 	queueCtx, cancel := context.WithCancel(ctx)
-	return &Queue{ctx: queueCtx, cancel: cancel, pubsub: provider, spawn: spawn, logger: logger, active: map[string]struct{}{}, removed: map[string]struct{}{}, publish: map[string]*sync.Mutex{}, running: map[string]*inflight{}}, nil
+	return &Queue{ctx: queueCtx, cancel: cancel, pubsub: provider, spawn: spawn, logger: logger, active: map[string]struct{}{}, removed: map[string]struct{}{}, publish: map[string]*sync.Mutex{}, running: map[string]*inflight{}, maxAttempts: maxDeliveryAttempts}, nil
 }
 
 func (q *Queue) Close() { q.cancel() }
@@ -314,6 +321,16 @@ func (q *Queue) handle(msg *pubsub.Message) {
 		if errors.Is(err, activation.ErrNonRetryable) {
 			if ackErr := msg.Ack(); ackErr != nil {
 				q.logger.Error("agent delivery: ack terminal failure", "agent", delivery.AgentID, "err", ackErr)
+			}
+			return
+		}
+		if msg.NumDelivered >= q.maxAttempts {
+			q.logger.Error("agent delivery: abandoning activation after repeated failures",
+				"org_id", delivery.OrganizationID, "agent", delivery.AgentID,
+				"trigger_kind", delivery.Trigger.Kind, "delivery_id", delivery.Trigger.DeliveryID,
+				"attempts", msg.NumDelivered, "err", err)
+			if ackErr := msg.Ack(); ackErr != nil {
+				q.logger.Error("agent delivery: ack abandoned delivery", "agent", delivery.AgentID, "err", ackErr)
 			}
 			return
 		}

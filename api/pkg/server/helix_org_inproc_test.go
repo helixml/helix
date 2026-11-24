@@ -1220,13 +1220,63 @@ func TestInProcSpawnerClient_OtherDeliveryErrorRemainsTerminal(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	delivery, err := client.SendMessage(ctx, session.ID, "do not retry", deliveryID, false)
-	require.NoError(t, err)
-	require.Equal(t, interaction.ID, delivery.InteractionID)
-	require.Empty(t, delivery.PreviousInteractionID)
+	// A retry can only re-read the same failed turn, so it must stop the
+	// delivery instead of holding the bot's activation queue.
+	_, err = client.SendMessage(ctx, session.ID, "do not retry", deliveryID, false)
+	require.ErrorIs(t, err, activation.ErrNonRetryable)
+	require.ErrorContains(t, err, interaction.ID)
 	entry, err := store.GetPromptHistoryEntry(ctx, promptID)
 	require.NoError(t, err)
 	require.Equal(t, "sent", entry.Status)
+	latest, err := store.GetLatestInteractionByPromptID(ctx, promptID)
+	require.NoError(t, err)
+	require.Equal(t, interaction.ID, latest.ID)
+}
+
+func TestInProcSpawnerClient_AgentNeverConnectedDeliveryReplays(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/never-connected"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_never_connected", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "hourly check", Status: "sent",
+	}))
+	oldInteraction, err := store.CreateInteraction(ctx, &types.Interaction{
+		ID: "int_never_connected", SessionID: session.ID, PromptID: promptID,
+		State: types.InteractionStateError, Error: agentNeverConnectedReason,
+	})
+	require.NoError(t, err)
+
+	delivery, err := client.SendMessage(ctx, session.ID, "hourly check", deliveryID, false)
+	require.NoError(t, err)
+	require.Equal(t, oldInteraction.ID, delivery.PreviousInteractionID)
+	require.Empty(t, delivery.InteractionID)
+	out, err := client.GetDeliveryOutput(ctx, delivery)
+	require.NoError(t, err)
+	require.NotEqual(t, oldInteraction.ID, out.InteractionID)
+	require.NotContains(t, out.Output, "didn't come online")
+	require.Eventually(t, func() bool {
+		retry, getErr := store.GetLatestInteractionByPromptID(ctx, promptID)
+		return getErr == nil && retry != nil && retry.ID != oldInteraction.ID
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestInProcSpawnerClient_ExhaustedFailedDeliveryDoesNotRetry(t *testing.T) {
+	_, store, client, user, ctx := newInProcTestSetup(t)
+	const deliveryID = "stream/exhausted"
+	session, err := store.CreateSession(ctx, types.Session{ID: "ses_exhausted_delivery", Owner: user.ID})
+	require.NoError(t, err)
+	promptID := activationDeliveryID(system.PromptHistoryPrefix, deliveryID)
+	require.NoError(t, store.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
+		ID: promptID, SessionID: session.ID, UserID: user.ID, Content: "sweep slack", Status: "failed",
+		RetryCount: 20, ErrorMessage: "dispatch failed",
+	}))
+
+	_, err = client.SendMessage(ctx, session.ID, "sweep slack", deliveryID, false)
+	require.ErrorIs(t, err, activation.ErrNonRetryable)
+	require.ErrorContains(t, err, "dispatch failed")
+	require.NotContains(t, err.Error(), "pending retry")
 }
 
 // TestInProcProjectService_GetAppConfig_RoundTrips seeds an app row and
