@@ -328,3 +328,64 @@ func TestQueueCancelOutstandingCancelsRunningActivation(t *testing.T) {
 		t.Fatal("activation after restart did not start")
 	}
 }
+
+func TestQueueAbandonsDeliveryThatKeepsFailingSoLaterDeliveriesRun(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	var mu sync.Mutex
+	poisonAttempts := 0
+	ran := make(chan string, 1)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		if triggers[0].EventID == "poison" {
+			mu.Lock()
+			poisonAttempts++
+			mu.Unlock()
+			return errors.New("session error: the agent did not come online")
+		}
+		ran <- triggers[0].EventID
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+	q.maxAttempts = 2
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "poison"})
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "hourly"})
+
+	select {
+	case id := <-ran:
+		require.Equal(t, "hourly", id)
+	case <-time.After(10 * time.Second):
+		t.Fatal("a delivery queued behind a failing one never ran")
+	}
+	mu.Lock()
+	require.Equal(t, 2, poisonAttempts)
+	mu.Unlock()
+}
+
+func TestQueueDropsUndecodableDeliverySoLaterDeliveriesRun(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	ran := make(chan string, 1)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		ran <- triggers[0].EventID
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	require.NoError(t, q.consume(consumerName("org-test", "agent-a"), subjectFor("org-test", "agent-a")))
+	require.NoError(t, n.PublishDurable(context.Background(), streamName, subjectFor("org-test", "agent-a"), []byte("not json")))
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "hourly"})
+
+	select {
+	case id := <-ran:
+		require.Equal(t, "hourly", id)
+	case <-time.After(3 * time.Second):
+		t.Fatal("an undecodable delivery blocked the agent's queue")
+	}
+}

@@ -909,3 +909,44 @@ func TestReset_ClosesActivationRowsItPurged(t *testing.T) {
 		t.Fatalf("start still bound to the purged row: %+v (dispatches %d)", res, disp.manualCalls)
 	}
 }
+
+func TestFailureStreakCountsConsecutiveFailuresIgnoringOpenRows(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := memory.New()
+	svc := New(Deps{Repo: st.Activations, Progress: fakeSessionProgress{startedAt: time.Date(2026, 11, 24, 18, 0, 0, 0, time.UTC)}})
+	workerID := orgchart.NodeID("b-worker")
+	base := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	add := func(id string, at time.Time, outcome *activation.Outcome) {
+		t.Helper()
+		act, err := activation.New(activation.ID(id), workerID, []activation.Trigger{{Kind: activation.TriggerEvent}}, at, "org-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Activations.Create(ctx, act); err != nil {
+			t.Fatal(err)
+		}
+		if outcome != nil {
+			if err := st.Activations.Complete(ctx, "org-test", act.ID, *outcome, at.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	add("a-ok", base, &activation.Outcome{Status: activation.StatusOK})
+	add("a-fail-1", base.Add(time.Hour), &activation.Outcome{Status: activation.StatusError, Error: "first bounce"})
+	add("a-fail-2", base.Add(2*time.Hour), &activation.Outcome{Status: activation.StatusError, Error: "second bounce"})
+	// A later successful operator chat turn hides LatestError but must not
+	// hide the failing activations.
+	if got, err := svc.LatestError(ctx, "org-test", workerID); err != nil || got != "" {
+		t.Fatalf("LatestError = %q, %v; want masked", got, err)
+	}
+	add("a-open", base.Add(3*time.Hour), nil)
+
+	streak, latest, err := svc.FailureStreak(ctx, "org-test", workerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streak != 2 || latest != "second bounce" {
+		t.Fatalf("FailureStreak = %d, %q; want 2, %q", streak, latest, "second bounce")
+	}
+}

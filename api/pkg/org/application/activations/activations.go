@@ -246,6 +246,38 @@ func (a *Activations) LatestError(ctx context.Context, orgID string, workerID or
 	return rows[0].Outcome.Error, nil
 }
 
+// failureStreakWindow bounds how many recent activations FailureStreak reads.
+const failureStreakWindow = 50
+
+// FailureStreak returns how many of the newest completed activations failed in
+// a row (capped at failureStreakWindow) and the newest failure's error. Unlike
+// LatestError, turns that did not come from the activation queue — an
+// operator chatting with the bot — do not reset it, so a bot whose scheduled
+// deliveries keep bouncing stays visibly unhealthy.
+func (a *Activations) FailureStreak(ctx context.Context, orgID string, workerID orgchart.NodeID) (int, string, error) {
+	if a.repo == nil {
+		return 0, "", nil
+	}
+	rows, err := a.repo.ListForWorker(ctx, orgID, workerID, failureStreakWindow)
+	if err != nil {
+		return 0, "", err
+	}
+	streak, latest := 0, ""
+	for _, row := range rows {
+		if !row.IsCompleted() {
+			continue
+		}
+		if row.Outcome.Status != activation.StatusError {
+			break
+		}
+		if streak == 0 {
+			latest = row.Outcome.Error
+		}
+		streak++
+	}
+	return streak, latest, nil
+}
+
 func (a *Activations) activate(ctx context.Context, orgID string, workerID orgchart.NodeID, forceManual bool) (ActivateResult, error) {
 	if a.ensurer == nil || a.dispatcher == nil {
 		return ActivateResult{}, ErrActivateUnavailable

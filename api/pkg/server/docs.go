@@ -26505,6 +26505,10 @@ const docTemplate = `{
                     "description": "ActivationError is the latest completed activation failure. It clears\nwhen a newer activation starts or succeeds.",
                     "type": "string"
                 },
+                "activation_failure_streak": {
+                    "description": "ActivationFailureStreak counts the newest activations that failed in a\nrow. Operator chat turns do not reset it, so repeated bounces of\nscheduled deliveries surface even while the desktop answers chat.",
+                    "type": "integer"
+                },
                 "agent_model": {
                     "type": "string"
                 },
@@ -26566,6 +26570,10 @@ const docTemplate = `{
                 "keep_alive": {
                     "description": "KeepAlive exempts the bot's desktop from idle shutdown. Changed through\nPUT /orgs/{org}/bots/{id}/keep-alive.",
                     "type": "boolean"
+                },
+                "last_activation_failure": {
+                    "description": "LastActivationFailure is the error of the newest failed activation in\nActivationFailureStreak.",
+                    "type": "string"
                 },
                 "legacy_app_id": {
                     "type": "string"
@@ -31880,24 +31888,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
-                "cron",
                 "github",
-                "helix_events",
+                "slack",
+                "local",
+                "cron",
+                "email",
                 "gitlab",
                 "webhook",
-                "email",
-                "slack",
-                "local"
+                "helix_events"
             ],
             "x-enum-varnames": [
-                "KindCron",
                 "KindGitHub",
-                "KindHelixEvents",
+                "KindSlack",
+                "KindLocal",
+                "KindCron",
+                "KindEmail",
                 "KindGitLab",
                 "KindWebhook",
-                "KindEmail",
-                "KindSlack",
-                "KindLocal"
+                "KindHelixEvents"
             ]
         },
         "transport.ResolvedActivation": {

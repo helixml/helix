@@ -99,6 +99,12 @@ export interface ApiBotDTO {
    * when a newer activation starts or succeeds.
    */
   activation_error?: string;
+  /**
+   * ActivationFailureStreak counts the newest activations that failed in a
+   * row. Operator chat turns do not reset it, so repeated bounces of
+   * scheduled deliveries surface even while the desktop answers chat.
+   */
+  activation_failure_streak?: number;
   agent_model?: string;
   agent_runtime?: string;
   /**
@@ -144,6 +150,11 @@ export interface ApiBotDTO {
    * PUT /orgs/{org}/bots/{id}/keep-alive.
    */
   keep_alive?: boolean;
+  /**
+   * LastActivationFailure is the error of the newest failed activation in
+   * ActivationFailureStreak.
+   */
+  last_activation_failure?: string;
   legacy_app_id?: string;
   model?: string;
   /**
@@ -2578,14 +2589,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
-  KindCron = "cron",
   KindGitHub = "github",
-  KindHelixEvents = "helix_events",
-  KindGitLab = "gitlab",
-  KindWebhook = "webhook",
-  KindEmail = "email",
   KindSlack = "slack",
   KindLocal = "local",
+  KindCron = "cron",
+  KindEmail = "email",
+  KindGitLab = "gitlab",
+  KindWebhook = "webhook",
+  KindHelixEvents = "helix_events",
 }
 
 export interface TransportResolvedActivation {
