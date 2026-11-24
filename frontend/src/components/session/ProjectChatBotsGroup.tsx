@@ -526,6 +526,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
               organizationMembers={organizationMembers}
               currentUser={currentUser}
               projectName={item.projectName}
+              linked
               onOpenItem={onOpenItem}
               onOpenItemContextMenu={onOpenItemContextMenu}
               onArchiveItem={onArchiveItem}
