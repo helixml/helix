@@ -526,7 +526,7 @@ const HelixOrgBotDetail: FC = () => {
                 {(bot.activation_failure_streak ?? 0) >= ACTIVATION_FAILURE_ALERT_STREAK && (
                   <Alert severity="warning" role="alert" sx={{ mb: 2 }}>
                     The last {bot.activation_failure_streak} activations of this bot failed, so its scheduled and
-                    triggered work is not running (chat may still work). Latest error: {bot.last_activation_failure}.
+                    triggered work is not running (chat may still work). Latest error: {bot.last_activation_failure?.replace(/\.$/, '')}.
                     Restart the bot if this keeps happening.
                   </Alert>
                 )}
