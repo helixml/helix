@@ -36,10 +36,10 @@ export type ProjectChatItemRowProps = {
   /** Set when the row sits in a cross-project list (a person's or bot's work); shown in the tooltip. */
   projectName?: string
   /**
-   * The row is a second view of a task that lives in a project (a bot's list),
-   * not a separate task. Marked so it isn't read as a duplicate.
+   * Set when the row is a second listing of an item shown under this project
+   * (a bot's list). Marked so it isn't read as a duplicate.
    */
-  linked?: boolean
+  linkedProjectName?: string
   onOpenItem: (item: SidebarItem) => void
   onOpenItemContextMenu: (event: MouseEvent<HTMLElement>, item: SidebarItem) => void
   onArchiveItem: (item: SidebarItem) => void
@@ -59,7 +59,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   repositoryName,
   defaultBranch,
   projectName,
-  linked = false,
+  linkedProjectName,
   onOpenItem,
   onOpenItemContextMenu,
   onArchiveItem,
@@ -285,13 +285,13 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     </Box>
   )
 
-  const linkedNoun = item.kind === 'spec-task' ? 'task' : 'chat'
-  const linkedTitle = `Linked: the same ${linkedNoun} as in ${projectName ? `project ${projectName}` : 'its project'}, not a copy`
-  const linkedNode = linked && !isBotInstance && (
+  const linkedTitle = `Linked: the same ${item.kind === 'spec-task' ? 'task' : 'chat'} as in project ${linkedProjectName}, not a copy`
+  const linkedNode = linkedProjectName && (
     <Tooltip title={linkedTitle}>
       <Box
         component="span"
         data-testid="sidebar-item-linked"
+        role="img"
         aria-label={linkedTitle}
         onMouseOver={(event) => event.stopPropagation()}
         sx={{

@@ -690,6 +690,13 @@ export const botHomeProjectIds = (bots: SidebarBot[]): Set<string> => (
   new Set(bots.flatMap((bot) => bot.projectId ? [bot.projectId] : []))
 )
 
+// A bot's task row is a second listing of a task shown under its project.
+// Instances aren't tasks, and a bot home project is hidden from the project
+// list, so neither has another listing to link to.
+export const botTaskLinkedProjectName = (item: SidebarItem, hiddenProjectIds: ReadonlySet<string>): string | undefined => (
+  !item.botInstanceOf && item.projectId && !hiddenProjectIds.has(item.projectId) ? item.projectName : undefined
+)
+
 export const withoutBotProjects = (projects: TypesProject[], bots: SidebarBot[]): TypesProject[] => {
   const hidden = botHomeProjectIds(bots)
   return projects.filter((project) => !project.id || !hidden.has(project.id))

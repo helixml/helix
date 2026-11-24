@@ -39,7 +39,9 @@ import ProjectChatItemRow from './ProjectChatItemRow'
 import { ActivityStatusDot } from './ProjectChatItemBadges'
 import ProjectChatShowMore from './ProjectChatShowMore'
 import {
+  botHomeProjectIds,
   botInstanceSidebarItem,
+  botTaskLinkedProjectName,
   buildPersonChatItems,
   filterProjectChatGroups,
   pinnedAtByItemKeyFrom,
@@ -181,6 +183,7 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
   const closeMenu = () => setMenu(null)
 
   const menuIconSize = 15
+  const hiddenProjectIds = botHomeProjectIds(bots)
 
   return (
     <Box>
@@ -194,6 +197,7 @@ const ProjectChatBotsGroup: FC<ProjectChatBotsGroupProps> = ({
           onToggle={() => onToggleBot(bot.id)}
           onOpen={() => openBot(bot)}
           onOpenMenu={(event) => openMenu(event, bot)}
+          hiddenProjectIds={hiddenProjectIds}
           {...rowProps}
         />
       ))}
@@ -263,6 +267,8 @@ type ProjectChatBotEntryProps = ItemRowProps & {
   onToggle: () => void
   onOpen: () => void
   onOpenMenu: (event: MouseEvent<HTMLElement>) => void
+  /** Bot home projects, which the sidebar hides from the project list. */
+  hiddenProjectIds: ReadonlySet<string>
 }
 
 // One agent: its row plus its instances and the spec tasks it created, across
@@ -277,6 +283,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
   onToggle,
   onOpen,
   onOpenMenu,
+  hiddenProjectIds,
   projects,
   query,
   activeItemId,
@@ -526,7 +533,7 @@ export const ProjectChatBotEntry: FC<ProjectChatBotEntryProps> = ({
               organizationMembers={organizationMembers}
               currentUser={currentUser}
               projectName={item.projectName}
-              linked
+              linkedProjectName={botTaskLinkedProjectName(item, hiddenProjectIds)}
               onOpenItem={onOpenItem}
               onOpenItemContextMenu={onOpenItemContextMenu}
               onArchiveItem={onArchiveItem}

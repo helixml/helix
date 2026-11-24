@@ -634,6 +634,18 @@ describe('ProjectChatSidebar bots and people', () => {
     ], bots).map((project) => project.id)).toEqual(['prj_app'])
   })
 
+  it('links a bot task to its project only when that project is listed', async () => {
+    const { botTaskLinkedProjectName } = await import('./ProjectChatSidebar.logic')
+    const hidden = new Set(['prj_chief'])
+    const task = { id: 'spt_1', kind: 'spec-task' as const, title: 'Fix cron', projectId: 'prj_app', projectName: 'Helix' }
+
+    expect(botTaskLinkedProjectName(task, hidden)).toBe('Helix')
+    // A bot home project is hidden from the project list: nothing to link to.
+    expect(botTaskLinkedProjectName({ ...task, projectId: 'prj_chief', projectName: 'chief-of-staff @ org' }, hidden)).toBeUndefined()
+    // Instances are live sandboxes listed only under their bot.
+    expect(botTaskLinkedProjectName({ ...task, kind: 'session', botInstanceOf: 'chief-of-staff' }, hidden)).toBeUndefined()
+  })
+
   it('lists the viewer first, then other members online first, never pending invitations', async () => {
     const { toSidebarMembers } = await import('./ProjectChatSidebar.logic')
     const members = toSidebarMembers([
