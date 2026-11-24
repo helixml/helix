@@ -5,6 +5,8 @@ package server
 func init() {
 	declareRoutePolicies(map[string]routePolicy{
 		"GET /api/v1/public/artifacts/{artifact_id}":                        handlerAuth("extractMiddleware; non-public artifacts need a caller authorized to the project").authz("authorizeUserToProjectByID"),
+		"GET /api/v1/public/spec-tasks/{taskId}/preview.png":                public("link preview image for chat-app unfurls; shows only title, number, status, PR counts and project name"),
+		"HEAD /api/v1/public/spec-tasks/{taskId}/preview.png":               public("link preview image for chat-app unfurls; shows only title, number, status, PR counts and project name"),
 		"POST /api/v1/projects/{id}/secret-intakes":                         object("requireProjectAccess"),
 		"GET /api/v1/projects/{id}/secret-intakes/{intake_id}":              object("secretIntakeForProject"),
 		"DELETE /api/v1/projects/{id}/secret-intakes/{intake_id}":           object("secretIntakeForProject"),

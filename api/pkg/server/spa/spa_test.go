@@ -113,3 +113,56 @@ func TestFileServerFrameAncestorsExemptsEmbedRoutes(t *testing.T) {
 		require.NotContains(t, rec.Header().Get("Content-Security-Policy"), "frame-ancestors", path)
 	}
 }
+
+func TestInjectHeadTags(t *testing.T) {
+	marked := []byte(`<head><!-- helix:og --><meta property="og:title" content="Helix" /><!-- /helix:og --></head>`)
+	require.Equal(t, `<head><meta property="og:title" content="Task" /></head>`,
+		string(injectHeadTags(marked, `<meta property="og:title" content="Task" />`)))
+	unmarked := []byte(`<head><title>x</title></head>`)
+	require.Equal(t, `<head><title>x</title><meta x /></head>`, string(injectHeadTags(unmarked, `<meta x />`)))
+}
+
+func TestFileServerInjectsHeadTagsOnShellFallback(t *testing.T) {
+	headTags := func(r *http.Request) string {
+		if r.URL.Path == "/orgs/acme/projects/prj_1/tasks/spt_1" {
+			return `<meta property="og:title" content="#1 Task" />`
+		}
+		return ""
+	}
+	dir := t.TempDir()
+	shell := `<!doctype html><head><!-- helix:og --><meta property="og:title" content="Helix" /><!-- /helix:og --><title>shell</title></head>`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.html"), []byte(shell), 0o600))
+	s := NewSPAFileServer(http.Dir(dir), ShellPolicy{HeadTags: headTags})
+
+	rec := serve(t, s, "/orgs/acme/projects/prj_1/tasks/spt_1")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `<meta property="og:title" content="#1 Task" />`)
+	require.Contains(t, rec.Body.String(), "<title>shell</title>")
+	require.Equal(t, "text/html; charset=utf-8", rec.Header().Get("Content-Type"))
+	require.Equal(t, "object-src 'none'; base-uri 'self'", rec.Header().Get("Content-Security-Policy"))
+	require.Equal(t, "no-cache, no-store, must-revalidate", rec.Header().Get("Cache-Control"))
+
+	require.NotContains(t, rec.Body.String(), `content="Helix"`)
+
+	rec = serve(t, s, "/login")
+	require.Contains(t, rec.Body.String(), `content="Helix"`)
+}
+
+func TestReverseProxyInjectsHeadTags(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html><head><title>dev</title></head></html>"))
+	}))
+	t.Cleanup(upstream.Close)
+	s := NewSPAReverseProxyServer(upstream.URL, func(r *http.Request) string {
+		if r.URL.Path == "/orgs/a/projects/p/tasks/t" {
+			return "<meta task />"
+		}
+		return ""
+	})
+
+	rec := serve(t, s, "/orgs/a/projects/p/tasks/t")
+	require.Equal(t, "<html><head><title>dev</title><meta task /></head></html>", rec.Body.String())
+	rec = serve(t, s, "/login")
+	require.Equal(t, "<html><head><title>dev</title></head></html>", rec.Body.String())
+}
