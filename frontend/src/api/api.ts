@@ -99,6 +99,12 @@ export interface ApiBotDTO {
    * when a newer activation starts or succeeds.
    */
   activation_error?: string;
+  /**
+   * ActivationFailureStreak counts the newest activations that failed in a
+   * row. Operator chat turns do not reset it, so repeated bounces of
+   * scheduled deliveries surface even while the desktop answers chat.
+   */
+  activation_failure_streak?: number;
   agent_model?: string;
   agent_runtime?: string;
   /**
@@ -106,6 +112,12 @@ export interface ApiBotDTO {
    * interaction is still waiting for its external agent.
    */
   agent_work_state?: TypesAgentWorkState;
+  /**
+   * AutoApprovePullRequests approves the bot's PR proposals as
+   * AutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.
+   */
+  auto_approve_pull_requests?: boolean;
+  auto_approve_pull_requests_by?: string;
   /**
    * CanEdit is true when the caller may change this Bot: organization
    * owners and platform admins, or a member who may update the Bot's
@@ -133,6 +145,16 @@ export interface ApiBotDTO {
    * default when the Bot never configured one).
    */
   instance_profile?: TypesBotInstanceProfile;
+  /**
+   * KeepAlive exempts the bot's desktop from idle shutdown. Changed through
+   * PUT /orgs/{org}/bots/{id}/keep-alive.
+   */
+  keep_alive?: boolean;
+  /**
+   * LastActivationFailure is the error of the newest failed activation in
+   * ActivationFailureStreak.
+   */
+  last_activation_failure?: string;
   legacy_app_id?: string;
   model?: string;
   /**
@@ -217,6 +239,51 @@ export interface ApiBotInstanceDTO {
   session_id?: string;
   sudo?: boolean;
   updated_at?: string;
+}
+
+export interface ApiBotResetDTO {
+  activation_id?: string;
+  erases?: string[];
+  home?: ApiBotResetHomeDTO;
+  keeps?: string[];
+  previous_session_id?: string;
+  scope?: string;
+  session_id?: string;
+}
+
+export interface ApiBotResetHomeDTO {
+  existed?: boolean;
+  generation?: string;
+  retired_path?: string;
+}
+
+export interface ApiBotResetPlanDTO {
+  scopes?: ApiBotResetScopeDTO[];
+}
+
+export interface ApiBotResetRequestDTO {
+  /** Confirm must equal the bot id. */
+  confirm?: string;
+  /** Scope is "session" or "session_and_home". */
+  scope?: string;
+}
+
+export interface ApiBotResetScopeDTO {
+  /** Available is false when the scope would be refused right now. */
+  available?: boolean;
+  erases?: string[];
+  keeps?: string[];
+  scope?: string;
+  unavailable_reason?: string;
+}
+
+export interface ApiBotRestartDTO {
+  activation_id?: string;
+  legacy_app_id?: string;
+  mode?: string;
+  preserves?: string[];
+  project_id?: string;
+  session_id?: string;
 }
 
 export interface ApiChartPositionDTO {
@@ -749,10 +816,64 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface HosthistorySample {
+  cpu?: number;
+  disk?: number;
+  memory?: number;
+  timestamp?: number;
+}
+
+export interface HydraBotHomeInventory {
+  /**
+   * BrowserProfile is the profile declared in .helix/browser.json (see
+   * desktop/shared/helix-browser.sh); nil when none is declared, in which
+   * case the browser uses .chrome-state.
+   */
+  browser_profile?: HydraDeclaredBrowserProfile;
+  chrome_profiles?: HydraChromeProfileStatus[];
+  top_level_entries?: number;
+}
+
+export enum HydraBotHomeOutcome {
+  BotHomeOutcomeExisting = "existing",
+  BotHomeOutcomeCreated = "created",
+  BotHomeOutcomeMigrated = "migrated",
+}
+
+export interface HydraBotHomeResult {
+  generation?: string;
+  inventory?: HydraBotHomeInventory;
+  migrated_from_session?: string;
+  outcome?: HydraBotHomeOutcome;
+  path?: string;
+}
+
+export interface HydraChromeProfileStatus {
+  cookies_db_present?: boolean;
+  default_prefs_valid?: boolean;
+  local_state_valid?: boolean;
+  path?: string;
+  singleton_lock?: boolean;
+}
+
 export interface HydraContainerBlkioStats {
   read_bytes?: number;
   session_id?: string;
   write_bytes?: number;
+}
+
+export interface HydraDeclaredBrowserProfile {
+  path?: string;
+  state?: HydraDeclaredBrowserProfileState;
+}
+
+export enum HydraDeclaredBrowserProfileState {
+  DeclaredBrowserProfileOK = "ok",
+  DeclaredBrowserProfileMissing = "missing",
+  DeclaredBrowserProfileOutsideWorkspace = "outside_workspace",
+  DeclaredBrowserProfileWrongIdentity = "wrong_identity",
+  DeclaredBrowserProfileInconsistent = "inconsistent",
+  DeclaredBrowserProfileInvalidDeclaration = "invalid_declaration",
 }
 
 export enum HydraDevContainerStatus {
@@ -1355,7 +1476,6 @@ export interface ServerClaudeLoginStartResponse {
 }
 
 export interface ServerClaudeModel {
-  description?: string;
   id?: string;
   name?: string;
 }
@@ -1411,6 +1531,8 @@ export interface ServerDeployWebServiceRequest {
 }
 
 export interface ServerDevContainerWithClients {
+  /** BotHome reports how the bot home was bound, when the request had one. */
+  bot_home?: HydraBotHomeResult;
   clients?: GithubComHelixmlHelixApiPkgServerClientInfo[];
   container_id?: string;
   container_name?: string;
@@ -1861,6 +1983,14 @@ export interface ServerModelSubstitution {
   original_model?: string;
   original_provider?: string;
   reason?: string;
+}
+
+export interface ServerOrgBotKeepAliveRequest {
+  keep_alive?: boolean;
+}
+
+export interface ServerOrgBotPRAutoApproveRequest {
+  enabled?: boolean;
 }
 
 export interface ServerOrganizationDomainInfo {
@@ -2459,14 +2589,14 @@ export enum TransportFieldType {
 }
 
 export enum TransportKind {
+  KindGitHub = "github",
+  KindSlack = "slack",
+  KindLocal = "local",
+  KindCron = "cron",
   KindEmail = "email",
   KindGitLab = "gitlab",
-  KindLocal = "local",
-  KindHelixEvents = "helix_events",
-  KindSlack = "slack",
-  KindGitHub = "github",
   KindWebhook = "webhook",
-  KindCron = "cron",
+  KindHelixEvents = "helix_events",
 }
 
 export interface TransportResolvedActivation {
@@ -2754,11 +2884,10 @@ export interface TypesArtifact {
   organization_id?: string;
   project_id?: string;
   /**
-   * SpecTaskID is the spec task whose task-confined key created the
+   * SpecTaskID is the spec task whose task-bound key created the
    * artifact, set by the server from the key and never from the request.
-   * Such a key may change or delete only its own task's artifacts, and a
-   * reader can tell one lane's artifacts from another's. Empty for
-   * artifacts created any other way.
+   * A reader can tell one lane's artifacts from another's. Empty for artifacts
+   * created outside a spec task.
    */
   spec_task_id?: string;
   subdomain_url?: string;
@@ -2883,7 +3012,7 @@ export interface TypesAssistantConfig {
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
    * model — otherwise Claude Code defaults to Sonnet. Empty means
-   * "claude-opus-5-5" (the current 1M-context Opus model).
+   * DefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.
    */
   claude_subscription_model?: string;
   /**
@@ -3674,6 +3803,16 @@ export interface TypesCodeAgentExecutionConfig {
 export interface TypesCodeAgentGooseRecipe {
   name?: string;
   path?: string;
+}
+
+export interface TypesCodeAgentModelOption {
+  /**
+   * Current marks a current-generation model. Pickers list current models
+   * first and group the rest as legacy.
+   */
+  current?: boolean;
+  id?: string;
+  name?: string;
 }
 
 export interface TypesCodeAgentOverrides {
@@ -4870,6 +5009,12 @@ export interface TypesInteraction {
   state?: TypesInteractionState;
   status?: string;
   /**
+   * Steered is true when this turn's prompt was a steer delivered while the
+   * agent was still working on an earlier turn. The chat labels it, and the
+   * earlier turn reads as continuing rather than incomplete.
+   */
+  steered?: boolean;
+  /**
    * Summary is a one-line description of this interaction for search/indexing.
    * Generated lazily on first access or via background job.
    */
@@ -5323,6 +5468,15 @@ export interface TypesModelInfo {
   supports_reasoning_effort?: boolean;
 }
 
+export interface TypesModelReference {
+  /** Fields names the fields holding the model, e.g. "code_agent_config". */
+  fields?: string[];
+  id?: string;
+  /** Kind is org_default, agent, org_bot, project, spec_task or session. */
+  kind?: string;
+  organization_id?: string;
+}
+
 export enum TypesModelType {
   ModelTypeChat = "chat",
   ModelTypeImage = "image",
@@ -5559,11 +5713,14 @@ export interface TypesOrgComputeUsage {
   billing_enabled?: boolean;
   daily?: TypesUsageComputeDailyPoint[];
   desktop_credits?: number;
+  desktop_hours?: number;
   headless_credits?: number;
+  headless_hours?: number;
   /** RunningSandboxes is a point-in-time count, not a range aggregate. */
   running_sandboxes?: number;
   sandboxes?: TypesUsageComputeBreakdownRow[];
   total_credits?: number;
+  total_hours?: number;
 }
 
 export interface TypesOrgDetails {
@@ -6253,6 +6410,12 @@ export interface TypesPromptHistoryEntry {
    * Values: "pending", "sent", "failed"
    */
   status?: string;
+  /**
+   * Steer delivers this message into the agent's running turn without
+   * cancelling it, when the agent supports steering. Otherwise it waits for
+   * the turn to finish like a queued message. Mutually exclusive with Interrupt.
+   */
+  steer?: boolean;
   updated_at?: string;
   user_id?: string;
 }
@@ -6266,6 +6429,8 @@ export interface TypesPromptHistoryEntrySync {
   queue_position?: number;
   session_id?: string;
   status?: string;
+  /** If true, delivered into the running turn when the agent supports it */
+  steer?: boolean;
   /** Unix timestamp in milliseconds */
   timestamp?: number;
 }
@@ -6555,6 +6720,19 @@ export interface TypesRegisterRequest {
   password_confirm?: string;
 }
 
+export interface TypesReplaceModelRequest {
+  /** DryRun reports what would change without writing anything. */
+  dry_run?: boolean;
+  from_model?: string;
+  provider_ref?: string;
+  to_model?: string;
+}
+
+export interface TypesReplaceModelResponse {
+  dry_run?: boolean;
+  references?: TypesModelReference[];
+}
+
 export interface TypesRepoPR {
   ci_base_sha?: string;
   ci_base_status?: string;
@@ -6838,6 +7016,7 @@ export interface TypesSandbox {
   id?: string;
   image?: string;
   memory_mb?: number;
+  /** SandboxNameMaxLen */
   name?: string;
   /**
    * OrgBotID is the helix-org bot whose session owns this container, when
@@ -7004,6 +7183,8 @@ export interface TypesSandboxHeartbeatRequest {
    * "healthy" | "starting" | "failed" | "unknown".
    */
   service_health?: Record<string, string>;
+  /** Cumulative cgroup counters of each running desktop session container. */
+  session_resources?: TypesSessionResourceSample[];
 }
 
 export interface TypesSandboxInstance {
@@ -7206,6 +7387,12 @@ export interface TypesServerConfigForFrontend {
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
+  /**
+   * CodeAgentModels is the vendor model catalogue per coding-agent harness,
+   * best first (see CodeAgentModels). The UI pickers and their defaults read it
+   * from here so the backend list is the only place it is maintained.
+   */
+  code_agent_models?: Record<string, TypesCodeAgentModelOption[]>;
   /**
    * DefaultChatSystemPrompt is the system prompt the platform applies to
    * direct model chats when the user has not customised one. Surfaced to
@@ -7527,6 +7714,16 @@ export interface TypesSessionExecutionConfigUpdateResponse {
   spec_task_id?: string;
 }
 
+export interface TypesSessionFilesystemSample {
+  dedicated?: boolean;
+  inodes?: number;
+  inodes_used?: number;
+  /** Container paths mounted from this filesystem, comma separated. */
+  paths?: string;
+  size_bytes?: number;
+  used_bytes?: number;
+}
+
 export interface TypesSessionInfo {
   auth_provider?: TypesAuthProvider;
   created_at?: string;
@@ -7552,6 +7749,12 @@ export interface TypesSessionMetadata {
    */
   agent_config_applied_at?: string;
   agent_handoff_delivered_at?: string;
+  /**
+   * AgentSteeringSupported is reported by Zed for the session's thread: true
+   * when the agent can take a message into its running turn. Without it a
+   * steer prompt waits for the turn to finish.
+   */
+  agent_steering_supported?: boolean;
   /**
    * AgentSwitchedAt is set when the agent framework is switched IN PLACE on
    * this same session (no fork / new container) — see
@@ -7797,6 +8000,81 @@ export interface TypesSessionRAGResult {
   metadata?: Record<string, string>;
   session_id?: string;
   source?: string;
+}
+
+export interface TypesSessionResourcePoint {
+  cpu_cores?: number;
+  cpu_pressure_pct?: number;
+  cpu_throttled_pct?: number;
+  disk_used_bytes?: number;
+  io_pressure_pct?: number;
+  io_read_bps?: number;
+  io_write_bps?: number;
+  memory_bytes?: number;
+  memory_pressure_pct?: number;
+  oom_kills?: number;
+  timestamp?: number;
+}
+
+export interface TypesSessionResourceSample {
+  cpu_limit_millicores?: number;
+  cpu_periods?: number;
+  /**
+   * Pressure stall information: total microseconds in which some task of
+   * the container was stalled on CPU, memory or I/O.
+   */
+  cpu_pressure_usec?: number;
+  cpu_throttled_periods?: number;
+  cpu_throttled_usec?: number;
+  cpu_usage_usec?: number;
+  filesystems?: TypesSessionFilesystemSample[];
+  io_pressure_usec?: number;
+  /** I/O issued by the container, counted on top-of-stack block devices only. */
+  io_read_bytes?: number;
+  io_read_ops?: number;
+  io_write_bytes?: number;
+  io_write_ops?: number;
+  memory_anon_bytes?: number;
+  memory_bytes?: number;
+  memory_file_bytes?: number;
+  memory_high_events?: number;
+  memory_limit_bytes?: number;
+  memory_max_events?: number;
+  memory_peak_bytes?: number;
+  memory_pressure_usec?: number;
+  oom_kills?: number;
+  pids?: number;
+  session_id?: string;
+  /** Unix milliseconds, set by the API when it receives the heartbeat. */
+  timestamp?: number;
+}
+
+export interface TypesSessionResourceSummary {
+  cpu_cores_max?: number;
+  cpu_cores_p50?: number;
+  cpu_cores_p95?: number;
+  cpu_limit_cores?: number;
+  cpu_pressure_pct?: number;
+  cpu_throttled_pct?: number;
+  from?: number;
+  io_pressure_pct?: number;
+  io_read_bytes?: number;
+  io_write_bytes?: number;
+  memory_high_events?: number;
+  memory_limit_bytes?: number;
+  memory_max_bytes?: number;
+  memory_peak_bytes?: number;
+  memory_pressure_pct?: number;
+  oom_kills?: number;
+  samples?: number;
+  to?: number;
+}
+
+export interface TypesSessionResources {
+  filesystems?: TypesSessionFilesystemSample[];
+  points?: TypesSessionResourcePoint[];
+  session_id?: string;
+  summary?: TypesSessionResourceSummary;
 }
 
 export interface TypesSessionSummary {
@@ -8191,6 +8469,14 @@ export interface TypesSpecTask {
 export interface TypesSpecTaskArchiveRequest {
   archived?: boolean;
   /**
+   * DestroyWorkspace tears the task's desktop down for good instead of
+   * stopping it: the container, the session's on-host data and the task's
+   * workspace checkout are deleted, so a finished task stops holding disk.
+   * Only honoured when the request archives and stop is enabled; the same
+   * live-agent guard as stop_agent applies.
+   */
+  destroy_workspace?: boolean;
+  /**
    * StopAgent controls whether archiving stops the task's external agent and
    * frees its sandbox. Omitted (nil) means yes. Archiving never kills an agent
    * that is mid-turn unless the caller says so explicitly.
@@ -8384,6 +8670,9 @@ export interface TypesSpecTaskPRProposal {
   error?: string;
   head_branch?: string;
   id?: string;
+  /** OrgBotID is the proposing org bot, unique within OrganizationID. */
+  org_bot_id?: string;
+  organization_id?: string;
   pr_id?: string;
   pr_number?: number;
   pr_url?: string;
@@ -8821,6 +9110,7 @@ export interface TypesSystemSettingsRequest {
   kodit_vision_embedding_model?: string;
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
+  llm_payload_retention_days?: number;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
   onboarding_helix_model?: string;
@@ -8864,6 +9154,7 @@ export interface TypesSystemSettingsResponse {
   kodit_vision_embedding_model_set?: boolean;
   /** Kodit vision embedding model configuration */
   kodit_vision_embedding_provider?: string;
+  llm_payload_retention_days?: number;
   max_concurrent_desktop_sandboxes?: number;
   max_concurrent_headless_sandboxes?: number;
   onboarding_helix_model?: string;
@@ -9404,6 +9695,8 @@ export interface TypesUsageBreakdownRow {
   prompt_cost?: number;
   prompt_tokens?: number;
   provider?: string;
+  /** ProviderKind says who a provider row was paid through; set on provider rows only. */
+  provider_kind?: TypesUsageProviderKind;
   request_size_bytes?: number;
   response_size_bytes?: number;
   session_count?: number;
@@ -9423,6 +9716,7 @@ export interface TypesUsageBreakdownRow {
 
 export interface TypesUsageComputeBreakdownRow {
   credits?: number;
+  hours?: number;
   name?: string;
   pricing_type?: string;
   project_id?: string;
@@ -9435,8 +9729,11 @@ export interface TypesUsageComputeBreakdownRow {
 export interface TypesUsageComputeDailyPoint {
   date?: string;
   desktop?: number;
+  desktop_hours?: number;
   headless?: number;
+  headless_hours?: number;
   total?: number;
+  total_hours?: number;
 }
 
 export interface TypesUsageFilterOption {
@@ -9456,7 +9753,16 @@ export interface TypesUsageModelTimeSeries {
   provider?: string;
 }
 
+export enum TypesUsageProviderKind {
+  UsageProviderKindHelix = "helix",
+  UsageProviderKindAdded = "added",
+  UsageProviderKindLocal = "local",
+  UsageProviderKindSubscription = "subscription",
+  UsageProviderKindUnknown = "unknown",
+}
+
 export interface TypesUsageProviderTimeSeries {
+  kind?: TypesUsageProviderKind;
   metrics?: TypesAggregatedUsageMetric[];
   name?: string;
   provider?: string;
@@ -10875,6 +11181,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description When a provider stops serving a model, every org default runtime, agent, org bot, project, spec task and session that still selects it fails on its next turn. This moves all of them to another model on the same provider. The replacement must be served by the provider now. Use dry_run to list them first.
+     *
+     * @tags admin
+     * @name V1AdminModelsReplaceCreate
+     * @summary Replace a model everywhere it is selected
+     * @request POST:/api/v1/admin/models/replace
+     * @secure
+     */
+    v1AdminModelsReplaceCreate: (request: TypesReplaceModelRequest, params: RequestParams = {}) =>
+      this.request<TypesReplaceModelResponse, any>({
+        path: `/api/v1/admin/models/replace`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -14785,6 +15110,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      */
     v1LlmCallsList: (
       query?: {
+        /** Omit request and response bodies */
+        metadata_only?: boolean;
+        /** Filter by call ID */
+        call_id?: string;
         /** Page number */
         page?: number;
         /** Page size */
@@ -16402,7 +16731,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.
+     * @description Delete a Bot in the background; returns 202 once the teardown has started. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.
      *
      * @tags HelixOrg
      * @name V1OrgsBotsDelete
@@ -16638,6 +16967,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description When on, the bot's desktop is not shut down when idle. A bot's own key cannot change it.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsKeepAliveUpdate
+     * @summary Turn an org bot's Keep Alive on or off
+     * @request PUT:/api/v1/orgs/{org}/bots/{id}/keep-alive
+     * @secure
+     */
+    v1OrgsBotsKeepAliveUpdate: (
+      org: string,
+      id: string,
+      request: ServerOrgBotKeepAliveRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/keep-alive`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @tags HelixOrg
@@ -16674,17 +17027,139 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description When on, the bot's proposals are approved as the user who turned it on. A bot's own key cannot change it.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPrAutoApproveUpdate
+     * @summary Turn auto-approval of an org bot's pull request proposals on or off
+     * @request PUT:/api/v1/orgs/{org}/bots/{id}/pr-auto-approve
+     * @secure
+     */
+    v1OrgsBotsPrAutoApproveUpdate: (
+      org: string,
+      id: string,
+      request: ServerOrgBotPRAutoApproveRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/pr-auto-approve`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description An org bot opens pull requests (e.g. to its own playbook) only through proposals a user approves.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPrProposalsDetail
+     * @summary List an org bot's pull request proposals
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/pr-proposals
+     * @secure
+     */
+    v1OrgsBotsPrProposalsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskPRProposal[], any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/pr-proposals`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approving opens the pull request as soon as the branch has commits beyond the base. Edited fields override the bot's proposal. A bot's own key cannot decide.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPrProposalsDecideCreate
+     * @summary Approve or reject an org bot's pull request proposal
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/pr-proposals/{proposal_id}/decide
+     * @secure
+     */
+    v1OrgsBotsPrProposalsDecideCreate: (
+      org: string,
+      id: string,
+      proposalId: string,
+      request: TypesPRProposalDecisionRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskPRProposal, any>({
+        path: `/api/v1/orgs/${org}/bots/${id}/pr-proposals/${proposalId}/decide`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsResetDetail
+     * @summary Helix-org: describe what resetting a bot would erase
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/reset
+     * @secure
+     */
+    v1OrgsBotsResetDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotResetPlanDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/reset`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsResetCreate
+     * @summary Helix-org: reset a bot (destructive; erases the declared scope)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/reset
+     * @secure
+     */
+    v1OrgsBotsResetCreate: (id: string, org: string, request: ApiBotResetRequestDTO, params: RequestParams = {}) =>
+      this.request<ApiBotResetDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/reset`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @tags HelixOrg
      * @name V1OrgsBotsRestartCreate
-     * @summary Helix-org: restart a bot (fresh session + desktop)
+     * @summary Helix-org: DEPRECATED fresh-session restart (use runtime-restart or reset)
      * @request POST:/api/v1/orgs/{org}/bots/{id}/restart
+     * @deprecated
      * @secure
      */
     v1OrgsBotsRestartCreate: (id: string, org: string, params: RequestParams = {}) =>
       this.request<ApiBotActivateDTO, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/bots/${id}/restart`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsRuntimeRestartCreate
+     * @summary Helix-org: restart a bot's runtime (keeps session, home and queue)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/runtime-restart
+     * @secure
+     */
+    v1OrgsBotsRuntimeRestartCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotRestartDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/runtime-restart`,
         method: "POST",
         secure: true,
         ...params,
@@ -20064,6 +20539,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description CPU, memory, I/O, pressure stalls, throttling and filesystem use of the session's desktop container, sampled every 30 seconds and kept for 30 days.
+     *
+     * @tags sessions
+     * @name V1SessionsResourcesDetail
+     * @summary Get a session's sandbox resource utilization
+     * @request GET:/api/v1/sessions/{id}/resources
+     * @secure
+     */
+    v1SessionsResourcesDetail: (
+      id: string,
+      query?: {
+        /** Hours of history, 1 through 720 (default 24) */
+        hours?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSessionResources, any>({
+        path: `/api/v1/sessions/${id}/resources`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Tears down the half-dead desktop container and brings up a fresh one via the resume path. The conversation thread is PRESERVED when the session's last turn completed cleanly (the common "reboot to refresh the environment" case) so context is not lost; it is reset only when the last turn is mid-flight or errored, which signals a possibly poisoned thread that would just reproduce the wedge on reattach. The workspace volume persists, so files and the agent's own state survive regardless. Crashed prompts are reset to pending and the queue is kicked so they re-dispatch on the new container. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
      *
      * @tags Sessions
@@ -20918,7 +21418,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.
+     * @description Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly. Pass destroy_workspace=true to destroy the desktop instead of stopping it, deleting its container data and the task's workspace checkout (ignored when unarchiving, with stop_agent=false, or for a Keep Alive task).
      *
      * @tags spec-driven-tasks
      * @name V1SpecTasksArchivePartialUpdate
@@ -21495,6 +21995,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<string, any>({
         path: `/api/v1/subscription/new`,
         method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags system
+     * @name V1SystemHostHistoryList
+     * @summary Get API host CPU, memory and data filesystem utilization
+     * @request GET:/api/v1/system/host-history
+     * @secure
+     */
+    v1SystemHostHistoryList: (
+      query?: {
+        /** Days of history (1 through 30) */
+        days?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<HosthistorySample[], any>({
+        path: `/api/v1/system/host-history`,
+        method: "GET",
         query: query,
         secure: true,
         ...params,

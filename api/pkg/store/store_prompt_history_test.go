@@ -201,7 +201,7 @@ func (suite *PostgresStoreTestSuite) TestRecoverFailedPromptOnlyClaimsLatestUnca
 
 	eligiblePromptID := "prompt_activation_eligible_" + system.GenerateUUID()
 	suite.Require().NoError(suite.db.CreatePromptHistoryEntry(ctx, &types.PromptHistoryEntry{
-		ID: eligiblePromptID, UserID: session.Owner, SessionID: session.ID, Content: "eligible", Status: "sent",
+		ID: eligiblePromptID, UserID: session.Owner, SessionID: session.ID, Content: "eligible", Status: "sending",
 	}))
 	eligibleInteraction, err := suite.db.CreateInteraction(ctx, &types.Interaction{
 		ID: system.GenerateInteractionID(), SessionID: session.ID, UserID: session.Owner, PromptID: eligiblePromptID,
@@ -403,4 +403,91 @@ func (suite *PostgresStoreTestSuite) TestResetCrashedPromptsForSession() {
 	suite.Require().NotNil(claimed)
 	suite.Equal(target.ID, claimed.ID)
 	suite.Equal("sending", claimed.Status)
+}
+
+// GetNextSteerPrompt claims only steer prompts, oldest first, so a busy session
+// never drains its queue-mode prompts mid-turn.
+func (suite *PostgresStoreTestSuite) TestGetNextSteerPrompt_ClaimsOnlySteerPrompts() {
+	ctx := context.Background()
+	sessionID := "ses_steer_" + system.GenerateUUID()
+	suite.T().Cleanup(func() {
+		suite.db.gdb.Exec("DELETE FROM prompt_history_entries WHERE session_id = ?", sessionID)
+	})
+	mk := func(id string, steer bool, age time.Duration) *types.PromptHistoryEntry {
+		return &types.PromptHistoryEntry{
+			ID:        id,
+			UserID:    "user_steer",
+			SessionID: sessionID,
+			Content:   "msg " + id,
+			Status:    "pending",
+			Steer:     steer,
+			CreatedAt: time.Now().Add(-age),
+			UpdatedAt: time.Now(),
+		}
+	}
+	queued := mk("phe_queue_"+system.GenerateUUID(), false, 3*time.Minute)
+	olderSteer := mk("phe_steer_old_"+system.GenerateUUID(), true, 2*time.Minute)
+	newerSteer := mk("phe_steer_new_"+system.GenerateUUID(), true, time.Minute)
+	for _, e := range []*types.PromptHistoryEntry{queued, olderSteer, newerSteer} {
+		suite.Require().NoError(suite.db.gdb.WithContext(ctx).Create(e).Error)
+	}
+
+	got, err := suite.db.GetNextSteerPrompt(ctx, sessionID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(got)
+	suite.Equal(olderSteer.ID, got.ID)
+	suite.Equal("sending", got.Status)
+
+	got, err = suite.db.GetNextSteerPrompt(ctx, sessionID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(got)
+	suite.Equal(newerSteer.ID, got.ID)
+
+	got, err = suite.db.GetNextSteerPrompt(ctx, sessionID)
+	suite.Require().NoError(err)
+	suite.Nil(got, "the queue-mode prompt must not be claimed as a steer")
+}
+
+// A prompt cannot both steer and interrupt.
+func (suite *PostgresStoreTestSuite) TestSyncPromptHistory_RejectsSteerAndInterrupt() {
+	yes := true
+	_, err := suite.db.SyncPromptHistory(context.Background(), "user_steer", types.TurnProvenance{Origin: types.TurnOriginUser, UserID: "user_steer"}, &types.PromptHistorySyncRequest{
+		SessionID: "ses_steer_both_" + system.GenerateUUID(),
+		Entries: []types.PromptHistoryEntrySync{{
+			ID: "phe_both_" + system.GenerateUUID(), Content: "x", Status: "pending",
+			Timestamp: time.Now().UnixMilli(), Interrupt: &yes, Steer: &yes,
+		}},
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "mutually exclusive")
+}
+
+// Re-syncing an existing steer entry with both flags is rejected too, and
+// leaves the stored row as it was.
+func (suite *PostgresStoreTestSuite) TestSyncPromptHistory_RejectsSteerAndInterruptOnUpdate() {
+	ctx := context.Background()
+	yes := true
+	provenance := types.TurnProvenance{Origin: types.TurnOriginUser, UserID: "user_steer"}
+	sessionID := "ses_steer_upd_" + system.GenerateUUID()
+	entryID := "phe_upd_" + system.GenerateUUID()
+	sync := func(interrupt *bool) error {
+		_, err := suite.db.SyncPromptHistory(ctx, "user_steer", provenance, &types.PromptHistorySyncRequest{
+			SessionID: sessionID,
+			Entries: []types.PromptHistoryEntrySync{{
+				ID: entryID, SessionID: sessionID, Content: "x", Status: "pending",
+				Timestamp: time.Now().UnixMilli(), Interrupt: interrupt, Steer: &yes,
+			}},
+		})
+		return err
+	}
+	suite.Require().NoError(sync(nil))
+
+	err := sync(&yes)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "mutually exclusive")
+
+	var stored types.PromptHistoryEntry
+	suite.Require().NoError(suite.db.gdb.WithContext(ctx).Where("id = ?", entryID).First(&stored).Error)
+	suite.True(stored.Steer)
+	suite.False(stored.Interrupt)
 }

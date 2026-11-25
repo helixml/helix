@@ -212,15 +212,16 @@ func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
 	tests := []struct {
 		name           string
 		role           types.OrganizationRole
+		wantRole       types.OrganizationRole
 		platformAdmin  bool
 		organizationID string
 		tokenType      types.TokenType
 		wantManage     bool
 	}{
-		{name: "member", role: types.OrganizationRoleMember, wantManage: false},
-		{name: "owner", role: types.OrganizationRoleOwner, wantManage: true},
-		{name: "platform admin", role: types.OrganizationRoleMember, platformAdmin: true, wantManage: true},
-		{name: "org-scoped key", role: types.OrganizationRoleMember, organizationID: "org_acme", tokenType: types.TokenTypeAPIKey, wantManage: false},
+		{name: "member", role: types.OrganizationRoleMember, wantRole: types.OrganizationRoleMember, wantManage: false},
+		{name: "owner", role: types.OrganizationRoleOwner, wantRole: types.OrganizationRoleOwner, wantManage: true},
+		{name: "platform admin", role: types.OrganizationRoleMember, wantRole: types.OrganizationRoleOwner, platformAdmin: true, wantManage: true},
+		{name: "org-scoped key", role: types.OrganizationRoleMember, wantRole: types.OrganizationRoleMember, organizationID: "org_acme", tokenType: types.TokenTypeAPIKey, wantManage: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -233,8 +234,8 @@ func TestWithHelixOrgIdentityThreadsOrganizationAuthorization(t *testing.T) {
 				if !ok {
 					t.Fatal("organization authorization missing from context")
 				}
-				if auth.MembershipRole != tt.role || auth.PlatformAdmin != tt.platformAdmin {
-					t.Fatalf("authorization = %+v, want role=%q admin=%v", auth, tt.role, tt.platformAdmin)
+				if auth.MembershipRole != tt.wantRole || auth.PlatformAdmin != tt.platformAdmin {
+					t.Fatalf("authorization = %+v, want role=%q admin=%v", auth, tt.wantRole, tt.platformAdmin)
 				}
 				if got := helixorgserver.CanManageOrganization(r.Context()); got != tt.wantManage {
 					t.Fatalf("CanManageOrganization() = %v, want %v", got, tt.wantManage)
@@ -433,6 +434,7 @@ func TestHelixOrgAssetRBAC(t *testing.T) {
 		admin      bool
 		scope      string // "project" or "session": the caller's key scope
 		wantStatus int
+		wantBody   string // substring of the refusal, when set
 	}{
 		{name: "member can list", method: http.MethodGet, path: "/api/v1/orgs/acme/assets", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
 		{name: "member can view", method: http.MethodGet, path: "/api/v1/orgs/acme/assets/a-server", role: types.OrganizationRoleMember, wantStatus: http.StatusNoContent},
@@ -459,7 +461,11 @@ func TestHelixOrgAssetRBAC(t *testing.T) {
 		{name: "owner's project key cannot change settings", method: http.MethodPut, path: "/api/v1/orgs/acme/settings/agent.default", role: types.OrganizationRoleOwner, scope: "project", wantStatus: http.StatusForbidden},
 		{name: "owner's session key cannot create trigger", method: http.MethodPost, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleOwner, scope: "session", wantStatus: http.StatusForbidden},
 		{name: "owner's project key keeps reads", method: http.MethodGet, path: "/api/v1/orgs/acme/triggers", role: types.OrganizationRoleOwner, scope: "project", wantStatus: http.StatusNoContent},
-		{name: "admin's session key cannot change settings", method: http.MethodPut, path: "/api/v1/orgs/acme/settings/agent.default", role: types.OrganizationRoleOwner, admin: true, scope: "session", wantStatus: http.StatusForbidden},
+		{name: "admin's session key cannot change settings", method: http.MethodPut, path: "/api/v1/orgs/acme/settings/agent.default", role: types.OrganizationRoleOwner, admin: true, scope: "session", wantStatus: http.StatusForbidden, wantBody: errScopedKeyOrgWiring.Error()},
+		{name: "admin's bot session key is pointed to MCP for processor update", method: http.MethodPut, path: "/api/v1/orgs/acme/processors/p-1", role: types.OrganizationRoleOwner, admin: true, scope: "session", wantStatus: http.StatusForbidden, wantBody: errScopedKeyOrgWiring.Error()},
+		{name: "owner's project key is pointed to MCP for asset create", method: http.MethodPost, path: "/api/v1/orgs/acme/assets", role: types.OrganizationRoleOwner, scope: "project", wantStatus: http.StatusForbidden, wantBody: errScopedKeyOrgWiring.Error()},
+		{name: "member's unscoped key gets the owner refusal", method: http.MethodPut, path: "/api/v1/orgs/acme/processors/p-1", role: types.OrganizationRoleMember, wantStatus: http.StatusForbidden, wantBody: "only organization owners and administrators can modify this resource"},
+		{name: "admin's unscoped key can update processor", method: http.MethodPut, path: "/api/v1/orgs/acme/processors/p-1", role: types.OrganizationRoleOwner, admin: true, wantStatus: http.StatusNoContent},
 	}
 
 	for _, tt := range tests {
@@ -484,6 +490,9 @@ func TestHelixOrgAssetRBAC(t *testing.T) {
 
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if tt.wantBody != "" && !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Fatalf("body = %q, want it to contain %q", rec.Body.String(), tt.wantBody)
 			}
 		})
 	}

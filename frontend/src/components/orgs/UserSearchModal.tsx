@@ -303,34 +303,38 @@ const UserSearchModal: FC<UserSearchModalProps> = ({
             )
           })}
           {emailEntry && (
-            <ListItem divider>
-              <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-                {emailEntry.state === 'not_helix'
-                  ? <MailOutlineIcon color="action" />
-                  : <PersonIcon color="action" />}
+            <ListItem divider sx={{ alignItems: 'flex-start', flexDirection: { xs: 'column', sm: 'row' } }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, width: '100%' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+                  {emailEntry.state === 'not_helix'
+                    ? <MailOutlineIcon color="action" />
+                    : <PersonIcon color="action" />}
+                </Box>
+                <ListItemText
+                  primary={debouncedSearchQuery.trim()}
+                  secondary={emailEntry.helper}
+                  sx={{ minWidth: 0 }}
+                />
               </Box>
-              <ListItemText
-                primary={debouncedSearchQuery.trim()}
-                secondary={emailEntry.helper}
-              />
-              <ListItemSecondaryAction>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="small"
-                  onClick={handleInviteByEmail}
-                  disabled={emailEntry.state === 'loading' || emailEntry.state === 'in_org' || emailEntry.state === 'already_invited'}
-                >
-                  {emailEntry.label}
-                </Button>
-              </ListItemSecondaryAction>
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                onClick={handleInviteByEmail}
+                disabled={emailEntry.state === 'loading' || emailEntry.state === 'in_org' || emailEntry.state === 'already_invited'}
+                sx={{ ml: { sm: 2 }, mt: { xs: 1, sm: 0 }, alignSelf: { xs: 'flex-end', sm: 'center' }, flexShrink: 0 }}
+              >
+                {emailEntry.label}
+              </Button>
             </ListItem>
           )}
         </List>
 
         {emailEntry?.state === 'not_helix' && (
           <Alert severity="info" sx={{ mt: 1 }}>
-            They'll receive an email with a link to create their account. As soon as they register, they'll automatically appear here as a member of the organization.
+            {emailLookup?.exists
+              ? 'They already have a Helix account. They must sign in and accept the emailed invitation to join the organization.'
+              : 'They\'ll receive an email with a link to create their account. As soon as they register, they\'ll automatically appear here as a member of the organization.'}
           </Alert>
         )}
       </DialogContent>

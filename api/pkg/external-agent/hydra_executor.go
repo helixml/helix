@@ -99,6 +99,10 @@ type HydraExecutor struct {
 	// each desktop. Set via SetSandboxMeter after the sandbox controller is
 	// constructed. Nil means desktops run unmetered.
 	sandboxMeter SandboxMeter
+
+	// botHomes records Org Bot homes. Nil keeps every desktop on a
+	// session-keyed workspace.
+	botHomes BotHomeRegistry
 }
 
 // SandboxMeter is the billing/quota record behind a desktop container.
@@ -281,6 +285,12 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 	if err := h.resolveSpecTaskLaunchConfig(ctx, agent); err != nil {
 		return nil, err
 	}
+	// Resolve the bot home before placement: an established home pins the
+	// runner it lives on.
+	botHome, err := h.resolveBotHome(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
 	desktopRootless := h.desktopRootlessForProject(agent.ProjectID)
 	if err := validateDesktopRootlessLaunch(agent.DesktopType, agent.CustomImage, agent.NoContainerEngine, desktopRootless); err != nil {
 		return nil, err
@@ -371,17 +381,28 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 
 	// Determine workspace directory
 	workspaceDir := agent.WorkDir
-	if workspaceDir == "" {
-		if agent.SpecTaskID != "" {
-			workspaceDir = filepath.Join(h.workspaceBasePathForCloning, "spec-tasks", agent.SpecTaskID)
-		} else {
-			workspaceDir = filepath.Join(h.workspaceBasePathForCloning, "sessions", agent.SessionID)
+	if botHome != nil {
+		if agent.WorkDir != "" {
+			return nil, fmt.Errorf("org bot session %s cannot override its bot home with work dir %s", agent.SessionID, agent.WorkDir)
 		}
-	}
+		if err := botHome.reserve(ctx, h.botHomes, sandboxID); err != nil {
+			return nil, err
+		}
+		// Hydra creates or adopts the home; it must never be created here.
+		workspaceDir = botHome.workspaceDir(h.workspaceBasePathForCloning)
+	} else {
+		if workspaceDir == "" {
+			if agent.SpecTaskID != "" {
+				workspaceDir = filepath.Join(h.workspaceBasePathForCloning, "spec-tasks", agent.SpecTaskID)
+			} else {
+				workspaceDir = filepath.Join(h.workspaceBasePathForCloning, "sessions", agent.SessionID)
+			}
+		}
 
-	// Ensure workspace directory exists
-	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
-		log.Warn().Err(err).Str("workspace_dir", workspaceDir).Msg("Failed to create workspace directory")
+		// Ensure workspace directory exists
+		if err := os.MkdirAll(workspaceDir, 0755); err != nil {
+			log.Warn().Err(err).Str("workspace_dir", workspaceDir).Msg("Failed to create workspace directory")
+		}
 	}
 
 	// Build container name
@@ -466,7 +487,19 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		}
 	}
 
-	env = h.primaryRepoEnv(ctx, agent, env)
+	// Get actual primary repository name (not just the ID)
+	if agent.PrimaryRepositoryID != "" {
+		repo, err := h.store.GetGitRepository(ctx, agent.PrimaryRepositoryID)
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", agent.PrimaryRepositoryID).Msg("Failed to get primary repository name")
+		} else if repo != nil {
+			env = append(env, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", repo.Name))
+			log.Info().
+				Str("primary_repo_id", agent.PrimaryRepositoryID).
+				Str("primary_repo_name", repo.Name).
+				Msg("Primary repository for design docs worktree")
+		}
+	}
 
 	isolation := externalAgentIsolation(containerType, agent.NoContainerEngine, desktopRootless)
 	log.Info().
@@ -509,6 +542,10 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		DiskSizeGB:                agent.DiskSizeGB,
 		PidsLimit:                 agent.PidsLimit,
 		NoNewPrivileges:           agent.NoNewPrivileges,
+	}
+	if botHome != nil {
+		spec := botHome.spec
+		req.BotHome = &spec
 	}
 
 	// Create dev container via Hydra
@@ -593,6 +630,18 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("container_name", resp.ContainerName).
 		Str("ip_address", resp.IPAddress).
 		Msg("Dev container created successfully via Hydra")
+	if botHome != nil {
+		if resp.BotHome == nil {
+			// An older hydra ignored the bot home and mounted a path it
+			// created itself. Do not let that desktop run.
+			if _, stopErr := hydraClient.DeleteDevContainer(ctx, agent.SessionID); stopErr != nil {
+				log.Error().Err(stopErr).Str("session_id", agent.SessionID).Msg("Failed to stop desktop started by a hydra without bot home support")
+			}
+			startErr = fmt.Errorf("runner %s does not support Org Bot homes; upgrade it before starting this bot", sandboxID)
+			return nil, startErr
+		}
+		botHome.establish(ctx, h.botHomes, resp.BotHome)
+	}
 
 	// Increment moved below to the point where the session enters
 	// h.sessions, so increment/decrement stay paired on the same
@@ -1848,43 +1897,15 @@ func validateDesktopRootlessLaunch(desktopType, customImage string, noContainerE
 	}
 }
 
-// primaryRepoEnv names the primary repository for the design docs worktree and
-// sets the commit the startup script may run from. The commit is set even when
-// empty, so neither agent.Env nor a project secret can supply one.
-func (h *HydraExecutor) primaryRepoEnv(ctx context.Context, agent *types.DesktopAgent, env []string) []string {
-	trustedStartupSHA := ""
-	if agent.PrimaryRepositoryID != "" {
-		repo, err := h.store.GetGitRepository(ctx, agent.PrimaryRepositoryID)
-		if err != nil {
-			log.Warn().Err(err).Str("repo_id", agent.PrimaryRepositoryID).Msg("Failed to get primary repository name")
-		} else if repo != nil {
-			env = append(env, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", repo.Name))
-			trustedStartupSHA = repo.TrustedStartupSHA
-			log.Info().
-				Str("primary_repo_id", agent.PrimaryRepositoryID).
-				Str("primary_repo_name", repo.Name).
-				Str("trusted_startup_sha", trustedStartupSHA).
-				Msg("Primary repository for design docs worktree")
-		}
-	}
-	return setContainerEnv(env, TrustedStartupSHAEnv, trustedStartupSHA)
-}
-
-// TrustedStartupSHAEnv names the helix-specs commit whose .helix/startup.sh
-// helix-workspace-setup.sh runs (types.GitRepository.TrustedStartupSHA).
-const TrustedStartupSHAEnv = "HELIX_TRUSTED_STARTUP_SHA"
-
-// setContainerEnv sets key to value. Every existing entry for key is dropped:
-// Docker lets a later duplicate win, so replacing only the first would not stick.
 func setContainerEnv(env []string, key, value string) []string {
 	prefix := key + "="
-	out := env[:0]
-	for _, entry := range env {
-		if !strings.HasPrefix(entry, prefix) {
-			out = append(out, entry)
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
 		}
 	}
-	return append(out, prefix+value)
+	return append(env, prefix+value)
 }
 
 // buildMounts builds volume mounts for the container.
@@ -2513,7 +2534,7 @@ func (h *HydraExecutor) ReconcileSandboxResources(ctx context.Context, sandboxID
 
 	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
 
-	return hydraClient.ReconcileGC(ctx, req)
+	return hydraClient.ReconcileGC(ctx, h.withLiveBotHomes(ctx, req))
 }
 
 // ErrDesktopLimitReached means the organization is at its concurrent-desktop

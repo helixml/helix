@@ -3,13 +3,13 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
-	"gorm.io/gorm"
 )
 
-// GetOrgComputeUsageQuery selects the sandbox-compute spend to summarise.
+// GetOrgComputeUsageQuery selects the sandbox compute to summarise.
 //
 // Date, project, and task narrow the result. The remaining token-shaped
 // filters (model, provider, session, user) have no container analogue.
@@ -36,13 +36,15 @@ const computeTaskIDExpr = `COALESCE(
 	''
 )`
 
-// GetOrgComputeUsage summarises what an org spent on sandbox runtime.
+// GetOrgComputeUsage summarises an org's sandbox compute: what it was charged
+// and how long its containers ran.
 //
-// The source of truth is the wallet ledger, not the `sandboxes` table: charges
-// are immutable transactions, so a desktop that has since been torn down still
-// accounts for what it cost. Sandbox rows are LEFT JOINed only to decorate the
-// breakdown with a name, size and owning task, all of which may be missing for
-// a hard-deleted row.
+// Charges come from the wallet ledger and runtime from the sandbox run
+// ledger, never from live `sandboxes` rows: both are append-only, so a desktop
+// that has since been torn down still accounts for what it cost and how long
+// it ran, and runtime is there even when billing is off. Sandbox rows are
+// LEFT JOINed only to decorate the breakdown and apply the project and task
+// filters; they may be missing for a hard-deleted row.
 func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgComputeUsageQuery) (*types.OrgComputeUsage, error) {
 	if q == nil {
 		return nil, errors.New("query is required")
@@ -63,60 +65,82 @@ func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgCompute
 		Sandboxes: []types.UsageComputeBreakdownRow{},
 	}
 
+	args := map[string]any{
+		"org":     q.OrganizationID,
+		"from":    q.From,
+		"to":      q.To,
+		"start":   q.From.UTC().Truncate(24 * time.Hour),
+		"now":     time.Now(),
+		"usage":   types.TransactionTypeUsage,
+		"desktop": types.SandboxRuntimeUbuntuDesktop,
+		"project": q.ProjectID,
+		"task":    q.TaskID,
+		"limit":   limit,
+	}
+	filters := ""
+	if q.ProjectID != "" {
+		filters += " AND sandboxes.project_id = @project"
+	}
+	if q.TaskID != "" {
+		filters += " AND " + computeTaskIDExpr + " = @task"
+	}
+
 	// Charges are recorded as negative wallet deltas; flip the sign so the
 	// page reads in spend, matching the token cost columns next to it.
-	base := func() *gorm.DB {
-		query := s.gdb.WithContext(ctx).
-			Table("transactions").
-			Joins("JOIN wallets ON wallets.id = transactions.wallet_id").
-			Joins("LEFT JOIN sandboxes ON sandboxes.id = transactions.sandbox_id").
-			Where("wallets.org_id = ?", q.OrganizationID).
-			Where("transactions.type = ?", types.TransactionTypeUsage).
-			Where("transactions.sandbox_id <> ''").
-			Where("transactions.created_at >= ? AND transactions.created_at <= ?", q.From, q.To)
-		if q.ProjectID != "" {
-			query = query.Where("sandboxes.project_id = ?", q.ProjectID)
-		}
-		if q.TaskID != "" {
-			query = query.Where(computeTaskIDExpr+" = ?", q.TaskID)
-		}
-		return query
-	}
+	charges := `SELECT transactions.sandbox_id,
+			COALESCE(NULLIF(transactions.sandbox_pricing_type, ''), 'headless') AS pricing_type,
+			date_trunc('day', transactions.created_at AT TIME ZONE 'UTC') AS date,
+			-transactions.amount AS credits
+		FROM transactions
+		JOIN wallets ON wallets.id = transactions.wallet_id
+		LEFT JOIN sandboxes ON sandboxes.id = transactions.sandbox_id
+		WHERE wallets.org_id = @org
+		  AND transactions.type = @usage
+		  AND transactions.sandbox_id <> ''
+		  AND transactions.created_at >= @from AND transactions.created_at <= @to` + filters
 
-	var totals []struct {
-		PricingType string  `gorm:"column:pricing_type"`
-		Credits     float64 `gorm:"column:credits"`
-	}
-	if err := base().
-		Select("COALESCE(NULLIF(transactions.sandbox_pricing_type, ''), 'headless') as pricing_type, COALESCE(SUM(-transactions.amount), 0) as credits").
-		Group("COALESCE(NULLIF(transactions.sandbox_pricing_type, ''), 'headless')").
-		Scan(&totals).Error; err != nil {
-		return nil, err
-	}
-	for _, row := range totals {
-		usage.TotalCredits += row.Credits
-		if row.PricingType == sandboxPricingTypeDesktop {
-			usage.DesktopCredits += row.Credits
-		} else {
-			usage.HeadlessCredits += row.Credits
-		}
-	}
+	// Each run is clipped to the range and, for the daily series, to each day
+	// it overlaps; a run still open counts up to now. Days are naive UTC
+	// timestamps, like the charge days, so neither the UNION nor the day
+	// arithmetic depends on the server's TimeZone or its DST rules.
+	runs := `FROM sandbox_runs r
+		LEFT JOIN sandboxes ON sandboxes.id = r.sandbox_id
+		WHERE r.organization_id = @org
+		  AND r.started_at < @to
+		  AND COALESCE(r.stopped_at, @now) > @from` + filters
+	runPricingType := `CASE WHEN r.runtime = @desktop THEN 'desktop' ELSE 'headless' END`
+	dayStart := `(d.day AT TIME ZONE 'UTC')`
+	dayEnd := `((d.day + interval '1 day') AT TIME ZONE 'UTC')`
 
-	var daily []struct {
-		Date        time.Time `gorm:"column:date"`
-		PricingType string    `gorm:"column:pricing_type"`
-		Credits     float64   `gorm:"column:credits"`
-	}
-	if err := base().
-		Select(`date_trunc('day', transactions.created_at) as date,
-			COALESCE(NULLIF(transactions.sandbox_pricing_type, ''), 'headless') as pricing_type,
-			COALESCE(SUM(-transactions.amount), 0) as credits`).
-		Group("date_trunc('day', transactions.created_at), COALESCE(NULLIF(transactions.sandbox_pricing_type, ''), 'headless')").
-		Order("date ASC").
+	var daily []computeDailyRow
+	if err := s.gdb.WithContext(ctx).Raw(`
+		SELECT date, pricing_type, SUM(credits) AS credits, 0 AS hours
+		FROM (`+charges+`) c
+		GROUP BY date, pricing_type
+		UNION ALL
+		SELECT d.day AS date, `+runPricingType+` AS pricing_type, 0 AS credits,
+			SUM(GREATEST(0, EXTRACT(EPOCH FROM
+				LEAST(COALESCE(r.stopped_at, @now), `+dayEnd+`, @to) -
+				GREATEST(r.started_at, `+dayStart+`, @from)))) / 3600 AS hours
+		FROM generate_series(CAST(@start AS timestamptz) AT TIME ZONE 'UTC', CAST(@to AS timestamptz) AT TIME ZONE 'UTC', interval '1 day') AS d(day)
+		JOIN sandbox_runs r
+		  ON r.started_at < LEAST(`+dayEnd+`, @to)
+		 AND COALESCE(r.stopped_at, @now) > GREATEST(`+dayStart+`, @from)
+		LEFT JOIN sandboxes ON sandboxes.id = r.sandbox_id
+		WHERE r.organization_id = @org`+filters+`
+		GROUP BY d.day, 2`, args).
 		Scan(&daily).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query daily compute usage: %w", err)
 	}
 	usage.Daily = buildComputeDailySeries(daily, q.From, q.To)
+	for _, point := range usage.Daily {
+		usage.TotalCredits += point.Total
+		usage.DesktopCredits += point.Desktop
+		usage.HeadlessCredits += point.Headless
+		usage.TotalHours += point.TotalHours
+		usage.DesktopHours += point.DesktopHours
+		usage.HeadlessHours += point.HeadlessHours
+	}
 
 	var sandboxes []struct {
 		SandboxID   string  `gorm:"column:sandbox_id"`
@@ -127,21 +151,39 @@ func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgCompute
 		ProjectID   string  `gorm:"column:project_id"`
 		VCPUs       int     `gorm:"column:vcpus"`
 		Credits     float64 `gorm:"column:credits"`
+		Hours       float64 `gorm:"column:hours"`
 	}
-	if err := base().
-		Select(`transactions.sandbox_id as sandbox_id,
-			COALESCE(MAX(sandboxes.name), '') as name,
-			COALESCE(MAX(sandboxes.runtime), MAX(transactions.sandbox_runtime), '') as runtime,
-			COALESCE(MAX(NULLIF(transactions.sandbox_pricing_type, '')), 'headless') as pricing_type,
-			COALESCE(MAX(sandboxes.spec_task_id), '') as spec_task_id,
-			COALESCE(MAX(sandboxes.project_id), '') as project_id,
-			COALESCE(MAX(sandboxes.v_cpus), 0) as vcpus,
-			COALESCE(SUM(-transactions.amount), 0) as credits`).
-		Group("transactions.sandbox_id").
-		Order("credits DESC").
-		Limit(limit).
+	if err := s.gdb.WithContext(ctx).Raw(`
+		WITH charged AS (
+			SELECT sandbox_id, (array_agg(pricing_type ORDER BY credits DESC))[1] AS pricing_type, SUM(credits) AS credits
+			FROM (`+charges+`) c
+			GROUP BY sandbox_id
+		), run_hours AS (
+			SELECT r.sandbox_id, `+runPricingType+` AS pricing_type, r.runtime,
+				GREATEST(0, EXTRACT(EPOCH FROM LEAST(COALESCE(r.stopped_at, @now), @to) - GREATEST(r.started_at, @from))) / 3600 AS hours
+			`+runs+`
+		), ran AS (
+			SELECT sandbox_id, (array_agg(pricing_type ORDER BY hours DESC))[1] AS pricing_type,
+				(array_agg(runtime ORDER BY hours DESC))[1] AS runtime, SUM(hours) AS hours
+			FROM run_hours
+			GROUP BY sandbox_id
+		)
+		SELECT COALESCE(ran.sandbox_id, charged.sandbox_id) AS sandbox_id,
+			COALESCE(sandboxes.name, '') AS name,
+			COALESCE(sandboxes.runtime, ran.runtime, '') AS runtime,
+			COALESCE(charged.pricing_type, ran.pricing_type, 'headless') AS pricing_type,
+			COALESCE(sandboxes.spec_task_id, '') AS spec_task_id,
+			COALESCE(sandboxes.project_id, '') AS project_id,
+			COALESCE(sandboxes.v_cpus, 0) AS vcpus,
+			COALESCE(charged.credits, 0) AS credits,
+			COALESCE(ran.hours, 0) AS hours
+		FROM ran
+		FULL JOIN charged ON charged.sandbox_id = ran.sandbox_id
+		LEFT JOIN sandboxes ON sandboxes.id = COALESCE(ran.sandbox_id, charged.sandbox_id)
+		ORDER BY credits DESC, hours DESC
+		LIMIT @limit`, args).
 		Scan(&sandboxes).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query compute usage by sandbox: %w", err)
 	}
 	for _, row := range sandboxes {
 		usage.Sandboxes = append(usage.Sandboxes, types.UsageComputeBreakdownRow{
@@ -153,6 +195,7 @@ func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgCompute
 			ProjectID:   row.ProjectID,
 			VCPUs:       row.VCPUs,
 			Credits:     row.Credits,
+			Hours:       row.Hours,
 		})
 	}
 
@@ -180,16 +223,20 @@ func (s *PostgresStore) GetOrgComputeUsage(ctx context.Context, q *GetOrgCompute
 	return usage, nil
 }
 
+// computeDailyRow is one (day, pricing class) bucket of charges or runtime.
+type computeDailyRow struct {
+	Date        time.Time `gorm:"column:date"`
+	PricingType string    `gorm:"column:pricing_type"`
+	Credits     float64   `gorm:"column:credits"`
+	Hours       float64   `gorm:"column:hours"`
+}
+
 const sandboxPricingTypeDesktop = "desktop"
 
 // buildComputeDailySeries pivots (day, pricing type) rows into one point per
 // day and fills the gaps, so a day with no sandboxes plots as zero instead of
-// collapsing the x-axis onto the days that happened to have spend.
-func buildComputeDailySeries(rows []struct {
-	Date        time.Time `gorm:"column:date"`
-	PricingType string    `gorm:"column:pricing_type"`
-	Credits     float64   `gorm:"column:credits"`
-}, from, to time.Time) []types.UsageComputeDailyPoint {
+// collapsing the x-axis onto the days that happened to have usage.
+func buildComputeDailySeries(rows []computeDailyRow, from, to time.Time) []types.UsageComputeDailyPoint {
 	byDay := make(map[time.Time]*types.UsageComputeDailyPoint)
 	for _, row := range rows {
 		day := row.Date.UTC().Truncate(24 * time.Hour)
@@ -200,10 +247,13 @@ func buildComputeDailySeries(rows []struct {
 		}
 		if row.PricingType == sandboxPricingTypeDesktop {
 			point.Desktop += row.Credits
+			point.DesktopHours += row.Hours
 		} else {
 			point.Headless += row.Credits
+			point.HeadlessHours += row.Hours
 		}
 		point.Total += row.Credits
+		point.TotalHours += row.Hours
 	}
 
 	series := []types.UsageComputeDailyPoint{}

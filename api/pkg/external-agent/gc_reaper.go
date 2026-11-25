@@ -12,8 +12,8 @@ import (
 
 // specTaskTerminalStatuses are statuses where a spec-task is finished and its
 // ephemeral on-disk resources (workspace checkout) are no longer needed. Tasks
-// in these states are NOT in the live-set (so they become reap candidates once
-// they age past hydra's grace period), unless they were updated very recently.
+// in these states are NOT in the live-set, so they become reap candidates once
+// hydra's grace period has passed since they were last live.
 var specTaskTerminalStatuses = map[types.SpecTaskStatus]bool{
 	types.TaskStatusDone:                 true,
 	types.TaskStatusSpecFailed:           true,
@@ -53,8 +53,10 @@ func RunOrphanResourceReaper(ctx context.Context, executor Executor, st store.St
 }
 
 func reapOrphanResources(ctx context.Context, executor Executor, st store.Store, gracePeriod time.Duration, dryRun bool) {
-	// Use a cutoff generous enough that anything created/updated within the
-	// grace window is still considered live, so we never race a fresh resource.
+	// Sessions use a cutoff generous enough that anything created/updated
+	// within the grace window is still considered live, so we never race a
+	// fresh session resource. Spec tasks get no such padding (see
+	// liveSpecTaskIDsForReaper): hydra's own grace protects a fresh task.
 	cutoff := time.Now().Add(-gracePeriod)
 
 	liveSessionIDs, err := st.ListExternalAgentSessionIDs(ctx, cutoff)
@@ -63,7 +65,13 @@ func reapOrphanResources(ctx context.Context, executor Executor, st store.Store,
 		return
 	}
 
-	liveSpecTaskIDs, err := liveSpecTaskIDsForReaper(ctx, st, cutoff, liveSessionIDs)
+	activeDesktopSessionIDs, err := st.ListActiveDesktopSessionIDs(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("orphan reaper: failed to list active desktop session ids")
+		return
+	}
+
+	liveSpecTaskIDs, err := liveSpecTaskIDsForReaper(ctx, st, activeDesktopSessionIDs)
 	if err != nil {
 		log.Error().Err(err).Msg("orphan reaper: failed to list live spec-task ids")
 		return
@@ -121,14 +129,23 @@ func reapOrphanResources(ctx context.Context, executor Executor, st store.Store,
 
 // liveSpecTaskIDsForReaper returns the IDs of spec-tasks that should be treated
 // as live: those the user has pinned with Keep Alive, those whose planning
-// session is live, those in a non-terminal status, OR those updated at/after
-// cutoff. Archived tasks are included in the
-// scan but are live only if recently updated, so a long-archived task's
-// workspace eventually reaps.
-func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, cutoff time.Time, liveSessionIDs []string) ([]string, error) {
-	liveSessions := make(map[string]bool, len(liveSessionIDs))
-	for _, id := range liveSessionIDs {
-		liveSessions[id] = true
+// session's desktop is up or (re)starting, and those neither terminal nor
+// archived. Everything else is a reap candidate, and hydra reaps it once its
+// grace period has passed since the task was last live.
+//
+// There is deliberately no "recently updated" clause. Hydra already measures
+// grace from the last tick it saw an id live (its liveness mark), falling back
+// to the workspace's own mtimes for an id it never saw live. A task kept live
+// for grace after its updated_at was marked live on every one of those ticks,
+// so hydra then granted a second grace from the last mark: a finished task's
+// workspace survived about twice the configured grace (observed: up to ~48h
+// with a 24h grace, ~60 days with the 720h default). A task that has just
+// finished, or was created and finished between two ticks, is still protected
+// — its mark or its files are fresh, so it is inside hydra's grace.
+func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, activeDesktopSessionIDs []string) ([]string, error) {
+	activeDesktops := make(map[string]bool, len(activeDesktopSessionIDs))
+	for _, id := range activeDesktopSessionIDs {
+		activeDesktops[id] = true
 	}
 
 	// Tasks of a deleted project are dead whatever their status or Keep Alive.
@@ -164,16 +181,15 @@ func liveSpecTaskIDsForReaper(ctx context.Context, st store.Store, cutoff time.T
 		}
 
 		// A task's workspace is the cwd of its desktop. A finished or archived
-		// task whose desktop is still in use must keep it however long ago the
-		// task itself last changed — its directory mtime does not move when
-		// files deep inside it do.
-		if liveSessions[t.PlanningSessionID] {
+		// task whose desktop is up, or booting, must keep it however long ago
+		// the task itself last changed — its directory mtime does not move when
+		// files deep inside it do. Only an active desktop counts: a session
+		// that merely changed recently (e.g. its desktop was just stopped) would
+		// re-pad the grace this function exists not to double.
+		if activeDesktops[t.PlanningSessionID] {
 			live = true
 		}
 
-		if !live && !t.UpdatedAt.Before(cutoff) {
-			live = true // recently touched — keep its workspace a bit longer
-		}
 		if live {
 			ids = append(ids, t.ID)
 		}

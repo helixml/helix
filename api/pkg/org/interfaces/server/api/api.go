@@ -385,6 +385,9 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /bots/{id}/activate", Handler: http.HandlerFunc(a.activateBot)},
 		{Pattern: "POST /bots/{id}/stop", Handler: http.HandlerFunc(a.stopBot)},
 		{Pattern: "POST /bots/{id}/restart", Handler: http.HandlerFunc(a.restartBot)},
+		{Pattern: "POST /bots/{id}/runtime-restart", Handler: http.HandlerFunc(a.runtimeRestartBot)},
+		{Pattern: "POST /bots/{id}/reset", Handler: http.HandlerFunc(a.resetBot)},
+		{Pattern: "GET /bots/{id}/reset", Handler: http.HandlerFunc(a.getBotResetPlan)},
 		{Pattern: "POST /bots/{id}/apply-config", Handler: http.HandlerFunc(a.applyBotConfig)},
 		{Pattern: "GET /bots/{id}/instances", Handler: http.HandlerFunc(a.listBotInstances)},
 		{Pattern: "POST /bots/{id}/instances", Handler: http.HandlerFunc(a.createBotInstance)},
@@ -497,7 +500,7 @@ func errStatus(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, store.ErrConflict):
+	case errors.Is(err, store.ErrConflict), errors.Is(err, lifecycle.ErrDeleteInProgress):
 		return http.StatusConflict
 	case errors.Is(err, nodes.ErrUnknownTool), errors.Is(err, nodes.ErrInvalidInstanceProfile), errors.Is(err, instances.ErrInvalidRequest):
 		return http.StatusBadRequest

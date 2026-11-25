@@ -49,6 +49,7 @@ const (
 	EvaluationRunPrefix        = "evr_"
 	SandboxPrefix              = types.SandboxIDPrefix
 	SandboxCommandPrefix       = "sbcmd_"
+	SandboxRunPrefix           = "sbrun_"
 	RunnerProfilePrefix        = "rprof_"
 	RunnerTokenIDPrefix        = "rtok_"
 	SpecTaskAttachmentPrefix   = "att_"
@@ -231,6 +232,10 @@ func GenerateEvaluationRunID() string {
 
 func GenerateSandboxID() string {
 	return fmt.Sprintf("%s%s", SandboxPrefix, newID())
+}
+
+func GenerateSandboxRunID() string {
+	return fmt.Sprintf("%s%s", SandboxRunPrefix, newID())
 }
 
 func GenerateSandboxCommandID() string {

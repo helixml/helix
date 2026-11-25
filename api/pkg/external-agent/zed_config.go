@@ -333,11 +333,10 @@ func GenerateZedMCPConfig(
 	// request timeout` (180s).
 	config.ContextServers["chrome-devtools"] = ContextServerConfig{
 		Command: "/usr/local/bin/helix-chrome-devtools-mcp",
-		// Persist the browser profile on the workspace volume. chrome-devtools-mcp
-		// otherwise passes an explicit user-data-dir under $HOME/.cache, which is
-		// part of the container overlay and is lost on recreation. Only
-		// /home/retro/work is bind-mounted persistently; the default Chrome path
-		// symlinks in helix-workspace-setup.sh cannot cover an explicit override.
+		// The shared browser is owned by helix-browser (desktop/shared/helix-browser.sh):
+		// it starts Chrome on the first browser tool call, on the profile declared in
+		// the workspace's .helix/browser.json, or on this default on the persistent
+		// workspace volume when nothing is declared.
 		// --viewport sets the rendered page size (Chrome window ends up viewport + ~80px
 		// of decorations). 1280x800 sits at the canonical desktop-vs-mobile breakpoint
 		// so sites still render in desktop mode, and the resulting Chrome window leaves
@@ -797,7 +796,7 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	}
 	provider, model := AssistantModelSelection(assistant)
 	if provider == "" || model == "" {
-		return fmt.Sprintf("agent %q is missing a provider or model selection — open the agent settings and pick a provider and model", app.ID)
+		return fmt.Sprintf("%s is missing a provider or model selection — pick a provider and model", modelConfigSubject(app))
 	}
 	if snapshot == nil {
 		return ""
@@ -807,7 +806,7 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		if app.OrganizationID != "" {
 			return types.OrganizationProviderUnavailableMessage
 		}
-		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
+		return fmt.Sprintf("%s references provider %q which does not match any current provider — the provider may have been renamed or deleted. Re-pick a provider, or restore/rename the provider in admin.", modelConfigSubject(app), provider)
 	}
 	if required := requiredProviderForCodeAgentRuntime(assistant.CodeAgentRuntime); required != "" &&
 		!CodeAgentRuntimeAllowsProvider(assistant.CodeAgentRuntime, resolved.Name) {
@@ -818,10 +817,19 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		normalizedModel := strings.TrimPrefix(model, resolved.ID+"/")
 		normalizedModel = strings.TrimPrefix(normalizedModel, resolved.Name+"/")
 		if !slices.Contains(resolved.Models, normalizedModel) {
-			return fmt.Sprintf("agent %q references model %q which is not currently available from provider %q - open the agent settings and pick an available model", app.ID, model, resolved.Name)
+			return fmt.Sprintf("%s references model %q which is not currently available from provider %q - pick an available model", modelConfigSubject(app), model, resolved.Name)
 		}
 	}
 	return ""
+}
+
+// modelConfigSubject names what holds the model choice. Configs built from a
+// task or project code_agent_config have no stored agent, so no ID.
+func modelConfigSubject(app *types.App) string {
+	if app.ID == "" {
+		return "the coding-agent config"
+	}
+	return fmt.Sprintf("agent %q", app.ID)
 }
 
 func usesUpstreamSubscription(assistant *types.AssistantConfig) bool {

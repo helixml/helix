@@ -23,9 +23,13 @@ import {
   TypesSpecTaskPRProposalStatus,
 } from "../../api/api";
 import useSnackbar from "../../hooks/useSnackbar";
-import { useDecidePRProposal } from "../../services/specTaskPRProposalService";
+import {
+  PRProposalOwner,
+  useDecidePRProposalFor,
+} from "../../services/specTaskPRProposalService";
 import { APP_MONO_FONT_FAMILY } from "../../styles/typography";
 import { getChatColors } from "../session/chatStyles";
+import { useCollapseOnUserMessage } from "../session/actionCardCollapse";
 
 const { PRProposalStatusPending, PRProposalStatusApproved, PRProposalStatusFailed } =
   TypesSpecTaskPRProposalStatus;
@@ -36,20 +40,21 @@ const { PRProposalStatusPending, PRProposalStatusApproved, PRProposalStatusFaile
  * git provider until the user approves here.
  */
 export default function PRProposalCard({
-  specTaskId,
+  owner,
   proposal,
 }: {
-  specTaskId: string;
+  owner: PRProposalOwner;
   proposal: TypesSpecTaskPRProposal;
 }) {
   const theme = useTheme();
   const colors = getChatColors(theme);
   const snackbar = useSnackbar();
-  const decide = useDecidePRProposal(specTaskId);
+  const decide = useDecidePRProposalFor(owner);
   const status = proposal.status;
   const isPending = status === PRProposalStatusPending;
 
   const [expanded, setExpanded] = useState(isPending);
+  useCollapseOnUserMessage(() => setExpanded(false));
   const [headBranch, setHeadBranch] = useState(proposal.head_branch ?? "");
   const [baseBranch, setBaseBranch] = useState(proposal.base_branch ?? "");
   const [title, setTitle] = useState(proposal.title ?? "");
@@ -320,7 +325,14 @@ export default function PRProposalCard({
 
           {(isPending || status === PRProposalStatusFailed) && (
             <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 1 }}>
-              <Tooltip describeChild title="Later proposals from this task's agent are approved without asking, using your credentials, and the task is marked done when the agent says it is finished. Turn it off in the task's details.">
+              <Tooltip
+                describeChild
+                title={
+                  owner.kind === "task"
+                    ? "Later proposals from this task's agent are approved without asking, using your credentials, and the task is marked done when the agent says it is finished. Turn it off in the task's details."
+                    : "Later proposals from this bot are approved without asking, using your credentials. Turn it off from the bot's toolbar."
+                }
+              >
                 <FormControlLabel
                   disabled={busy}
                   control={
@@ -333,7 +345,8 @@ export default function PRProposalCard({
                   }
                   label={
                     <Typography variant="caption" sx={{ color: colors.subtle }}>
-                      Auto-approve future pull requests for this task
+                      Auto-approve future pull requests for this{" "}
+                      {owner.kind === "task" ? "task" : "bot"}
                     </Typography>
                   }
                   sx={{ mr: "auto", ml: 0 }}

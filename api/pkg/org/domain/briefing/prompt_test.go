@@ -204,3 +204,20 @@ func TestBuildInstructionsIncludesIdentityAndMandate(t *testing.T) {
 		}
 	}
 }
+
+// A notice carries a message from Helix itself, e.g. the decision on a pull
+// request the bot proposed; the bot must see it verbatim.
+func TestBuildPromptRendersNoticeVerbatim(t *testing.T) {
+	t.Parallel()
+	body := "# Pull request opened\n\nPull request #7 is open in playbook: https://github.example/pull/7"
+	prompt := BuildPrompt([]activation.Trigger{{
+		Kind:    activation.TriggerNotice,
+		Message: streaming.Message{Subject: "pull request proposal", Body: body},
+	}})
+	if !strings.Contains(prompt, "A notice from Helix") || !strings.Contains(prompt, body) {
+		t.Fatalf("notice not rendered verbatim:\n%s", prompt)
+	}
+	if got := DescribeTrigger(activation.Trigger{Kind: activation.TriggerNotice, Message: streaming.Message{Subject: "pull request proposal"}}); got != "notice: pull request proposal" {
+		t.Fatalf("DescribeTrigger = %q", got)
+	}
+}

@@ -83,8 +83,11 @@ wolf-debug-dumps/
 wolf/cert.pem
 wolf/key.pem
 
-# Helix sway build artifacts
-sandbox-heartbeat
+# Helix sway build artifacts. The heartbeat binary is anchored to where
+# `go build` drops it: unanchored, it also matched api/cmd/sandbox-heartbeat/
+# and silently ignored every new source file there.
+/sandbox-heartbeat
+/api/sandbox-heartbeat
 sandbox-images
 
 # Hydra binary (not the api/pkg/hydra directory)

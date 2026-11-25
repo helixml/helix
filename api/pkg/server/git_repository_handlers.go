@@ -374,6 +374,10 @@ func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Requ
 	}
 
 	repository, err := s.gitRepositoryService.UpdateRepository(r.Context(), repoID, &request, koditAPIKey)
+	if errors.Is(err, services.ErrDefaultBranchNotFound) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to update git repository")
 		http.Error(w, fmt.Sprintf("Failed to update repository: %s", err.Error()), http.StatusInternalServerError)
@@ -1276,11 +1280,6 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 			return writeErr
 		},
 	)
-	// A person writing the startup script vouches for it, as in Project
-	// Settings; an agent's write never does (trustStartupScriptWrite).
-	if err == nil && request.Branch == services.SpecsBranchName && request.Path == services.StartupScriptPath {
-		err = s.trustStartupScriptWrite(r.Context(), user, repoID, commitHash)
-	}
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Str("path", request.Path).Msg("Failed to create/update file")
 		switch {

@@ -269,6 +269,18 @@ func (s *HelixAPIServer) newProjectCodeAgentConfig(
 	return orgDefaultCodeAgentConfig(defaults), nil
 }
 
+// explainOrgDefaultRuntimeError says where to fix a project config that came
+// from the organization's Default Runtime: the new-project dialog sends that
+// default without showing its model, so the user cannot fix it there.
+func (s *HelixAPIServer) explainOrgDefaultRuntimeError(ctx context.Context, organizationID string, config *types.CodeAgentExecutionConfig, err error) string {
+	defaults, defaultsErr := s.newProjectCodeAgentConfig(ctx, organizationID, nil)
+	if defaultsErr != nil || defaults == nil || config == nil ||
+		defaults.Runtime != config.Runtime || defaults.ProviderRef != config.ProviderRef || defaults.Model != config.Model {
+		return err.Error()
+	}
+	return fmt.Sprintf("The organization's Default Runtime can't be used: %s. An organization admin can change it in Settings > Default Runtime.", err)
+}
+
 func isDeferredNativeHarnessProjectConfig(config *types.CodeAgentExecutionConfig) bool {
 	if config == nil || config.CredentialType != types.CodeAgentCredentialTypeAPIKey ||
 		config.ProviderRef != "" || config.Model != "" {
@@ -445,7 +457,8 @@ func (s *HelixAPIServer) applySessionCodeAgentExecutionConfig(
 		return nil
 	}
 	if reflect.DeepEqual(session.Metadata.CodeAgentConfig, config) &&
-		session.Metadata.CodeAgentOverrides == nil {
+		session.Metadata.CodeAgentOverrides == nil &&
+		sessionUsesAgentRuntime(session, config.Runtime) {
 		return false, false, recoverPrompts()
 	}
 

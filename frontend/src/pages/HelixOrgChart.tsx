@@ -2980,7 +2980,7 @@ const HelixOrgChart: FC = () => {
     try {
       if (confirmDelete.kind === 'bot') {
         await deleteBot.mutateAsync(confirmDelete.id)
-        snackbar.success(`Deleted org bot ${confirmDelete.id}`)
+        snackbar.success(`Deleting org bot ${confirmDelete.id} in the background`)
       } else if (confirmDelete.kind === 'topic') {
         await deleteTopic.mutateAsync(confirmDelete.id)
         snackbar.success(`Deleted Trigger ${confirmDelete.id}`)

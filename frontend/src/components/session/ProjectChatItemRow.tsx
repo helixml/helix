@@ -4,7 +4,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import { Archive, ArchiveRestore, GitBranch, Pin, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, GitBranch, Link2, Pin, Trash2 } from 'lucide-react'
 
 import type { TypesOrganizationMembership, TypesUser } from '../../api/api'
 import useApps from '../../hooks/useApps'
@@ -19,7 +19,7 @@ import { deriveSandboxState } from '../external-agent/sandboxState'
 import ProjectChatItemTooltip from './ProjectChatItemTooltip'
 import { activeStatusDotPulse, TaskStatusIcons } from './ProjectChatItemBadges'
 import { getProjectChatItemDetails, resolveProjectChatItemBranch } from './projectChatItemDetails'
-import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskStatus } from './ProjectChatSidebar.logic'
+import { compactRelativeTime, getSidebarPullRequestIcon, getSidebarTaskActivity, getSidebarTaskStatus } from './ProjectChatSidebar.logic'
 import type { SidebarItem } from './ProjectChatSidebar.logic'
 
 export type ProjectChatItemRowProps = {
@@ -35,6 +35,11 @@ export type ProjectChatItemRowProps = {
   defaultBranch?: string
   /** Set when the row sits in a cross-project list (a person's or bot's work); shown in the tooltip. */
   projectName?: string
+  /**
+   * Set when the row is a second listing of an item shown under this project
+   * (a bot's list). Marked so it isn't read as a duplicate.
+   */
+  linkedProjectName?: string
   onOpenItem: (item: SidebarItem) => void
   onOpenItemContextMenu: (event: MouseEvent<HTMLElement>, item: SidebarItem) => void
   onArchiveItem: (item: SidebarItem) => void
@@ -54,6 +59,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   repositoryName,
   defaultBranch,
   projectName,
+  linkedProjectName,
   onOpenItem,
   onOpenItemContextMenu,
   onArchiveItem,
@@ -67,7 +73,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
   const isBotInstance = !!item.botInstanceOf
   const archiveVerb = archived ? 'Unarchive' : 'Archive'
   const status = item.kind === 'spec-task' ? getSidebarTaskStatus(item.task) : null
-  const isAgentWorking = item.kind === 'spec-task' && item.task?.agent_work_state === 'working'
+  const activity = item.kind === 'spec-task' ? getSidebarTaskActivity(item.task) : null
   const pullRequestIcon = item.kind === 'spec-task'
     ? getSidebarPullRequestIcon(item.task)
     : undefined
@@ -154,7 +160,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     <TaskStatusIcons
       status={status}
       pullRequestIcon={pullRequestIcon}
-      isAgentWorking={isAgentWorking}
+      activity={activity}
     />
   ) : isBotInstance && (
     <Tooltip title={instanceStatusTitle}>
@@ -279,6 +285,30 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
     </Box>
   )
 
+  const linkedTitle = `Linked: the same ${item.kind === 'spec-task' ? 'task' : 'chat'} as in project ${linkedProjectName}, not a copy`
+  const linkedNode = linkedProjectName && (
+    <Tooltip title={linkedTitle}>
+      <Box
+        component="span"
+        data-testid="sidebar-item-linked"
+        role="img"
+        aria-label={linkedTitle}
+        onMouseOver={(event) => event.stopPropagation()}
+        sx={{
+          width: 14,
+          height: 28,
+          flexShrink: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: active ? sidebarColors.foreground : sidebarColors.subtleForeground,
+        }}
+      >
+        <Link2 size={12} />
+      </Box>
+    </Tooltip>
+  )
+
   const pinNode = item.pinnedAt && (
     <Tooltip title="Pinned">
       <Box
@@ -375,6 +405,7 @@ const ProjectChatItemRow: FC<ProjectChatItemRowProps> = ({
       >
         {statusIcons}
         {titleNode}
+        {linkedNode}
         {avatarNode}
         {pinNode}
         {timeAndArchive}

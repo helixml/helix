@@ -357,10 +357,6 @@ func (s *AuthzRepositorySuite) TestWithOrg_AdminAllowed() {
 	}
 	user := &types.User{ID: s.userID, Admin: true}
 
-	// Admin without org membership gets synthetic owner role
-	s.mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
-		Return(nil, store.ErrNotFound)
-
 	err := s.server.authorizeUserToRepository(context.Background(), user, repo, types.ActionGet)
 	s.NoError(err)
 }
@@ -700,9 +696,6 @@ func (s *AuthzAppSuite) TestWithOrg_NoDirectAccess_AppReferencedButNoProjectAcce
 func (s *AuthzAppSuite) TestWithOrg_AdminAllowed() {
 	app := &types.App{ID: "app1", Owner: "someone_else", OrganizationID: s.orgID}
 	user := &types.User{ID: s.userID, Admin: true}
-
-	s.mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
-		Return(nil, store.ErrNotFound)
 
 	err := s.server.authorizeUserToApp(context.Background(), user, app, types.ActionGet)
 	s.NoError(err)

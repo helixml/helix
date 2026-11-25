@@ -141,6 +141,12 @@ definitions:
           ActivationError is the latest completed activation failure. It clears
           when a newer activation starts or succeeds.
         type: string
+      activation_failure_streak:
+        description: |-
+          ActivationFailureStreak counts the newest activations that failed in a
+          row. Operator chat turns do not reset it, so repeated bounces of
+          scheduled deliveries surface even while the desktop answers chat.
+        type: integer
       agent_model:
         type: string
       agent_runtime:
@@ -151,6 +157,13 @@ definitions:
         description: |-
           AgentWorkState is "working" only while the running Bot's latest
           interaction is still waiting for its external agent.
+      auto_approve_pull_requests:
+        description: |-
+          AutoApprovePullRequests approves the bot's PR proposals as
+          AutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.
+        type: boolean
+      auto_approve_pull_requests_by:
+        type: string
       can_edit:
         description: |-
           CanEdit is true when the caller may change this Bot: organization
@@ -186,6 +199,16 @@ definitions:
         description: |-
           InstanceProfile is the effective profile of this Bot's instances (the
           default when the Bot never configured one).
+      keep_alive:
+        description: |-
+          KeepAlive exempts the bot's desktop from idle shutdown. Changed through
+          PUT /orgs/{org}/bots/{id}/keep-alive.
+        type: boolean
+      last_activation_failure:
+        description: |-
+          LastActivationFailure is the error of the newest failed activation in
+          ActivationFailureStreak.
+        type: string
       legacy_app_id:
         type: string
       model:
@@ -305,6 +328,87 @@ definitions:
       sudo:
         type: boolean
       updated_at:
+        type: string
+    type: object
+  api.BotResetDTO:
+    properties:
+      activation_id:
+        type: string
+      erases:
+        items:
+          type: string
+        type: array
+      home:
+        $ref: '#/definitions/api.BotResetHomeDTO'
+      keeps:
+        items:
+          type: string
+        type: array
+      previous_session_id:
+        type: string
+      scope:
+        type: string
+      session_id:
+        type: string
+    type: object
+  api.BotResetHomeDTO:
+    properties:
+      existed:
+        type: boolean
+      generation:
+        type: string
+      retired_path:
+        type: string
+    type: object
+  api.BotResetPlanDTO:
+    properties:
+      scopes:
+        items:
+          $ref: '#/definitions/api.BotResetScopeDTO'
+        type: array
+    type: object
+  api.BotResetRequestDTO:
+    properties:
+      confirm:
+        description: Confirm must equal the bot id.
+        type: string
+      scope:
+        description: Scope is "session" or "session_and_home".
+        type: string
+    type: object
+  api.BotResetScopeDTO:
+    properties:
+      available:
+        description: Available is false when the scope would be refused right now.
+        type: boolean
+      erases:
+        items:
+          type: string
+        type: array
+      keeps:
+        items:
+          type: string
+        type: array
+      scope:
+        type: string
+      unavailable_reason:
+        type: string
+    type: object
+  api.BotRestartDTO:
+    properties:
+      activation_id:
+        type: string
+      legacy_app_id:
+        type: string
+      mode:
+        type: string
+      preserves:
+        items:
+          type: string
+        type: array
+      project_id:
+        type: string
+      session_id:
         type: string
     type: object
   api.ChartPositionDTO:
@@ -1108,6 +1212,69 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
+  hosthistory.Sample:
+    properties:
+      cpu:
+        type: number
+      disk:
+        type: number
+      memory:
+        type: number
+      timestamp:
+        type: integer
+    type: object
+  hydra.BotHomeInventory:
+    properties:
+      browser_profile:
+        allOf:
+        - $ref: '#/definitions/hydra.DeclaredBrowserProfile'
+        description: |-
+          BrowserProfile is the profile declared in .helix/browser.json (see
+          desktop/shared/helix-browser.sh); nil when none is declared, in which
+          case the browser uses .chrome-state.
+      chrome_profiles:
+        items:
+          $ref: '#/definitions/hydra.ChromeProfileStatus'
+        type: array
+      top_level_entries:
+        type: integer
+    type: object
+  hydra.BotHomeOutcome:
+    enum:
+    - existing
+    - created
+    - migrated
+    type: string
+    x-enum-varnames:
+    - BotHomeOutcomeExisting
+    - BotHomeOutcomeCreated
+    - BotHomeOutcomeMigrated
+  hydra.BotHomeResult:
+    properties:
+      generation:
+        type: string
+      inventory:
+        $ref: '#/definitions/hydra.BotHomeInventory'
+      migrated_from_session:
+        type: string
+      outcome:
+        $ref: '#/definitions/hydra.BotHomeOutcome'
+      path:
+        type: string
+    type: object
+  hydra.ChromeProfileStatus:
+    properties:
+      cookies_db_present:
+        type: boolean
+      default_prefs_valid:
+        type: boolean
+      local_state_valid:
+        type: boolean
+      path:
+        type: string
+      singleton_lock:
+        type: boolean
+    type: object
   hydra.ContainerBlkioStats:
     properties:
       read_bytes:
@@ -1117,6 +1284,29 @@ definitions:
       write_bytes:
         type: integer
     type: object
+  hydra.DeclaredBrowserProfile:
+    properties:
+      path:
+        type: string
+      state:
+        $ref: '#/definitions/hydra.DeclaredBrowserProfileState'
+    type: object
+  hydra.DeclaredBrowserProfileState:
+    enum:
+    - ok
+    - missing
+    - outside_workspace
+    - wrong_identity
+    - inconsistent
+    - invalid_declaration
+    type: string
+    x-enum-varnames:
+    - DeclaredBrowserProfileOK
+    - DeclaredBrowserProfileMissing
+    - DeclaredBrowserProfileOutsideWorkspace
+    - DeclaredBrowserProfileWrongIdentity
+    - DeclaredBrowserProfileInconsistent
+    - DeclaredBrowserProfileInvalidDeclaration
   hydra.DevContainerStatus:
     enum:
     - starting
@@ -2027,8 +2217,6 @@ definitions:
     type: object
   server.ClaudeModel:
     properties:
-      description:
-        type: string
       id:
         type: string
       name:
@@ -2111,6 +2299,11 @@ definitions:
     type: object
   server.DevContainerWithClients:
     properties:
+      bot_home:
+        allOf:
+        - $ref: '#/definitions/hydra.BotHomeResult'
+        description: BotHome reports how the bot home was bound, when the request
+          had one.
       clients:
         items:
           $ref: '#/definitions/github_com_helixml_helix_api_pkg_server.ClientInfo'
@@ -2880,6 +3073,16 @@ definitions:
         type: string
       reason:
         type: string
+    type: object
+  server.OrgBotKeepAliveRequest:
+    properties:
+      keep_alive:
+        type: boolean
+    type: object
+  server.OrgBotPRAutoApproveRequest:
+    properties:
+      enabled:
+        type: boolean
     type: object
   server.OrganizationDomainInfo:
     properties:
@@ -3799,24 +4002,24 @@ definitions:
     - FieldSlackChannel
   transport.Kind:
     enum:
+    - github
+    - slack
+    - local
+    - cron
     - email
     - gitlab
-    - local
-    - helix_events
-    - slack
-    - github
     - webhook
-    - cron
+    - helix_events
     type: string
     x-enum-varnames:
+    - KindGitHub
+    - KindSlack
+    - KindLocal
+    - KindCron
     - KindEmail
     - KindGitLab
-    - KindLocal
-    - KindHelixEvents
-    - KindSlack
-    - KindGitHub
     - KindWebhook
-    - KindCron
+    - KindHelixEvents
   transport.ResolvedActivation:
     properties:
       address:
@@ -4288,11 +4491,10 @@ definitions:
         type: string
       spec_task_id:
         description: |-
-          SpecTaskID is the spec task whose task-confined key created the
+          SpecTaskID is the spec task whose task-bound key created the
           artifact, set by the server from the key and never from the request.
-          Such a key may change or delete only its own task's artifacts, and a
-          reader can tell one lane's artifacts from another's. Empty for
-          artifacts created any other way.
+          A reader can tell one lane's artifacts from another's. Empty for artifacts
+          created outside a spec task.
         type: string
       subdomain_url:
         type: string
@@ -4504,7 +4706,7 @@ definitions:
           CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
           which the claude-agent-acp package reads (resolveModelPreference) to pick the
           model — otherwise Claude Code defaults to Sonnet. Empty means
-          "claude-opus-5-5" (the current 1M-context Opus model).
+          DefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.
         type: string
       code_agent_credential_type:
         allOf:
@@ -5722,6 +5924,18 @@ definitions:
       name:
         type: string
       path:
+        type: string
+    type: object
+  types.CodeAgentModelOption:
+    properties:
+      current:
+        description: |-
+          Current marks a current-generation model. Pickers list current models
+          first and group the rest as legacy.
+        type: boolean
+      id:
+        type: string
+      name:
         type: string
     type: object
   types.CodeAgentOverrides:
@@ -7575,6 +7789,12 @@ definitions:
         $ref: '#/definitions/types.InteractionState'
       status:
         type: string
+      steered:
+        description: |-
+          Steered is true when this turn's prompt was a steer delivered while the
+          agent was still working on an earlier turn. The chat labels it, and the
+          earlier turn reads as continuing rather than incomplete.
+        type: boolean
       summary:
         description: |-
           Summary is a one-line description of this interaction for search/indexing.
@@ -8312,6 +8532,21 @@ definitions:
       supports_reasoning_effort:
         type: boolean
     type: object
+  types.ModelReference:
+    properties:
+      fields:
+        description: Fields names the fields holding the model, e.g. "code_agent_config".
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      kind:
+        description: Kind is org_default, agent, org_bot, project, spec_task or session.
+        type: string
+      organization_id:
+        type: string
+    type: object
   types.ModelType:
     enum:
     - chat
@@ -8713,7 +8948,11 @@ definitions:
         type: array
       desktop_credits:
         type: number
+      desktop_hours:
+        type: number
       headless_credits:
+        type: number
+      headless_hours:
         type: number
       running_sandboxes:
         description: RunningSandboxes is a point-in-time count, not a range aggregate.
@@ -8723,6 +8962,8 @@ definitions:
           $ref: '#/definitions/types.UsageComputeBreakdownRow'
         type: array
       total_credits:
+        type: number
+      total_hours:
         type: number
     type: object
   types.OrgDetails:
@@ -9840,6 +10081,12 @@ definitions:
           Status tracks whether this was successfully sent
           Values: "pending", "sent", "failed"
         type: string
+      steer:
+        description: |-
+          Steer delivers this message into the agent's running turn without
+          cancelling it, when the agent supports steering. Otherwise it waits for
+          the turn to finish like a queued message. Mutually exclusive with Interrupt.
+        type: boolean
       updated_at:
         type: string
       user_id:
@@ -9861,6 +10108,10 @@ definitions:
         type: string
       status:
         type: string
+      steer:
+        description: If true, delivered into the running turn when the agent supports
+          it
+        type: boolean
       timestamp:
         description: Unix timestamp in milliseconds
         type: integer
@@ -10320,6 +10571,27 @@ definitions:
         type: string
       password_confirm:
         type: string
+    type: object
+  types.ReplaceModelRequest:
+    properties:
+      dry_run:
+        description: DryRun reports what would change without writing anything.
+        type: boolean
+      from_model:
+        type: string
+      provider_ref:
+        type: string
+      to_model:
+        type: string
+    type: object
+  types.ReplaceModelResponse:
+    properties:
+      dry_run:
+        type: boolean
+      references:
+        items:
+          $ref: '#/definitions/types.ModelReference'
+        type: array
     type: object
   types.RepoPR:
     properties:
@@ -10786,6 +11058,7 @@ definitions:
       memory_mb:
         type: integer
       name:
+        description: SandboxNameMaxLen
         type: string
       org_bot_id:
         description: |-
@@ -11008,6 +11281,11 @@ definitions:
           ServiceHealth maps compose service name -> health string.
           "healthy" | "starting" | "failed" | "unknown".
         type: object
+      session_resources:
+        description: Cumulative cgroup counters of each running desktop session container.
+        items:
+          $ref: '#/definitions/types.SessionResourceSample'
+        type: array
     type: object
   types.SandboxInstance:
     properties:
@@ -11287,6 +11565,16 @@ definitions:
       billing_enabled:
         description: Charging for usage
         type: boolean
+      code_agent_models:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/types.CodeAgentModelOption'
+          type: array
+        description: |-
+          CodeAgentModels is the vendor model catalogue per coding-agent harness,
+          best first (see CodeAgentModels). The UI pickers and their defaults read it
+          from here so the backend list is the only place it is maintained.
+        type: object
       default_chat_system_prompt:
         description: |-
           DefaultChatSystemPrompt is the system prompt the platform applies to
@@ -11759,6 +12047,22 @@ definitions:
       spec_task_id:
         type: string
     type: object
+  types.SessionFilesystemSample:
+    properties:
+      dedicated:
+        type: boolean
+      inodes:
+        type: integer
+      inodes_used:
+        type: integer
+      paths:
+        description: Container paths mounted from this filesystem, comma separated.
+        type: string
+      size_bytes:
+        type: integer
+      used_bytes:
+        type: integer
+    type: object
   types.SessionInfo:
     properties:
       auth_provider:
@@ -11794,6 +12098,12 @@ definitions:
         type: string
       agent_handoff_delivered_at:
         type: string
+      agent_steering_supported:
+        description: |-
+          AgentSteeringSupported is reported by Zed for the session's thread: true
+          when the agent can take a message into its running turn. Without it a
+          steer prompt waits for the turn to finish.
+        type: boolean
       agent_switched_at:
         description: |-
           AgentSwitchedAt is set when the agent framework is switched IN PLACE on
@@ -12151,6 +12461,144 @@ definitions:
         type: string
       source:
         type: string
+    type: object
+  types.SessionResourcePoint:
+    properties:
+      cpu_cores:
+        type: number
+      cpu_pressure_pct:
+        type: number
+      cpu_throttled_pct:
+        type: number
+      disk_used_bytes:
+        type: integer
+      io_pressure_pct:
+        type: number
+      io_read_bps:
+        type: number
+      io_write_bps:
+        type: number
+      memory_bytes:
+        type: integer
+      memory_pressure_pct:
+        type: number
+      oom_kills:
+        type: integer
+      timestamp:
+        type: integer
+    type: object
+  types.SessionResourceSample:
+    properties:
+      cpu_limit_millicores:
+        type: integer
+      cpu_periods:
+        type: integer
+      cpu_pressure_usec:
+        description: |-
+          Pressure stall information: total microseconds in which some task of
+          the container was stalled on CPU, memory or I/O.
+        type: integer
+      cpu_throttled_periods:
+        type: integer
+      cpu_throttled_usec:
+        type: integer
+      cpu_usage_usec:
+        type: integer
+      filesystems:
+        items:
+          $ref: '#/definitions/types.SessionFilesystemSample'
+        type: array
+      io_pressure_usec:
+        type: integer
+      io_read_bytes:
+        description: I/O issued by the container, counted on top-of-stack block devices
+          only.
+        type: integer
+      io_read_ops:
+        type: integer
+      io_write_bytes:
+        type: integer
+      io_write_ops:
+        type: integer
+      memory_anon_bytes:
+        type: integer
+      memory_bytes:
+        type: integer
+      memory_file_bytes:
+        type: integer
+      memory_high_events:
+        type: integer
+      memory_limit_bytes:
+        type: integer
+      memory_max_events:
+        type: integer
+      memory_peak_bytes:
+        type: integer
+      memory_pressure_usec:
+        type: integer
+      oom_kills:
+        type: integer
+      pids:
+        type: integer
+      session_id:
+        type: string
+      timestamp:
+        description: Unix milliseconds, set by the API when it receives the heartbeat.
+        type: integer
+    type: object
+  types.SessionResourceSummary:
+    properties:
+      cpu_cores_max:
+        type: number
+      cpu_cores_p50:
+        type: number
+      cpu_cores_p95:
+        type: number
+      cpu_limit_cores:
+        type: number
+      cpu_pressure_pct:
+        type: number
+      cpu_throttled_pct:
+        type: number
+      from:
+        type: integer
+      io_pressure_pct:
+        type: number
+      io_read_bytes:
+        type: integer
+      io_write_bytes:
+        type: integer
+      memory_high_events:
+        type: integer
+      memory_limit_bytes:
+        type: integer
+      memory_max_bytes:
+        type: integer
+      memory_peak_bytes:
+        type: integer
+      memory_pressure_pct:
+        type: number
+      oom_kills:
+        type: integer
+      samples:
+        type: integer
+      to:
+        type: integer
+    type: object
+  types.SessionResources:
+    properties:
+      filesystems:
+        items:
+          $ref: '#/definitions/types.SessionFilesystemSample'
+        type: array
+      points:
+        items:
+          $ref: '#/definitions/types.SessionResourcePoint'
+        type: array
+      session_id:
+        type: string
+      summary:
+        $ref: '#/definitions/types.SessionResourceSummary'
     type: object
   types.SessionSummary:
     properties:
@@ -12774,6 +13222,14 @@ definitions:
     properties:
       archived:
         type: boolean
+      destroy_workspace:
+        description: |-
+          DestroyWorkspace tears the task's desktop down for good instead of
+          stopping it: the container, the session's on-host data and the task's
+          workspace checkout are deleted, so a finished task stops holding disk.
+          Only honoured when the request archives and stop is enabled; the same
+          live-agent guard as stop_agent applies.
+        type: boolean
       stop_agent:
         description: |-
           StopAgent controls whether archiving stops the task's external agent and
@@ -13120,6 +13576,11 @@ definitions:
       head_branch:
         type: string
       id:
+        type: string
+      org_bot_id:
+        description: OrgBotID is the proposing org bot, unique within OrganizationID.
+        type: string
+      organization_id:
         type: string
       pr_id:
         type: string
@@ -13832,6 +14293,8 @@ definitions:
       kodit_vision_embedding_provider:
         description: Kodit vision embedding model configuration
         type: string
+      llm_payload_retention_days:
+        type: integer
       max_concurrent_desktop_sandboxes:
         type: integer
       max_concurrent_headless_sandboxes:
@@ -13910,6 +14373,8 @@ definitions:
       kodit_vision_embedding_provider:
         description: Kodit vision embedding model configuration
         type: string
+      llm_payload_retention_days:
+        type: integer
       max_concurrent_desktop_sandboxes:
         type: integer
       max_concurrent_headless_sandboxes:
@@ -14805,6 +15270,11 @@ definitions:
         type: integer
       provider:
         type: string
+      provider_kind:
+        allOf:
+        - $ref: '#/definitions/types.UsageProviderKind'
+        description: ProviderKind says who a provider row was paid through; set on
+          provider rows only.
       request_size_bytes:
         type: integer
       response_size_bytes:
@@ -14840,6 +15310,8 @@ definitions:
     properties:
       credits:
         type: number
+      hours:
+        type: number
       name:
         type: string
       pricing_type:
@@ -14861,9 +15333,15 @@ definitions:
         type: string
       desktop:
         type: number
+      desktop_hours:
+        type: number
       headless:
         type: number
+      headless_hours:
+        type: number
       total:
+        type: number
+      total_hours:
         type: number
     type: object
   types.UsageFilterOption:
@@ -14896,8 +15374,24 @@ definitions:
       provider:
         type: string
     type: object
+  types.UsageProviderKind:
+    enum:
+    - helix
+    - added
+    - local
+    - subscription
+    - unknown
+    type: string
+    x-enum-varnames:
+    - UsageProviderKindHelix
+    - UsageProviderKindAdded
+    - UsageProviderKindLocal
+    - UsageProviderKindSubscription
+    - UsageProviderKindUnknown
   types.UsageProviderTimeSeries:
     properties:
+      kind:
+        $ref: '#/definitions/types.UsageProviderKind'
       metrics:
         items:
           $ref: '#/definitions/types.AggregatedUsageMetric'
@@ -16988,6 +17482,31 @@ paths:
       security:
       - BearerAuth: []
       summary: Get Kodit system stats (admin)
+      tags:
+      - admin
+  /api/v1/admin/models/replace:
+    post:
+      description: |-
+        When a provider stops serving a model, every org default
+        runtime, agent, org bot, project, spec task and session that
+        still selects it fails on its next turn. This moves all of them
+        to another model on the same provider. The replacement must be
+        served by the provider now. Use dry_run to list them first.
+      parameters:
+      - description: Provider and models
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ReplaceModelRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ReplaceModelResponse'
+      security:
+      - BearerAuth: []
+      summary: Replace a model everywhere it is selected
       tags:
       - admin
   /api/v1/admin/organization-domains:
@@ -22364,6 +22883,14 @@ paths:
     get:
       description: List LLM calls with pagination and optional session filtering
       parameters:
+      - description: Omit request and response bodies
+        in: query
+        name: metadata_only
+        type: boolean
+      - description: Filter by call ID
+        in: query
+        name: call_id
+        type: string
       - description: Page number
         in: query
         name: page
@@ -24239,9 +24766,10 @@ paths:
       - HelixOrg
   /api/v1/orgs/{org}/bots/{id}:
     delete:
-      description: 'Delete a Bot. Cascades: archives its runtime-owned project, detaches
-        and deletes the Helix agent app, clears runtime state, drops attachments +
-        reporting lines, then the bot row. Repositories and activations are preserved.'
+      description: 'Delete a Bot in the background; returns 202 once the teardown
+        has started. Cascades: archives its runtime-owned project, detaches and deletes
+        the Helix agent app, clears runtime state, drops attachments + reporting lines,
+        then the bot row. Repositories and activations are preserved.'
       parameters:
       - description: Bot ID
         in: path
@@ -24249,14 +24777,10 @@ paths:
         required: true
         type: string
       responses:
-        "204":
-          description: No Content
+        "202":
+          description: Accepted
         "404":
           description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
           schema:
             $ref: '#/definitions/api.ErrorResponse'
         "501":
@@ -24316,8 +24840,16 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/api.BotDTO'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       security:
@@ -24340,6 +24872,10 @@ paths:
             $ref: '#/definitions/api.BotActivateDTO'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/api.ErrorResponse'
         "501":
@@ -24487,6 +25023,10 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "501":
           description: Not Implemented
           schema:
@@ -24580,6 +25120,37 @@ paths:
       summary: 'Helix-org: delete a bot instance'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/keep-alive:
+    put:
+      consumes:
+      - application/json
+      description: When on, the bot's desktop is not shut down when idle. A bot's
+        own key cannot change it.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Setting
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.OrgBotKeepAliveRequest'
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Turn an org bot's Keep Alive on or off
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/parents:
     post:
       consumes:
@@ -24645,8 +25216,183 @@ paths:
       summary: 'Helix-org: remove a bot reporting line (manager)'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/pr-auto-approve:
+    put:
+      consumes:
+      - application/json
+      description: When on, the bot's proposals are approved as the user who turned
+        it on. A bot's own key cannot change it.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Setting
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.OrgBotPRAutoApproveRequest'
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Turn auto-approval of an org bot's pull request proposals on or off
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/pr-proposals:
+    get:
+      description: An org bot opens pull requests (e.g. to its own playbook) only
+        through proposals a user approves.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SpecTaskPRProposal'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List an org bot's pull request proposals
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/pr-proposals/{proposal_id}/decide:
+    post:
+      consumes:
+      - application/json
+      description: Approving opens the pull request as soon as the branch has commits
+        beyond the base. Edited fields override the bot's proposal. A bot's own key
+        cannot decide.
+      parameters:
+      - description: Organization ID or name
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Proposal ID
+        in: path
+        name: proposal_id
+        required: true
+        type: string
+      - description: Decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PRProposalDecisionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskPRProposal'
+      security:
+      - BearerAuth: []
+      summary: Approve or reject an org bot's pull request proposal
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/reset:
+    get:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BotResetPlanDTO'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: describe what resetting a bot would erase'
+      tags:
+      - HelixOrg
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Scope and confirmation
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.BotResetRequestDTO'
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.BotResetDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: reset a bot (destructive; erases the declared scope)'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/restart:
     post:
+      deprecated: true
       parameters:
       - description: Bot ID
         in: path
@@ -24662,6 +25408,10 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -24672,7 +25422,38 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: restart a bot (fresh session + desktop)'
+      summary: 'Helix-org: DEPRECATED fresh-session restart (use runtime-restart or
+        reset)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/runtime-restart:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.BotRestartDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: restart a bot''s runtime (keeps session, home and queue)'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/secrets:
@@ -29628,6 +30409,31 @@ paths:
       summary: Get streaming connection info for a session
       tags:
       - sessions
+  /api/v1/sessions/{id}/resources:
+    get:
+      description: CPU, memory, I/O, pressure stalls, throttling and filesystem use
+        of the session's desktop container, sampled every 30 seconds and kept for
+        30 days.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Hours of history, 1 through 720 (default 24)
+        in: query
+        name: hours
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionResources'
+      security:
+      - BearerAuth: []
+      summary: Get a session's sandbox resource utilization
+      tags:
+      - sessions
   /api/v1/sessions/{id}/restart-agent:
     post:
       description: |-
@@ -30972,6 +31778,9 @@ paths:
         to restore it. Archiving stops the task's agent and frees its sandbox by default
         (stop_agent, default true); pass stop_agent=false for bookkeeping only. A
         live agent mid-turn is never stopped unless stop_agent is sent explicitly.
+        Pass destroy_workspace=true to destroy the desktop instead of stopping it,
+        deleting its container data and the task's workspace checkout (ignored when
+        unarchiving, with stop_agent=false, or for a Keep Alive task).
       parameters:
       - description: Task ID
         in: path
@@ -31880,6 +32689,25 @@ paths:
       summary: Create a subscription
       tags:
       - wallets
+  /api/v1/system/host-history:
+    get:
+      parameters:
+      - description: Days of history (1 through 30)
+        in: query
+        name: days
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/hosthistory.Sample'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get API host CPU, memory and data filesystem utilization
+      tags:
+      - system
   /api/v1/system/settings:
     get:
       description: Get global system settings. Requires admin privileges.

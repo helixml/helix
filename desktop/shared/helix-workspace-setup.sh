@@ -139,13 +139,6 @@ export GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-300}"
 
 # Source the git helper functions (provides get_default_branch, create_helix_specs_branch)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Provides helix_trusted_startup_script. If it is missing the startup script is
-# refused (resolve_startup_script treats "command not found" as a refusal).
-if [ -f "$SCRIPT_DIR/helix-trusted-startup.sh" ]; then
-    source "$SCRIPT_DIR/helix-trusted-startup.sh"
-elif [ -f "/usr/local/bin/helix-trusted-startup.sh" ]; then
-    source "/usr/local/bin/helix-trusted-startup.sh"
-fi
 if [ -f "$SCRIPT_DIR/helix-specs-create.sh" ]; then
     source "$SCRIPT_DIR/helix-specs-create.sh"
 elif [ -f "/usr/local/bin/helix-specs-create.sh" ]; then
@@ -860,11 +853,14 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
     link_project_skills
 fi
 
-# Browser profile (Chrome / Chromium): chrome-devtools-mcp uses this persistent
-# directory explicitly via --user-data-dir. Symlink the normal Chrome and
-# Chromium config paths to the same profile so a browser opened from the desktop
-# hands off to the MCP-controlled instance instead of creating a second profile.
+# Browser profile (Chrome / Chromium). helix-browser owns the browser: the
+# profile is .helix/browser.json's declared directory in the workspace, or
+# .chrome-state. The desktop's Chrome launcher and chrome-devtools-mcp both go
+# through it, so there is one browser on one profile. The default Chrome and
+# Chromium config paths are symlinked to the same profile so a Chrome started
+# by hand hands off to that browser instead of opening a second profile.
 # Only $WORK_DIR is bind-mounted persistent — see api/pkg/sandbox/controller_provision.go.
+# Nothing here starts Chrome.
 #
 # Note: arm64 uses Chromium (apt) and amd64 uses Google Chrome (deb). Both write
 # to a profile directory under ~/.config/, but the directory name differs. We
@@ -872,33 +868,54 @@ fi
 # pointer into the same state dir, which is harmless and keeps the script
 # arch-agnostic.
 CHROME_STATE_DIR=$WORK_DIR/.chrome-state
-mkdir -p $CHROME_STATE_DIR
-
-# Seed first-run sentinels so Chrome's welcome dialog stays suppressed on first
-# launch with a fresh persistent profile (mirrors /etc/skel setup in the
-# Dockerfile, which the symlink bypasses).
-if [ ! -f $CHROME_STATE_DIR/"First Run" ]; then
-    touch $CHROME_STATE_DIR/"First Run"
-    mkdir -p $CHROME_STATE_DIR/Default
-    if [ ! -f $CHROME_STATE_DIR/Default/Preferences ]; then
-        echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' > $CHROME_STATE_DIR/Default/Preferences
+if [ -e "$WORK_DIR/.helix/browser.json" ]; then
+    # A declared profile is never created or seeded here: if it is missing or
+    # not the declared one, browser requests fail until it is restored.
+    if CHROME_PROFILE_DIR=$(helix-browser profile-path 2>/tmp/helix-browser-setup.err); then
+        echo "  Chrome: declared profile $CHROME_PROFILE_DIR"
+    else
+        echo "  Chrome: $(cat /tmp/helix-browser-setup.err)"
+        CHROME_PROFILE_DIR=""
     fi
+    # Never merged into the declared profile. A Chrome that already ran here
+    # (Local State) is kept in the workspace; skel sentinels are not.
+    for ephemeral_dir in ~/.config/google-chrome ~/.config/chromium; do
+        if [ -d "$ephemeral_dir" ] && [ ! -L "$ephemeral_dir" ] && [ -e "$ephemeral_dir/Local State" ]; then
+            preserved="$WORK_DIR/.helix/preserved-chrome-config/$(basename "$ephemeral_dir")-$(date +%Y%m%d%H%M%S)"
+            mkdir -p "$(dirname "$preserved")"
+            mv "$ephemeral_dir" "$preserved" && echo "  Chrome: kept $ephemeral_dir in $preserved"
+        fi
+    done
+else
+    CHROME_PROFILE_DIR=$CHROME_STATE_DIR
+    mkdir -p $CHROME_STATE_DIR
+    # Seed first-run sentinels so Chrome's welcome dialog stays suppressed on
+    # first launch with a fresh persistent profile (mirrors /etc/skel setup in
+    # the Dockerfile, which the symlink bypasses).
+    if [ ! -f $CHROME_STATE_DIR/"First Run" ]; then
+        touch $CHROME_STATE_DIR/"First Run"
+        mkdir -p $CHROME_STATE_DIR/Default
+        if [ ! -f $CHROME_STATE_DIR/Default/Preferences ]; then
+            echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' > $CHROME_STATE_DIR/Default/Preferences
+        fi
+    fi
+    # Preserve any ephemeral profile data written before this script ran
+    # (rare, but matches the careful pattern from the Claude block above).
+    for ephemeral_dir in ~/.config/google-chrome ~/.config/chromium; do
+        if [ -d "$ephemeral_dir" ] && [ ! -L "$ephemeral_dir" ]; then
+            cp -a "$ephemeral_dir/." $CHROME_STATE_DIR/ 2>/dev/null || true
+        fi
+    done
 fi
-
-# Preserve any ephemeral profile data written before this script ran
-# (rare, but matches the careful pattern from the Claude block above).
-for ephemeral_dir in ~/.config/google-chrome ~/.config/chromium; do
-    if [ -d "$ephemeral_dir" ] && [ ! -L "$ephemeral_dir" ]; then
-        cp -a "$ephemeral_dir/." $CHROME_STATE_DIR/ 2>/dev/null || true
-    fi
-done
 
 mkdir -p ~/.config
 rm -rf ~/.config/google-chrome ~/.config/chromium
-ln -sfn $CHROME_STATE_DIR ~/.config/google-chrome
-ln -sfn $CHROME_STATE_DIR ~/.config/chromium
-echo "  Chrome: ~/.config/google-chrome -> $CHROME_STATE_DIR"
-echo "  Chromium: ~/.config/chromium -> $CHROME_STATE_DIR"
+if [ -n "$CHROME_PROFILE_DIR" ]; then
+    ln -sfn "$CHROME_PROFILE_DIR" ~/.config/google-chrome
+    ln -sfn "$CHROME_PROFILE_DIR" ~/.config/chromium
+    echo "  Chrome: ~/.config/google-chrome -> $CHROME_PROFILE_DIR"
+    echo "  Chromium: ~/.config/chromium -> $CHROME_PROFILE_DIR"
+fi
 
 # Initialize workspace with README if empty
 if [ ! -f "$WORK_DIR/README.md" ] && [ -z "$(ls -A "$WORK_DIR" 2>/dev/null | grep -v '^\.')" ]; then
@@ -1034,33 +1051,6 @@ echo ""
 echo "Zed will open ${#ZED_FOLDERS[@]} folder(s)"
 echo ""
 
-# resolve_startup_script sets STARTUP_SCRIPT to the trusted startup script and
-# STARTUP_STATUS to 0 (run it), 1 (none; the project-YAML fallbacks may run) or
-# anything else (refused: nothing runs, and the reason is in
-# /tmp/helix-startup.log, which agents are told to read).
-resolve_startup_script() {
-    STARTUP_SCRIPT=""
-    STARTUP_STATUS=1
-    if [ -z "$HELIX_PRIMARY_REPO_NAME" ]; then
-        return
-    fi
-    local refusal
-    refusal=$(mktemp)
-    # The && / || keeps set -e from aborting setup on a non-zero status.
-    STARTUP_SCRIPT=$(helix_trusted_startup_script "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" "$WORK_DIR/helix-specs" 2>"$refusal") \
-        && STARTUP_STATUS=0 || STARTUP_STATUS=$?
-    if [ "$STARTUP_STATUS" -gt 1 ]; then
-        STARTUP_SCRIPT=""
-        {
-            echo "========================================="
-            echo "❌ Startup script NOT run"
-            echo "========================================="
-            cat "$refusal"
-        } | tee /tmp/helix-startup.log
-    fi
-    rm -f "$refusal"
-}
-
 # =========================================
 # Golden build mode: run startup script and exit
 # =========================================
@@ -1069,9 +1059,9 @@ resolve_startup_script() {
 # in the foreground, skip Zed, and exit with the script's exit code.
 # The resulting /var/lib/docker is then promoted to a golden snapshot.
 if [ "${HELIX_GOLDEN_BUILD:-}" = "true" ]; then
-    resolve_startup_script
-    if [ "$STARTUP_STATUS" -ne 0 ]; then
-        echo "❌ Golden build: no trusted startup script to run"
+    STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
+    if [ ! -f "$STARTUP_SCRIPT" ]; then
+        echo "❌ Golden build: no startup script found at $STARTUP_SCRIPT"
         # Disable trap — no interactive menu for golden builds
         trap - EXIT
         exit 1
@@ -1212,15 +1202,13 @@ echo "========================================="
 # =========================================
 # Note: Startup script failures are NOT fatal - we continue
 # The user can see the error and fix it
-resolve_startup_script
-if [ "$STARTUP_STATUS" -gt 1 ]; then
-    echo "You can still run setup commands by hand in this terminal."
-elif [ "$STARTUP_STATUS" -eq 0 ]; then
+STARTUP_SCRIPT="$WORK_DIR/helix-specs/.helix/startup.sh"
+if [ -f "$STARTUP_SCRIPT" ]; then
     echo ""
     echo "========================================="
     echo "Running startup script (Zed starting in parallel)..."
     echo "========================================="
-    echo "Script: $STARTUP_SCRIPT (trusted helix-specs commit $HELIX_TRUSTED_STARTUP_SHA)"
+    echo "Script: $STARTUP_SCRIPT"
     echo ""
 
     # Change to primary repo for running commands

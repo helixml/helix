@@ -20,6 +20,10 @@ import { FC, Key, useEffect, useMemo, useState } from 'react'
 import Autocomplete from '@mui/material/Autocomplete'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
+import Collapse from '@mui/material/Collapse'
+import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
@@ -57,6 +61,7 @@ import Tooltip from '@mui/material/Tooltip'
 import { useRouter as useRouter5 } from 'react-router5'
 
 import AgentRestartRequiredBanner from '../components/helix-org/AgentRestartRequiredBanner'
+import ResetBotDialog from '../components/helix-org/ResetBotDialog'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import AgentConfigForm, { AgentConfigValue } from '../components/helix-org/BotRuntimeForm'
 import ToolPickerDialog from '../components/helix-org/ToolPickerDialog'
@@ -75,11 +80,11 @@ import {
   BotDTO,
   ToolDTO,
   useActivateBot,
-  useApplyBotConfig,
   useDeleteBot,
   useHelixOrgBot,
   useListHelixOrgProcessors,
   useListHelixOrgTools,
+  useResetBot,
   useRestartBotAgent,
   useStopBotAgent,
   useUpdateBot,
@@ -95,6 +100,10 @@ import {
   fetchExistingWorkerSession,
 } from '../services/workerChatSession'
 import { useSwitchAgent } from '../services/sessionService'
+
+// One failure is already shown as activation_error; a streak means the bot's
+// queued work is stuck, which chat turns would otherwise hide.
+const ACTIVATION_FAILURE_ALERT_STREAK = 2
 
 const HelixOrgBotDetail: FC = () => {
   const router5 = useRouter5()
@@ -117,7 +126,9 @@ const HelixOrgBotDetail: FC = () => {
   const activateAgent = useActivateBot()
   const stopAgent = useStopBotAgent()
   const restartAgent = useRestartBotAgent()
-  const applyBotConfig = useApplyBotConfig()
+  const resetBot = useResetBot()
+  const [confirmingReset, setConfirmingReset] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const { data: toolCatalogue } = useListHelixOrgTools()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [confirmingResetInstructions, setConfirmingResetInstructions] = useState(false)
@@ -130,6 +141,9 @@ const HelixOrgBotDetail: FC = () => {
   const switchAgent = useSwitchAgent(chatSessionId ?? '')
 
   const bot = data?.bot
+  // The streak warning carries the latest error, so it replaces the single
+  // activation_error alert instead of repeating it.
+  const showActivationFailureStreak = (bot?.activation_failure_streak ?? 0) >= ACTIVATION_FAILURE_ALERT_STREAK
   // The server decides who may change this bot (owners, admins, or whoever
   // can edit its agent); members who cannot get a read-only page.
   const canEdit = bot?.can_edit === true
@@ -283,15 +297,14 @@ const HelixOrgBotDetail: FC = () => {
     }
   }
 
-  // Full reset: stop + delete session, then activate a brand-new one.
+  // Non-destructive Restart: same session, home, conversation and queue.
+  // The destructive Reset lives in Advanced > Danger zone.
   const handleRestartSession = async () => {
     if (!botId || restartAgent.isPending) return
-    const previousSessionId = chatSessionId
     try {
-      await restartAgent.mutateAsync(botId)
-      setChatSessionId(null)
-      snackbar.success('Restarting org bot — a fresh session will come up shortly')
-      await pollForSession(previousSessionId, true)
+      const res = await restartAgent.mutateAsync(botId)
+      snackbar.success('Restarting org bot — its files, logins, conversation and queued work are kept')
+      if (res?.mode === 'first_start') await pollForSession(chatSessionId, false)
       void refetchBot()
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
@@ -360,7 +373,7 @@ const HelixOrgBotDetail: FC = () => {
     if (!botId) return
     try {
       await del.mutateAsync(botId)
-      snackbar.success(`deleted ${botId}`)
+      snackbar.success(`Deleting org bot ${botId} in the background`)
       if (orgSlug) {
         router.navigate('helix_org_bots', { org_id: orgSlug })
       }
@@ -502,14 +515,22 @@ const HelixOrgBotDetail: FC = () => {
                 <AgentRestartRequiredBanner
                   visible={!!bot.restart_required}
                   working={!!chatSessionId && streaming.currentResponses.has(chatSessionId)}
-                  busy={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending || applyBotConfig.isPending}
+                  busy={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending || resetBot.isPending}
                   sticky
-                  onRestart={() => { if (bot.id) void applyBotConfig.mutateAsync(bot.id) }}
+                  onRestart={() => { void handleRestartSession() }}
                 />
 
-                {bot.activation_error && (
+                {bot.activation_error && !showActivationFailureStreak && (
                   <Alert severity="error" role="alert" sx={{ mb: 2 }}>
                     {bot.activation_error}
+                  </Alert>
+                )}
+
+                {showActivationFailureStreak && (
+                  <Alert severity="warning" role="alert" sx={{ mb: 2 }}>
+                    The last {bot.activation_failure_streak} activations of this bot failed, so its scheduled and
+                    triggered work is not running (chat may still work). Latest error: {bot.last_activation_failure?.replace(/\.$/, '')}.
+                    Restart the bot if this keeps happening.
                   </Alert>
                 )}
 
@@ -799,6 +820,42 @@ const HelixOrgBotDetail: FC = () => {
                     tears down its Helix project, and drops its subscriptions
                     and reporting lines.
                   </Typography>
+                  <Divider />
+                  <Button
+                    onClick={() => setAdvancedOpen((open) => !open)}
+                    endIcon={advancedOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                    sx={{ justifyContent: 'space-between', color: 'text.secondary' }}
+                    aria-expanded={advancedOpen}
+                    data-testid="bot-advanced-toggle"
+                    fullWidth
+                  >
+                    Advanced
+                  </Button>
+                  <Collapse in={advancedOpen} unmountOnExit>
+                    <Box
+                      data-testid="bot-danger-zone"
+                      sx={{ border: 1, borderColor: 'error.main', borderRadius: 1, p: 1.5 }}
+                    >
+                      <Typography variant="subtitle2" color="error" sx={{ mb: 1 }}>Danger zone</Typography>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        startIcon={<DeleteSweepOutlinedIcon />}
+                        onClick={() => setConfirmingReset(true)}
+                        disabled={!canEdit || resetBot.isPending}
+                        fullWidth
+                      >
+                        Reset bot
+                      </Button>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                        Starts the org bot fresh: purges its queued work and
+                        deletes its current session, and optionally its home
+                        (files, browser profiles and logins). Shows exactly what
+                        is deleted before anything happens. To recover a bot
+                        without losing anything, use Restart.
+                      </Typography>
+                    </Box>
+                  </Collapse>
                 </Stack>
               </Paper>
             </Grid>
@@ -855,6 +912,25 @@ const HelixOrgBotDetail: FC = () => {
         onClose={() => setEditingTools(false)}
         onApply={setTools}
       />
+
+      {botId && (
+        <ResetBotDialog
+          open={confirmingReset}
+          botId={botId}
+          botName={bot?.name || botId}
+          onClose={() => setConfirmingReset(false)}
+          onReset={async (scope) => {
+            try {
+              const res = await resetBot.mutateAsync({ botId, scope })
+              snackbar.success(`Org bot ${botId} reset — a fresh session is starting`)
+              setChatSessionId(null)
+              await pollForSession(res?.previous_session_id ?? null, true)
+            } finally {
+              void refetchBot()
+            }
+          }}
+        />
+      )}
 
       {confirmingDelete && botId && (
         <DeleteConfirmWindow

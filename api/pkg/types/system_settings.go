@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -9,9 +10,10 @@ import (
 // Future enhancement: Add HuggingFaceToken to Organization and User tables
 // with resolution hierarchy: User -> Organization -> System (global)
 type SystemSettings struct {
-	ID      string    `json:"id" gorm:"primaryKey"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
+	LLMPayloadRetentionDays int       `json:"llm_payload_retention_days" gorm:"default:7"`
+	ID                      string    `json:"id" gorm:"primaryKey"`
+	Created                 time.Time `json:"created"`
+	Updated                 time.Time `json:"updated"`
 
 	// Global Hugging Face configuration (fallback for all users/orgs)
 	// Future: This will be the lowest priority in token resolution hierarchy
@@ -78,9 +80,17 @@ type SystemSettings struct {
 	OptimusSmallGenerationModel         string `json:"optimus_small_generation_model" yaml:"optimus_small_generation_model"`
 }
 
+func (r *SystemSettingsRequest) ValidateLLMPayloadRetention() error {
+	if d := r.LLMPayloadRetentionDays; d != nil && (*d < 1 || *d > 3650) {
+		return fmt.Errorf("LLM payload retention must be between 1 and 3650 days")
+	}
+	return nil
+}
+
 // SystemSettingsRequest represents the request payload for updating system settings
 type SystemSettingsRequest struct {
-	HuggingFaceToken *string `json:"huggingface_token,omitempty"`
+	LLMPayloadRetentionDays *int    `json:"llm_payload_retention_days"`
+	HuggingFaceToken        *string `json:"huggingface_token,omitempty"`
 
 	// Kodit enrichment model configuration
 	KoditEnrichmentProvider *string `json:"kodit_enrichment_provider,omitempty"`
@@ -127,9 +137,10 @@ type SystemSettingsRequest struct {
 
 // SystemSettingsResponse represents the response payload for system settings (without sensitive data)
 type SystemSettingsResponse struct {
-	ID      string    `json:"id"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
+	LLMPayloadRetentionDays int       `json:"llm_payload_retention_days"`
+	ID                      string    `json:"id"`
+	Created                 time.Time `json:"created"`
+	Updated                 time.Time `json:"updated"`
 
 	// Sensitive fields are masked
 	HuggingFaceTokenSet    bool   `json:"huggingface_token_set"`
@@ -206,6 +217,7 @@ func (s *SystemSettings) ToResponseWithSource(dbToken, envToken string) *SystemS
 	}
 
 	return &SystemSettingsResponse{
+		LLMPayloadRetentionDays:              s.LLMPayloadRetentionDays,
 		ID:                                   s.ID,
 		Created:                              s.Created,
 		Updated:                              s.Updated,

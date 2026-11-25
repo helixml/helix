@@ -4,12 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rs/zerolog/log"
 )
+
+// ErrSandboxRowRejected means the database refused the session's sandbox row
+// as invalid data (SQLSTATE class 22, e.g. a value too long for its column).
+// Retrying cannot fix it, so callers should fail fast with a clear message.
+var ErrSandboxRowRejected = errors.New("sandbox row rejected by database")
+
+// rejectedRowErr wraps data errors with ErrSandboxRowRejected so callers can
+// tell a permanent rejection from a transient database failure.
+func rejectedRowErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && strings.HasPrefix(pgErr.Code, "22") {
+		return fmt.Errorf("%w: %w", ErrSandboxRowRejected, err)
+	}
+	return err
+}
 
 // Session-backed sandboxes.
 //
@@ -49,6 +66,10 @@ func (c *Controller) BeginSession(ctx context.Context, req *types.BeginSandboxSe
 	if req == nil || req.SessionID == "" {
 		return nil, errors.New("session_id is required")
 	}
+	// The name is a display label derived from task/bot/session names, which
+	// can be longer than the column; never let it break desktop start.
+	name := types.TruncateRunes(req.Name, types.SandboxNameMaxLen, true)
+	orgBotID := types.TruncateRunes(req.OrgBotID, types.SandboxOrgBotIDMaxLen, false)
 	if req.OrganizationID == "" {
 		// Wallets are org-scoped; a personal desktop has nothing to debit.
 		return nil, nil
@@ -99,14 +120,14 @@ func (c *Controller) BeginSession(ctx context.Context, req *types.BeginSandboxSe
 		existing.VCPUs = vcpus
 		existing.MemoryMB = memoryMB
 		existing.SpecTaskID = req.SpecTaskID
-		existing.OrgBotID = req.OrgBotID
+		existing.OrgBotID = orgBotID
 		existing.ProjectID = req.ProjectID
 		// A restarted Bot may have changed runtime (desktop ↔ headless) since
 		// the row was opened; the row must follow so pricing type and the
 		// Sandboxes list describe the container that is actually running.
 		existing.Runtime = runtime
-		if req.Name != "" {
-			existing.Name = req.Name
+		if name != "" {
+			existing.Name = name
 		}
 		existing.Status = types.SandboxStatusPending
 		existing.StatusMessage = ""
@@ -117,19 +138,19 @@ func (c *Controller) BeginSession(ctx context.Context, req *types.BeginSandboxSe
 		existing.StoppedAt = nil
 		updated, err := c.store.UpdateSandbox(ctx, existing)
 		if err != nil {
-			return nil, fmt.Errorf("reopen session sandbox row: %w", err)
+			return nil, fmt.Errorf("reopen session sandbox row: %w", rejectedRowErr(err))
 		}
 		return updated, nil
 	}
 
 	created, err := c.store.CreateSandbox(ctx, &types.Sandbox{
-		Name:           req.Name,
+		Name:           name,
 		OrganizationID: req.OrganizationID,
 		ProjectID:      req.ProjectID,
 		Owner:          req.Owner,
 		SessionID:      req.SessionID,
 		SpecTaskID:     req.SpecTaskID,
-		OrgBotID:       req.OrgBotID,
+		OrgBotID:       orgBotID,
 		Runtime:        runtime,
 		Status:         types.SandboxStatusPending,
 		VCPUs:          vcpus,
@@ -143,7 +164,7 @@ func (c *Controller) BeginSession(ctx context.Context, req *types.BeginSandboxSe
 		TimeoutSeconds: -1,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create session sandbox row: %w", err)
+		return nil, fmt.Errorf("create session sandbox row: %w", rejectedRowErr(err))
 	}
 	return created, nil
 }

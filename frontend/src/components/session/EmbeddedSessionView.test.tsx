@@ -6,12 +6,15 @@ import EmbeddedSessionView from './EmbeddedSessionView'
 
 const resizeCallbacks = new Map<Element, ResizeObserverCallback>()
 
+// Who is viewing, and the latest turn's state; tests that care set them.
+const viewer = vi.hoisted(() => ({ userId: 'user-1', interactionState: 'complete' }))
+
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ removeQueries: vi.fn() }),
 }))
 
 vi.mock('../../hooks/useAccount', () => ({
-  default: () => ({ user: { id: 'user-1' }, serverConfig: {}, admin: false }),
+  default: () => ({ user: { id: viewer.userId }, serverConfig: {}, admin: false }),
 }))
 
 vi.mock('../../hooks/useApi', () => ({
@@ -39,7 +42,7 @@ vi.mock('../../services/sessionService', () => ({
       data: {
         interactions: [{
           id: 'interaction-1',
-          state: 'complete',
+          state: viewer.interactionState,
           prompt_message: 'Hello',
           response_message: 'Hi',
         }],
@@ -52,9 +55,9 @@ vi.mock('../../services/sessionService', () => ({
 }))
 
 vi.mock('./Interaction', () => ({
-  default: () => <div data-testid="interaction">Interaction</div>,
+  default: ({ children }: { children?: React.ReactNode }) => <div data-testid="interaction">Interaction{children}</div>,
 }))
-vi.mock('./InteractionLiveStream', () => ({ default: () => null }))
+vi.mock('./InteractionLiveStream', () => ({ default: () => <div data-testid="live-stream" /> }))
 vi.mock('./PausedBanner', () => ({ default: () => null }))
 vi.mock('./ForkBadge', () => ({ default: () => null }))
 vi.mock('./ChatTurnNavigator', () => ({
@@ -164,6 +167,76 @@ describe('EmbeddedSessionView follow-latest behavior', () => {
     expect(scrollContainer.scrollTop).toBe(650)
     expect(screen.getByRole('button', { name: 'Jump to latest' })).toBeInTheDocument()
   })
+
+  it('pauses following after a small upward scroll that stays near the bottom', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.wheel(scrollContainer, { deltaY: -30 })
+    setScrollGeometry(scrollContainer, { scrollTop: 770, scrollHeight: 1000, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+
+    setScrollGeometry(scrollContainer, { scrollTop: 770, scrollHeight: 1050, clientHeight: 200 })
+    act(() => triggerResize(content, 1050))
+
+    expect(scrollContainer.scrollTop).toBe(770)
+    expect(screen.getByRole('button', { name: 'Jump to latest' })).toBeInTheDocument()
+  })
+
+  it('pauses following after a keyboard scroll up', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.keyDown(scrollContainer, { key: 'ArrowUp' })
+    setScrollGeometry(scrollContainer, { scrollTop: 760, scrollHeight: 1000, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+
+    setScrollGeometry(scrollContainer, { scrollTop: 760, scrollHeight: 1050, clientHeight: 200 })
+    act(() => triggerResize(content, 1050))
+
+    expect(scrollContainer.scrollTop).toBe(760)
+  })
+
+  it('keeps following when a clicked disclosure shrinks the content', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.pointerDown(scrollContainer)
+    fireEvent.pointerUp(scrollContainer)
+    setScrollGeometry(scrollContainer, { scrollTop: 700, scrollHeight: 900, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+    act(() => triggerResize(content, 900))
+
+    setScrollGeometry(scrollContainer, { scrollTop: 700, scrollHeight: 1000, clientHeight: 200 })
+    act(() => triggerResize(content, 1000))
+
+    expect(scrollContainer.scrollTop).toBe(1000)
+  })
+
+  it('does not show the jump pill while paused but visually at the bottom', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.wheel(scrollContainer, { deltaY: -30 })
+    setScrollGeometry(scrollContainer, { scrollTop: 0, scrollHeight: 200, clientHeight: 200 })
+    act(() => triggerResize(content, 1100))
+
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).not.toBeInTheDocument()
+  })
+
+  it('resumes following when the user scrolls back down to the bottom', () => {
+    const { scrollContainer, content } = renderView()
+
+    fireEvent.wheel(scrollContainer, { deltaY: -30 })
+    setScrollGeometry(scrollContainer, { scrollTop: 770, scrollHeight: 1000, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+
+    fireEvent.wheel(scrollContainer, { deltaY: 30 })
+    setScrollGeometry(scrollContainer, { scrollTop: 800, scrollHeight: 1000, clientHeight: 200 })
+    fireEvent.scroll(scrollContainer)
+
+    setScrollGeometry(scrollContainer, { scrollTop: 800, scrollHeight: 1050, clientHeight: 200 })
+    act(() => triggerResize(content, 1050))
+
+    expect(scrollContainer.scrollTop).toBe(1050)
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).not.toBeInTheDocument()
+  })
 })
 
 describe('EmbeddedSessionView turn navigator visibility', () => {
@@ -193,5 +266,49 @@ describe('EmbeddedSessionView turn navigator visibility', () => {
   it('hides the turn navigator in the minimal embed', () => {
     renderView(true)
     expect(screen.queryByTestId('chat-turn-navigator')).not.toBeInTheDocument()
+  })
+})
+
+// Someone other than the owner — a teammate, or the embed of a bot run by
+// another person — must see a live turn stream in with its spinner, not just
+// the owner. Before, they got only the polled text, in jumps.
+describe('EmbeddedSessionView live reply for every viewer', () => {
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    viewer.userId = 'user-1'
+    viewer.interactionState = 'complete'
+  })
+
+  const renderView = () =>
+    render(
+      <ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}>
+        <EmbeddedSessionView sessionId="session-1" />
+      </ThemeProvider>,
+    )
+
+  it('streams a live turn to a viewer who is not the owner', () => {
+    viewer.userId = 'user-2'
+    viewer.interactionState = 'waiting'
+    renderView()
+    expect(screen.getByTestId('live-stream')).toBeInTheDocument()
+  })
+
+  it('streams a live turn to its owner', () => {
+    viewer.interactionState = 'waiting'
+    renderView()
+    expect(screen.getByTestId('live-stream')).toBeInTheDocument()
+  })
+
+  it('does not stream a finished turn', () => {
+    viewer.userId = 'user-2'
+    renderView()
+    expect(screen.queryByTestId('live-stream')).not.toBeInTheDocument()
   })
 })

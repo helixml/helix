@@ -183,6 +183,11 @@ func (s *AutoWakeColdStartSuite) TestFailsFastWhenDesktopStartIsRefused() {
 			startErr: fmt.Errorf("%w (1). Stop some of the existing sessions or upgrade your plan", external_agent.ErrDesktopLimitReached),
 			reason:   desktopLimitReason,
 		},
+		{
+			name:     "sandbox row rejected",
+			startErr: fmt.Errorf("cannot start desktop: create session sandbox row: %w", fmt.Errorf("%w: value too long", sandbox.ErrSandboxRowRejected)),
+			reason:   sandboxRowRejectedReason,
+		},
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {

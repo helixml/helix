@@ -52,7 +52,9 @@ func TestEnrichOrgUsageCostsSeparatesSavingsAndHelixCredits(t *testing.T) {
 	require.InDelta(t, 7.2, summary.CacheSavings, 1e-9)
 	require.InDelta(t, 1.25, summary.HelixCredits, 1e-9)
 	require.Len(t, summary.Providers, 1)
-	require.Equal(t, "OpenAI", summary.Providers[0].Name)
+	require.Equal(t, "ChatGPT subscription", summary.Providers[0].Name)
+	require.Equal(t, types.UsageProviderKindSubscription, summary.Providers[0].ProviderKind)
+	require.Equal(t, types.UsageProviderKindSubscription, summary.ProviderTimeSeries[0].Kind)
 	require.InDelta(t, 4.8, summary.Providers[0].TotalCost, 1e-9)
 	require.Len(t, summary.ProviderTimeSeries, 1)
 	require.InDelta(t, 4.8, summary.ProviderTimeSeries[0].Metrics[0].TotalCost, 1e-9)
@@ -106,12 +108,83 @@ func TestEnrichOrgUsageCostsUsesGlobalEndpointAttribution(t *testing.T) {
 	require.Len(t, summary.Providers, 1)
 	require.Equal(t, "helix/ds4-flash-node06", summary.Providers[0].Provider)
 	require.Equal(t, "helix/ds4-flash-node06", summary.Providers[0].Name)
+	require.Equal(t, types.UsageProviderKindLocal, summary.Providers[0].ProviderKind)
 	require.Equal(t, 42.0, summary.Providers[0].TotalCost)
 	require.Len(t, summary.ProviderTimeSeries, 1)
 	require.Equal(t, "helix/ds4-flash-node06", summary.ProviderTimeSeries[0].Provider)
 	require.Len(t, summary.Models, 1)
 	require.Equal(t, "helix/ds4-flash-node06", summary.Models[0].Provider)
 	require.Equal(t, 42.0, summary.Models[0].TotalCost)
+}
+
+func TestUsageProviderSourceSeparatesWhoPaid(t *testing.T) {
+	added := &types.ProviderEndpoint{ID: "pe_added", Name: "user/openrouter", EndpointType: types.ProviderEndpointTypeOrg, OwnerType: types.OwnerTypeOrg}
+	instance := &types.ProviderEndpoint{ID: "pe_instance", Name: "OpenRouter", EndpointType: types.ProviderEndpointTypeGlobal, OwnerType: types.OwnerTypeUser}
+	managed := &types.ProviderEndpoint{ID: "pe_managed", Name: "qwen-vllm", EndpointType: types.ProviderEndpointTypeGlobal, OwnerType: types.OwnerTypeSystem}
+	proxy := types.UsageMetricSourceHelixProxy
+	cases := []struct {
+		name     string
+		row      types.UsageCostBreakdownRow
+		endpoint *types.ProviderEndpoint
+		removed  bool
+		slug     string
+		wantKey  string
+		wantName string
+		wantKind types.UsageProviderKind
+	}{
+		{"env global provider", types.UsageCostBreakdownRow{Source: proxy, Provider: "anthropic"}, nil, false, "anthropic", "anthropic", "Anthropic", types.UsageProviderKindHelix},
+		{"prefixed global provider", types.UsageCostBreakdownRow{Source: proxy, Provider: "global/openai"}, nil, false, "", "openai", "OpenAI", types.UsageProviderKindHelix},
+		{"org endpoint keeps its own name", types.UsageCostBreakdownRow{Source: proxy, Provider: "pe_added"}, added, false, "deepseek", "pe_added", "user/openrouter", types.UsageProviderKindAdded},
+		{"admin global endpoint", types.UsageCostBreakdownRow{Source: proxy, Provider: "pe_instance"}, instance, false, "deepseek", "pe_instance", "OpenRouter", types.UsageProviderKindHelix},
+		{"system inference route", types.UsageCostBreakdownRow{Source: proxy, Provider: "pe_managed"}, managed, false, "qwen", "helix/qwen-vllm", "helix/qwen-vllm", types.UsageProviderKindLocal},
+		{"helix runners", types.UsageCostBreakdownRow{Source: proxy, Provider: "helix"}, nil, false, "qwen", "helix", "Helix runners", types.UsageProviderKindLocal},
+		{"vllm runners", types.UsageCostBreakdownRow{Provider: "vllm"}, nil, false, "", "helix", "Helix runners", types.UsageProviderKindLocal},
+		{"claude subscription", types.UsageCostBreakdownRow{Source: types.UsageMetricSourceACP, Provider: "anthropic"}, nil, false, "anthropic", "subscription/anthropic", "Claude subscription", types.UsageProviderKindSubscription},
+		{"unresolved endpoint", types.UsageCostBreakdownRow{Source: proxy, Provider: "pe_gone"}, nil, false, "", "pe_gone", "pe_gone", types.UsageProviderKindUnknown},
+		{"deleted endpoint", types.UsageCostBreakdownRow{Source: proxy, Provider: "pe_gone"}, nil, true, "openrouter", "pe_gone", "Removed provider · OpenRouter", types.UsageProviderKindUnknown},
+		{"subscription without provider", types.UsageCostBreakdownRow{Source: types.UsageMetricSourceACP}, nil, false, "", "subscription/unknown", "Agent subscription", types.UsageProviderKindSubscription},
+		{"no provider", types.UsageCostBreakdownRow{Source: proxy}, nil, false, "", "unknown", "Unknown", types.UsageProviderKindUnknown},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := usageProviderSource(tc.row, tc.endpoint, tc.removed, tc.slug)
+			require.Equal(t, tc.wantKey, got.key)
+			require.Equal(t, tc.wantName, got.name)
+			require.Equal(t, tc.wantKind, got.kind)
+		})
+	}
+}
+
+func TestEnrichOrgUsageCostsKeepsAddedProviderApartFromHelixProvider(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	modelInfo := model.NewMockModelInfoProvider(ctrl)
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore, modelInfoProvider: modelInfo}
+	date := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	summary := &types.OrgUsageSummaryResponse{
+		Metrics: []*types.AggregatedUsageMetric{{Date: date}},
+		CostBreakdown: []types.UsageCostBreakdownRow{
+			{Date: date, Source: types.UsageMetricSourceHelixProxy, Provider: "anthropic", Model: "claude-x", TotalTokens: 100, TotalCost: 1},
+			{Date: date, Source: types.UsageMetricSourceHelixProxy, Provider: "pe_mine", Model: "claude-x", TotalTokens: 50, TotalCost: 2},
+		},
+	}
+	modelInfo.EXPECT().GetModelInfo(gomock.Any(), gomock.Any()).Return(nil, errors.New("unpriced")).Times(2)
+	mockStore.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: "pe_mine"}).
+		Return(&types.ProviderEndpoint{ID: "pe_mine", Name: "Team Anthropic", EndpointType: types.ProviderEndpointTypeOrg, OwnerType: types.OwnerTypeOrg}, nil)
+
+	server.enrichOrgUsageCosts(context.Background(), summary)
+
+	require.Len(t, summary.Providers, 2)
+	byKey := map[string]types.UsageBreakdownRow{}
+	for _, row := range summary.Providers {
+		byKey[row.Provider] = row
+	}
+	require.Equal(t, types.UsageProviderKindHelix, byKey["anthropic"].ProviderKind)
+	require.Equal(t, 100, byKey["anthropic"].TotalTokens)
+	require.Equal(t, "Team Anthropic", byKey["pe_mine"].Name)
+	require.Equal(t, types.UsageProviderKindAdded, byKey["pe_mine"].ProviderKind)
+	require.Equal(t, 50, byKey["pe_mine"].TotalTokens)
+	require.Len(t, summary.ProviderTimeSeries, 2)
 }
 
 func TestMergeSandboxUsageCostsAddsSandboxSpend(t *testing.T) {
@@ -161,9 +234,6 @@ func TestGetOrgUsageSummaryParsesFiltersAndPagination(t *testing.T) {
 	mockStore.EXPECT().
 		GetOrganization(gomock.Any(), &store.GetOrganizationQuery{Name: org.Name}).
 		Return(org, nil)
-	mockStore.EXPECT().
-		GetOrganizationMembership(gomock.Any(), gomock.Any()).
-		Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().
 		GetOrgUsageSummary(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ any, q *store.GetOrgUsageSummaryQuery) (*types.OrgUsageSummaryResponse, error) {
@@ -224,9 +294,6 @@ func TestGetOrgUsageSummarySurvivesComputeFailure(t *testing.T) {
 	mockStore.EXPECT().
 		GetOrganization(gomock.Any(), &store.GetOrganizationQuery{Name: org.Name}).
 		Return(org, nil)
-	mockStore.EXPECT().
-		GetOrganizationMembership(gomock.Any(), gomock.Any()).
-		Return(nil, store.ErrNotFound)
 	mockStore.EXPECT().
 		GetOrgUsageSummary(gomock.Any(), gomock.Any()).
 		Return(&types.OrgUsageSummaryResponse{RawTokenCost: 42}, nil)

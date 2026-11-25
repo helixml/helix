@@ -786,6 +786,39 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/models/replace": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "When a provider stops serving a model, every org default\nruntime, agent, org bot, project, spec task and session that\nstill selects it fails on its next turn. This moves all of them\nto another model on the same provider. The replacement must be\nserved by the provider now. Use dry_run to list them first.",
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Replace a model everywhere it is selected",
+                "parameters": [
+                    {
+                        "description": "Provider and models",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ReplaceModelRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ReplaceModelResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/organization-domains": {
             "get": {
                 "security": [
@@ -9065,6 +9098,18 @@ const docTemplate = `{
                 "summary": "List LLM calls",
                 "parameters": [
                     {
+                        "type": "boolean",
+                        "description": "Omit request and response bodies",
+                        "name": "metadata_only",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by call ID",
+                        "name": "call_id",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
@@ -12043,7 +12088,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Delete a Bot. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.",
+                "description": "Delete a Bot in the background; returns 202 once the teardown has started. Cascades: archives its runtime-owned project, detaches and deletes the Helix agent app, clears runtime state, drops attachments + reporting lines, then the bot row. Repositories and activations are preserved.",
                 "tags": [
                     "HelixOrg"
                 ],
@@ -12058,17 +12103,11 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "204": {
-                        "description": "No Content"
+                    "202": {
+                        "description": "Accepted"
                     },
                     "404": {
                         "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -12126,8 +12165,20 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.BotDTO"
                         }
                     },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -12164,6 +12215,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -12395,6 +12452,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
                     "501": {
                         "description": "Not Implemented",
                         "schema": {
@@ -12538,6 +12601,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/keep-alive": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "When on, the bot's desktop is not shut down when idle. A bot's own key cannot change it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Turn an org bot's Keep Alive on or off",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Setting",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.OrgBotKeepAliveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/parents": {
             "post": {
                 "security": [
@@ -12641,6 +12751,272 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/pr-auto-approve": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "When on, the bot's proposals are approved as the user who turned it on. A bot's own key cannot change it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Turn auto-approval of an org bot's pull request proposals on or off",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Setting",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.OrgBotPRAutoApproveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/pr-proposals": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "An org bot opens pull requests (e.g. to its own playbook) only through proposals a user approves.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "List an org bot's pull request proposals",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.SpecTaskPRProposal"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/pr-proposals/{proposal_id}/decide": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approving opens the pull request as soon as the branch has commits beyond the base. Edited fields override the bot's proposal. A bot's own key cannot decide.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Approve or reject an org bot's pull request proposal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or name",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Proposal ID",
+                        "name": "proposal_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PRProposalDecisionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskPRProposal"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/reset": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: describe what resetting a bot would erase",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotResetPlanDTO"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: reset a bot (destructive; erases the declared scope)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Scope and confirmation",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.BotResetRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotResetDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/restart": {
             "post": {
                 "security": [
@@ -12651,7 +13027,8 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: restart a bot (fresh session + desktop)",
+                "summary": "Helix-org: DEPRECATED fresh-session restart (use runtime-restart or reset)",
+                "deprecated": true,
                 "parameters": [
                     {
                         "type": "string",
@@ -12666,6 +13043,60 @@ const docTemplate = `{
                         "description": "Accepted",
                         "schema": {
                             "$ref": "#/definitions/api.BotActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/bots/{id}/runtime-restart": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: restart a bot's runtime (keeps session, home and queue)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.BotRestartDTO"
                         }
                     },
                     "404": {
@@ -20337,6 +20768,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/resources": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "CPU, memory, I/O, pressure stalls, throttling and filesystem use of the session's desktop container, sampled every 30 seconds and kept for 30 days.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session's sandbox resource utilization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Hours of history, 1 through 720 (default 24)",
+                        "name": "hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionResources"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/restart-agent": {
             "post": {
                 "security": [
@@ -22513,7 +22981,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly.",
+                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it. Archiving stops the task's agent and frees its sandbox by default (stop_agent, default true); pass stop_agent=false for bookkeeping only. A live agent mid-turn is never stopped unless stop_agent is sent explicitly. Pass destroy_workspace=true to destroy the desktop instead of stopping it, deleting its container data and the task's workspace checkout (ignored when unarchiving, with stop_agent=false, or for a Keep Alive task).",
                 "consumes": [
                     "application/json"
                 ],
@@ -23734,6 +24202,38 @@ const docTemplate = `{
                         "description": "Subscription session URL",
                         "schema": {
                             "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/system/host-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Get API host CPU, memory and data filesystem utilization",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Days of history (1 through 30)",
+                        "name": "days",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/hosthistory.Sample"
+                            }
                         }
                     }
                 }
@@ -26005,6 +26505,10 @@ const docTemplate = `{
                     "description": "ActivationError is the latest completed activation failure. It clears\nwhen a newer activation starts or succeeds.",
                     "type": "string"
                 },
+                "activation_failure_streak": {
+                    "description": "ActivationFailureStreak counts the newest activations that failed in a\nrow. Operator chat turns do not reset it, so repeated bounces of\nscheduled deliveries surface even while the desktop answers chat.",
+                    "type": "integer"
+                },
                 "agent_model": {
                     "type": "string"
                 },
@@ -26018,6 +26522,13 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.AgentWorkState"
                         }
                     ]
+                },
+                "auto_approve_pull_requests": {
+                    "description": "AutoApprovePullRequests approves the bot's PR proposals as\nAutoApprovePullRequestsBy. Changed through PUT .../pr-auto-approve.",
+                    "type": "boolean"
+                },
+                "auto_approve_pull_requests_by": {
+                    "type": "string"
                 },
                 "can_edit": {
                     "description": "CanEdit is true when the caller may change this Bot: organization\nowners and platform admins, or a member who may update the Bot's\nagent app. The UI hides edit, delete and re-parent controls when false.",
@@ -26055,6 +26566,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.BotInstanceProfile"
                         }
                     ]
+                },
+                "keep_alive": {
+                    "description": "KeepAlive exempts the bot's desktop from idle shutdown. Changed through\nPUT /orgs/{org}/bots/{id}/keep-alive.",
+                    "type": "boolean"
+                },
+                "last_activation_failure": {
+                    "description": "LastActivationFailure is the error of the newest failed activation in\nActivationFailureStreak.",
+                    "type": "string"
                 },
                 "legacy_app_id": {
                     "type": "string"
@@ -26194,6 +26713,129 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotResetDTO": {
+            "type": "object",
+            "properties": {
+                "activation_id": {
+                    "type": "string"
+                },
+                "erases": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "home": {
+                    "$ref": "#/definitions/api.BotResetHomeDTO"
+                },
+                "keeps": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "previous_session_id": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotResetHomeDTO": {
+            "type": "object",
+            "properties": {
+                "existed": {
+                    "type": "boolean"
+                },
+                "generation": {
+                    "type": "string"
+                },
+                "retired_path": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotResetPlanDTO": {
+            "type": "object",
+            "properties": {
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.BotResetScopeDTO"
+                    }
+                }
+            }
+        },
+        "api.BotResetRequestDTO": {
+            "type": "object",
+            "properties": {
+                "confirm": {
+                    "description": "Confirm must equal the bot id.",
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "Scope is \"session\" or \"session_and_home\".",
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotResetScopeDTO": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "description": "Available is false when the scope would be refused right now.",
+                    "type": "boolean"
+                },
+                "erases": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "keeps": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "unavailable_reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BotRestartDTO": {
+            "type": "object",
+            "properties": {
+                "activation_id": {
+                    "type": "string"
+                },
+                "legacy_app_id": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "preserves": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "session_id": {
                     "type": "string"
                 }
             }
@@ -27305,6 +27947,98 @@ const docTemplate = `{
                 }
             }
         },
+        "hosthistory.Sample": {
+            "type": "object",
+            "properties": {
+                "cpu": {
+                    "type": "number"
+                },
+                "disk": {
+                    "type": "number"
+                },
+                "memory": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "integer"
+                }
+            }
+        },
+        "hydra.BotHomeInventory": {
+            "type": "object",
+            "properties": {
+                "browser_profile": {
+                    "description": "BrowserProfile is the profile declared in .helix/browser.json (see\ndesktop/shared/helix-browser.sh); nil when none is declared, in which\ncase the browser uses .chrome-state.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/hydra.DeclaredBrowserProfile"
+                        }
+                    ]
+                },
+                "chrome_profiles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/hydra.ChromeProfileStatus"
+                    }
+                },
+                "top_level_entries": {
+                    "type": "integer"
+                }
+            }
+        },
+        "hydra.BotHomeOutcome": {
+            "type": "string",
+            "enum": [
+                "existing",
+                "created",
+                "migrated"
+            ],
+            "x-enum-varnames": [
+                "BotHomeOutcomeExisting",
+                "BotHomeOutcomeCreated",
+                "BotHomeOutcomeMigrated"
+            ]
+        },
+        "hydra.BotHomeResult": {
+            "type": "object",
+            "properties": {
+                "generation": {
+                    "type": "string"
+                },
+                "inventory": {
+                    "$ref": "#/definitions/hydra.BotHomeInventory"
+                },
+                "migrated_from_session": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "$ref": "#/definitions/hydra.BotHomeOutcome"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "hydra.ChromeProfileStatus": {
+            "type": "object",
+            "properties": {
+                "cookies_db_present": {
+                    "type": "boolean"
+                },
+                "default_prefs_valid": {
+                    "type": "boolean"
+                },
+                "local_state_valid": {
+                    "type": "boolean"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "singleton_lock": {
+                    "type": "boolean"
+                }
+            }
+        },
         "hydra.ContainerBlkioStats": {
             "type": "object",
             "properties": {
@@ -27318,6 +28052,36 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "hydra.DeclaredBrowserProfile": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/hydra.DeclaredBrowserProfileState"
+                }
+            }
+        },
+        "hydra.DeclaredBrowserProfileState": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "missing",
+                "outside_workspace",
+                "wrong_identity",
+                "inconsistent",
+                "invalid_declaration"
+            ],
+            "x-enum-varnames": [
+                "DeclaredBrowserProfileOK",
+                "DeclaredBrowserProfileMissing",
+                "DeclaredBrowserProfileOutsideWorkspace",
+                "DeclaredBrowserProfileWrongIdentity",
+                "DeclaredBrowserProfileInconsistent",
+                "DeclaredBrowserProfileInvalidDeclaration"
+            ]
         },
         "hydra.DevContainerStatus": {
             "type": "string",
@@ -28536,9 +29300,6 @@ const docTemplate = `{
         "server.ClaudeModel": {
             "type": "object",
             "properties": {
-                "description": {
-                    "type": "string"
-                },
                 "id": {
                     "type": "string"
                 },
@@ -28666,6 +29427,14 @@ const docTemplate = `{
         "server.DevContainerWithClients": {
             "type": "object",
             "properties": {
+                "bot_home": {
+                    "description": "BotHome reports how the bot home was bound, when the request had one.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/hydra.BotHomeResult"
+                        }
+                    ]
+                },
                 "clients": {
                     "type": "array",
                     "items": {
@@ -29834,6 +30603,22 @@ const docTemplate = `{
                 },
                 "reason": {
                     "type": "string"
+                }
+            }
+        },
+        "server.OrgBotKeepAliveRequest": {
+            "type": "object",
+            "properties": {
+                "keep_alive": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.OrgBotPRAutoApproveRequest": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -31103,24 +31888,24 @@ const docTemplate = `{
         "transport.Kind": {
             "type": "string",
             "enum": [
+                "github",
+                "slack",
+                "local",
+                "cron",
                 "email",
                 "gitlab",
-                "local",
-                "helix_events",
-                "slack",
-                "github",
                 "webhook",
-                "cron"
+                "helix_events"
             ],
             "x-enum-varnames": [
+                "KindGitHub",
+                "KindSlack",
+                "KindLocal",
+                "KindCron",
                 "KindEmail",
                 "KindGitLab",
-                "KindLocal",
-                "KindHelixEvents",
-                "KindSlack",
-                "KindGitHub",
                 "KindWebhook",
-                "KindCron"
+                "KindHelixEvents"
             ]
         },
         "transport.ResolvedActivation": {
@@ -31787,7 +32572,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "spec_task_id": {
-                    "description": "SpecTaskID is the spec task whose task-confined key created the\nartifact, set by the server from the key and never from the request.\nSuch a key may change or delete only its own task's artifacts, and a\nreader can tell one lane's artifacts from another's. Empty for\nartifacts created any other way.",
+                    "description": "SpecTaskID is the spec task whose task-bound key created the\nartifact, set by the server from the key and never from the request.\nA reader can tell one lane's artifacts from another's. Empty for artifacts\ncreated outside a spec task.",
                     "type": "string"
                 },
                 "subdomain_url": {
@@ -32086,7 +32871,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "claude_subscription_model": {
-                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\n\"claude-opus-5-5\" (the current 1M-context Opus model).",
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means\nDefaultCodeAgentModel(CodeAgentRuntimeClaudeCode), the top of CodeAgentModels.",
                     "type": "string"
                 },
                 "code_agent_credential_type": {
@@ -33633,6 +34418,21 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CodeAgentModelOption": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "description": "Current marks a current-generation model. Pickers list current models\nfirst and group the rest as legacy.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 }
             }
@@ -36159,6 +36959,10 @@ const docTemplate = `{
                 "status": {
                     "type": "string"
                 },
+                "steered": {
+                    "description": "Steered is true when this turn's prompt was a steer delivered while the\nagent was still working on an earlier turn. The chat labels it, and the\nearlier turn reads as continuing rather than incomplete.",
+                    "type": "boolean"
+                },
                 "summary": {
                     "description": "Summary is a one-line description of this interaction for search/indexing.\nGenerated lazily on first access or via background job.",
                     "type": "string"
@@ -37169,6 +37973,28 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ModelReference": {
+            "type": "object",
+            "properties": {
+                "fields": {
+                    "description": "Fields names the fields holding the model, e.g. \"code_agent_config\".",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind is org_default, agent, org_bot, project, spec_task or session.",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ModelType": {
             "type": "string",
             "enum": [
@@ -37732,7 +38558,13 @@ const docTemplate = `{
                 "desktop_credits": {
                     "type": "number"
                 },
+                "desktop_hours": {
+                    "type": "number"
+                },
                 "headless_credits": {
+                    "type": "number"
+                },
+                "headless_hours": {
                     "type": "number"
                 },
                 "running_sandboxes": {
@@ -37746,6 +38578,9 @@ const docTemplate = `{
                     }
                 },
                 "total_credits": {
+                    "type": "number"
+                },
+                "total_hours": {
                     "type": "number"
                 }
             }
@@ -39303,6 +40138,10 @@ const docTemplate = `{
                     "description": "Status tracks whether this was successfully sent\nValues: \"pending\", \"sent\", \"failed\"",
                     "type": "string"
                 },
+                "steer": {
+                    "description": "Steer delivers this message into the agent's running turn without\ncancelling it, when the agent supports steering. Otherwise it waits for\nthe turn to finish like a queued message. Mutually exclusive with Interrupt.",
+                    "type": "boolean"
+                },
                 "updated_at": {
                     "type": "string"
                 },
@@ -39333,6 +40172,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "steer": {
+                    "description": "If true, delivered into the running turn when the agent supports it",
+                    "type": "boolean"
                 },
                 "timestamp": {
                     "description": "Unix timestamp in milliseconds",
@@ -39948,6 +40791,38 @@ const docTemplate = `{
                 },
                 "password_confirm": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ReplaceModelRequest": {
+            "type": "object",
+            "properties": {
+                "dry_run": {
+                    "description": "DryRun reports what would change without writing anything.",
+                    "type": "boolean"
+                },
+                "from_model": {
+                    "type": "string"
+                },
+                "provider_ref": {
+                    "type": "string"
+                },
+                "to_model": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ReplaceModelResponse": {
+            "type": "object",
+            "properties": {
+                "dry_run": {
+                    "type": "boolean"
+                },
+                "references": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ModelReference"
+                    }
                 }
             }
         },
@@ -40584,6 +41459,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "name": {
+                    "description": "SandboxNameMaxLen",
                     "type": "string"
                 },
                 "org_bot_id": {
@@ -40822,6 +41698,13 @@ const docTemplate = `{
                     "type": "object",
                     "additionalProperties": {
                         "type": "string"
+                    }
+                },
+                "session_resources": {
+                    "description": "Cumulative cgroup counters of each running desktop session container.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionResourceSample"
                     }
                 }
             }
@@ -41135,6 +42018,16 @@ const docTemplate = `{
                 "billing_enabled": {
                     "description": "Charging for usage",
                     "type": "boolean"
+                },
+                "code_agent_models": {
+                    "description": "CodeAgentModels is the vendor model catalogue per coding-agent harness,\nbest first (see CodeAgentModels). The UI pickers and their defaults read it\nfrom here so the backend list is the only place it is maintained.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/types.CodeAgentModelOption"
+                        }
+                    }
                 },
                 "default_chat_system_prompt": {
                     "description": "DefaultChatSystemPrompt is the system prompt the platform applies to\ndirect model chats when the user has not customised one. Surfaced to\nthe frontend so the chat-settings page can prefill the textbox.",
@@ -41751,6 +42644,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SessionFilesystemSample": {
+            "type": "object",
+            "properties": {
+                "dedicated": {
+                    "type": "boolean"
+                },
+                "inodes": {
+                    "type": "integer"
+                },
+                "inodes_used": {
+                    "type": "integer"
+                },
+                "paths": {
+                    "description": "Container paths mounted from this filesystem, comma separated.",
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "used_bytes": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.SessionInfo": {
             "type": "object",
             "properties": {
@@ -41786,6 +42703,10 @@ const docTemplate = `{
                 },
                 "agent_handoff_delivered_at": {
                     "type": "string"
+                },
+                "agent_steering_supported": {
+                    "description": "AgentSteeringSupported is reported by Zed for the session's thread: true\nwhen the agent can take a message into its running turn. Without it a\nsteer prompt waits for the turn to finish.",
+                    "type": "boolean"
                 },
                 "agent_switched_at": {
                     "description": "AgentSwitchedAt is set when the agent framework is switched IN PLACE on\nthis same session (no fork / new container) — see\ndesign/tasks/002111_so-we-recently-added-a/design.md. It marks that a\nfork_seed interaction carrying the prior thread's transcript exists on\nTHIS session, so maybePrependTranscript seeds the new Zed thread even\nthough ParentSessionID is empty (the session continues from itself).",
@@ -42193,6 +43114,209 @@ const docTemplate = `{
                 },
                 "source": {
                     "type": "string"
+                }
+            }
+        },
+        "types.SessionResourcePoint": {
+            "type": "object",
+            "properties": {
+                "cpu_cores": {
+                    "type": "number"
+                },
+                "cpu_pressure_pct": {
+                    "type": "number"
+                },
+                "cpu_throttled_pct": {
+                    "type": "number"
+                },
+                "disk_used_bytes": {
+                    "type": "integer"
+                },
+                "io_pressure_pct": {
+                    "type": "number"
+                },
+                "io_read_bps": {
+                    "type": "number"
+                },
+                "io_write_bps": {
+                    "type": "number"
+                },
+                "memory_bytes": {
+                    "type": "integer"
+                },
+                "memory_pressure_pct": {
+                    "type": "number"
+                },
+                "oom_kills": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SessionResourceSample": {
+            "type": "object",
+            "properties": {
+                "cpu_limit_millicores": {
+                    "type": "integer"
+                },
+                "cpu_periods": {
+                    "type": "integer"
+                },
+                "cpu_pressure_usec": {
+                    "description": "Pressure stall information: total microseconds in which some task of\nthe container was stalled on CPU, memory or I/O.",
+                    "type": "integer"
+                },
+                "cpu_throttled_periods": {
+                    "type": "integer"
+                },
+                "cpu_throttled_usec": {
+                    "type": "integer"
+                },
+                "cpu_usage_usec": {
+                    "type": "integer"
+                },
+                "filesystems": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionFilesystemSample"
+                    }
+                },
+                "io_pressure_usec": {
+                    "type": "integer"
+                },
+                "io_read_bytes": {
+                    "description": "I/O issued by the container, counted on top-of-stack block devices only.",
+                    "type": "integer"
+                },
+                "io_read_ops": {
+                    "type": "integer"
+                },
+                "io_write_bytes": {
+                    "type": "integer"
+                },
+                "io_write_ops": {
+                    "type": "integer"
+                },
+                "memory_anon_bytes": {
+                    "type": "integer"
+                },
+                "memory_bytes": {
+                    "type": "integer"
+                },
+                "memory_file_bytes": {
+                    "type": "integer"
+                },
+                "memory_high_events": {
+                    "type": "integer"
+                },
+                "memory_limit_bytes": {
+                    "type": "integer"
+                },
+                "memory_max_events": {
+                    "type": "integer"
+                },
+                "memory_peak_bytes": {
+                    "type": "integer"
+                },
+                "memory_pressure_usec": {
+                    "type": "integer"
+                },
+                "oom_kills": {
+                    "type": "integer"
+                },
+                "pids": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "description": "Unix milliseconds, set by the API when it receives the heartbeat.",
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SessionResourceSummary": {
+            "type": "object",
+            "properties": {
+                "cpu_cores_max": {
+                    "type": "number"
+                },
+                "cpu_cores_p50": {
+                    "type": "number"
+                },
+                "cpu_cores_p95": {
+                    "type": "number"
+                },
+                "cpu_limit_cores": {
+                    "type": "number"
+                },
+                "cpu_pressure_pct": {
+                    "type": "number"
+                },
+                "cpu_throttled_pct": {
+                    "type": "number"
+                },
+                "from": {
+                    "type": "integer"
+                },
+                "io_pressure_pct": {
+                    "type": "number"
+                },
+                "io_read_bytes": {
+                    "type": "integer"
+                },
+                "io_write_bytes": {
+                    "type": "integer"
+                },
+                "memory_high_events": {
+                    "type": "integer"
+                },
+                "memory_limit_bytes": {
+                    "type": "integer"
+                },
+                "memory_max_bytes": {
+                    "type": "integer"
+                },
+                "memory_peak_bytes": {
+                    "type": "integer"
+                },
+                "memory_pressure_pct": {
+                    "type": "number"
+                },
+                "oom_kills": {
+                    "type": "integer"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "to": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SessionResources": {
+            "type": "object",
+            "properties": {
+                "filesystems": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionFilesystemSample"
+                    }
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionResourcePoint"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "$ref": "#/definitions/types.SessionResourceSummary"
                 }
             }
         },
@@ -43015,6 +44139,10 @@ const docTemplate = `{
                 "archived": {
                     "type": "boolean"
                 },
+                "destroy_workspace": {
+                    "description": "DestroyWorkspace tears the task's desktop down for good instead of\nstopping it: the container, the session's on-host data and the task's\nworkspace checkout are deleted, so a finished task stops holding disk.\nOnly honoured when the request archives and stop is enabled; the same\nlive-agent guard as stop_agent applies.",
+                    "type": "boolean"
+                },
                 "stop_agent": {
                     "description": "StopAgent controls whether archiving stops the task's external agent and\nfrees its sandbox. Omitted (nil) means yes. Archiving never kills an agent\nthat is mid-turn unless the caller says so explicitly.",
                     "type": "boolean"
@@ -43496,6 +44624,13 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "org_bot_id": {
+                    "description": "OrgBotID is the proposing org bot, unique within OrganizationID.",
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 },
                 "pr_id": {
@@ -44400,6 +45535,9 @@ const docTemplate = `{
                     "description": "Kodit vision embedding model configuration",
                     "type": "string"
                 },
+                "llm_payload_retention_days": {
+                    "type": "integer"
+                },
                 "max_concurrent_desktop_sandboxes": {
                     "type": "integer"
                 },
@@ -44512,6 +45650,9 @@ const docTemplate = `{
                 "kodit_vision_embedding_provider": {
                     "description": "Kodit vision embedding model configuration",
                     "type": "string"
+                },
+                "llm_payload_retention_days": {
+                    "type": "integer"
                 },
                 "max_concurrent_desktop_sandboxes": {
                     "type": "integer"
@@ -45770,6 +46911,14 @@ const docTemplate = `{
                 "provider": {
                     "type": "string"
                 },
+                "provider_kind": {
+                    "description": "ProviderKind says who a provider row was paid through; set on provider rows only.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.UsageProviderKind"
+                        }
+                    ]
+                },
                 "request_size_bytes": {
                     "type": "integer"
                 },
@@ -45823,6 +46972,9 @@ const docTemplate = `{
                 "credits": {
                     "type": "number"
                 },
+                "hours": {
+                    "type": "number"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -45855,10 +47007,19 @@ const docTemplate = `{
                 "desktop": {
                     "type": "number"
                 },
+                "desktop_hours": {
+                    "type": "number"
+                },
                 "headless": {
                     "type": "number"
                 },
+                "headless_hours": {
+                    "type": "number"
+                },
                 "total": {
+                    "type": "number"
+                },
+                "total_hours": {
                     "type": "number"
                 }
             }
@@ -45909,9 +47070,29 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UsageProviderKind": {
+            "type": "string",
+            "enum": [
+                "helix",
+                "added",
+                "local",
+                "subscription",
+                "unknown"
+            ],
+            "x-enum-varnames": [
+                "UsageProviderKindHelix",
+                "UsageProviderKindAdded",
+                "UsageProviderKindLocal",
+                "UsageProviderKindSubscription",
+                "UsageProviderKindUnknown"
+            ]
+        },
         "types.UsageProviderTimeSeries": {
             "type": "object",
             "properties": {
+                "kind": {
+                    "$ref": "#/definitions/types.UsageProviderKind"
+                },
                 "metrics": {
                     "type": "array",
                     "items": {

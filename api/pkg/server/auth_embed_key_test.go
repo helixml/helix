@@ -57,6 +57,16 @@ func TestEmbedKeyAllowsItsOwnTaskAndSession(t *testing.T) {
 		{"GET", "/api/v1/external-agents/ses_A/file"},
 		{"GET", "/api/v1/external-agents/ses_A/ws/stream"},
 		{"GET", "/api/v1/prompt-history?spec_task_id=spt_A&project_id=prj_1"},
+		{"GET", "/api/v1/public/artifacts/art_A"},
+		{"GET", "/api/v1/artifacts/art_A/download"},
+		{"GET", "/artifacts/art_A/embed"},
+		{"HEAD", "/artifacts/art_A/embed/assets/app.js"},
+		{"GET", "/artifacts/art_A/document"},
+		{"HEAD", "/artifacts/art_A/download"},
+		{"GET", "/api/v1/spec-tasks/spt_A/design-reviews"},
+		{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1"},
+		{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comments"},
+		{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comment-queue-status"},
 	}
 	for _, c := range allowed {
 		if !embedKeyAllows(u, req(c.method, c.path)) {
@@ -85,6 +95,10 @@ func TestEmbedKeyCannotReachAnotherTaskOrSession(t *testing.T) {
 		{"GET", "/api/v1/prompt-history?spec_task_id=spt_B&project_id=prj_1"},
 		// No subject named at all is not "unscoped", it is out of scope.
 		{"GET", "/api/v1/prompt-history"},
+		{"GET", "/api/v1/spec-tasks/spt_B/design-reviews"},
+		{"GET", "/api/v1/spec-tasks/spt_B/design-reviews/rev_1"},
+		{"GET", "/api/v1/spec-tasks/spt_B/design-reviews/rev_1/comments"},
+		{"GET", "/api/v1/spec-tasks/spt_B/design-reviews/rev_1/comment-queue-status"},
 	}
 	for _, c := range denied {
 		if embedKeyAllows(u, req(c.method, c.path)) {
@@ -203,6 +217,9 @@ func TestEmbedKeyCannotMutateOrDriveDesktop(t *testing.T) {
 		{"GET", "/api/v1/sessions/ses_A/terminal"},
 		{"GET", "/api/v1/external-agents/ses_A/workspace-files"},
 		{"GET", "/api/v1/external-agents/ses_A/workspace-skills"},
+		{"PUT", "/api/v1/artifacts/art_A"},
+		{"DELETE", "/api/v1/artifacts/art_A"},
+		{"POST", "/artifacts/art_A/download"},
 	}
 	for _, c := range denied {
 		if embedKeyAllows(u, req(c.method, c.path)) {
@@ -537,5 +554,96 @@ func TestEmbedKeyMiddlewarePRProposalsAndExecutionConfig(t *testing.T) {
 				t.Fatalf("%s %s: body %q, want %q", c.method, c.path, w.Body.String(), c.wantBody)
 			}
 		})
+	}
+}
+
+func TestEmbedKeyMiddlewareQuestionActionsStayInBoundSession(t *testing.T) {
+	cases := []struct {
+		name               string
+		method             string
+		path               string
+		interactionID      string
+		interactionSession string
+		lookupErr          error
+		boundSession       string
+		wantCode           int
+	}{
+		{"respond to own session", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/respond", "int_A", "ses_A", nil, "ses_A", http.StatusNoContent},
+		{"cancel in own session", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/cancel", "int_A", "ses_A", nil, "ses_A", http.StatusNoContent},
+		{"respond to sibling session", http.MethodPost, "/api/v1/interactions/int_B/questions/question_B/respond", "int_B", "ses_B", nil, "ses_A", http.StatusForbidden},
+		{"cancel in sibling session", http.MethodPost, "/api/v1/interactions/int_B/questions/question_B/cancel", "int_B", "ses_B", nil, "ses_A", http.StatusForbidden},
+		{"missing interaction", http.MethodPost, "/api/v1/interactions/int_missing/questions/question_A/respond", "int_missing", "", store.ErrNotFound, "ses_A", http.StatusForbidden},
+		{"unbound key", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/respond", "", "", nil, "", http.StatusForbidden},
+		{"wrong method", http.MethodGet, "/api/v1/interactions/int_A/questions/question_A/respond", "", "", nil, "ses_A", http.StatusForbidden},
+		{"empty interaction id", http.MethodPost, "/api/v1/interactions//questions/question_A/respond", "", "", nil, "ses_A", http.StatusForbidden},
+		{"empty request id", http.MethodPost, "/api/v1/interactions/int_A/questions//respond", "", "", nil, "ses_A", http.StatusForbidden},
+		{"extra interaction segment", http.MethodPost, "/api/v1/interactions/int_A/extra/questions/question_A/respond", "", "", nil, "ses_A", http.StatusForbidden},
+		{"extra action segment", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/respond/extra", "", "", nil, "ses_A", http.StatusForbidden},
+		{"unknown action", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/delete", "", "", nil, "ses_A", http.StatusForbidden},
+	}
+	for _, middleware := range []string{"extract", "auth"} {
+		for _, c := range cases {
+			t.Run(middleware+"/"+c.name, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				st := store.NewMockStore(ctrl)
+				owner := &types.User{ID: "user_service"}
+				key := &types.ApiKey{
+					Key: "hl-embed", Owner: owner.ID, OwnerType: types.OwnerTypeUser,
+					Type: types.APIkeytypeEmbed, ProjectID: "prj_A", SpecTaskID: "spt_A", SessionID: c.boundSession, TaskConfined: true,
+				}
+				st.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: key.Key}).Return(key, nil)
+				st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: owner.ID}).Return(owner, nil).AnyTimes()
+				st.EXPECT().EnsureUserMeta(gomock.Any(), gomock.Any()).Return(&types.UserMeta{ID: owner.ID}, nil).AnyTimes()
+				if c.interactionID != "" {
+					st.EXPECT().GetInteraction(gomock.Any(), c.interactionID).Return(&types.Interaction{
+						ID: c.interactionID, SessionID: c.interactionSession,
+					}, c.lookupErr)
+				}
+				auth := newAuthMiddleware(nil, nil, st, authMiddlewareConfig{}, nil, nil)
+				auth.lastSeenCache.Store(owner.ID, time.Now())
+
+				reached := false
+				handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					reached = true
+					w.WriteHeader(http.StatusNoContent)
+				})
+				r := httptest.NewRequest(c.method, c.path, nil)
+				r.Header.Set("Authorization", "Bearer "+key.Key)
+				w := httptest.NewRecorder()
+				if middleware == "extract" {
+					auth.extractMiddleware(handler).ServeHTTP(w, r)
+				} else {
+					auth.auth(handler).ServeHTTP(w, r)
+				}
+
+				if w.Code != c.wantCode {
+					t.Fatalf("status %d, want %d (body %q)", w.Code, c.wantCode, w.Body.String())
+				}
+				if reached != (c.wantCode == http.StatusNoContent) {
+					t.Fatalf("handler reached = %v", reached)
+				}
+			})
+		}
+	}
+}
+
+// The plan is readable; reviewing it is the owner's, not the embed's.
+func TestEmbedKeyReadsButCannotReviewItsPlan(t *testing.T) {
+	for _, u := range []*types.User{embedUser(), func() *types.User { i := embedUser(); i.EmbedInteractive = true; return i }()} {
+		denied := []struct{ method, path string }{
+			{"POST", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comments"},
+			{"POST", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/submit"},
+			{"PUT", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/document"},
+			{"POST", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comments/c_1/resolve"},
+			// {} is one segment: no empty id, no extra depth.
+			{"GET", "/api/v1/spec-tasks/spt_A/design-reviews//comments"},
+			{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comments/c_1"},
+			{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/../../../spt_B/design-reviews"},
+		}
+		for _, c := range denied {
+			if embedKeyAllows(u, req(c.method, c.path)) {
+				t.Errorf("SECURITY: embed key (interactive=%v) allowed %s %s", u.EmbedInteractive, c.method, c.path)
+			}
+		}
 	}
 }

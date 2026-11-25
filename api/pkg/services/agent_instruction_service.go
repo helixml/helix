@@ -7,6 +7,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -275,7 +276,7 @@ You can use the ` + "`chrome-devtools`" + ` MCP server to search the web via Duc
 
 - "Start a container" → docker-compose.yaml, NOT a Python wrapper
 - "Create sample data" → write files directly, NOT a generator script
-- "Run X at startup" → /home/retro/work/helix-specs/.helix/startup.sh (idempotent; runs once a person pushes helix-specs or saves it in Project Settings), NOT a service framework
+- "Run X at startup" → /home/retro/work/helix-specs/.helix/startup.sh (idempotent), NOT a service framework
 - If it can be a one-liner, use a one-liner
 
 ## Update Design Docs As You Go (CRITICAL)
@@ -330,6 +331,8 @@ Every pull request for this task is one you propose with ` + "`propose_pull_requ
 - **More than one pull request:** a task can ship as several pull requests. Propose each further slice with its own new ` + "`head_branch`" + ` BEFORE pushing to it: you can only push to your task branch and to branches the user has approved. Once approved, push the branch and Helix opens the pull request as soon as it has commits that are not on the base.
 - **Updating:** pushing more commits to the branch of an open pull request updates it; do not propose it again.
 - **Outcomes** arrive as messages in this session (opened with link, approved-awaiting-push, rejected with feedback, or failed). ` + "`list_pull_request_proposals`" + ` shows the current state. Keep working while a proposal is pending.
+
+` + prompts.PullRequestStatusGuidance() + `
 
 {{else}}## Pull Request Description (IMPORTANT)
 

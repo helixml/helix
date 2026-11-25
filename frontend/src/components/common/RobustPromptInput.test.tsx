@@ -5,7 +5,7 @@ import RobustPromptInput from './RobustPromptInput'
 import { buildWorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
 import { QUEUE_DISPATCH_GRACE_MS } from '../../utils/promptQueueVisibility'
 
-const updateInterrupt = vi.fn()
+const updateDeliveryMode = vi.fn()
 const saveToHistory = vi.fn()
 const clearDraft = vi.fn()
 const setDraft = vi.fn()
@@ -26,7 +26,7 @@ vi.mock('../../hooks/usePromptHistory', async () => {
       markAsSent: vi.fn(),
       markAsFailed: vi.fn(),
       updateContent: vi.fn(),
-      updateInterrupt,
+      updateDeliveryMode,
       removeFromQueue: vi.fn(),
       reorderQueue: vi.fn(),
       pendingPrompts,
@@ -166,29 +166,30 @@ describe('RobustPromptInput direct send', () => {
   })
 })
 
-describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', () => {
+describe('RobustPromptInput empty-Enter escalates the oldest queued message', () => {
   beforeEach(() => {
-    updateInterrupt.mockClear()
+    updateDeliveryMode.mockClear()
     saveToHistory.mockClear()
     clearDraft.mockClear()
     pendingPrompts = []
   })
 
-  const renderInput = () =>
+  const renderInput = (props: Partial<React.ComponentProps<typeof RobustPromptInput>> = {}) =>
     render(
       <RobustPromptInput
         sessionId="ses_test"
         onSend={vi.fn()}
+        {...props}
       />
     )
 
-  const pressEnter = (container: HTMLElement) => {
+  const pressEnter = (container: HTMLElement, init: Partial<KeyboardEventInit> = {}) => {
     const textarea = container.querySelector('textarea[data-prompt-input], textarea')
     expect(textarea).toBeTruthy()
-    fireEvent.keyDown(textarea!, { key: 'Enter', shiftKey: false })
+    fireEvent.keyDown(textarea!, { key: 'Enter', shiftKey: false, ...init })
   }
 
-  it('flips the lowest-timestamp (oldest) pending non-interrupt entry to interrupt', () => {
+  it('escalates the lowest-timestamp (oldest) queue-mode entry to interrupt when the agent cannot steer', () => {
     pendingPrompts = [
       mkEntry('a', 1000),
       mkEntry('b', 3000),
@@ -196,19 +197,34 @@ describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', ()
     ]
     const { container } = renderInput()
     pressEnter(container)
-    expect(updateInterrupt).toHaveBeenCalledTimes(1)
-    expect(updateInterrupt).toHaveBeenCalledWith('a', true)
+    expect(updateDeliveryMode).toHaveBeenCalledTimes(1)
+    expect(updateDeliveryMode).toHaveBeenCalledWith('a', 'interrupt')
     expect(saveToHistory).not.toHaveBeenCalled()
   })
 
-  it('skips entries already in interrupt mode', () => {
+  it('escalates to steer when the agent can steer, and to interrupt with Ctrl+Enter', () => {
+    pendingPrompts = [mkEntry('a', 1000)]
+    const backend = { specTaskId: 'task_1', projectId: 'prj_1', apiClient: {} as any, steeringSupported: true }
+    const { container, unmount } = renderInput(backend)
+    pressEnter(container)
+    expect(updateDeliveryMode).toHaveBeenCalledWith('a', 'steer')
+    unmount()
+
+    updateDeliveryMode.mockClear()
+    const second = renderInput(backend)
+    pressEnter(second.container, { ctrlKey: true })
+    expect(updateDeliveryMode).toHaveBeenCalledWith('a', 'interrupt')
+  })
+
+  it('skips entries already steering or interrupting', () => {
     pendingPrompts = [
       mkEntry('a', 5000, { interrupt: true }),
+      mkEntry('s', 500, { steer: true }),
       mkEntry('b', 1000),
     ]
     const { container } = renderInput()
     pressEnter(container)
-    expect(updateInterrupt).toHaveBeenCalledWith('b', true)
+    expect(updateDeliveryMode).toHaveBeenCalledWith('b', 'interrupt')
   })
 
   it('skips deleted (tombstoned) entries', () => {
@@ -218,14 +234,14 @@ describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', ()
     ]
     const { container } = renderInput()
     pressEnter(container)
-    expect(updateInterrupt).toHaveBeenCalledWith('b', true)
+    expect(updateDeliveryMode).toHaveBeenCalledWith('b', 'interrupt')
   })
 
   it('is a silent no-op when there are no eligible entries', () => {
     pendingPrompts = [mkEntry('a', 1000, { interrupt: true })]
     const { container } = renderInput()
     pressEnter(container)
-    expect(updateInterrupt).not.toHaveBeenCalled()
+    expect(updateDeliveryMode).not.toHaveBeenCalled()
     expect(saveToHistory).not.toHaveBeenCalled()
   })
 
@@ -233,10 +249,82 @@ describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', ()
     pendingPrompts = []
     const { container } = renderInput()
     pressEnter(container)
-    expect(updateInterrupt).not.toHaveBeenCalled()
+    expect(updateDeliveryMode).not.toHaveBeenCalled()
     expect(saveToHistory).not.toHaveBeenCalled()
   })
 
+})
+
+describe('RobustPromptInput keys while the agent is working', () => {
+  beforeEach(() => {
+    saveToHistory.mockClear()
+    pendingPrompts = []
+    draft = 'change of plan'
+  })
+
+  const backend = { specTaskId: 'task_1', projectId: 'prj_1', apiClient: {} as any }
+
+  const renderBusy = (props: Partial<React.ComponentProps<typeof RobustPromptInput>> = {}) =>
+    render(
+      <RobustPromptInput
+        sessionId="ses_test"
+        onSend={vi.fn()}
+        isAgentBusy
+        onCancel={vi.fn()}
+        {...backend}
+        {...props}
+      />
+    )
+
+  const textarea = () => screen.getByPlaceholderText('Send message to agent...')
+
+  it('Enter steers, Tab queues and Ctrl+Enter interrupts when the agent can steer', () => {
+    renderBusy({ steeringSupported: true })
+    fireEvent.keyDown(textarea(), { key: 'Enter' })
+    expect(saveToHistory).toHaveBeenLastCalledWith('change of plan', 'steer')
+    fireEvent.keyDown(textarea(), { key: 'Tab' })
+    expect(saveToHistory).toHaveBeenLastCalledWith('change of plan', 'queue')
+    fireEvent.keyDown(textarea(), { key: 'Enter', ctrlKey: true })
+    expect(saveToHistory).toHaveBeenLastCalledWith('change of plan', 'interrupt')
+  })
+
+  it('Enter queues when the agent cannot steer, and the hint says so', () => {
+    renderBusy({ steeringSupported: false })
+    expect(screen.getByTestId('composer-delivery-hint')).toHaveAttribute('aria-label', 'Enter will queue')
+    fireEvent.keyDown(textarea(), { key: 'Enter' })
+    expect(saveToHistory).toHaveBeenLastCalledWith('change of plan', 'queue')
+  })
+
+  it('never steers without the backend queue, even if the agent could', () => {
+    render(
+      <RobustPromptInput sessionId="ses_test" onSend={vi.fn()} isAgentBusy onCancel={vi.fn()} steeringSupported />
+    )
+    expect(screen.getByTestId('composer-delivery-hint')).toHaveAttribute('aria-label', 'Enter will queue')
+    fireEvent.keyDown(textarea(), { key: 'Enter' })
+    expect(saveToHistory).toHaveBeenLastCalledWith('change of plan', 'queue')
+  })
+
+  it('shows what Enter does and keeps a send button beside Stop', () => {
+    renderBusy({ steeringSupported: true })
+    expect(screen.getByTestId('composer-delivery-hint')).toHaveAttribute('aria-label', 'Enter will steer')
+    fireEvent.click(screen.getByRole('button', { name: 'Steer message' }))
+    expect(saveToHistory).toHaveBeenLastCalledWith('change of plan', 'steer')
+    expect(screen.getByRole('button', { name: 'Stop generation' })).toBeInTheDocument()
+  })
+
+  it('leaves Tab alone when there is nothing to send', () => {
+    draft = ''
+    renderBusy({ steeringSupported: true })
+    fireEvent.keyDown(textarea(), { key: 'Tab' })
+    expect(saveToHistory).not.toHaveBeenCalled()
+  })
+
+  it('hides the hint and sends plainly when the agent is idle', () => {
+    render(<RobustPromptInput sessionId="ses_test" onSend={vi.fn()} {...backend} steeringSupported />)
+    expect(screen.queryByTestId('composer-delivery-hint')).not.toBeInTheDocument()
+    fireEvent.keyDown(textarea(), { key: 'Enter' })
+    expect(saveToHistory).toHaveBeenLastCalledWith('change of plan', 'queue')
+  })
 })
 
 // Regression for 53b336e01: the client-side queue pump was deleted, so any
@@ -414,8 +502,8 @@ describe('RobustPromptInput workspace review comments', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(saveToHistory).toHaveBeenCalledWith(expect.stringContaining(
-      '<review_comment sectionId="file:demos/jobvacancy.go"'), false)
-    expect(saveToHistory).toHaveBeenCalledWith(expect.stringContaining('```go\nline 20\n```'), false)
+      '<review_comment sectionId="file:demos/jobvacancy.go"'), 'queue')
+    expect(saveToHistory).toHaveBeenCalledWith(expect.stringContaining('```go\nline 20\n```'), 'queue')
     expect(onCommentsSent).toHaveBeenCalledTimes(1)
   })
 })
@@ -469,7 +557,7 @@ describe('RobustPromptInput rich attachments', () => {
         '- Image: "/home/retro/work/incoming/diagram.png"',
         '- File: "/home/retro/work/incoming/requirements.pdf"',
       ].join('\n'),
-      false,
+      'queue',
     )
   })
 

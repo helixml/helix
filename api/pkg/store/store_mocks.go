@@ -25,7 +25,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -3500,6 +3499,21 @@ func (mr *MockStoreMockRecorder) GetNextQueuedCommentForSession(ctx, planningSes
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNextQueuedCommentForSession", reflect.TypeOf((*MockStore)(nil).GetNextQueuedCommentForSession), ctx, planningSessionID)
 }
 
+// GetNextSteerPrompt mocks base method.
+func (m *MockStore) GetNextSteerPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNextSteerPrompt", ctx, sessionID)
+	ret0, _ := ret[0].(*types.PromptHistoryEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNextSteerPrompt indicates an expected call of GetNextSteerPrompt.
+func (mr *MockStoreMockRecorder) GetNextSteerPrompt(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNextSteerPrompt", reflect.TypeOf((*MockStore)(nil).GetNextSteerPrompt), ctx, sessionID)
+}
+
 // GetOAuthConnection mocks base method.
 func (m *MockStore) GetOAuthConnection(ctx context.Context, id string) (*types.OAuthConnection, error) {
 	m.ctrl.T.Helper()
@@ -4996,6 +5010,21 @@ func (m *MockStore) ListAccessGrants(ctx context.Context, q *ListAccessGrantsQue
 func (mr *MockStoreMockRecorder) ListAccessGrants(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAccessGrants", reflect.TypeOf((*MockStore)(nil).ListAccessGrants), ctx, q)
+}
+
+// ListActiveDesktopSessionIDs mocks base method.
+func (m *MockStore) ListActiveDesktopSessionIDs(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveDesktopSessionIDs", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveDesktopSessionIDs indicates an expected call of ListActiveDesktopSessionIDs.
+func (mr *MockStoreMockRecorder) ListActiveDesktopSessionIDs(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveDesktopSessionIDs", reflect.TypeOf((*MockStore)(nil).ListActiveDesktopSessionIDs), ctx)
 }
 
 // ListActiveWebServices mocks base method.
@@ -7141,18 +7170,19 @@ func (mr *MockStoreMockRecorder) SetActiveWebServiceSandbox(ctx, projectID, sand
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActiveWebServiceSandbox", reflect.TypeOf((*MockStore)(nil).SetActiveWebServiceSandbox), ctx, projectID, sandboxID)
 }
 
-// SetGitRepositoryTrustedStartupSHA mocks base method.
-func (m *MockStore) SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error {
+// SetGitRepositoryDefaultBranchIfUnchanged mocks base method.
+func (m *MockStore) SetGitRepositoryDefaultBranchIfUnchanged(ctx context.Context, id, expected, branch string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetGitRepositoryTrustedStartupSHA", ctx, id, sha)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "SetGitRepositoryDefaultBranchIfUnchanged", ctx, id, expected, branch)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-// SetGitRepositoryTrustedStartupSHA indicates an expected call of SetGitRepositoryTrustedStartupSHA.
-func (mr *MockStoreMockRecorder) SetGitRepositoryTrustedStartupSHA(ctx, id, sha any) *gomock.Call {
+// SetGitRepositoryDefaultBranchIfUnchanged indicates an expected call of SetGitRepositoryDefaultBranchIfUnchanged.
+func (mr *MockStoreMockRecorder) SetGitRepositoryDefaultBranchIfUnchanged(ctx, id, expected, branch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGitRepositoryTrustedStartupSHA", reflect.TypeOf((*MockStore)(nil).SetGitRepositoryTrustedStartupSHA), ctx, id, sha)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGitRepositoryDefaultBranchIfUnchanged", reflect.TypeOf((*MockStore)(nil).SetGitRepositoryDefaultBranchIfUnchanged), ctx, id, expected, branch)
 }
 
 // SetInteractionPendingQuestion mocks base method.
@@ -8687,7 +8717,6 @@ func (mr *MockStoreMockRecorder) UpsertZedSettingsOverride(ctx, override any) *g
 type MockSecretIntakeStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockSecretIntakeStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockSecretIntakeStoreMockRecorder is the mock recorder for MockSecretIntakeStore.

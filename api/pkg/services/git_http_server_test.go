@@ -32,8 +32,8 @@ func (s *HasReadAccessSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.mockStore = store.NewMockStore(s.ctrl)
 
-	// updateRepositoryFromGit calls UpdateGitRepository after reading repo info
-	s.mockStore.EXPECT().UpdateGitRepository(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// updateRepositoryFromGit persists the default branch it detects from HEAD
+	s.mockStore.EXPECT().SetGitRepositoryDefaultBranchIfUnchanged(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 
 	tmpDir, err := os.MkdirTemp("", "git-http-server-test-*")
 	s.Require().NoError(err)

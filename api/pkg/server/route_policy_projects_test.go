@@ -4,7 +4,7 @@ package server
 // for the classes; routePolicyFile says which file a new route belongs in.
 func init() {
 	declareRoutePolicies(map[string]routePolicy{
-		"GET /api/v1/public/artifacts/{artifact_id}":                        handlerAuth("extractMiddleware; non-public artifacts need a caller authorized to the project").authz("authorizeUserToProjectByID"),
+		"GET /api/v1/public/artifacts/{artifact_id}":                        handlerAuth("extractMiddleware; non-public artifacts need a caller authorized to its project and task").authz("authorizeArtifactRead"),
 		"POST /api/v1/projects/{id}/secret-intakes":                         object("requireProjectAccess"),
 		"GET /api/v1/projects/{id}/secret-intakes/{intake_id}":              object("secretIntakeForProject"),
 		"DELETE /api/v1/projects/{id}/secret-intakes/{intake_id}":           object("secretIntakeForProject"),
@@ -58,8 +58,8 @@ func init() {
 		"GET /api/v1/projects/{id}/api_keys":                                object("authorizeProjectAPIKeyManagement"),
 		"DELETE /api/v1/projects/{id}/api_keys/{key_id}":                    object("authorizeProjectAPIKeyManagement"),
 		"GET /api/v1/artifacts/{artifact_id}":                               object("requireArtifactAccess"),
-		"GET /api/v1/artifacts/{artifact_id}/download":                      object("authorizeUserToProjectByID"),
-		"HEAD /api/v1/artifacts/{artifact_id}/download":                     object("authorizeUserToProjectByID"),
+		"GET /api/v1/artifacts/{artifact_id}/download":                      object("authorizeArtifactRead"),
+		"HEAD /api/v1/artifacts/{artifact_id}/download":                     object("authorizeArtifactRead"),
 		"PUT /api/v1/artifacts/{artifact_id}":                               object("requireArtifactAccess"),
 		"DELETE /api/v1/artifacts/{artifact_id}":                            object("requireArtifactAccess"),
 		"GET /api/v1/artifacts/{artifact_id}/versions":                      object("requireArtifactAccess"),

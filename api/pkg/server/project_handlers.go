@@ -441,7 +441,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 	if req.CodeAgentConfig != nil {
 		if err := s.validateProjectCodeAgentConfig(r.Context(), req.CodeAgentConfig, user.ID, user.ID, req.OrganizationID); err != nil {
-			return nil, system.NewHTTPError400(err.Error())
+			return nil, system.NewHTTPError400(s.explainOrgDefaultRuntimeError(r.Context(), req.OrganizationID, req.CodeAgentConfig, err))
 		}
 		defaultApp = external_agent.AppFromCodeAgentConfig(req.CodeAgentConfig, user.ID, req.OrganizationID)
 	}
@@ -536,7 +536,6 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	// Startup script lives at .helix/startup.sh in the primary repository
 	if primaryRepo.LocalPath != "" {
 		// Keep the startup script locally even when best-effort upstream publication fails.
-		var startupCommit string
 		writeErr := s.gitRepositoryService.WithExternalRepoWrite(
 			r.Context(),
 			primaryRepo,
@@ -546,20 +545,15 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 				FailOnPushError: false,
 			},
 			func() error {
-				var initErr error
-				startupCommit, initErr = s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
+				return s.projectInternalRepoService.InitializeStartupScriptInCodeRepo(
 					primaryRepo.LocalPath,
 					created.Name,
 					req.StartupScript,
 					user.FullName,
 					user.Email,
 				)
-				return initErr
 			},
 		)
-		if writeErr == nil {
-			writeErr = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, startupCommit)
-		}
 		if writeErr != nil {
 			log.Warn().
 				Err(writeErr).
@@ -870,7 +864,6 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		primaryRepo, err := s.Store.GetGitRepository(r.Context(), project.DefaultRepoID)
 		if err == nil && primaryRepo.LocalPath != "" {
 			var changed bool
-			var startupCommit string
 			writeErr := s.gitRepositoryService.WithExternalRepoWrite(
 				r.Context(),
 				primaryRepo,
@@ -881,7 +874,7 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 				},
 				func() error {
 					var saveErr error
-					startupCommit, changed, saveErr = s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(
+					changed, saveErr = s.projectInternalRepoService.SaveStartupScriptToHelixSpecs(
 						primaryRepo.LocalPath,
 						*req.StartupScript,
 						user.FullName,
@@ -899,12 +892,6 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 					return nil
 				},
 			)
-			// Only a save that wrote a commit is trusted: the settings page
-			// resends the unchanged script on every save, which must not
-			// endorse whatever agents have since pushed to helix-specs.
-			if writeErr == nil && changed {
-				writeErr = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, startupCommit)
-			}
 			if writeErr != nil {
 				log.Error().
 					Err(writeErr).
@@ -1121,7 +1108,7 @@ func (s *HelixAPIServer) purgeProject(ctx context.Context, projectID string) *sy
 			}
 		}
 
-		if delErr := s.deleteSpecTaskCascade(ctx, task.ID); delErr != nil {
+		if delErr := s.deleteSpecTaskCascade(ctx, task); delErr != nil {
 			return system.NewHTTPError500(fmt.Sprintf("delete task %s before project deletion: %s", task.ID, delErr))
 		}
 		log.Info().
@@ -1146,6 +1133,22 @@ func (s *HelixAPIServer) purgeProject(ctx context.Context, projectID string) *sy
 	// not outlive the project.
 	if err := s.webServiceController.Teardown(ctx, projectID); err != nil {
 		return system.NewHTTPError500(fmt.Sprintf("tear down project web service: %s", err))
+	}
+
+	// Sessions of the project itself (exploratory session, project chats)
+	// leave sandbox resource history too; the tasks' went with the tasks.
+	projectSessions, _, err := s.Store.ListSessions(ctx, store.ListSessionsQuery{
+		ProjectID: projectID, AnyOwner: true, IncludeExternalAgents: true,
+	})
+	if err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("list project sessions: %s", err))
+	}
+	sessionIDs := make([]string, 0, len(projectSessions))
+	for _, session := range projectSessions {
+		sessionIDs = append(sessionIDs, session.ID)
+	}
+	if err := s.deleteSessionResources(sessionIDs); err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("delete project resource history: %s", err))
 	}
 
 	// Now soft delete the project
@@ -3137,11 +3140,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				// Repo not yet cloned — trigger async clone; write startup script after clone succeeds.
 				log.Info().Str("repo_id", primaryRepo.ID).Msg("Triggering async clone to initialize startup script in helix-specs")
 				s.gitRepositoryService.CloneRepositoryAsync(primaryRepo, func(localPath string) {
-					commitSHA, changed, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail)
-					if err == nil && changed {
-						err = s.trustStartupScriptWrite(context.Background(), user, primaryRepo.ID, commitSHA)
-					}
-					if err != nil {
+					if _, err := repoSvc.SaveStartupScriptToHelixSpecs(localPath, startupScript, userName, userEmail); err != nil {
 						log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs after clone")
 					} else {
 						log.Info().Str("repo_id", primaryRepo.ID).Msg("Startup script written to helix-specs after async clone")
@@ -3149,11 +3148,7 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 				})
 			} else {
 				// Repo already cloned — write startup script synchronously.
-				commitSHA, changed, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail)
-				if err == nil && changed {
-					err = s.trustStartupScriptWrite(r.Context(), user, primaryRepo.ID, commitSHA)
-				}
-				if err != nil {
+				if _, err := repoSvc.SaveStartupScriptToHelixSpecs(primaryRepo.LocalPath, startupScript, userName, userEmail); err != nil {
 					log.Warn().Err(err).Str("repo_id", primaryRepo.ID).Msg("failed to write startup script to helix-specs")
 				}
 			}

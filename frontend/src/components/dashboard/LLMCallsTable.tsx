@@ -9,7 +9,7 @@ import Typography from '@mui/material/Typography';
 import { RefreshCw, Copy } from 'lucide-react';
 import { TypesLLMCall } from '../../api/api';
 import { useGetConfig } from '../../services/userService';
-import { useListLLMCalls } from '../../services/llmCallsService';
+import { useCallDetail, useListLLMCalls } from '../../services/llmCallsService';
 import SimpleTable from '../widgets/SimpleTable';
 import LLMCallDrawer, { formatTokenCount } from './LLMCallDrawer';
 import useSnackbar from '../../hooks/useSnackbar';
@@ -60,6 +60,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const { data: llmCalls, isLoading, refetch } = useListLLMCalls(sessionFilter, "", page, rowsPerPage, true);
+  const detail = useCallDetail(drawerOpen ? currentCall?.id : undefined);
   const { data: serverConfig } = useGetConfig();
 
   const handleOpenCall = (call: TypesLLMCall) => {
@@ -178,7 +179,8 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
         </>
       )}
       <LLMCallDrawer
-        call={currentCall}
+        call={detail.data ?? currentCall}
+        payloadStatus={detail.isLoading ? 'Loading call bodies…' : detail.isError ? 'Could not load call bodies.' : undefined}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
       />

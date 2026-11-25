@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +10,20 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+func (auth *authMiddleware) embedKeyAllows(ctx context.Context, user *types.User, r *http.Request) bool {
+	path, ok := strings.CutPrefix(strings.TrimSuffix(r.URL.Path, "/"), "/api/v1/interactions/")
+	parts := strings.Split(path, "/")
+	if !ok || r.Method != http.MethodPost || len(parts) != 4 || parts[0] == "" ||
+		parts[1] != "questions" || parts[2] == "" || (parts[3] != "respond" && parts[3] != "cancel") {
+		return embedKeyAllows(user, r)
+	}
+	if user.SessionID == "" {
+		return false
+	}
+	interaction, err := auth.store.GetInteraction(ctx, parts[0])
+	return err == nil && interaction.SessionID == user.SessionID
+}
 
 // Authorization for embed API keys.
 //
@@ -55,8 +70,11 @@ const (
 type embedRule struct {
 	methods []string // empty = any
 	prefix  string
-	suffix  string // "" = prefix must match the whole remaining path
-	scope   embedScope
+	// suffix follows the scoped id; "" = prefix must match the whole remaining
+	// path. A "{}" segment matches exactly one non-empty segment, for ids of
+	// sub-resources the handler itself binds to the scoped id.
+	suffix string
+	scope  embedScope
 
 	// queryParam names a query parameter to read the scoped id from, for
 	// endpoints that take their subject there rather than in the path.
@@ -97,6 +115,15 @@ var embedRules = []embedRule{
 	// (POST .../pr-proposals/{id}/decide) grants push rights and is an owner's
 	// decision, so it has no rule here.
 	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/pr-proposals", scope: scopeTask},
+	// The task's plan, which the Plan tab renders from its design reviews.
+	// Without these the tab reports a published plan as still in progress.
+	// Read only: comments, document edits and submitting a review stay denied.
+	// Each handler 404s a review that is not this task's (getTaskDesignReview),
+	// so {} cannot name another task's review.
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/design-reviews", scope: scopeTask},
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/design-reviews/{}", scope: scopeTask},
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/design-reviews/{}/comments", scope: scopeTask},
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/design-reviews/{}/comment-queue-status", scope: scopeTask},
 
 	// The one conversation this key may read and post to.
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", scope: scopeSession},
@@ -131,6 +158,39 @@ var embedRules = []embedRule{
 	// about the one session/task the key already reads.
 	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/foreground-thread", scope: scopeSession},
 	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/progress", scope: scopeTask},
+}
+
+// Artifact IDs do not encode their task. These routes pass the read-only
+// request through so the handler can load the artifact and compare its
+// server-recorded SpecTaskID with the key's task.
+func embedArtifactReadRequest(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if strings.HasPrefix(path, "/api/v1/public/artifacts/") {
+		id := strings.TrimPrefix(path, "/api/v1/public/artifacts/")
+		return id != "" && !strings.Contains(id, "/")
+	}
+	if strings.HasPrefix(path, "/api/v1/artifacts/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/artifacts/"), "/")
+		return len(parts) == 2 && parts[0] != "" && parts[1] == "download"
+	}
+	if !strings.HasPrefix(path, "/artifacts/") {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/artifacts/"), "/")
+	if len(parts) < 2 || parts[0] == "" {
+		return false
+	}
+	switch parts[1] {
+	case "embed":
+		return true
+	case "document", "download":
+		return len(parts) == 2
+	default:
+		return false
+	}
 }
 
 // embedInteractiveRules are granted ONLY to interactive embed keys: driving the
@@ -252,6 +312,9 @@ func embedKeyAllows(user *types.User, r *http.Request) bool {
 	// chat is embedded exactly as a task's is, through /embed/session.
 	if user.SpecTaskID == "" && user.SessionID == "" {
 		return false
+	}
+	if user.SpecTaskID != "" && embedArtifactReadRequest(r) {
+		return true
 	}
 
 	// The websocket carries its subject as a query parameter rather than a path
@@ -379,12 +442,28 @@ func (rule embedRule) match(path string) (string, bool) {
 		}
 		return rest, true
 	}
-	if !strings.HasSuffix(rest, rule.suffix) {
-		return "", false
-	}
-	id := strings.TrimSuffix(rest, rule.suffix)
-	if id == "" || strings.Contains(id, "/") {
+	id, tail, found := strings.Cut(rest, "/")
+	if !found || id == "" || !embedTailMatches("/"+tail, rule.suffix) {
 		return "", false
 	}
 	return id, true
+}
+
+// embedTailMatches reports whether tail has exactly the segments of pattern,
+// where a "{}" pattern segment matches one non-empty segment.
+func embedTailMatches(tail, pattern string) bool {
+	got, want := strings.Split(tail, "/"), strings.Split(pattern, "/")
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if want[i] == "{}" {
+			if got[i] == "" {
+				return false
+			}
+		} else if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

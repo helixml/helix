@@ -515,6 +515,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Start integrations. NewServer has now wired the spec task creator and the
 	// external agent starter into the manager, so cron triggers with
 	// action="spec_task" / agent_type="zed_external" can actually execute.
+	go postgresStore.MaintainLLMPayloads(ctx)
 	go trigger.Start(ctx)
 
 	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)

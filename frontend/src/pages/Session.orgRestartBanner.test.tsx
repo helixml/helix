@@ -7,7 +7,7 @@
 // `bot.restart_required`.
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Session from './Session'
 
@@ -114,7 +114,6 @@ vi.mock('../services/helixOrgService', () => ({
     mutateAsync: mocks.restartMutateAsync,
     isPending: mocks.restartIsPending,
   }),
-  useApplyBotConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useActivateBot: () => ({ mutateAsync: mocks.activateMutateAsync, isPending: false }),
   useStopBotAgent: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
@@ -155,6 +154,10 @@ describe('Session org chat restart banner', () => {
     sessionData.project_id = ''
     sessionData.config.org_worker_id = 'bot-one'
     delete sessionData.config.agent_type
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('shows the restart banner when the session bot reports stale config', async () => {
@@ -206,7 +209,55 @@ describe('Session org chat restart banner', () => {
     act(() => vi.runOnlyPendingTimers())
 
     expect(Element.prototype.scrollTo).not.toHaveBeenCalled()
-    vi.useRealTimers()
+  })
+
+  it('does not scroll to the latest message after a small scroll up near the bottom', () => {
+    vi.useFakeTimers()
+    sessionData.interactions = [{ id: 'turn-1', state: 'waiting' }]
+    const view = render(<Session orgChatView />)
+    const container = document.querySelector<HTMLElement>('[data-session-scroll-container]')!
+    Object.defineProperties(container, {
+      scrollTop: { configurable: true, writable: true, value: 800 },
+      scrollHeight: { configurable: true, writable: true, value: 1000 },
+      clientHeight: { configurable: true, writable: true, value: 200 },
+    })
+    act(() => vi.runOnlyPendingTimers())
+    fireEvent.scroll(container)
+    vi.mocked(Element.prototype.scrollTo).mockClear()
+
+    container.scrollTop = 790
+    fireEvent.scroll(container)
+    sessionData.interactions = [{ id: 'turn-1', state: 'complete' }]
+    view.rerender(<Session orgChatView />)
+    act(() => vi.runOnlyPendingTimers())
+
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('resumes following after the user scrolls back down to the bottom', () => {
+    vi.useFakeTimers()
+    sessionData.interactions = [{ id: 'turn-1', state: 'waiting' }]
+    const view = render(<Session orgChatView />)
+    const container = document.querySelector<HTMLElement>('[data-session-scroll-container]')!
+    Object.defineProperties(container, {
+      scrollTop: { configurable: true, writable: true, value: 800 },
+      scrollHeight: { configurable: true, writable: true, value: 1000 },
+      clientHeight: { configurable: true, writable: true, value: 200 },
+    })
+    act(() => vi.runOnlyPendingTimers())
+    fireEvent.scroll(container)
+
+    container.scrollTop = 700
+    fireEvent.scroll(container)
+    container.scrollTop = 800
+    fireEvent.scroll(container)
+    vi.mocked(Element.prototype.scrollTo).mockClear()
+
+    sessionData.interactions = [{ id: 'turn-1', state: 'complete' }]
+    view.rerender(<Session orgChatView />)
+    act(() => vi.runOnlyPendingTimers())
+
+    expect(Element.prototype.scrollTo).toHaveBeenCalled()
   })
 
   it('loads an explicitly resolved session without requiring it in the URL', async () => {

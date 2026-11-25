@@ -219,6 +219,44 @@ func TestQueueCancelOutstandingAllowsFreshActivation(t *testing.T) {
 	}
 }
 
+// A bot re-created under a reused id must not inherit work its earlier
+// incarnation left queued: the stale delivery fails forever and, with one
+// delivery in flight per agent, blocks the new hire behind it.
+func TestQueuePrepareNewAgentClearsUndeletedStaleWork(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	seen := make(chan string, 16)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		seen <- triggers[0].EventID
+		if triggers[0].EventID == "old-hire" {
+			return errors.New("interaction delivery ID conflicts with another message")
+		}
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerHire, EventID: "old-hire"})
+	require.Equal(t, "old-hire", <-seen)
+
+	require.NoError(t, q.PrepareNewAgent(context.Background(), "org-test", "agent-a"))
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerHire, EventID: "new-hire"})
+
+	select {
+	case got := <-seen:
+		require.Equal(t, "new-hire", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("new hire stayed blocked behind the stale delivery")
+	}
+	select {
+	case got := <-seen:
+		t.Fatalf("stale delivery was replayed: %s", got)
+	case <-time.After(3 * time.Second):
+	}
+}
+
 func TestQueueCleanupAgentCancelsRunningActivation(t *testing.T) {
 	n, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
@@ -288,5 +326,66 @@ func TestQueueCancelOutstandingCancelsRunningActivation(t *testing.T) {
 	case <-started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("activation after restart did not start")
+	}
+}
+
+func TestQueueAbandonsDeliveryThatKeepsFailingSoLaterDeliveriesRun(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	var mu sync.Mutex
+	poisonAttempts := 0
+	ran := make(chan string, 1)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		if triggers[0].EventID == "poison" {
+			mu.Lock()
+			poisonAttempts++
+			mu.Unlock()
+			return errors.New("session error: the agent did not come online")
+		}
+		ran <- triggers[0].EventID
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+	q.maxAttempts = 2
+
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "poison"})
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "hourly"})
+
+	select {
+	case id := <-ran:
+		require.Equal(t, "hourly", id)
+	case <-time.After(10 * time.Second):
+		t.Fatal("a delivery queued behind a failing one never ran")
+	}
+	mu.Lock()
+	require.Equal(t, 2, poisonAttempts)
+	mu.Unlock()
+}
+
+func TestQueueDropsUndecodableDeliverySoLaterDeliveriesRun(t *testing.T) {
+	n, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+	defer n.Close()
+
+	ran := make(chan string, 1)
+	q, err := New(context.Background(), n, func(_ context.Context, _ string, _ orgchart.NodeID, triggers []activation.Trigger) error {
+		ran <- triggers[0].EventID
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	defer q.Close()
+
+	require.NoError(t, q.consume(consumerName("org-test", "agent-a"), subjectFor("org-test", "agent-a")))
+	require.NoError(t, n.PublishDurable(context.Background(), streamName, subjectFor("org-test", "agent-a"), []byte("not json")))
+	q.Enqueue("org-test", "agent-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "hourly"})
+
+	select {
+	case id := <-ran:
+		require.Equal(t, "hourly", id)
+	case <-time.After(3 * time.Second):
+		t.Fatal("an undecodable delivery blocked the agent's queue")
 	}
 }

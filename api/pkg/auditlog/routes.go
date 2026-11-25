@@ -22,6 +22,7 @@ var sensitiveBodyPaths = []string{
 
 	// OAuth provider and connection configuration (client secrets, tokens).
 	"/oauth/**",
+	"/system/settings",
 
 	// Git provider, service connection and provider endpoint credentials,
 	// including endpoint headers (`x-api-key`).

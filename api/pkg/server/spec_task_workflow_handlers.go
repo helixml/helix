@@ -1032,6 +1032,23 @@ func (s *HelixAPIServer) stopSessionAgent(ctx context.Context, sessionID, reason
 	if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
 		return err
 	}
+	return s.interruptWaitingInteractions(ctx, sessionID, reason)
+}
+
+// destroySessionAgent tears a session's desktop down for good: unlike
+// stopSessionAgent it also deletes the session's on-host data and, when
+// specTaskID is set, that task's workspace checkout. A desktop whose sandbox
+// host is gone is left to the orphan reaper (see sandboxHostGone).
+func (s *HelixAPIServer) destroySessionAgent(ctx context.Context, sessionID, specTaskID, reason string) error {
+	if err := destroyDesktopUnlessHostGone(ctx, s.externalAgentExecutor, sessionID, specTaskID); err != nil {
+		return err
+	}
+	return s.interruptWaitingInteractions(ctx, sessionID, reason)
+}
+
+// interruptWaitingInteractions marks interactions still waiting on a desktop
+// that has gone away as interrupted, and tells the frontend.
+func (s *HelixAPIServer) interruptWaitingInteractions(ctx context.Context, sessionID, reason string) error {
 	reaped, err := s.Store.ReapWaitingInteractions(ctx, sessionID, types.InteractionStateInterrupted, reason)
 	if err != nil {
 		return fmt.Errorf("reap waiting interactions for %s: %w", sessionID, err)

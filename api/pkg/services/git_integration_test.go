@@ -96,6 +96,10 @@ func (s *GitIntegrationSuite) SetupTest() {
 		UpdateGitRepository(gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
+	s.mockStore.EXPECT().
+		SetGitRepositoryDefaultBranchIfUnchanged(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(true, nil).
+		AnyTimes()
 	s.mockStore.EXPECT().MarkGitRepositorySyncStarted(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	s.mockStore.EXPECT().MarkGitRepositorySyncFinished(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 

@@ -30,7 +30,8 @@ export function useListLLMCalls(session: string, interaction: string, page: numb
       const response = await apiClient.v1LlmCallsList({
         session,
         interaction,
-        page: page,
+        page: page + 1,
+        metadata_only: true,
         pageSize: pageSize,
       })
       return response.data
@@ -56,5 +57,18 @@ export function useListAppLLMCalls(appId: string, session: string, interaction: 
     },    
     enabled: enabled,
     refetchInterval: refetchInterval ? refetchInterval : undefined,
+  })
+}
+export function useCallDetail(id?: string) {
+  const client = useApi().getApiClient()
+  return useQuery({
+    queryKey: ['llm-call-detail', id],
+    enabled: Boolean(id),
+    queryFn: async () => {
+      const { data } = await client.v1LlmCallsList({ call_id: id, pageSize: 1 })
+      const call = data.calls?.[0]
+      if (!call) throw new Error('Call unavailable')
+      return call
+    },
   })
 }

@@ -24,9 +24,9 @@ import {
 import AgentConfigForm, { AgentConfigValue } from '../helix-org/BotRuntimeForm'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import {
-  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
-  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-} from './CodingAgentForm'
+  CodeAgentModelCatalogue,
+  useCodeAgentModelCatalogue,
+} from '../../hooks/useCodeAgentModelCatalogue'
 
 // No "Coding Agent" option: spec tasks carry their own coding-harness config, so
 // there is nothing left for a pre-created coding agent to do. AGENT_KIND_CODING
@@ -59,13 +59,14 @@ const emptyRuntimeConfig = (): AgentConfigValue => ({
 export const preferredSubscriptionRuntimeConfig = (
   codexSubscriptionCount: number,
   claudeSubscriptionCount: number,
+  catalogue: Pick<CodeAgentModelCatalogue, 'defaultClaudeModel' | 'defaultCodexModel'>,
 ): AgentConfigValue | undefined => {
   if (codexSubscriptionCount > 0) {
     return {
       ...emptyRuntimeConfig(),
       runtime: 'codex_cli',
       credentials: 'subscription',
-      model: DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+      model: catalogue.defaultCodexModel,
     }
   }
 
@@ -74,7 +75,7 @@ export const preferredSubscriptionRuntimeConfig = (
       ...emptyRuntimeConfig(),
       runtime: 'claude_code',
       credentials: 'subscription',
-      model: DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+      model: catalogue.defaultClaudeModel,
     }
   }
 }
@@ -104,6 +105,7 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
   const initializedRuntime = useRef(false)
   const claudeSubscriptionCount = claudeSubscriptions?.length ?? 0
   const codexSubscriptionCount = codexSubscriptions?.length ?? 0
+  const catalogue = useCodeAgentModelCatalogue()
 
   useEffect(() => {
     if (!open) return
@@ -117,11 +119,12 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
   }, [open, initialKind])
 
   useEffect(() => {
-    if (!open || initializedRuntime.current) return
+    if (!open || initializedRuntime.current || !catalogue.defaultClaudeModel) return
 
     const preferredRuntime = preferredSubscriptionRuntimeConfig(
       codexSubscriptionCount,
       claudeSubscriptionCount,
+      catalogue,
     )
     if (preferredRuntime) {
       setRuntimeConfig(preferredRuntime)
@@ -141,6 +144,7 @@ const NewAgentDialog: FC<Props> = ({ open, initialKind, onClose, onCreated }) =>
     claudeSubscriptionCount,
     codexSubscriptionsFetched,
     claudeSubscriptionsFetched,
+    catalogue.version,
   ])
 
   const trimmedName = name.trim()

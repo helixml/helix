@@ -16,6 +16,9 @@ type ListProjectsQuery struct {
 	UserID         string
 	OrganizationID string
 	IncludeStats   bool
+	// AllScopes lists every project of every user and organization. Only
+	// for admin maintenance; UserID and OrganizationID must be empty.
+	AllScopes bool
 }
 
 type GetProjectsCountQuery struct {
@@ -80,6 +83,9 @@ type ListSessionsQuery struct {
 	AnyOwner                  bool     `json:"any_owner"`
 	AnyOrganization           bool     `json:"-"`
 	ProviderRecoveryProviders []string `json:"-"`
+	// CodeAgentModels keeps sessions whose code_agent_config or
+	// code_agent_overrides selects one of these model IDs.
+	CodeAgentModels []string `json:"-"`
 }
 
 type ListAPIKeysQuery struct {
@@ -334,6 +340,7 @@ type Store interface {
 	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
 	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error)   // Returns one session per desktop that has had no interaction since idleSince
 	ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error)   // IDs of live external-agent sessions (running, recently-updated, or keep_alive) — for the orphan-resource reaper
+	ListActiveDesktopSessionIDs(ctx context.Context) ([]string, error)                     // IDs of desktop sessions running or (re)starting now, no recency window — for the orphan-resource reaper
 
 	// interactions
 	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
@@ -799,7 +806,7 @@ type Store interface {
 	GetGitRepositoryByExternalURL(ctx context.Context, orgID, externalURL string) (*types.GitRepository, error)
 	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	MarkGitRepositorySyncStarted(ctx context.Context, id string, startedAt time.Time) error
-	SetGitRepositoryTrustedStartupSHA(ctx context.Context, id, sha string) error
+	SetGitRepositoryDefaultBranchIfUnchanged(ctx context.Context, id, expected, branch string) (bool, error)
 	MarkGitRepositorySyncFinished(ctx context.Context, id string, finishedAt time.Time, syncErr string) error
 	ClearStaleGitRepositorySync(ctx context.Context, id string, staleSince time.Time, syncErr string) error
 	DeleteGitRepository(ctx context.Context, id string) error
@@ -1025,6 +1032,7 @@ type Store interface {
 	GetNextPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
+	GetNextSteerPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error)
 	GetLatestActivationPromptHistoryEntry(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)

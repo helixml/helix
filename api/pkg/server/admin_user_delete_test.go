@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/sessionresources"
 	"github.com/helixml/helix/api/pkg/store"
 	helixstripe "github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -158,6 +159,7 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 	})
 	server := &HelixAPIServer{
 		Store:                st,
+		sessionResources:     sessionresources.New(t.TempDir(), "test"),
 		gitRepositoryService: services.NewGitRepositoryService(st, t.TempDir(), "http://localhost:8080", "test", "test@example.com"),
 		webServiceController: webservice.New(st, sandbox.New(st, nil, nil, "", "")),
 		sandboxController:    sandboxController,
@@ -167,9 +169,25 @@ func TestAdminDeleteUser_RevokesAccessAndRemovesPersonalDataIntegration(t *testi
 		}},
 	}
 
+	// Sandbox resource history follows its session: the personal one goes,
+	// the org one stays.
+	now := time.Now()
+	for _, id := range []string{personalSession.ID, orgSession.ID} {
+		server.sessionResources.Record([]types.SessionResourceSample{{SessionID: id, Timestamp: now.UnixMilli()}})
+	}
+	require.NoError(t, server.sessionResources.Flush(now))
+
 	result, err := server.adminDeleteUser(httptest.NewRecorder(), adminDeleteUserRequest(userID))
 	require.NoError(t, err)
 	require.Equal(t, userID, result["user_id"])
+
+	history := func(id string) int {
+		got, err := server.sessionResources.Read(id, now.Add(-time.Hour), now.Add(time.Hour))
+		require.NoError(t, err)
+		return len(got)
+	}
+	require.Zero(t, history(personalSession.ID), "deleted user's session history left behind")
+	require.Equal(t, 1, history(orgSession.ID), "org session history must stay")
 
 	for _, key := range []string{personalKey, orgKey} {
 		user, err := auth.getUserFromToken(ctx, key)

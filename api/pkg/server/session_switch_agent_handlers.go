@@ -387,27 +387,32 @@ func (apiServer *HelixAPIServer) hasImplementationInstruction(ctx context.Contex
 }
 
 // reconcileSessionAgentWithApp repairs sessions whose persisted ACP binding
-// no longer matches their app. This can happen when an app runtime is edited
-// while a durable org-bot or spec-task session is offline. Reconciliation runs
+// no longer matches their session-owned config or app. Reconciliation runs
 // before the next user turn, so that turn itself becomes the first message on
 // the replacement thread; no synthetic handoff turn is needed.
 // actor is the caller whose turn found the binding stale.
 func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Context, session *types.Session, actor types.TurnProvenance) *system.HTTPError {
-	if session == nil || session.Metadata.AgentType != string(types.AgentTypeZedExternal) || session.ParentApp == "" {
+	if session == nil || session.Metadata.AgentType != string(types.AgentTypeZedExternal) ||
+		(session.ParentApp == "" && session.Metadata.CodeAgentConfig == nil) {
 		return nil
 	}
 
-	app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
-	if err != nil {
-		return system.NewHTTPError500(fmt.Sprintf("failed to load session app for agent reconciliation: %v", err))
-	}
-	assistant := data.GetAssistant(app, session.Metadata.AssistantID)
-	if assistant == nil || assistant.AgentType != types.AgentTypeZedExternal {
-		return nil
-	}
-	targetRuntime := assistant.CodeAgentRuntime
-	if targetRuntime == "" {
-		targetRuntime = types.CodeAgentRuntimeZedAgent
+	targetRuntime := types.CodeAgentRuntime("")
+	if session.Metadata.CodeAgentConfig != nil {
+		targetRuntime = session.Metadata.CodeAgentConfig.Runtime
+	} else {
+		app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
+		if err != nil {
+			return system.NewHTTPError500(fmt.Sprintf("failed to load session app for agent reconciliation: %v", err))
+		}
+		assistant := data.GetAssistant(app, session.Metadata.AssistantID)
+		if assistant == nil || assistant.AgentType != types.AgentTypeZedExternal {
+			return nil
+		}
+		targetRuntime = assistant.CodeAgentRuntime
+		if targetRuntime == "" {
+			targetRuntime = types.CodeAgentRuntimeZedAgent
+		}
 	}
 	if sessionUsesAgentRuntime(session, targetRuntime) {
 		return nil

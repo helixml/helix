@@ -14,14 +14,14 @@ describe('AgentRestartRequiredBanner', () => {
     expect(screen.getByTestId('agent-restart-required-banner')).toBeInTheDocument()
   })
 
-  // Restarting still interrupts live work, so require confirmation.
+  // Restart is non-destructive, but it still recreates the runtime, so confirm.
   it('does not restart until the cost is confirmed', () => {
     const onRestart = vi.fn()
     render(<AgentRestartRequiredBanner visible onRestart={onRestart} />)
 
     fireEvent.click(screen.getByRole('button', { name: /^restart$/i }))
     expect(onRestart).not.toHaveBeenCalled()
-    expect(screen.getByText(/current conversation are kept/i)).toBeInTheDocument()
+    expect(screen.getByText(/conversation, and queued work\s+are kept\. Nothing is deleted\./i)).toBeInTheDocument()
   })
 
   it('restarts once the dialog is confirmed', () => {

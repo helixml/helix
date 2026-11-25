@@ -1,4 +1,4 @@
-import { FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -10,7 +10,7 @@ import { TypesInteractionState } from '../../api/api'
 import { useStreaming } from '../../contexts/streaming'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
-import { useListInteractions } from '../../services/sessionService'
+import { useGetSession, useListInteractions } from '../../services/sessionService'
 import { useRefreshSpecTaskStatus } from '../../services/specTaskService'
 import { SESSION_TYPE_TEXT } from '../../types'
 import RobustPromptInput from '../common/RobustPromptInput'
@@ -22,8 +22,10 @@ import { ComposerPlanProgress, planStepsFromResponseEntries } from './PlanProgre
 import PendingQuestionCard from './PendingQuestionCard'
 import SessionPromptQueue from './SessionPromptQueue'
 import { useSessionPromptQueue } from './useSessionPromptQueue'
+import { ActionCardCollapseScope, useNotifyUserMessage } from './actionCardCollapse'
 import { getChatColors } from './chatStyles'
 import type { WorkspaceReviewComment } from '../workspace-inspector/workspaceReviewComments'
+import { ModelSwitcherProvider } from '../../contexts/modelSwitcher'
 import type { BotDTO } from '../../services/helixOrgService'
 
 interface AgentChatProps {
@@ -74,7 +76,15 @@ interface AgentChatProps {
 const isFramed = typeof window !== "undefined" && window.self !== window.top
 
 /** Shared org/spec-task conversation surface. */
-const AgentChat: FC<AgentChatProps> = ({
+const AgentChat: FC<AgentChatProps> = (props) => (
+  <ModelSwitcherProvider>
+    <ActionCardCollapseScope>
+      <AgentChatContent {...props} />
+    </ActionCardCollapseScope>
+  </ModelSwitcherProvider>
+)
+
+const AgentChatContent: FC<AgentChatProps> = ({
   sessionId,
   projectId,
   specTaskId,
@@ -106,6 +116,7 @@ const AgentChat: FC<AgentChatProps> = ({
   const [isCancelling, setIsCancelling] = useState(false)
   const [hasSentInWelcome, setHasSentInWelcome] = useState(false)
   const [composerPlanExpanded, setComposerPlanExpanded] = useState(false)
+  const notifyUserMessage = useNotifyUserMessage()
   const [dismissedPlanInteractionId, setDismissedPlanInteractionId] = useState<string | null>(null)
   const apiClient = api.getApiClient()
   // Only a spec task opens with a hidden briefing turn; an org bot instance's
@@ -129,12 +140,25 @@ const AgentChat: FC<AgentChatProps> = ({
       TypesInteractionState.InteractionStateWaiting,
     [latestInteractionsResponse?.data?.interactions?.[0]?.state],
   )
+  // Whether the agent can take a message mid-turn. Zed reports it when the
+  // agent's thread is created or loaded. This shares the session query the
+  // spec-task page already polls (useSandboxState), so it adds no polling of
+  // its own; it is also re-read whenever a new turn starts.
+  const steeringQueryEnabled = !!sessionId && !!specTaskId && !minimal
+  const { data: steeringSessionResponse, refetch: refetchSteeringSession } = useGetSession(sessionId, {
+    enabled: steeringQueryEnabled,
+  })
+  const steeringSupported = !!steeringSessionResponse?.data?.config?.agent_steering_supported
   // Session-keyed queue for sessions without a spec task; the spec-task
   // composer carries its own backend-backed queue instead.
-  const sessionQueue = useSessionPromptQueue(showSessionPromptQueue ? sessionId : '', isAgentBusy)
+  const sessionQueue = useSessionPromptQueue(showSessionPromptQueue || welcomeWhenEmpty ? sessionId : '', isAgentBusy)
   const hasSessionQueue = showSessionPromptQueue && sessionQueue.entries.length > 0
   const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
   const latestInteractionId = latestInteraction?.id || null
+  useEffect(() => {
+    if (steeringQueryEnabled && isAgentBusy && !steeringSupported) refetchSteeringSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestInteractionId, isAgentBusy, steeringQueryEnabled, steeringSupported])
   const { data: pendingQuestionsResponse } = useListInteractions(
     sessionId,
     0,
@@ -148,6 +172,24 @@ const AgentChat: FC<AgentChatProps> = ({
   )
   const pendingQuestionInteractions = pendingQuestionsResponse?.data?.interactions ?? []
   const totalInteractionCount = latestInteractionsResponse?.data?.totalCount ?? 0
+  // A bot that has been given an instruction never goes back to the welcome
+  // screen. A bot without preserved context has its session cleared before
+  // each activation, which deletes the previous turns, so between turns the
+  // interaction list is empty while the next prompt waits to run. Prompts
+  // survive the clear, and a bot's hire briefing is not one, so any prompt in
+  // the session's history means the bot has had work. Until that history has
+  // loaded we don't know, so the welcome waits for it.
+  const [workedSessionId, setWorkedSessionId] = useState<string | null>(null)
+  const latestIsInstruction = !!latestInteraction && latestInteraction.trigger !== 'org_hire'
+  useEffect(() => {
+    if (latestIsInstruction) setWorkedSessionId(sessionId)
+  }, [latestIsInstruction, sessionId])
+  const botWelcomeBlocked = welcomeWhenEmpty && (
+    !sessionQueue.historySettled
+    || sessionQueue.hasHistory
+    || latestIsInstruction
+    || workedSessionId === sessionId
+  )
   const hasOrgHireBriefing = welcomeWhenEmpty
     && totalInteractionCount === 1
     && latestInteraction?.trigger === 'org_hire'
@@ -162,6 +204,7 @@ const AgentChat: FC<AgentChatProps> = ({
   // poll, which would otherwise flash the welcome screen back for a moment.
   const showWelcome = pendingQuestionInteractions.length === 0
     && (!welcomeWhenEmpty || !hasSessionQueue)
+    && !botWelcomeBlocked
     && shouldShowWelcome(
       minimal || welcomeWhenEmpty,
       hasSentInWelcome,
@@ -244,6 +287,7 @@ const AgentChat: FC<AgentChatProps> = ({
       onSend={handleSend}
       onWillSend={() => {
         if (sendMode === 'queued') setHasSentInWelcome(true)
+        notifyUserMessage()
         onWillSend?.()
       }}
       appendText={appendText}
@@ -251,6 +295,7 @@ const AgentChat: FC<AgentChatProps> = ({
       onFileUpload={handleFileUpload}
       onCancel={handleCancel}
       isAgentBusy={isAgentBusy}
+      steeringSupported={steeringSupported}
       isCancelling={isCancelling}
       leadingActions={leadingActions}
       showContextUsage={!minimal}

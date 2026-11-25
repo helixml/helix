@@ -41,6 +41,11 @@ const (
 	// distinguish "operator clicked the button" from "Worker was just
 	// hired" or "an event arrived".
 	TriggerManual TriggerKind = "manual"
+
+	// TriggerNotice delivers a message from Helix itself to one Worker —
+	// e.g. the decision on a pull request it proposed. Message.Subject and
+	// Message.Body carry it; it is rendered into the prompt verbatim.
+	TriggerNotice TriggerKind = "notice"
 )
 
 // Trigger is the per-activation context the runtime gives to the Bot's

@@ -27,6 +27,8 @@ export interface ShadcnAreaChartProps {
   title: string;
   /** Headline value (already formatted, e.g. "$12.45" or "1.2M"). */
   headline: string;
+  /** Control rendered in the header beside the headline, e.g. a metric toggle. */
+  action?: React.ReactNode;
   /** Chart data rows; `date` is ISO string, other keys are series values. */
   data: Array<{ date: string; [key: string]: number | string }>;
   /** Series to render as stacked areas, in bottom-to-top order. */
@@ -43,8 +45,11 @@ export interface ShadcnAreaChartProps {
   cardHeight?: number | 'auto';
   /** Treat an explicit zero as data instead of an empty series. */
   zeroIsData?: boolean;
-  /** Render unfilled comparison lines instead of filled areas. */
-  variant?: 'area' | 'line';
+  /**
+   * 'area' stacks filled areas; 'line' draws unfilled comparison lines;
+   * 'trend' draws each series as its own smooth line over a faint fill.
+   */
+  variant?: 'area' | 'line' | 'trend';
   /** Fixed Y-axis bounds for values with a known range. */
   yDomain?: [number, number];
   /** Width reserved for Y-axis tick labels. Default 72. */
@@ -61,11 +66,43 @@ export interface ShadcnAreaChartProps {
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
+// niceStep rounds a raw tick interval up to 1, 2, 2.5 or 5 × 10ⁿ, so axes read
+// 0 / 10M / 20M / 30M rather than 0 / 7.5M / 15M / 22M.
+export const niceStep = (raw: number): number => {
+  if (!(raw > 0)) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / magnitude;
+  const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+  return nice * magnitude;
+};
+
+// plottedSeries is what a chart draws and its legend lists: series with a
+// value in range. An explicit zero counts when zero is data, except on a
+// trend, where an all-zero series would be a flat line along the axis.
+export const plottedSeries = (
+  series: ShadcnSeries[],
+  data: Array<Record<string, unknown>>,
+  variant: ShadcnAreaChartProps['variant'],
+  zeroIsData: boolean,
+): ShadcnSeries[] => series.filter(s => data.some(d => (
+  (Number(d[s.key]) || 0) > 0 || (zeroIsData && variant !== 'trend' && d[s.key] != null)
+)));
+
+// niceTicks spans [0, max] in at most ~5 round ticks.
+export const niceTicks = (max: number): number[] => {
+  const step = niceStep(max / 4);
+  const top = Math.max(step, Math.ceil(max / step - 1e-9) * step);
+  const ticks: number[] = [];
+  for (let t = 0; t <= top + step / 2; t += step) ticks.push(Number(t.toPrecision(12)));
+  return ticks;
+};
+
 const ShadcnTooltip = (
   seriesConfig: ShadcnSeries[],
   valueFormatter: (v: number) => string,
   zeroIsData: boolean,
   showTime: boolean,
+  showTotal: boolean,
 ) => {
   const TooltipComponent: FC<TooltipContentProps<number, string>> = ({ active, payload, label }) => {
     const lightTheme = useLightTheme();
@@ -123,6 +160,18 @@ const ShadcnTooltip = (
             </Box>
           );
         })}
+        {showTotal && (() => {
+          const values = seriesConfig.map(s => byKey.get(s.key)?.value).filter((v): v is number => typeof v === 'number' && v > 0);
+          if (values.length < 2) return null;
+          return (
+            <Box sx={{ display: 'flex', gap: 1, mt: 0.5, pt: 0.5, borderTop: '1px solid', borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' }}>
+              <Typography variant="caption" sx={{ flex: 1, pl: 2, color: lightTheme.isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)' }}>Total</Typography>
+              <Typography variant="caption" sx={{ color: lightTheme.textColor, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                {valueFormatter(values.reduce((a, b) => a + b, 0))}
+              </Typography>
+            </Box>
+          );
+        })()}
       </Box>
     );
   };
@@ -132,6 +181,7 @@ const ShadcnTooltip = (
 const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
   title,
   headline,
+  action,
   data,
   series,
   valueFormatter,
@@ -148,6 +198,29 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
 }) => {
   const lightTheme = useLightTheme();
   const Chart = variant === 'line' ? LineChart : AreaChart;
+  // Trend lines are drawn side by side, so the axis scales to the largest
+  // single series, not their sum.
+  const stackSeries = stacked && variant !== 'line' && variant !== 'trend';
+  const drawn = React.useMemo(() => plottedSeries(series, data, variant, zeroIsData), [series, data, variant, zeroIsData]);
+  // Few points (sparse days, a provider seen twice) draw as straight segments
+  // between real samples, since smoothing invents shape between dates. A
+  // trend is smooth by design and always curves.
+  const curve = data.length <= 14 && variant !== 'trend' ? 'linear' : 'monotone';
+  const yTicks = React.useMemo(() => {
+    if (yDomain) return undefined;
+    const max = Math.max(0, ...data.map(d => (stackSeries
+      ? series.reduce((acc, s) => acc + (Number(d[s.key]) || 0), 0)
+      : Math.max(0, ...series.map(s => Number(d[s.key]) || 0)))));
+    // A little headroom so a peak that lands on a tick doesn't ride the top edge.
+    return niceTicks(max * 1.08);
+  }, [data, series, stackSeries, yDomain]);
+  const dense = data.length > 40;
+  // A chart within one calendar day labels its ticks with the time alone; the
+  // tooltip keeps the date.
+  const oneDay = React.useMemo(() => {
+    if (!showTime || data.length < 2) return false;
+    return new Date(data[0].date).toDateString() === new Date(data[data.length - 1].date).toDateString();
+  }, [data, showTime]);
   // Unique gradient ids so multiple charts on the same page don't collide.
   const gradientPrefix = React.useMemo(() => `shadcn-${uid()}`, []);
 
@@ -159,42 +232,36 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
     <Box
       sx={{
         height: cardHeight,
-        bgcolor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(0, 0, 0, 0.2)',
+        bgcolor: 'background.paper',
+        border: '1px solid',
+        borderColor: 'divider',
         borderRadius: 2,
         p: 2,
         position: 'relative',
+        minWidth: 0,
       }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography
-          variant="body2"
-          sx={{
-            color: 'text.secondary',
-            fontSize: '0.875rem',
-            fontWeight: 500,
-            letterSpacing: '0.04em',
-          }}
-        >
-          {title}
-        </Typography>
-        <Box
-          sx={{
-            bgcolor: 'transparent',
-            color: 'text.primary',
-            px: 1.5,
-            py: 0.5,
-            borderRadius: '50px',
-            fontSize: '0.75rem',
-            fontWeight: 500,
-            border: '1px solid',
-            borderColor: 'grey.500',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {headline}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', columnGap: 1, rowGap: 1, mb: 1, minHeight: 30 }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            variant="body2"
+            noWrap
+            sx={{ color: 'text.primary', fontSize: '0.875rem', fontWeight: 600 }}
+          >
+            {title}
+          </Typography>
+          <Typography
+            variant="caption"
+            noWrap
+            sx={{ display: 'block', color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}
+          >
+            {headline}
+          </Typography>
         </Box>
+        {action && <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 2, rowGap: 1 }}>{action}</Box>}
       </Box>
-      <Box sx={{ height: chartHeight, width: '100%' }}>
+      {/* Phones get shorter plots: most usage charts hold a handful of points. */}
+      <Box sx={{ height: { xs: Math.min(chartHeight, 170), sm: chartHeight }, width: '100%' }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <Chart data={data} margin={{ top: 10, right: 12, left: 16, bottom: 0 }}>
@@ -208,12 +275,12 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                     x2="0"
                     y2="1"
                   >
-                    <stop offset="5%" stopColor={s.color} stopOpacity={0.8} />
-                    <stop offset="95%" stopColor={s.color} stopOpacity={0.1} />
+                    <stop offset="5%" stopColor={s.color} stopOpacity={variant === 'trend' ? 0.22 : 0.8} />
+                    <stop offset="95%" stopColor={s.color} stopOpacity={variant === 'trend' ? 0 : 0.1} />
                   </linearGradient>
                 ))}
               </defs>
-              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.08)" />
+              <CartesianGrid vertical={false} stroke={lightTheme.isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)'} />
               <XAxis
                 dataKey="date"
                 tickLine={false}
@@ -221,9 +288,11 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 tickMargin={8}
                 minTickGap={32}
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
-                tickFormatter={(v: string) => new Date(v).toLocaleString(undefined, showTime
-                  ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
-                  : { month: 'short', day: 'numeric' })}
+                tickFormatter={(v: string) => new Date(v).toLocaleString(undefined, !showTime
+                  ? { month: 'short', day: 'numeric' }
+                  : oneDay
+                    ? { hour: 'numeric', minute: '2-digit' }
+                    : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
               />
               <YAxis
                 tickLine={false}
@@ -232,25 +301,29 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
                 width={yAxisWidth}
                 tick={{ fill: lightTheme.isLight ? '#475569' : '#94A3B8', fontSize: 12 }}
                 tickFormatter={valueFormatter}
-                domain={yDomain}
+                domain={yDomain ?? [0, yTicks?.[yTicks.length - 1] ?? 'auto']}
+                ticks={yTicks}
+                // A caller-fixed range (0–100%, 0–1) is the scale; never widen it for stray data.
+                allowDataOverflow={!!yDomain}
               />
               <Tooltip
-                cursor={{ stroke: 'rgba(255,255,255,0.2)' }}
-                content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData, showTime))}
+                cursor={{ stroke: lightTheme.isLight ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.2)' }}
+                content={React.createElement(ShadcnTooltip(series, valueFormatter, zeroIsData, showTime, stacked && variant !== 'line'))}
               />
               {/* Recharts' default legend lays items at whatever order they
                   enter the chart and wraps awkwardly when there are many
                   series — items end up in two ragged rows. We render our own
                   legend below the chart instead (see <ChartLegend/> below). */}
-              {series.map(s => variant === 'line' ? (
+              {drawn.map(s => variant === 'line' ? (
                 <Line
                   key={s.key}
-                  type="monotone"
+                  type={curve}
                   dataKey={s.key}
                   name={s.label}
                   stroke={s.color}
-                  strokeWidth={2}
-                  dot={{ r: 2.5, fill: s.color, strokeWidth: 0 }}
+                  // Dense series draw as a thin trace; dots only where samples are sparse.
+                  strokeWidth={dense ? 1.5 : 2}
+                  dot={dense ? false : { r: 2.5, fill: s.color, strokeWidth: 0 }}
                   activeDot={{ r: 4, fill: s.color, strokeWidth: 0 }}
                   connectNulls={connectNulls}
                   isAnimationActive={false}
@@ -258,13 +331,18 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               ) : (
                 <Area
                   key={s.key}
-                  type="monotone"
+                  type={curve}
                   dataKey={s.key}
                   name={s.label}
-                  stackId={stacked ? 'stack' : undefined}
+                  stackId={stackSeries ? 'stack' : undefined}
                   stroke={s.color}
-                  strokeWidth={1.5}
+                  strokeWidth={variant === 'trend' ? 2 : 1.5}
                   fill={`url(#${gradientPrefix}-${s.key})`}
+                  // A one- or two-sample trend has no line to speak of; mark the samples.
+                  {...(variant === 'trend' ? {
+                    dot: data.length <= 2 ? { r: 3, fill: s.color, strokeWidth: 0 } : false,
+                    activeDot: { r: 4, fill: s.color, strokeWidth: 0 },
+                  } : {})}
                   isAnimationActive={false}
                 />
               ))}
@@ -304,7 +382,8 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
             px: 0.5,
           }}
         >
-          {series.map(s => (
+          {/* The legend lists what is drawn: an entry with nothing plotted reads as a missing line. */}
+          {drawn.map(s => (
             <Box
               key={s.key}
               sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: '0 0 auto' }}
@@ -320,7 +399,8 @@ const ShadcnAreaChart: FC<ShadcnAreaChartProps> = ({
               />
               <Typography
                 variant="caption"
-                sx={{ color: lightTheme.isLight ? '#334155' : '#cbd5e1', fontSize: '0.66rem', whiteSpace: 'nowrap', lineHeight: 1.4 }}
+                title={s.label}
+                sx={{ color: lightTheme.isLight ? '#334155' : '#cbd5e1', fontSize: '0.75rem', whiteSpace: 'nowrap', lineHeight: 1.4, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}
               >
                 {s.label}
               </Typography>

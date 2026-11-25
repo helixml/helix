@@ -28,6 +28,8 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/oauth"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	orgaudit "github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgdomainstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -1500,7 +1502,10 @@ func (s *HelixAPIServer) deleteAgent(_ http.ResponseWriter, r *http.Request) (*t
 				if keepKnowledge {
 					return nil, system.NewHTTPError400("keep_knowledge is not supported when deleting an org-linked agent")
 				}
-				if deleteErr := s.helixOrg.lifecycle.Delete(r.Context(), existing.OrganizationID, bot.ID); deleteErr != nil {
+				if deleteErr := s.helixOrg.lifecycle.Delete(r.Context(), existing.OrganizationID, bot.ID, lifecycle.Actor{Type: orgaudit.ActorUser, ID: user.ID}); deleteErr != nil {
+					if errors.Is(deleteErr, lifecycle.ErrDeleteInProgress) {
+						return nil, system.NewHTTPError409(deleteErr.Error())
+					}
 					return nil, system.NewHTTPError500(deleteErr.Error())
 				}
 				return existing, nil

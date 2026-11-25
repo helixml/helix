@@ -92,6 +92,10 @@ func (a *apiHandler) listBotInstances(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if a.deps.Lifecycle.Deleting(orgID, botID) {
+		writeError(w, http.StatusNotFound, fmt.Errorf("list instances of bot %s: being deleted", botID))
+		return
+	}
 	sessions, err := manager.List(r.Context(), orgID, botID)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("list instances of bot %s: %w", botID, err))

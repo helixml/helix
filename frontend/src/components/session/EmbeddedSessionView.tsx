@@ -38,6 +38,12 @@ const SCROLL_KEYS = new Set([
 // How long after a pointer release touch momentum may still be scrolling.
 const POINTER_SCROLL_SETTLE_MS = 400;
 
+// How close to the bottom (in px) the user must scroll to resume follow mode.
+// Deliberately much tighter than AUTO_SCROLL_NEAR_BOTTOM_PX: a small upward
+// nudge to start reading back must not land in a "resume" zone, or the next
+// streamed chunk would yank the viewport back down.
+const AT_BOTTOM_PX = 4;
+
 import Interaction from "./Interaction";
 import InteractionLiveStream from "./InteractionLiveStream";
 import PausedBanner from "./PausedBanner";
@@ -105,8 +111,9 @@ export interface EmbeddedSessionViewHandle {
  * Auto-scroll model:
  *
  *   - New content follows the viewport while it is at the bottom.
- *   - Scrolling above the bottom pauses follow mode immediately.
- *   - Returning to the bottom resumes follow mode automatically.
+ *   - Any user-initiated upward scroll pauses follow mode immediately, even
+ *     a few pixels from the bottom.
+ *   - Scrolling back down to the bottom resumes follow mode automatically.
  *   - If content arrives while paused, a "Jump to latest" pill appears.
  */
 const EmbeddedSessionView = forwardRef<
@@ -132,6 +139,11 @@ const EmbeddedSessionView = forwardRef<
   // alone is not sufficient to decide that follow mode should stop.
   const shouldFollowLatestRef = useRef(true);
   const isPointerScrollingRef = useRef(false);
+  // scrollTop / scrollHeight seen by the previous scroll event, used to tell
+  // scroll direction. scrollHeight is tracked because a content shrink clamps
+  // scrollTop upward without any user input.
+  const lastScrollTopRef = useRef(0);
+  const lastScrollHeightRef = useRef(0);
 
   // True when new content has landed below a viewport that is away from the
   // latest message. Drives the "Jump to latest" pill.
@@ -143,6 +155,15 @@ const EmbeddedSessionView = forwardRef<
   // message/responseEntries reference change, throttled but ungated) would
   // trigger a redundant scroll write per polling interval and per WS update.
   const lastScrolledHeightRef = useRef(0);
+
+  // Programmatic bottom-pin. Records the resulting scrollTop so the next
+  // scroll event measures direction from where we actually put the viewport.
+  const pinToBottom = useCallback((container: HTMLDivElement) => {
+    container.scrollTop = container.scrollHeight;
+    lastScrolledHeightRef.current = container.scrollHeight;
+    lastScrollTopRef.current = container.scrollTop;
+    lastScrollHeightRef.current = container.scrollHeight;
+  }, []);
 
   // Pagination state: track which page we've loaded up to (page 0 = newest)
   const [oldestPageLoaded, setOldestPageLoaded] = useState(0);
@@ -160,20 +181,30 @@ const EmbeddedSessionView = forwardRef<
     return scrollTop + clientHeight >= scrollHeight - AUTO_SCROLL_NEAR_BOTTOM_PX;
   }, []);
 
-  // Returning to the bottom always restores follow mode. Moving away only
-  // pauses while there is explicit user input; flex/layout changes can also
-  // emit scroll events and must not be mistaken for user navigation.
+  // Follow mode resumes only when the viewport moves down to the true bottom.
+  // Moving up pauses it while there is explicit user input; flex/layout
+  // changes can also emit scroll events and must not be mistaken for user
+  // navigation.
   const handleScroll = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    if (isNearBottom()) {
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const movedUp =
+      scrollTop < lastScrollTopRef.current &&
+      scrollHeight >= lastScrollHeightRef.current;
+    lastScrollTopRef.current = scrollTop;
+    lastScrollHeightRef.current = scrollHeight;
+
+    if (movedUp) {
+      if (isPointerScrollingRef.current) {
+        shouldFollowLatestRef.current = false;
+      }
+    } else if (scrollTop + clientHeight >= scrollHeight - AT_BOTTOM_PX) {
       shouldFollowLatestRef.current = true;
       setHasNewBelow(false);
-    } else if (isPointerScrollingRef.current) {
-      shouldFollowLatestRef.current = false;
     }
-  }, [isNearBottom]);
+  }, []);
 
   const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     if (event.deltaY < 0) {
@@ -202,6 +233,16 @@ const EmbeddedSessionView = forwardRef<
     }
   }, []);
 
+  // A keyup lost to window blur (focus leaving mid key-hold) would otherwise
+  // leave the scroll-intent flag stuck on.
+  useEffect(() => {
+    const clearIntent = () => {
+      isPointerScrollingRef.current = false;
+    };
+    window.addEventListener("blur", clearIntent);
+    return () => window.removeEventListener("blur", clearIntent);
+  }, []);
+
   // Scroll to bottom. `force` is used for initial mount, session changes, and
   // the jump-to-latest pill. Other callers only follow when the user is at the
   // bottom. Non-force calls also short-circuit when scrollHeight hasn't changed
@@ -216,13 +257,12 @@ const EmbeddedSessionView = forwardRef<
         container.scrollHeight === lastScrolledHeightRef.current &&
         isNearBottom()
       ) return;
-      container.scrollTop = container.scrollHeight;
-      lastScrolledHeightRef.current = container.scrollHeight;
+      pinToBottom(container);
       shouldFollowLatestRef.current = true;
       setHasNewBelow(false);
       onScrollToBottom?.();
     },
-    [isNearBottom, onScrollToBottom],
+    [isNearBottom, onScrollToBottom, pinToBottom],
   );
 
   // Click handler for the jump-to-latest pill: jump and re-enable auto-scroll.
@@ -335,14 +375,13 @@ const EmbeddedSessionView = forwardRef<
       previousHeight = nextHeight;
 
       if (!shouldFollowLatestRef.current) return;
-      scrollContainerEl.scrollTop = scrollContainerEl.scrollHeight;
-      lastScrolledHeightRef.current = scrollContainerEl.scrollHeight;
+      pinToBottom(scrollContainerEl);
       setHasNewBelow(false);
     });
 
     observer.observe(scrollContainerEl);
     return () => observer.disconnect();
-  }, [scrollContainerEl]);
+  }, [scrollContainerEl, pinToBottom]);
 
   // Reset state and clear stale cache when sessionId changes.
   const prevSessionIdRef = useRef(sessionId);
@@ -354,6 +393,8 @@ const EmbeddedSessionView = forwardRef<
       hasInitiallyScrolled.current = false;
       lastContentHeightRef.current = 0;
       lastScrolledHeightRef.current = 0;
+      lastScrollTopRef.current = 0;
+      lastScrollHeightRef.current = 0;
       shouldFollowLatestRef.current = true;
       setHasNewBelow(false);
       setOldestPageLoaded(0);
@@ -417,18 +458,23 @@ const EmbeddedSessionView = forwardRef<
       }
 
       if (shouldFollowLatestRef.current) {
-        container.scrollTop = container.scrollHeight;
-        lastScrolledHeightRef.current = container.scrollHeight;
+        pinToBottom(container);
         shouldFollowLatestRef.current = true;
         setHasNewBelow(false);
-      } else if (!isNearBottom()) {
+      } else if (
+        container.scrollHeight - container.scrollTop - container.clientHeight >
+        AT_BOTTOM_PX
+      ) {
+        // Only when there is actually content below the viewport: a
+        // not-yet-scrollable transcript can be paused (wheel-up) while the
+        // user is visually at the bottom, and no scroll event would clear it.
         setHasNewBelow(true);
       }
     });
 
     observer.observe(contentEl);
     return () => observer.disconnect();
-  }, [contentEl, isNearBottom]);
+  }, [contentEl, pinToBottom]);
 
   // Reload session handler
   const handleReloadSession = useCallback(async () => {
@@ -675,6 +721,7 @@ const EmbeddedSessionView = forwardRef<
         onScroll={handleScroll}
         onWheel={handleWheel}
         onKeyDown={handleKeyDown}
+        onKeyUp={handlePointerUp}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
@@ -758,7 +805,12 @@ const EmbeddedSessionView = forwardRef<
                 assistantName={assistantName}
                 assistantPortraitIndex={assistantPortraitIndex}
               >
-                {isLive && (isOwner || account.admin) && (
+                {/* Every viewer who may read the session sees the reply stream
+                    in, with its spinner — not just the owner. The server
+                    already authorized them, and streaming.tsx subscribes them
+                    to the owner's updates; without this they saw the reply
+                    arrive in jumps on each poll, with no sign of activity. */}
+                {isLive && (
                   <InteractionLiveStream
                     session_id={sessionId}
                     interaction={interaction}

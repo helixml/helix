@@ -126,6 +126,7 @@ func (apiServer *HelixAPIServer) sandboxHeartbeat(rw http.ResponseWriter, req *h
 		return
 	}
 	apiServer.updateSandboxOOMMetrics(req.Context(), sandboxID, heartbeat.ContainerOOMKills, time.Now())
+	apiServer.recordSessionResources(req.Context(), sandboxID, heartbeat.SessionResources, time.Now())
 
 	// Sandbox-absorbs-runner pivot: if the heartbeat carries inference
 	// fields (GPUs, ProfileStatus, etc.), push the latest state into the

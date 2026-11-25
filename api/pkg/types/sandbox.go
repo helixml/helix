@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/datatypes"
 )
@@ -42,6 +43,39 @@ const (
 // dir at /data for sandboxes with this purpose.
 const SandboxPurposeWebService = "web-service"
 
+// Column limits for user-derived sandbox fields. Postgres varchar(n) counts
+// characters, so values are bounded by rune count with TruncateRunes. Keep in
+// sync with the gorm size tags on Sandbox.
+const (
+	SandboxNameMaxLen     = 512
+	SandboxOrgBotIDMaxLen = 128
+)
+
+// TruncateRunes bounds s to max runes so it fits a varchar(max) column. With
+// ellipsis, a truncated value ends in "…" (still max runes in total). Invalid
+// UTF-8 is replaced first so the result is always valid.
+func TruncateRunes(s string, max int, ellipsis bool) string {
+	if max <= 0 {
+		return ""
+	}
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "\uFFFD")
+	}
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	keep := max
+	if ellipsis {
+		keep = max - 1
+	}
+	runes := []rune(s)
+	out := string(runes[:keep])
+	if ellipsis {
+		out += "…"
+	}
+	return out
+}
+
 // SandboxStatus reflects lifecycle state of a sandbox.
 type SandboxStatus string
 
@@ -57,7 +91,7 @@ const (
 // Sandboxes are scoped to an organization and never persisted across deletion.
 type Sandbox struct {
 	ID             string `json:"id" gorm:"primaryKey"`
-	Name           string `json:"name" gorm:"size:128;index"`
+	Name           string `json:"name" gorm:"size:512;index"` // SandboxNameMaxLen
 	OrganizationID string `json:"organization_id" gorm:"size:64;index;not null"`
 	// ProjectID is optional. When set, the sandbox is associated with a
 	// specific project for organisational/UI grouping purposes; nothing in the
@@ -109,7 +143,7 @@ type Sandbox struct {
 	// OrgBotID is the helix-org bot whose session owns this container, when
 	// there is one. Denormalised from the session (org_worker_id) so the bot
 	// detail and the Sandboxes list can link both ways without joining sessions.
-	OrgBotID string `json:"org_bot_id,omitempty" gorm:"size:128;index"`
+	OrgBotID string `json:"org_bot_id,omitempty" gorm:"size:128;index"` // SandboxOrgBotIDMaxLen
 
 	// Display fields apply to desktop runtimes.
 	DisplayWidth  int `json:"display_width,omitempty"`
@@ -279,4 +313,24 @@ type SandboxFileEntry struct {
 type SandboxFileListResponse struct {
 	Path    string             `json:"path"`
 	Entries []SandboxFileEntry `json:"entries"`
+}
+
+// SandboxRun is one continuous interval a sandbox's container was running.
+// A session-backed row is reopened on every restart, overwriting its
+// started/stopped timestamps, so runtime history lives here instead: one row
+// per start, closed when the sandbox stops, fails, is deleted or resized.
+// Usage reports runtime from these rows whether or not compute is billed.
+type SandboxRun struct {
+	ID             string         `json:"id" gorm:"primaryKey"`
+	SandboxID      string         `json:"sandbox_id" gorm:"size:64;index;not null"`
+	OrganizationID string         `json:"organization_id" gorm:"size:64;index:idx_sandbox_runs_org_started;not null"`
+	Runtime        SandboxRuntime `json:"runtime" gorm:"size:64;not null"`
+	VCPUs          int            `json:"vcpus" gorm:"not null;default:1"`
+	StartedAt      time.Time      `json:"started_at" gorm:"index:idx_sandbox_runs_org_started;not null"`
+	// StoppedAt is nil while the container is still running.
+	StoppedAt *time.Time `json:"stopped_at,omitempty" gorm:"index"`
+}
+
+func (SandboxRun) TableName() string {
+	return "sandbox_runs"
 }

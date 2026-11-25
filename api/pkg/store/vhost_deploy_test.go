@@ -1,11 +1,40 @@
 package store
 
 import (
+	"database/sql"
+	"strings"
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm"
 )
+
+func (suite *PostgresStoreTestSuite) TestUpsertProjectWebServiceStateLocksRunnerPin() {
+	projectID := system.GenerateProjectID()
+	suite.Require().NoError(suite.db.gdb.Create(&types.ProjectWebServiceState{
+		ProjectID: projectID,
+	}).Error)
+	defer suite.db.gdb.Delete(&types.ProjectWebServiceState{}, "project_id = ?", projectID)
+
+	var selectSQL string
+	var inTransaction bool
+	callback := "test:web-service-runner-lock"
+	suite.Require().NoError(suite.db.gdb.Callback().Query().After("gorm:query").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "project_web_service_states" && strings.Contains(tx.Statement.SQL.String(), "project_id") {
+			selectSQL = tx.Statement.SQL.String()
+			_, inTransaction = tx.Statement.ConnPool.(*sql.Tx)
+		}
+	}))
+	defer suite.db.gdb.Callback().Query().Remove(callback)
+
+	suite.Require().NoError(suite.db.UpsertProjectWebServiceState(suite.ctx, &types.ProjectWebServiceState{
+		ProjectID: projectID,
+		Enabled:   true,
+	}))
+	suite.Contains(selectSQL, "FOR UPDATE")
+	suite.True(inTransaction, "runner pin must be read inside the update transaction")
+}
 
 func (suite *PostgresStoreTestSuite) TestCreateWebServiceDeploySupersedesInFlightDeploys() {
 	projectID := system.GenerateProjectID()

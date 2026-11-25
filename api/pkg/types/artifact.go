@@ -47,11 +47,10 @@ type Artifact struct {
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
 	DeletedAt       gorm.DeletedAt     `json:"deleted_at,omitempty" gorm:"index"`
-	// SpecTaskID is the spec task whose task-confined key created the
+	// SpecTaskID is the spec task whose task-bound key created the
 	// artifact, set by the server from the key and never from the request.
-	// Such a key may change or delete only its own task's artifacts, and a
-	// reader can tell one lane's artifacts from another's. Empty for
-	// artifacts created any other way.
+	// A reader can tell one lane's artifacts from another's. Empty for artifacts
+	// created outside a spec task.
 	SpecTaskID string `json:"spec_task_id,omitempty" gorm:"index"`
 
 	ActiveVersion *ArtifactVersion `json:"active_version,omitempty" gorm:"-"`

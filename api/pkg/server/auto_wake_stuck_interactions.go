@@ -166,6 +166,11 @@ const (
 	// start because the organization is at its concurrent-desktop limit.
 	desktopLimitReason = "The desktop couldn't start because your organization is at its concurrent-desktop limit, so this message wasn't delivered. Stop another desktop session or raise the limit, then send it again."
 
+	// sandboxRowRejectedReason is the user-facing error when the database
+	// refuses the desktop's sandbox record (e.g. a value too long for its
+	// column) — a failure no retry can fix.
+	sandboxRowRejectedReason = "The desktop couldn't start because some of its settings were rejected (for example, a name that is too long), so this message wasn't delivered. Contact support if this keeps happening."
+
 	// coldStartKickTimeout bounds one cold-start kick's outbound calls,
 	// matching the restart path.
 	coldStartKickTimeout = 5 * time.Minute
@@ -627,6 +632,8 @@ func startRefusalReason(err error) (string, bool) {
 		return outOfCreditsReason, true
 	case errors.Is(err, external_agent.ErrDesktopLimitReached):
 		return desktopLimitReason, true
+	case errors.Is(err, sandbox.ErrSandboxRowRejected):
+		return sandboxRowRejectedReason, true
 	default:
 		return "", false
 	}

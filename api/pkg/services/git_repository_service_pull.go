@@ -469,6 +469,7 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 		refSpec = "+" + refSpec
 	}
 
+	fetchStartedAt := time.Now()
 	err = s.trackUpstreamSync(ctx, gitRepo.ID, func() error {
 		remote, err := s.upstreamRemoteForRepo(ctx, gitRepo)
 		if err != nil {
@@ -497,6 +498,7 @@ func (s *GitRepositoryService) SyncAllBranches(ctx context.Context, repoID strin
 	if err != nil {
 		return err
 	}
+	s.recordMirrorSynced(gitRepo.ID, fetchStartedAt)
 
 	// Update the repository's branch list using gitea's git module
 	repo, err := giteagit.OpenRepository(ctx, gitRepo.LocalPath)

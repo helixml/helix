@@ -99,6 +99,9 @@ describe('UserSearchModal — invite-by-email CTA states', () => {
       expect(screen.getByRole('button', { name: 'Create invitation' })).toBeInTheDocument()
     })
     expect(screen.getByText(/has not verified it/i)).toBeInTheDocument()
+    expect(screen.getByText(/already have a Helix account/i)).toBeInTheDocument()
+    expect(screen.getByText(/sign in and accept the emailed invitation/i)).toBeInTheDocument()
+    expect(screen.queryByText(/link to create their account/i)).not.toBeInTheDocument()
   })
 
   it('shows "Add to organization" (enabled) when the email belongs to a Helix user outside the org', async () => {

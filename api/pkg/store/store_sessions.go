@@ -38,6 +38,11 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("config->'provider_recovery'->>'provider' IN ?", query.ProviderRecoveryProviders)
 	}
 
+	if len(query.CodeAgentModels) > 0 {
+		q = q.Where("(config->'code_agent_config'->>'model' IN ? OR config->'code_agent_overrides'->>'model' IN ?)",
+			query.CodeAgentModels, query.CodeAgentModels)
+	}
+
 	if query.AppID != "" {
 		q = q.Where("parent_app = ?", query.AppID)
 	}
@@ -453,7 +458,7 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 	// Note: column is named 'config' for backward compatibility but contains SessionMetadata
 	err := s.gdb.WithContext(ctx).
 		Where("config->>'project_id' = ?", projectID).
-		Where("config->>'session_role' = ?", "exploratory").
+		Where("config->>'session_role' = ?", types.SessionRoleExploratory).
 		Order("created DESC").
 		First(&session).Error
 
@@ -606,7 +611,8 @@ func (s *PostgresStore) ListSessionsByOwner(ctx context.Context, ownerID string)
 // idleSince. For desktops with no interactions at all, the session's own
 // updated timestamp is used as the activity marker. Golden build sessions never
 // have interactions but are working, not idle; they are bounded by the golden
-// build timeout instead, so they are never returned.
+// build timeout instead, so they are never returned. Nor are desktops pinned
+// with Keep Alive: a spec task's, or an org bot's (org_bots.keep_alive).
 func (s *PostgresStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error) {
 	// CTE computes the last activity time per desktop, then the outer query
 	// selects one session per desktop that is past the idle threshold.
@@ -626,6 +632,12 @@ WITH desktop_last_activity AS (
           SELECT 1 FROM spec_tasks st
           WHERE st.planning_session_id = s.id
             AND st.keep_alive = true
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM org_bots b
+          WHERE b.id = s.config->>'org_worker_id'
+            AND b.org_id = s.organization_id
+            AND b.keep_alive = true
       )
     GROUP BY s.config->>'dev_container_id'
 )
@@ -660,14 +672,7 @@ ORDER BY s.config->>'dev_container_id', s.created ASC`
 // updated_at).
 func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error) {
 	var ids []string
-	err := s.gdb.WithContext(ctx).
-		Model(&types.Session{}).
-		Where("deleted_at IS NULL").
-		// Desktop sessions: spec-task sessions carry model_name external_agent;
-		// org bot and exploratory sessions carry their real model name.
-		Where("(model_name = ? OR config->>'agent_type' = ?)", "external_agent", "zed_external").
-		// A deleted project's desktops are gone; its leftovers are orphans.
-		Where("NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = sessions.project_id AND p.deleted_at IS NOT NULL)").
+	err := s.desktopSessions(ctx).
 		Where(s.gdb.
 			Where("config->>'external_agent_status' = ?", "running").
 			Or("updated >= ?", cutoff).
@@ -681,6 +686,38 @@ func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff 
 		return nil, fmt.Errorf("failed to list external agent session ids: %w", err)
 	}
 	return ids, nil
+}
+
+// ListActiveDesktopSessionIDs returns the IDs of desktop sessions whose
+// desktop is up or being (re)started right now — external_agent_status
+// "running", "starting" or "restarting" — outside a deleted project.
+//
+// Unlike ListExternalAgentSessionIDs it has no recency window: a desktop that
+// stopped a minute ago is not active. The orphan reaper uses it to decide
+// whether a finished task's workspace is still somebody's cwd; padding that
+// with recency would add a second grace period on top of hydra's own.
+func (s *PostgresStore) ListActiveDesktopSessionIDs(ctx context.Context) ([]string, error) {
+	var ids []string
+	err := s.desktopSessions(ctx).
+		Where("config->>'external_agent_status' IN ?", []string{"running", "starting", "restarting"}).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active desktop session ids: %w", err)
+	}
+	return ids, nil
+}
+
+// desktopSessions scopes a query to the desktop sessions the orphan reaper
+// reasons about.
+func (s *PostgresStore) desktopSessions(ctx context.Context) *gorm.DB {
+	return s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("deleted_at IS NULL").
+		// Desktop sessions: spec-task sessions carry model_name external_agent;
+		// org bot and exploratory sessions carry their real model name.
+		Where("(model_name = ? OR config->>'agent_type' = ?)", "external_agent", "zed_external").
+		// A deleted project's desktops are gone; its leftovers are orphans.
+		Where("NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = sessions.project_id AND p.deleted_at IS NOT NULL)")
 }
 
 func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {

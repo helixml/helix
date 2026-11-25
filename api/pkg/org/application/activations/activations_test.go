@@ -3,10 +3,12 @@ package activations
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/audit"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/seedprompts"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -526,50 +528,122 @@ func TestStop_StopsDesktop(t *testing.T) {
 	}
 }
 
-func TestRestart_ResetsThenActivates(t *testing.T) {
+type fakeRestarter struct {
+	called int
+	err    error
+	events *[]string
+}
+
+func (f *fakeRestarter) RestartRuntime(_ context.Context, _ string, _ orgchart.NodeID) error {
+	f.called++
+	if f.events != nil {
+		*f.events = append(*f.events, "restart-runtime")
+	}
+	return f.err
+}
+
+type fakeHomes struct {
+	inSession bool
+	retired   int
+	err       error
+	events    *[]string
+}
+
+func (f *fakeHomes) HomeMayBeInSession(context.Context, string, orgchart.NodeID) (bool, error) {
+	return f.inSession, nil
+}
+
+func (f *fakeHomes) RetireHome(context.Context, string, orgchart.NodeID) (HomeErasure, error) {
+	if f.events != nil {
+		*f.events = append(*f.events, "retire-home")
+	}
+	if f.err != nil {
+		return HomeErasure{}, f.err
+	}
+	f.retired++
+	return HomeErasure{Existed: true, Generation: "bh_1", RetiredPath: "/data/workspaces/org-bots-retired/x"}, nil
+}
+
+type fakeAudit struct{ entries []audit.Entry }
+
+func (f *fakeAudit) Record(_ context.Context, e audit.Entry) error {
+	f.entries = append(f.entries, e)
+	return nil
+}
+
+// recordingResetter also logs order.
+type recordingResetter struct {
+	fakeResetter
+	events *[]string
+}
+
+func (f *recordingResetter) ResetSession(ctx context.Context, orgID string, workerID orgchart.NodeID, sessionID string) error {
+	*f.events = append(*f.events, "reset-session")
+	return f.fakeResetter.ResetSession(ctx, orgID, workerID, sessionID)
+}
+
+// Ordinary restart is non-destructive: it never cancels queued work,
+// never deletes the session and never touches the bot home.
+func TestRestart_IsRuntimeRestartThatKeepsQueueSessionAndHome(t *testing.T) {
 	t.Parallel()
 	events := []string{}
 	disp := &fakeDispatcher{events: &events}
-	resetter := &fakeResetter{}
+	resetter := &recordingResetter{events: &events}
 	canceller := &fakeCanceller{events: &events}
+	restarter := &fakeRestarter{events: &events}
+	homes := &fakeHomes{events: &events}
 	svc := New(Deps{
 		Repo:       memory.New().Activations,
-		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
-		NewID:      func() string { return "restart" },
+		NewID:      func() string { return "x" },
 		Ensurer:    fakeEnsurer{},
 		Dispatcher: disp,
 		Sessions:   fakeSessions{id: "ses_old"},
 		Resetter:   resetter,
 		Canceller:  canceller,
+		Restarter:  restarter,
+		Homes:      homes,
+		Audit:      &fakeAudit{},
 	})
-	res, err := svc.Restart(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID)
+	res, err := svc.Restart(context.Background(), "org-test", "b-bird")
 	if err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
-	if resetter.called != "ses_old" || resetter.bot != seedprompts.ChiefOfStaffBotID {
-		t.Fatalf("resetter = %+v, want ses_old / chief-of-staff", resetter)
+	if res.Mode != RestartRuntime || res.SessionID != "ses_old" {
+		t.Fatalf("result = %+v, want runtime restart of ses_old", res)
 	}
-	if !canceller.called {
-		t.Fatal("outstanding activations were not cancelled before restart")
+	if len(events) != 1 || events[0] != "restart-runtime" {
+		t.Fatalf("restart did %v, want only [restart-runtime]", events)
 	}
-	if len(events) != 2 || events[0] != "cancel" || events[1] != "dispatch" {
-		t.Fatalf("restart order = %v, want [cancel dispatch]", events)
+	if canceller.called || resetter.called != "" || homes.retired != 0 || disp.manualCalls+disp.hireCalls != 0 {
+		t.Fatalf("restart was destructive: cancel=%v reset=%q retired=%d dispatched=%d", canceller.called, resetter.called, homes.retired, disp.manualCalls+disp.hireCalls)
 	}
-	if res.ActivationID != "a-restart" {
-		t.Fatalf("activation id = %q, want a-restart", res.ActivationID)
+	if len(res.Preserves) == 0 {
+		t.Fatal("restart must declare what it preserves")
 	}
-	if disp.gotID != "a-restart" {
-		t.Fatalf("dispatcher got %q, want a-restart", disp.gotID)
+}
+
+func TestRestart_FailureIsReportedWithoutFallingBackToReset(t *testing.T) {
+	t.Parallel()
+	resetter := &fakeResetter{}
+	canceller := &fakeCanceller{}
+	svc := New(Deps{
+		Sessions:  fakeSessions{id: "ses_old"},
+		Resetter:  resetter,
+		Canceller: canceller,
+		Restarter: &fakeRestarter{err: errors.New("hydra down")},
+	})
+	if _, err := svc.Restart(context.Background(), "org-test", "b-bird"); err == nil {
+		t.Fatal("expected restart error")
 	}
-	if disp.manualCalls != 1 || disp.hireCalls != 0 {
-		t.Fatalf("dispatch calls manual/hire = %d/%d, want 1/0", disp.manualCalls, disp.hireCalls)
+	if canceller.called || resetter.called != "" {
+		t.Fatal("a failed restart must not reset")
 	}
 }
 
 func TestRestart_NeverStartedUsesHire(t *testing.T) {
 	t.Parallel()
 	disp := &fakeDispatcher{}
-	resetter := &fakeResetter{}
+	restarter := &fakeRestarter{}
 	svc := New(Deps{
 		Repo:       memory.New().Activations,
 		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
@@ -577,16 +651,302 @@ func TestRestart_NeverStartedUsesHire(t *testing.T) {
 		Ensurer:    fakeEnsurer{},
 		Dispatcher: disp,
 		Sessions:   fakeSessions{},
-		Resetter:   resetter,
+		Restarter:  restarter,
 	})
 
-	if _, err := svc.Restart(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID); err != nil {
+	res, err := svc.Restart(context.Background(), "org-test", seedprompts.ChiefOfStaffBotID)
+	if err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
-	if resetter.called != "" {
-		t.Fatalf("reset session = %q, want no reset", resetter.called)
+	if res.Mode != RestartFirstStart || res.Activation.ActivationID != "a-restart-first" {
+		t.Fatalf("result = %+v", res)
+	}
+	if restarter.called != 0 {
+		t.Fatal("first start must not restart a runtime")
 	}
 	if disp.hireCalls != 1 || disp.manualCalls != 0 {
 		t.Fatalf("dispatch calls hire/manual = %d/%d, want 1/0", disp.hireCalls, disp.manualCalls)
+	}
+}
+
+func newResetSvc(events *[]string, sessionID string, homes *fakeHomes, aud *fakeAudit) (*Activations, *fakeDispatcher, *recordingResetter, *fakeCanceller) {
+	disp := &fakeDispatcher{events: events}
+	resetter := &recordingResetter{events: events}
+	canceller := &fakeCanceller{events: events}
+	homes.events = events
+	return New(Deps{
+		Repo:       memory.New().Activations,
+		Now:        func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) },
+		NewID:      func() string { return "reset" },
+		Ensurer:    fakeEnsurer{},
+		Dispatcher: disp,
+		Sessions:   fakeSessions{id: sessionID},
+		Resetter:   resetter,
+		Canceller:  canceller,
+		Homes:      homes,
+		Audit:      aud,
+	}), disp, resetter, canceller
+}
+
+func TestReset_SessionScopeKeepsHome(t *testing.T) {
+	t.Parallel()
+	events := []string{}
+	aud := &fakeAudit{}
+	homes := &fakeHomes{}
+	svc, disp, resetter, _ := newResetSvc(&events, "ses_old", homes, aud)
+	res, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{
+		Scope: ResetSession, Confirm: "b-bird", Actor: audit.ActorUser, ActorID: "usr_1",
+	})
+	if err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	want := []string{"cancel", "reset-session", "dispatch"}
+	if len(events) != len(want) || events[0] != want[0] || events[1] != want[1] || events[2] != want[2] {
+		t.Fatalf("reset order = %v, want %v", events, want)
+	}
+	if resetter.called != "ses_old" || homes.retired != 0 || res.Home != nil {
+		t.Fatalf("session reset touched the home: %+v / retired=%d", res, homes.retired)
+	}
+	if res.PreviousSessionID != "ses_old" || res.Activation.ActivationID != "a-reset" || disp.manualCalls != 1 {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(aud.entries) != 2 || aud.entries[0].Status != audit.StatusAttempted || aud.entries[1].Status != audit.StatusSucceeded {
+		t.Fatalf("audit = %+v", aud.entries)
+	}
+	e := aud.entries[1]
+	if e.EventType != audit.EventBotLifecycle || e.Action != "reset_bot" || e.UserID != "usr_1" || e.AssetID != "b-bird" || e.OrganizationID != "org-test" {
+		t.Fatalf("audit entry = %+v", e)
+	}
+}
+
+func TestReset_SessionAndHomeRetiresHomeAfterSession(t *testing.T) {
+	t.Parallel()
+	events := []string{}
+	aud := &fakeAudit{}
+	homes := &fakeHomes{}
+	svc, _, _, _ := newResetSvc(&events, "ses_old", homes, aud)
+	res, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSessionAndHome, Confirm: "b-bird", Actor: audit.ActorBot, ActorID: "b-owner"})
+	if err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	want := []string{"cancel", "reset-session", "retire-home", "dispatch"}
+	if len(events) != 4 || events[2] != want[2] || events[3] != want[3] {
+		t.Fatalf("reset order = %v, want %v", events, want)
+	}
+	if res.Home == nil || res.Home.RetiredPath == "" {
+		t.Fatalf("home erasure not reported: %+v", res)
+	}
+}
+
+func TestReset_RequiresScopeAndConfirmation(t *testing.T) {
+	t.Parallel()
+	for _, req := range []ResetRequest{
+		{Scope: "everything", Confirm: "b-bird"},
+		{Scope: ResetSession, Confirm: ""},
+		{Scope: ResetSession, Confirm: "b-other"},
+	} {
+		events := []string{}
+		aud := &fakeAudit{}
+		svc, _, resetter, canceller := newResetSvc(&events, "ses_old", &fakeHomes{}, aud)
+		_, err := svc.Reset(context.Background(), "org-test", "b-bird", req)
+		if !errors.Is(err, ErrInvalidReset) {
+			t.Fatalf("%+v: err = %v, want ErrInvalidReset", req, err)
+		}
+		if canceller.called || resetter.called != "" || len(events) != 0 {
+			t.Fatalf("%+v: invalid reset had side effects %v", req, events)
+		}
+	}
+}
+
+// Until the home has moved out of the session workspace, deleting the
+// session deletes it. Every scope is refused before anything is touched:
+// session_and_home would otherwise delete the session first and then
+// report that no home existed, with no rollback copy.
+func TestReset_RefusedForEveryScopeWhileHomeLivesInSession(t *testing.T) {
+	t.Parallel()
+	for _, scope := range []ResetScope{ResetSession, ResetSessionAndHome} {
+		events := []string{}
+		aud := &fakeAudit{}
+		homes := &fakeHomes{inSession: true}
+		svc, disp, resetter, canceller := newResetSvc(&events, "ses_old", homes, aud)
+		_, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: scope, Confirm: "b-bird"})
+		if !errors.Is(err, ErrResetRefused) {
+			t.Fatalf("%s: err = %v, want ErrResetRefused", scope, err)
+		}
+		if canceller.called || resetter.called != "" || homes.retired != 0 || disp.manualCalls != 0 || len(events) != 0 {
+			t.Fatalf("%s: refused reset had side effects %v", scope, events)
+		}
+		if len(aud.entries) != 2 || aud.entries[1].Status != audit.StatusFailed || aud.entries[1].Metadata.Error == "" {
+			t.Fatalf("%s: refusal not audited as failed: %+v", scope, aud.entries)
+		}
+	}
+}
+
+// A bot with no session has nothing in a session to lose; reset proceeds
+// even before its home has been created.
+func TestReset_AllowedWithoutSessionEvenBeforeMigration(t *testing.T) {
+	t.Parallel()
+	events := []string{}
+	svc, _, _, _ := newResetSvc(&events, "", &fakeHomes{inSession: true}, &fakeAudit{})
+	if _, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSessionAndHome, Confirm: "b-bird"}); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+}
+
+func TestReset_HomeEraseFailureStopsBeforeActivation(t *testing.T) {
+	t.Parallel()
+	events := []string{}
+	aud := &fakeAudit{}
+	homes := &fakeHomes{err: errors.New("runner offline")}
+	svc, disp, _, _ := newResetSvc(&events, "ses_old", homes, aud)
+	_, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSessionAndHome, Confirm: "b-bird"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if disp.manualCalls != 0 {
+		t.Fatal("a reset whose home erase failed must not start a new session")
+	}
+	if aud.entries[len(aud.entries)-1].Status != audit.StatusFailed {
+		t.Fatal("failure not audited")
+	}
+}
+
+// Concurrent restart and reset of one bot are serialised.
+func TestRestartAndResetOfOneBotAreSerialised(t *testing.T) {
+	t.Parallel()
+	block := make(chan struct{})
+	entered := make(chan struct{}, 2)
+	r := &blockingRestarter{block: block, entered: entered}
+	events := []string{}
+	aud := &fakeAudit{}
+	homes := &fakeHomes{}
+	svc, _, resetter, _ := newResetSvc(&events, "ses_old", homes, aud)
+	svc.restarter = r
+	done := make(chan struct{})
+	go func() {
+		_, _ = svc.Restart(context.Background(), "org-test", "b-bird")
+		close(done)
+	}()
+	<-entered
+	resetDone := make(chan struct{})
+	go func() {
+		_, _ = svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSession, Confirm: "b-bird"})
+		close(resetDone)
+	}()
+	select {
+	case <-resetDone:
+		t.Fatal("reset ran while restart held the bot")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if resetter.called != "" {
+		t.Fatal("reset reached the session while restart was running")
+	}
+	close(block)
+	<-done
+	<-resetDone
+	if resetter.called != "ses_old" {
+		t.Fatal("reset did not run after restart released the bot")
+	}
+}
+
+type blockingRestarter struct {
+	block   chan struct{}
+	entered chan struct{}
+}
+
+func (b *blockingRestarter) RestartRuntime(context.Context, string, orgchart.NodeID) error {
+	b.entered <- struct{}{}
+	<-b.block
+	return nil
+}
+
+// An activation whose process died stays open; Reset purges its delivery,
+// so it must close the row or Activate would report it in flight forever.
+func TestReset_ClosesActivationRowsItPurged(t *testing.T) {
+	t.Parallel()
+	events := []string{}
+	repo := memory.New().Activations
+	stale, err := activation.New("a-stale", "b-bird", []activation.Trigger{{Kind: activation.TriggerManual}}, time.Date(2026, 6, 10, 11, 0, 0, 0, time.UTC), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Create(context.Background(), stale); err != nil {
+		t.Fatal(err)
+	}
+	// More completed activations than any page size, all newer than the
+	// stale row: closing must not depend on a window of recent rows.
+	for i := 0; i < 60; i++ {
+		at := time.Date(2026, 6, 10, 11, 0, 1+i, 0, time.UTC)
+		done, err := activation.New(activation.ID(fmt.Sprintf("a-done-%02d", i)), "b-bird", []activation.Trigger{{Kind: activation.TriggerManual}}, at, "org-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.Create(context.Background(), done); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.Complete(context.Background(), "org-test", done.ID, activation.OutcomeFromError(nil), at.Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc, disp, _, _ := newResetSvc(&events, "ses_old", &fakeHomes{}, &fakeAudit{})
+	svc.repo = repo
+	if _, err := svc.Reset(context.Background(), "org-test", "b-bird", ResetRequest{Scope: ResetSession, Confirm: "b-bird"}); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	got, err := repo.Get(context.Background(), "org-test", "a-stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsCompleted() || got.Outcome.Status != activation.StatusError {
+		t.Fatalf("stale row not closed: %+v", got)
+	}
+	// The newest open activation is now the reset's own, never the purged one.
+	res, err := svc.Activate(context.Background(), "org-test", "b-bird")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ActivationID == "a-stale" || disp.manualCalls != 1 {
+		t.Fatalf("start still bound to the purged row: %+v (dispatches %d)", res, disp.manualCalls)
+	}
+}
+
+func TestFailureStreakCountsConsecutiveFailuresIgnoringOpenRows(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := memory.New()
+	svc := New(Deps{Repo: st.Activations, Progress: fakeSessionProgress{startedAt: time.Date(2026, 11, 24, 18, 0, 0, 0, time.UTC)}})
+	workerID := orgchart.NodeID("b-worker")
+	base := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	add := func(id string, at time.Time, outcome *activation.Outcome) {
+		t.Helper()
+		act, err := activation.New(activation.ID(id), workerID, []activation.Trigger{{Kind: activation.TriggerEvent}}, at, "org-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Activations.Create(ctx, act); err != nil {
+			t.Fatal(err)
+		}
+		if outcome != nil {
+			if err := st.Activations.Complete(ctx, "org-test", act.ID, *outcome, at.Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	add("a-ok", base, &activation.Outcome{Status: activation.StatusOK})
+	add("a-fail-1", base.Add(time.Hour), &activation.Outcome{Status: activation.StatusError, Error: "first bounce"})
+	add("a-fail-2", base.Add(2*time.Hour), &activation.Outcome{Status: activation.StatusError, Error: "second bounce"})
+	// A later successful operator chat turn hides LatestError but must not
+	// hide the failing activations.
+	if got, err := svc.LatestError(ctx, "org-test", workerID); err != nil || got != "" {
+		t.Fatalf("LatestError = %q, %v; want masked", got, err)
+	}
+	add("a-open", base.Add(3*time.Hour), nil)
+
+	streak, latest, err := svc.FailureStreak(ctx, "org-test", workerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streak != 2 || latest != "second bounce" {
+		t.Fatalf("FailureStreak = %d, %q; want 2, %q", streak, latest, "second bounce")
 	}
 }

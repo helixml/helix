@@ -27,6 +27,7 @@ func newBotsCmd() *cobra.Command {
 	cmd.AddCommand(newBotsStartCmd())
 	cmd.AddCommand(newBotsStopCmd())
 	cmd.AddCommand(newBotsRestartCmd())
+	cmd.AddCommand(newBotsResetCmd())
 	cmd.AddCommand(newBotsChatCmd())
 	cmd.AddCommand(newBotsApplyCmd())
 	cmd.AddCommand(newBotsExportCmd())
@@ -104,7 +105,64 @@ func newBotsStopCmd() *cobra.Command {
 	return botActionCmd("stop", "Stop a Bot's sandbox", "stop")
 }
 func newBotsRestartCmd() *cobra.Command {
-	return botActionCmd("restart", "Restart a Bot with a fresh session", "restart")
+	return botActionCmd("restart", "Recreate a Bot's container on its session, keeping its home, thread and queued work", "restart")
+}
+
+func newBotsResetCmd() *cobra.Command {
+	var (
+		orgFlag string
+		scope   string
+		confirm string
+		jsonOut bool
+	)
+	cmd := &cobra.Command{
+		Use:   "reset <bot-id> --scope session|session_and_home --confirm <bot-id>",
+		Short: "Destructively reset a Bot: purge its queue and start a fresh session (optionally erasing its home)",
+		Long: `Reset is the destructive counterpart of restart. It purges the bot's queued
+and in-flight activations (they are not replayed), deletes its current
+session, conversation thread and desktop, and starts a fresh session.
+
+  --scope session            keeps the bot home (/home/retro/work)
+  --scope session_and_home   also retires the bot home, including browser
+                             profiles and logins (kept for rollback, then purged)
+
+--confirm must repeat the bot id. Every reset is recorded in the org audit log.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, orgID, err := orgClient(cmd.Context(), orgFlag)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := callCtx(cmd.Context(), 300*time.Second)
+			defer cancel()
+			res, err := c.ResetOrgBot(ctx, orgID, args[0], scope, confirm)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return printJSON(res)
+			}
+			fmt.Printf("reset %s (scope %s): previous_session_id=%s session_id=%s activation_id=%s\n",
+				args[0], res.Scope, res.PreviousSessionID, res.SessionID, res.ActivationID)
+			for _, e := range res.Erases {
+				fmt.Printf("  erased: %s\n", e)
+			}
+			for _, k := range res.Keeps {
+				fmt.Printf("  kept:   %s\n", k)
+			}
+			if res.Home != nil && res.Home.RetiredPath != "" {
+				fmt.Printf("  bot home generation %s retired to %s\n", res.Home.Generation, res.Home.RetiredPath)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&orgFlag, "org", "", "Organization id or name (or $HELIX_ORG)")
+	cmd.Flags().StringVar(&scope, "scope", "", "What to erase: session or session_and_home (required)")
+	cmd.Flags().StringVar(&confirm, "confirm", "", "Repeat the bot id to confirm (required)")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "JSON output")
+	_ = cmd.MarkFlagRequired("scope")
+	_ = cmd.MarkFlagRequired("confirm")
+	return cmd
 }
 
 func botActionCmd(use, short, action string) *cobra.Command {
@@ -127,7 +185,18 @@ func botActionCmd(use, short, action string) *cobra.Command {
 			case "activate":
 				res, err = c.ActivateOrgBot(ctx, orgID, args[0])
 			case "restart":
-				res, err = c.RestartOrgBot(ctx, orgID, args[0])
+				restarted, err := c.RestartOrgBot(ctx, orgID, args[0])
+				if err != nil {
+					return err
+				}
+				if jsonOut {
+					return printJSON(restarted)
+				}
+				fmt.Printf("restart %s: mode=%s session_id=%s activation_id=%s\n", args[0], restarted.Mode, restarted.SessionID, restarted.ActivationID)
+				for _, p := range restarted.Preserves {
+					fmt.Printf("  kept: %s\n", p)
+				}
+				return nil
 			case "stop":
 				err = c.StopOrgBot(ctx, orgID, args[0])
 			case "apply-config":

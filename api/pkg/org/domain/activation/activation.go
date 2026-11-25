@@ -151,4 +151,7 @@ type Repository interface {
 	Complete(ctx context.Context, orgID string, id ID, outcome Outcome, endedAt time.Time) error
 	Get(ctx context.Context, orgID string, id ID) (*Activation, error)
 	ListForWorker(ctx context.Context, orgID string, workerID orgchart.NodeID, limit int) ([]*Activation, error)
+	// ListOpenForWorker returns every activation of the Worker that has not
+	// been completed, regardless of age.
+	ListOpenForWorker(ctx context.Context, orgID string, workerID orgchart.NodeID) ([]*Activation, error)
 }

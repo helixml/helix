@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TypesInteractionState, type TypesInteraction } from "../../api/api";
 import AgentChat from "./AgentChat";
+import { ActionCardCollapseScope, useCollapseOnUserMessage } from "./actionCardCollapse";
 
 const pendingQuestion = {
   request_id: "request-1",
@@ -16,7 +17,8 @@ const pendingQuestion = {
     },
   ],
 };
-const { latestInteractions, newInference, pendingQuestionInteractions, sessionQueueEntries } = vi.hoisted(() => ({
+const { latestInteractions, newInference, pendingQuestionInteractions, sessionQueueEntries, promptHistory } = vi.hoisted(() => ({
+  promptHistory: { current: { hasHistory: false, historySettled: true } },
   latestInteractions: {
     current: {
       totalCount: 12,
@@ -41,6 +43,8 @@ vi.mock("../../hooks/useSnackbar", () => ({
 }));
 
 vi.mock("../../services/sessionService", () => ({
+  // AgentChat reads the session for the agent's steering capability.
+  useGetSession: () => ({ data: undefined }),
   useListInteractions: (
     _sessionId: string,
     _page: number,
@@ -106,6 +110,8 @@ vi.mock("./useSessionPromptQueue", () => ({
     entries: sessionQueueEntries.current,
     remove: vi.fn(),
     restartAgent: vi.fn(),
+    hasHistory: promptHistory.current.hasHistory || sessionQueueEntries.current.length > 0,
+    historySettled: promptHistory.current.historySettled,
   }),
 }));
 
@@ -122,6 +128,7 @@ describe("AgentChat pending question placement", () => {
     newInference.mockReset();
     newInference.mockResolvedValue(undefined);
     sessionQueueEntries.current = [];
+    promptHistory.current = { hasHistory: false, historySettled: true };
     pendingQuestionInteractions.current = [{
       id: "interaction-old",
       state: TypesInteractionState.InteractionStateWaiting,
@@ -262,6 +269,65 @@ describe("AgentChat pending question placement", () => {
     expect(screen.getByTestId("session-view")).toBeInTheDocument();
   });
 
+  it("does not show the welcome while a cleared bot session waits for its next turn", () => {
+    latestInteractions.current = {
+      totalCount: 1,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    };
+    pendingQuestionInteractions.current = [];
+    const props = {
+      sessionId: "session-1",
+      welcomeWhenEmpty: true,
+      welcomeHeading: "Start a conversation",
+      starterPrompts: ["What can you help with?"],
+    };
+    const view = render(<AgentChat {...props} />);
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+
+    // The next activation clears the session before its prompt becomes a turn.
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    view.rerender(<AgentChat {...props} />);
+
+    expect(screen.queryByText("Start a conversation")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("does not show the welcome on a cleared bot session that has had prompts", () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+    promptHistory.current = { hasHistory: true, historySettled: true };
+
+    render(
+      <AgentChat
+        sessionId="session-1"
+        welcomeWhenEmpty
+        welcomeHeading="Start a conversation"
+        starterPrompts={["What can you help with?"]}
+      />,
+    );
+
+    expect(screen.queryByText("Start a conversation")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("waits for the prompt history before showing a bot the welcome", () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+    promptHistory.current = { hasHistory: false, historySettled: false };
+    const props = {
+      sessionId: "session-1",
+      welcomeWhenEmpty: true,
+      welcomeHeading: "Start a conversation",
+      starterPrompts: ["What can you help with?"],
+    };
+    const view = render(<AgentChat {...props} />);
+    expect(screen.queryByText("Start a conversation")).not.toBeInTheDocument();
+
+    promptHistory.current = { hasHistory: false, historySettled: true };
+    view.rerender(<AgentChat {...props} />);
+    expect(screen.getByText("Start a conversation")).toBeInTheDocument();
+  });
+
   it("shows a queued prompt instead of empty-chat starters", () => {
     latestInteractions.current = { totalCount: 0, interactions: [] };
     pendingQuestionInteractions.current = [];
@@ -373,5 +439,64 @@ describe("AgentChat pending question placement", () => {
     view.rerender(<AgentChat sessionId="session-1" />);
 
     expect(screen.queryByTestId("pending-question")).not.toBeInTheDocument();
+  });
+});
+
+function CollapsibleCard({ id }: { id: string }) {
+  const [expanded, setExpanded] = React.useState(true);
+  useCollapseOnUserMessage(() => setExpanded(false));
+  return <div data-testid={id} data-expanded={String(expanded)} />;
+}
+
+describe("AgentChat action card collapse", () => {
+  beforeEach(() => {
+    latestInteractions.current = {
+      totalCount: 12,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    };
+    newInference.mockReset();
+    newInference.mockResolvedValue(undefined);
+    sessionQueueEntries.current = [];
+    promptHistory.current = { hasHistory: false, historySettled: true };
+    pendingQuestionInteractions.current = [];
+  });
+
+  it("collapses its action cards when the user sends from the composer", () => {
+    render(<AgentChat sessionId="session-1" actionCards={<CollapsibleCard id="card-a" />} />);
+    expect(screen.getByTestId("card-a")).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.click(screen.getByTestId("composer"));
+
+    expect(screen.getByTestId("card-a")).toHaveAttribute("data-expanded", "false");
+  });
+
+  it("leaves a card that arrives after the message expanded", () => {
+    // Keyed like the real proposal list, so card-a stays mounted.
+    const cardA = <CollapsibleCard key="a" id="card-a" />;
+    const view = render(<AgentChat sessionId="session-1" actionCards={[cardA]} />);
+    fireEvent.click(screen.getByTestId("composer"));
+
+    view.rerender(
+      <AgentChat
+        sessionId="session-1"
+        actionCards={[cardA, <CollapsibleCard key="b" id="card-b" />]}
+      />,
+    );
+
+    expect(screen.getByTestId("card-a")).toHaveAttribute("data-expanded", "false");
+    expect(screen.getByTestId("card-b")).toHaveAttribute("data-expanded", "true");
+  });
+
+  it("collapses cards rendered beside the chat in an enclosing scope", () => {
+    render(
+      <ActionCardCollapseScope>
+        <CollapsibleCard id="beside-chat" />
+        <AgentChat sessionId="session-1" />
+      </ActionCardCollapseScope>,
+    );
+
+    fireEvent.click(screen.getByTestId("composer"));
+
+    expect(screen.getByTestId("beside-chat")).toHaveAttribute("data-expanded", "false");
   });
 });

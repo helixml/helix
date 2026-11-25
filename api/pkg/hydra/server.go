@@ -349,6 +349,7 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers/{session_id}/resources", s.handleUpdateDevContainerResources).Methods("PATCH")
 	api.HandleFunc("/dev-containers/{session_id}", s.handleDeleteDevContainer).Methods("DELETE")
 	api.HandleFunc("/dev-containers/{session_id}/destroy", s.handleDestroyDevContainer).Methods("POST")
+	api.HandleFunc("/bot-homes/destroy", s.handleDestroyBotHome).Methods("POST")
 	api.HandleFunc("/dev-containers/{session_id}/clients", s.handleGetDevContainerClients).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/video/stats", s.handleGetDevContainerVideoStats).Methods("GET")
 
@@ -575,6 +576,31 @@ func (s *Server) handleDestroyDevContainer(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleDestroyBotHome retires or purges one Org Bot's durable home. It
+// refuses while a running container mounts the home. Errors name where the
+// data may still be, so the caller can persist that.
+func (s *Server) handleDestroyBotHome(w http.ResponseWriter, r *http.Request) {
+	var req DestroyBotHomeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	resp, err := s.devContainerManager.DestroyBotHome(ctx, &req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, ErrBotHomeInUse) {
+			status = http.StatusConflict
+		}
+		log.Error().Err(err).Str("bot_home", BotHomeKey(req.OrganizationID, req.BotID)).Msg("Failed to destroy bot home")
+		http.Error(w, fmt.Sprintf("failed to destroy bot home: %s", err), status)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

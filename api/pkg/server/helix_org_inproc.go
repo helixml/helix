@@ -999,6 +999,13 @@ func (c *inProcHelixClient) DeleteLinkedAgent(ctx context.Context, orgID string,
 			return fmt.Errorf("destroy linked agent desktop %s: %w", sessionID, err)
 		}
 	}
+	if c.server.externalAgentExecutor != nil {
+		// Every desktop of the bot is destroyed by now, so nothing mounts
+		// the home. Purge it before the runtime state that records it.
+		if err := purgeBotHomeUnlessHostGone(ctx, c.server.externalAgentExecutor, orgID, string(botID)); err != nil {
+			return fmt.Errorf("purge bot home of %s: %w", botID, err)
+		}
+	}
 	accessor, ok := c.server.Store.(interface{ GormDB() *gorm.DB })
 	if !ok {
 		return fmt.Errorf("delete linked agent: store %T has no shared database", c.server.Store)
@@ -1137,6 +1144,23 @@ func interactionCompleted(interaction *types.Interaction) bool {
 
 const externalAgentStoppedTurnError = "External agent stopped before completing the turn"
 
+func recoverableActivationDeliveryError(interaction *types.Interaction) bool {
+	if interaction == nil || interaction.State != types.InteractionStateError {
+		return false
+	}
+	// The agent never came online, so no work happened and the turn is safe
+	// to replay. Without this a retried activation re-reads the old error
+	// forever instead of delivering again.
+	if interaction.Error == externalAgentStoppedTurnError || interaction.Error == agentNeverConnectedReason {
+		return true
+	}
+	// Zed emits this registration error before it starts the harness command.
+	return strings.HasPrefix(interaction.Error, "agent connect failed: Custom agent server `") &&
+		strings.HasSuffix(interaction.Error, "` is not registered") &&
+		interaction.ResponseMessage == "" && len(interaction.ResponseEntries) == 0 &&
+		len(interaction.ToolCalls) == 0 && interaction.LastZedMessageID == ""
+}
+
 func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimehelix.StartSessionParams) (runtimehelix.DeliveryResult, error) {
 	if params.Prompt == "" {
 		return runtimehelix.DeliveryResult{}, errors.New("StartSession: Prompt is required")
@@ -1152,7 +1176,7 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		AgentType:      params.AgentType,
 		Provider:       types.Provider(params.Provider),
 		Model:          params.Model,
-		SessionRole:    "exploratory",
+		SessionRole:    types.SessionRoleExploratory,
 		// Org workers are fully autonomous — nobody is watching to click the
 		// in-chat Restart button — so recover the agent automatically on crash.
 		AutoRestartOnCrash:  true,
@@ -1175,7 +1199,11 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 	}
 	session, err := c.server.StartExternalAgentSession(ctx, req, user.ID, types.SystemTurn(types.SystemTurnOrgActivation))
 	if err != nil {
-		return runtimehelix.DeliveryResult{}, fmt.Errorf("start external agent session: %w", err)
+		err = fmt.Errorf("start external agent session: %w", err)
+		if errors.Is(err, errDeliveryIDConflict) {
+			return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(err)
+		}
+		return runtimehelix.DeliveryResult{}, err
 	}
 	result := runtimehelix.DeliveryResult{SessionID: session.ID, InteractionID: req.InteractionID}
 	if req.InteractionID != "" {
@@ -1214,7 +1242,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		interaction, err := c.server.Store.GetInteraction(ctx, interactionID)
 		if err == nil {
 			if interaction.SessionID != sessionID || interaction.PromptMessage != prompt {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("activation interaction %s does not match delivery", interactionID)
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("%w: activation interaction %s does not match delivery", errDeliveryIDConflict, interactionID))
 			}
 			if interaction.State != types.InteractionStateError {
 				return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interactionID, Completed: interactionCompleted(interaction)}, nil
@@ -1231,7 +1259,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		}
 		if entry != nil {
 			if entry.SessionID != sessionID || entry.Content != prompt {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("prompt delivery ID %s conflicts with another message", promptID)
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("%w: prompt delivery ID %s conflicts with another message", errDeliveryIDConflict, promptID))
 			}
 			if entry.DeletedAt != nil {
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("%w: activation prompt %s was deleted", orgactivation.ErrNonRetryable, promptID)
@@ -1260,11 +1288,10 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			return runtimehelix.DeliveryResult{}, errors.New(err.Error())
 		}
 		defer c.server.lockPromptDrain(sessionID)()
-		if entry != nil && entry.Status == "sent" && interaction != nil &&
-			interaction.State == types.InteractionStateError && interaction.Error == externalAgentStoppedTurnError {
+		if entry != nil && (entry.Status == "sent" || entry.Status == "sending") && recoverableActivationDeliveryError(interaction) {
 			_, recoverErr := c.server.Store.RecoverFailedPrompt(ctx, sessionID, promptID, interaction.ID)
 			if recoverErr != nil {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("recover interrupted activation: %w", recoverErr)
+				return runtimehelix.DeliveryResult{}, fmt.Errorf("recover failed activation: %w", recoverErr)
 			}
 		}
 		entry = &types.PromptHistoryEntry{
@@ -1286,7 +1313,7 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("reload activation prompt: %w", err)
 			}
 			if entry == nil || entry.SessionID != sessionID || entry.Content != prompt {
-				return runtimehelix.DeliveryResult{}, fmt.Errorf("prompt delivery ID %s conflicts with another message", promptID)
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("%w: prompt delivery ID %s conflicts with another message", errDeliveryIDConflict, promptID))
 			}
 			if entry.DeletedAt != nil {
 				return runtimehelix.DeliveryResult{}, fmt.Errorf("%w: activation prompt %s was deleted", orgactivation.ErrNonRetryable, promptID)
@@ -1298,10 +1325,6 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 		}
 		if interactionCompleted(interaction) {
 			return runtimehelix.DeliveryResult{SessionID: sessionID, InteractionID: interaction.ID, PromptID: promptID, Completed: true}, nil
-		}
-		if interaction != nil && interaction.State == types.InteractionStateError &&
-			interaction.Error == externalAgentStoppedTurnError && entry.Status != "sent" {
-			previousInteractionID = interaction.ID
 		}
 		if entry.Status == "reserved" {
 			if resetSession {
@@ -1321,10 +1344,19 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt, 
 			entry.Status = "pending"
 		}
 		if entry.Status == "failed" {
+			if store.PromptRetriesExhausted(entry) {
+				return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("activation prompt %s will not be retried: %s", promptID, entry.ErrorMessage))
+			}
 			c.server.nudgeSessionQueue(sessionID)
 			return runtimehelix.DeliveryResult{}, fmt.Errorf("activation prompt %s is pending retry", promptID)
 		}
+		if interaction != nil && interaction.State == types.InteractionStateError && entry.Status == "sent" {
+			return runtimehelix.DeliveryResult{}, orgactivation.NonRetryable(fmt.Errorf("activation turn %s failed: %s", interaction.ID, interaction.Error))
+		}
 		if entry.Status == "pending" {
+			if recoverableActivationDeliveryError(interaction) {
+				previousInteractionID = interaction.ID
+			}
 			c.server.nudgeSessionQueue(sessionID)
 		}
 		queuedInteractionID := ""
@@ -1439,7 +1471,7 @@ func (c *inProcHelixClient) SyncAgentProfile(ctx context.Context, sessionID, ses
 		}
 		changed = true
 	}
-	if session.ParentApp != "" {
+	if session.ParentApp != "" && session.Metadata.CodeAgentConfig == nil {
 		app, appErr := c.server.Store.GetApp(ctx, session.ParentApp)
 		if appErr != nil {
 			return fmt.Errorf("get agent app %s for session %s: %w", session.ParentApp, sessionID, appErr)

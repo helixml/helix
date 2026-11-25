@@ -9,15 +9,22 @@ const countTriggers = (pattern: RegExp) => triggerSource.match(pattern)?.length 
 
 describe('Helix Org Bot API argument order', () => {
   it('passes Bot and organization IDs in generated-client order', () => {
-    expect(count(/v1OrgsBots[A-Za-z0-9]*\(/g)).toBe(20)
+    expect(count(/v1OrgsBots[A-Za-z0-9]*\(/g)).toBe(23)
+    // Served by the Helix server (shared with spec-task proposals): org first.
+    expect(count(/v1OrgsBotsKeepAliveUpdate\(orgID, botId, \{ keep_alive: keepAlive \}\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsPrAutoApproveUpdate\(orgID, botId, \{ enabled \}\)/g)).toBe(1)
     expect(count(/v1OrgsBotsDetail\(orgID\)/g)).toBe(1)
     expect(count(/v1OrgsBotsCreate\(orgID, payload\)/g)).toBe(1)
     expect(count(/v1OrgsBotsPartialUpdate\(orgID, id, body\)/g)).toBe(1)
     expect(count(/v1OrgsBotsChatCreate\(botId, orgID\)/g)).toBe(1)
     expect(count(/v1OrgsBotsActivateCreate\(botId, orgID\)/g)).toBe(1)
     expect(count(/v1OrgsBotsStopCreate\(botId, orgID\)/g)).toBe(1)
-    expect(count(/v1OrgsBotsRestartCreate\(botId, orgID\)/g)).toBe(1)
-    expect(count(/v1OrgsBotsApplyConfigCreate\(botId, orgID\)/g)).toBe(1)
+    // Restart is the non-destructive runtime restart; the deprecated
+    // fresh-session /restart endpoint has no UI caller.
+    expect(count(/v1OrgsBotsRuntimeRestartCreate\(botId, orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsRestartCreate\(/g)).toBe(0)
+    expect(count(/v1OrgsBotsResetDetail\(botID!, orgID\)/g)).toBe(1)
+    expect(count(/v1OrgsBotsResetCreate\(botId, orgID, \{ scope, confirm: botId \}\)/g)).toBe(1)
     expect(count(/v1OrgsBotsDetail2\(botId, orgID\)/g)).toBe(2)
     expect(count(/v1OrgsBotsParentsCreate\(botID, orgID, \{ parent_id: parentID \}\)/g)).toBe(1)
     expect(count(/v1OrgsBotsParentsDelete\(botID, parentID, orgID\)/g)).toBe(1)

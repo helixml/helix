@@ -1042,6 +1042,12 @@ type SpecTaskArchiveRequest struct {
 	// never kills an agent that is mid-turn unless the caller said so
 	// explicitly — see issue #3427.
 	StopAgentExplicit bool `json:"-" yaml:"-"`
+	// DestroyWorkspace tears the task's desktop down for good instead of
+	// stopping it: the container, the session's on-host data and the task's
+	// workspace checkout are deleted, so a finished task stops holding disk.
+	// Only honoured when the request archives and stop is enabled; the same
+	// live-agent guard as stop_agent applies.
+	DestroyWorkspace bool `json:"destroy_workspace,omitempty"`
 }
 
 // StopAgentEnabled reports whether archiving should stop the task's agent.
@@ -1054,12 +1060,21 @@ func (r SpecTaskArchiveRequest) StopAgentEnabled() bool {
 	return *r.StopAgent
 }
 
+// DestroysWorkspace reports whether the request asks for the task's desktop to
+// be destroyed (workspace included) rather than merely stopped. It only applies
+// to an archive that stops the agent: unarchiving, or archiving with
+// stop_agent=false, never deletes anything.
+func (r SpecTaskArchiveRequest) DestroysWorkspace() bool {
+	return r.Archived && r.StopAgentEnabled() && r.DestroyWorkspace
+}
+
 // UnmarshalJSON keeps StopAgentExplicit honest: it is true only when the
 // request actually carried a stop_agent key, not merely because it defaulted.
 func (r *SpecTaskArchiveRequest) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		Archived  bool  `json:"archived"`
-		StopAgent *bool `json:"stop_agent"`
+		Archived         bool  `json:"archived"`
+		StopAgent        *bool `json:"stop_agent"`
+		DestroyWorkspace bool  `json:"destroy_workspace"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -1068,6 +1083,7 @@ func (r *SpecTaskArchiveRequest) UnmarshalJSON(data []byte) error {
 		Archived:          raw.Archived,
 		StopAgent:         raw.StopAgent,
 		StopAgentExplicit: raw.StopAgent != nil,
+		DestroyWorkspace:  raw.DestroyWorkspace,
 	}
 	return nil
 }

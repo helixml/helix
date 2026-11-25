@@ -1170,8 +1170,8 @@ RUN npm_config_cache=/tmp/npm-build-cache npm install -g \
 # When BROWSER=/usr/local/bin/helix-capture-browser, `claude auth login` writes
 # the OAuth URL to a file instead of opening a browser. The Helix frontend polls
 # for this file and opens the URL in the user's native browser.
-COPY desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
-COPY desktop/shared/helix-codex-auth-wrapper.sh /usr/local/bin/helix-codex-auth-wrapper
+COPY --chmod=0755 desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
+COPY --chmod=0755 desktop/shared/helix-codex-auth-wrapper.sh /usr/local/bin/helix-codex-auth-wrapper
 # helix-npx — installed as /usr/local/bin/npx so it shadows the system
 # /usr/bin/npx via PATH order. Gives each `npx <pkg>` invocation its own
 # NPM_CONFIG_CACHE so parallel npx spawns (Zed + Claude both starting
@@ -1179,8 +1179,7 @@ COPY desktop/shared/helix-codex-auth-wrapper.sh /usr/local/bin/helix-codex-auth-
 # the same package) don't race in npm's `_npx/<hash>` rename dance.
 # Zed's own ACP-wrapper bootstrapping calls npm via absolute path so it
 # bypasses this shim.
-COPY desktop/shared/helix-npx.sh /usr/local/bin/npx
-RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-codex-auth-wrapper /usr/local/bin/npx
+COPY --chmod=0755 desktop/shared/helix-npx.sh /usr/local/bin/npx
 
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
@@ -1194,20 +1193,17 @@ ENV CHROME_DEVTOOLS_MCP_HEADLESS=true \
 
 # CPU tiers: agent work (Zed's shell children, inner dockerd) runs in an
 # idle-class cgroup so the display path keeps the CPU during builds.
-ADD desktop/shared/16-cpu-tiers.sh /etc/cont-init.d/16-cpu-tiers.sh
-ADD desktop/shared/agent-tier-bash.sh /usr/local/libexec/helix/agent-tier/bash
-RUN chmod 755 /etc/cont-init.d/16-cpu-tiers.sh /usr/local/libexec/helix/agent-tier/bash
+ADD --chmod=0755 desktop/shared/16-cpu-tiers.sh /etc/cont-init.d/16-cpu-tiers.sh
+ADD --chmod=0755 desktop/shared/agent-tier-bash.sh /usr/local/libexec/helix/agent-tier/bash
 
 # Start the per-session container engine: rootful Docker for desktops and
 # rootless Docker for unprivileged sessions.
-ADD desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
-ADD desktop/shared/helix-buildkit-cache-stats.py /usr/local/bin/helix-buildkit-cache-stats
-RUN chmod 755 /etc/cont-init.d/17-start-dockerd.sh /usr/local/bin/helix-buildkit-cache-stats
+ADD --chmod=0755 desktop/shared/17-start-dockerd.sh /etc/cont-init.d/17-start-dockerd.sh
+ADD --chmod=0755 desktop/shared/helix-buildkit-cache-stats.py /usr/local/bin/helix-buildkit-cache-stats
 
 # Send the user's browser languages (HELIX_BROWSER_LANGUAGES) as Chrome's
 # Accept-Language, so sites don't localize to the runner's location.
-ADD desktop/shared/18-browser-languages.sh /etc/cont-init.d/18-browser-languages.sh
-RUN chmod 755 /etc/cont-init.d/18-browser-languages.sh
+ADD --chmod=0755 desktop/shared/18-browser-languages.sh /etc/cont-init.d/18-browser-languages.sh
 
 # Workspace README
 RUN mkdir -p /opt/helix
@@ -1474,8 +1470,7 @@ RUN test -x bin/qwen && \
 # Auto-update: goose's `update` command is user-invoked, not
 # automatic. The binary is pinned via GOOSE_COMMIT so any
 # user-triggered update would be overwritten by the next image build.
-COPY --from=goose-build /goose-binary /usr/local/bin/goose
-RUN chmod +x /usr/local/bin/goose
+COPY --from=goose-build --chmod=0755 /goose-binary /usr/local/bin/goose
 
 # opencode CLI (ACP agent, `opencode acp`).
 #
@@ -1613,55 +1608,48 @@ _INSTALL_SKILLS
 WORKDIR /
 
 # Helix startup scripts
-ADD desktop/ubuntu-config/startup-app.sh /opt/gow/startup.sh
-RUN chmod +x /opt/gow/startup.sh
+ADD --chmod=0755 desktop/ubuntu-config/startup-app.sh /opt/gow/startup.sh
 
-ADD desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
-ADD desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
-ADD desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
-ADD desktop/shared/helix-trusted-startup.sh /usr/local/bin/helix-trusted-startup.sh
-ADD desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
-ADD desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
-ADD desktop/shared/helix-git-mtime.py /usr/local/bin/helix-git-mtime
-ADD desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
+ADD --chmod=0755 desktop/ubuntu-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD --chmod=0755 desktop/ubuntu-config/start-gnome-bridge.sh /usr/local/bin/start-gnome-bridge.sh
+ADD --chmod=0755 desktop/shared/helix-specs-create.sh /usr/local/bin/helix-specs-create.sh
+ADD --chmod=0755 desktop/shared/helix-git-hooks.sh /usr/local/bin/helix-git-hooks.sh
+ADD --chmod=0755 desktop/shared/helix-workspace-setup.sh /usr/local/bin/helix-workspace-setup.sh
+ADD --chmod=0755 desktop/shared/helix-git-mtime.py /usr/local/bin/helix-git-mtime
+ADD --chmod=0755 desktop/shared/helix-chrome-devtools-mcp.sh /usr/local/bin/helix-chrome-devtools-mcp
+ADD --chmod=0755 desktop/shared/helix-browser.sh /usr/local/bin/helix-browser
+# The desktop's Chrome launcher and link handler go through helix-browser, so a
+# browser opened by hand is the same single browser on the configured profile
+# as the one the agent drives.
+RUN for f in /usr/share/applications/google-chrome.desktop /usr/share/applications/chromium.desktop; do \
+        [ ! -f "$f" ] || sed -i -E 's#^Exec=[^ ]+#Exec=/usr/local/bin/helix-browser open#' "$f"; \
+    done
 # arm64 only: Chromium launcher (amd64 ships Google Chrome, which has no chromium.real)
 RUN --mount=type=bind,source=desktop/shared/helix-chromium.sh,target=/tmp/helix-chromium.sh \
     if [ -x /usr/bin/chromium.real ]; then install -m 755 /tmp/helix-chromium.sh /usr/bin/chromium; fi
-ADD desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
-ADD desktop/shared/helix-golden-startup.sh /usr/local/bin/helix-golden-startup
-ADD desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
-ADD desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh
-ADD desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
-ADD desktop/shared/start-zed-headless.sh /usr/local/bin/start-zed-headless.sh
+ADD --chmod=0755 desktop/shared/helix-run-startup-script.sh /usr/local/bin/helix-run-startup-script.sh
+ADD --chmod=0755 desktop/shared/helix-golden-startup.sh /usr/local/bin/helix-golden-startup
+ADD --chmod=0755 desktop/shared/start-desktop-bridge.sh /usr/local/bin/start-desktop-bridge.sh
+ADD --chmod=0755 desktop/shared/start-headless-workspace-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh
+ADD --chmod=0755 desktop/shared/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+ADD --chmod=0755 desktop/shared/start-zed-headless.sh /usr/local/bin/start-zed-headless.sh
 # D-Bus policy for logind-stub (macOS ARM scanout mode)
 ADD desktop/shared/helix-logind.conf /etc/dbus-1/system.d/helix-logind.conf
 # Scanout mode init script (starts system D-Bus for logind-stub)
-ADD desktop/shared/17-scanout-setup.sh /etc/cont-init.d/17-scanout-setup.sh
-RUN chmod +x /etc/cont-init.d/17-scanout-setup.sh
-ADD desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
-ADD desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
-RUN chmod 755 /usr/local/bin/start-zed-helix.sh /usr/local/bin/start-gnome-bridge.sh \
-    /usr/local/bin/helix-specs-create.sh /usr/local/bin/helix-trusted-startup.sh /usr/local/bin/helix-git-hooks.sh \
-    /usr/local/bin/helix-workspace-setup.sh /usr/local/bin/helix-git-mtime \
-    /usr/local/bin/helix-chrome-devtools-mcp \
-    /usr/local/bin/helix-run-startup-script.sh /usr/local/bin/helix-golden-startup \
-    /usr/local/bin/start-desktop-bridge.sh /usr/local/bin/start-headless-workspace-bridge.sh \
-    /usr/local/bin/start-settings-sync-daemon.sh \
-    /usr/local/bin/start-zed-headless.sh /usr/local/bin/detect-render-node.sh /usr/local/bin/start-zed-core.sh
+ADD --chmod=0755 desktop/shared/17-scanout-setup.sh /etc/cont-init.d/17-scanout-setup.sh
+ADD --chmod=0755 desktop/shared/detect-render-node.sh /usr/local/bin/detect-render-node.sh
+ADD --chmod=0755 desktop/shared/start-zed-core.sh /usr/local/bin/start-zed-core.sh
 
 # Ubuntu desktop theming (includes cursor-size=48 for fingerprinting)
 ADD desktop/ubuntu-config/dconf-settings.ini /opt/gow/dconf-settings.ini
 
 # Zed binary
-RUN mkdir -p /zed-build
-COPY zed-build/zed /zed-build/zed
-RUN chmod +x /zed-build/zed
+COPY --chmod=0755 zed-build/zed /zed-build/zed
 
 # Zed desktop file and icon
 # Use dev.zed.Zed-Dev.desktop to match StartupWMClass (dev build reports as Zed-Dev)
 # Use simple "zed" icon name for universal compatibility
-COPY desktop/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
-RUN chmod 644 /usr/share/applications/dev.zed.Zed-Dev.desktop
+COPY --chmod=0644 desktop/ubuntu-config/zed.desktop /usr/share/applications/dev.zed.Zed-Dev.desktop
 COPY zed-build/app-icon.png /usr/share/icons/hicolor/512x512/apps/zed.png
 # Generate icon sizes for Zed
 RUN set -e && \

@@ -20,10 +20,17 @@ docker build --provenance=false \
   -f Dockerfile.zed-build "$src"
 cp "$src/crates/zed/resources/app-icon.png" zed-build/
 # The zed file marks a cache hit, so it is published last, and each file via
-# an atomic rename so a concurrent build never reads a partial copy.
+# an atomic rename so a concurrent build never reads a partial copy. The temp
+# name comes from mktemp, not $$: concurrent CI builds of the same commit run
+# in separate containers where the shell often has the same PID, so a
+# PID-named temp file collides and one build's rename fails.
 mkdir -p "$cache"
-for f in app-icon.png zed; do
-  cp "zed-build/$f" "$cache/$f.$$"
-  mv "$cache/$f.$$" "$cache/$f"
+for f in app-icon.png:644 zed:755; do
+  mode=${f#*:}
+  f=${f%:*}
+  tmp=$(mktemp "$cache/$f.XXXXXX")
+  cp "zed-build/$f" "$tmp"
+  chmod "$mode" "$tmp"
+  mv "$tmp" "$cache/$f"
 done
 echo "Built and cached Zed binary for $sha"

@@ -192,7 +192,7 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 	}
 
 	sandbox := &types.Sandbox{
-		Name:           req.Name,
+		Name:           types.TruncateRunes(req.Name, types.SandboxNameMaxLen, true),
 		OrganizationID: orgID,
 		ProjectID:      req.ProjectID,
 		Owner:          owner,
@@ -276,6 +276,11 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	// Once teardown starts it must reach the soft-delete even if the caller
+	// goes away: a hydra teardown can outlast an HTTP client's timeout, and a
+	// cancelled ctx would then leave the row stuck in "stopping" with its
+	// container already gone.
+	ctx = context.WithoutCancel(ctx)
 
 	if err := c.billSandboxFinal(ctx, sandbox, time.Now()); err != nil {
 		// Same policy as closeSession: a failed final charge must not block
@@ -387,7 +392,7 @@ func (c *Controller) Update(ctx context.Context, id string, req *types.UpdateSan
 		return sandbox, nil
 	}
 	if req.Name != nil {
-		sandbox.Name = *req.Name
+		sandbox.Name = types.TruncateRunes(*req.Name, types.SandboxNameMaxLen, true)
 	}
 	if req.TimeoutSeconds != nil && *req.TimeoutSeconds > 0 {
 		sandbox.TimeoutSeconds = *req.TimeoutSeconds

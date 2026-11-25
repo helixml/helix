@@ -314,6 +314,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.Memory{},
 		&types.SandboxInstance{},
 		&types.Sandbox{},
+		&types.SandboxRun{},
 		&types.OrgCodeAgentHarness{},
 		&types.DiskUsageHistory{},
 		&types.GuidelinesHistory{},
@@ -332,6 +333,21 @@ func (s *PostgresStore) runMigrations() error {
 		&types.WebPage{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := s.gdb.Set("gorm:table_options", "PARTITION BY RANGE (created)").AutoMigrate(&llmCallPayload{}); err != nil {
+		return err
+	}
+	var invalid bool
+	if err := s.gdb.Raw("SELECT EXISTS (SELECT FROM pg_index WHERE indexrelid = to_regclass('idx_llm_calls_legacy_payload') AND NOT indisvalid)").Scan(&invalid).Error; err != nil {
+		return err
+	}
+	if invalid {
+		if err := s.gdb.Exec("DROP INDEX CONCURRENTLY idx_llm_calls_legacy_payload").Error; err != nil {
+			return err
+		}
+	}
+	if err := s.gdb.Exec("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_llm_calls_legacy_payload ON llm_calls (created,id) WHERE " + legacyPayload).Error; err != nil {
 		return err
 	}
 	// users.token held whatever bearer token a request carried when the row
@@ -436,6 +452,23 @@ func (s *PostgresStore) runMigrations() error {
 		).Error; err != nil {
 			return fmt.Errorf("failed to backfill sandboxes.org_bot_id: %w", err)
 		}
+	}
+
+	// One-time backfill: seed the run ledger from sandboxes that ran before it
+	// existed. A row only remembers its latest run, so this is one run per
+	// sandbox; idempotent because rows that already have a run are skipped.
+	if err := s.gdb.WithContext(context.Background()).Exec(
+		`INSERT INTO sandbox_runs (id, sandbox_id, organization_id, runtime, v_cpus, started_at, stopped_at)
+		 SELECT 'sbrun_' || sb.id, sb.id, sb.organization_id, sb.runtime, GREATEST(sb.v_cpus, 1), sb.started_at,
+		        CASE WHEN sb.status = ? AND sb.deleted_at IS NULL THEN NULL
+		             ELSE GREATEST(sb.started_at, COALESCE(sb.stopped_at, sb.deleted_at, sb.updated_at, sb.started_at)) END
+		 FROM sandboxes sb
+		 WHERE sb.started_at IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM sandbox_runs r WHERE r.sandbox_id = sb.id)
+		 ON CONFLICT (id) DO NOTHING`,
+		types.SandboxStatusRunning,
+	).Error; err != nil {
+		return fmt.Errorf("failed to backfill sandbox_runs: %w", err)
 	}
 
 	if err := s.encryptLegacyPlaintextSecrets(context.Background(), encryptLegacySecretsBatchSize); err != nil {
