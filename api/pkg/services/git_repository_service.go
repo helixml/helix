@@ -87,6 +87,10 @@ type GitRepositoryService struct {
 	upstreamSyncedAt map[string]time.Time
 	upstreamStateMu  sync.Mutex
 
+	// upstreamHasBranches records repos whose upstream is known to have at
+	// least one branch, so pushes only check for an empty upstream once.
+	upstreamHasBranches sync.Map
+
 	// prListCache absorbs duplicate ListPullRequests calls (orchestrator polls,
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
 	// rate limit. Set on construction; safe for concurrent use.
