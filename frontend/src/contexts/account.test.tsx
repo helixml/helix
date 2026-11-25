@@ -191,6 +191,20 @@ describe('useAccountContext redirect logic', () => {
       expect(mockNavigateReplace).toHaveBeenCalledWith('onboarding')
       expect(mockNavigateReplace).not.toHaveBeenCalledWith('orgs')
     })
+
+    it.each([false, true])('does not redirect the artifact viewer when onboarding_completed is %s', async (completed) => {
+      setupAuthenticatedUser({ onboarding_completed: completed })
+      mockRouterState.name = 'artifact_viewer'
+
+      const { result } = renderHook(() => useAccountContext())
+
+      await waitFor(() => {
+        expect(result.current.initialized).toBe(true)
+      })
+
+      expect(mockNavigateReplace).not.toHaveBeenCalledWith('onboarding')
+      expect(mockNavigateReplace).not.toHaveBeenCalledWith('orgs')
+    })
   })
 
   describe('onboarding redirect', () => {

@@ -29,6 +29,28 @@ import MarkdownTable from "./MarkdownTable";
 import MarkdownCodeBlock from "./MarkdownCodeBlock";
 import ChangedFileIcon from "./ChangedFileIcon";
 import { parseWorkspaceFileReference } from "../common/workspaceFileReferences";
+import { getEmbedAccessToken } from "../../hooks/useApi";
+
+const artifactHrefWithEmbedAccess = (href: string): string => {
+  const token = getEmbedAccessToken();
+  if (!token) return href;
+
+  try {
+    const url = new URL(href, window.location.origin);
+    if (
+      url.origin !== window.location.origin ||
+      !/^\/artifacts\/art_[A-Za-z0-9_-]+\/?$/.test(url.pathname)
+    ) {
+      return href;
+    }
+    url.searchParams.set("access_token", token);
+    return href.startsWith("/")
+      ? `${url.pathname}${url.search}${url.hash}`
+      : url.toString();
+  } catch {
+    return href;
+  }
+};
 
 export interface MessageProcessorOptions {
   session: TypesSession;
@@ -1082,7 +1104,7 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
           );
         },
         a(props: any) {
-          const { node, href, target, children, ...rest } = props;
+          const { node, href, target, children, rel, ...rest } = props;
           const label = React.Children.toArray(children)
             .filter((child): child is string | number => typeof child === "string" || typeof child === "number")
             .join("");
@@ -1095,23 +1117,29 @@ const MemoizedMarkdownRenderer: FC<{ processedContent: string }> = React.memo(
           // for in-page anchors like [Top](#section).
           if (!href || href === "#" || href.startsWith("#")) {
             return (
-              <a href={href} {...rest}>
+              <a href={href} rel={rel} {...rest}>
                 {children}
               </a>
             );
           }
+          const artifactHref = artifactHrefWithEmbedAccess(href);
           // Respect an explicit target already set on the source HTML
           // (e.g. doc-citation links from processDocumentIds).
           if (target) {
             return (
-              <a href={href} target={target} {...rest}>
+              <a
+                href={artifactHref}
+                target={target}
+                rel={artifactHref === href ? rel : "noopener noreferrer"}
+                {...rest}
+              >
                 {children}
               </a>
             );
           }
           return (
             <a
-              href={href}
+              href={artifactHref}
               target="_blank"
               rel="noopener noreferrer"
               {...rest}

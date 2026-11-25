@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	authpkg "github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -53,16 +55,16 @@ func artifactUploadRequest(t *testing.T, user *types.User, fields map[string]str
 	return mux.SetURLVars(req, map[string]string{"id": confinedProjectID})
 }
 
-// A task-confined key's artifact records its task, server-side: the
+// A task-bound key's artifact records its task, server-side: the
 // request's source_spec_task_id naming the verifier is ignored.
-func TestCreateProjectArtifact_RecordsConfinedKeyTask(t *testing.T) {
+func TestCreateProjectArtifact_RecordsAuthenticatedKeyTask(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		user     *types.User
 		wantTask string
 	}{
 		{"confined key records its task", finderKeyUser(), finderTaskID},
-		{"unconfined key records none", unconfinedFinderKeyUser(), ""},
+		{"project-wide task key records its task", unconfinedFinderKeyUser(), finderTaskID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, st, fs := artifactProvenanceServer(t)
@@ -92,7 +94,7 @@ func TestCreateProjectArtifact_RecordsConfinedKeyTask(t *testing.T) {
 			} else {
 				assert.NotContains(t, rec.Body.String(), `"spec_task_id"`)
 			}
-			if tc.user.TaskConfined {
+			if tc.user.SpecTaskID != "" {
 				assert.Equal(t, finderTaskID, version.SourceSpecTaskID)
 				assert.Equal(t, finderSessionID, version.SourceSessionID)
 			}
@@ -109,6 +111,198 @@ func TestArtifactVersionFromUpload_ConfinedKeyCannotClaimAnotherTask(t *testing.
 	v := artifactVersionFromUpload(req, "art_1", "artv_1", "p", 1, confinedOwnerID, &artifactUpload{})
 	assert.Equal(t, finderTaskID, v.SourceSpecTaskID)
 	assert.Equal(t, finderSessionID, v.SourceSessionID)
+}
+
+func TestAuthorizeArtifactRead_EmbedKeyReachesOnlyItsTask(t *testing.T) {
+	embed := finderKeyUser()
+	embed.APIKeyType = types.APIkeytypeEmbed
+	for _, tc := range []struct {
+		name     string
+		artifact *types.Artifact
+		user     *types.User
+		allowed  bool
+	}{
+		{"own task", &types.Artifact{ProjectID: confinedProjectID, SpecTaskID: finderTaskID}, embed, true},
+		{"another task in shared project", &types.Artifact{ProjectID: confinedProjectID, SpecTaskID: verifierTaskID}, embed, false},
+		{"legacy artifact without task", &types.Artifact{ProjectID: confinedProjectID}, embed, false},
+		{"credential scoped to another project", &types.Artifact{ProjectID: confinedProjectID, SpecTaskID: finderTaskID}, &types.User{
+			ID: confinedOwnerID, APIKeyType: types.APIkeytypeEmbed, ProjectID: "prj_other", SpecTaskID: finderTaskID,
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, st, _ := artifactProvenanceServer(t)
+			st.EXPECT().GetProject(gomock.Any(), confinedProjectID).Return(confinedProject(), nil)
+			err := srv.authorizeArtifactRead(context.Background(), tc.user, tc.artifact)
+			if tc.allowed {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestArtifactReadHandlers_EmbedKeyCannotReadAnotherTasksArtifact(t *testing.T) {
+	denials := []struct {
+		name     string
+		artifact *types.Artifact
+		user     *types.User
+		prepare  func(*store.MockStore)
+	}{
+		{
+			name: "same project other task",
+			artifact: &types.Artifact{
+				ID: "art_verifier", ProjectID: confinedProjectID, SpecTaskID: verifierTaskID,
+			},
+			user: func() *types.User {
+				u := finderKeyUser()
+				u.APIKeyType = types.APIkeytypeEmbed
+				return u
+			}(),
+			prepare: func(st *store.MockStore) {
+				st.EXPECT().GetProject(gomock.Any(), confinedProjectID).Return(confinedProject(), nil)
+			},
+		},
+		{
+			name: "other tenant",
+			artifact: &types.Artifact{
+				ID: "art_tenant_a", ProjectID: "prj_tenant_a", OrganizationID: tenantAOrg, SpecTaskID: finderTaskID,
+			},
+			user: &types.User{ID: tenantBUser, APIKeyType: types.APIkeytypeEmbed, SpecTaskID: finderTaskID},
+			prepare: func(st *store.MockStore) {
+				st.EXPECT().GetProject(gomock.Any(), "prj_tenant_a").Return(&types.Project{
+					ID: "prj_tenant_a", UserID: tenantAAdmin, OrganizationID: tenantAOrg,
+				}, nil)
+				st.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+					OrganizationID: tenantAOrg, UserID: tenantBUser,
+				}).Return(nil, store.ErrNotFound)
+			},
+		},
+		{
+			name: "org member without project grant",
+			artifact: &types.Artifact{
+				ID: "art_tenant_a", ProjectID: "prj_tenant_a", OrganizationID: tenantAOrg, SpecTaskID: finderTaskID,
+			},
+			user: &types.User{ID: tenantAUser, APIKeyType: types.APIkeytypeEmbed, SpecTaskID: finderTaskID},
+			prepare: func(st *store.MockStore) {
+				st.EXPECT().GetProject(gomock.Any(), "prj_tenant_a").Return(&types.Project{
+					ID: "prj_tenant_a", UserID: tenantAAdmin, OrganizationID: tenantAOrg,
+				}, nil)
+				st.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+					OrganizationID: tenantAOrg, UserID: tenantAUser,
+				}).Return(&types.OrganizationMembership{
+					OrganizationID: tenantAOrg, UserID: tenantAUser, Role: types.OrganizationRoleMember,
+				}, nil)
+				st.EXPECT().ListTeams(gomock.Any(), gomock.Any()).Return(nil, nil)
+				st.EXPECT().ListAccessGrants(gomock.Any(), gomock.Any()).Return(nil, nil)
+			},
+		},
+	}
+
+	for _, denial := range denials {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			for name, call := range map[string]func(*HelixAPIServer, http.ResponseWriter, *http.Request){
+				"viewer":   (*HelixAPIServer).getArtifactViewer,
+				"embed":    (*HelixAPIServer).serveArtifactEmbed,
+				"document": (*HelixAPIServer).serveArtifactDocument,
+				"download": (*HelixAPIServer).serveArtifactDownload,
+			} {
+				if name == "viewer" && method == http.MethodHead {
+					continue
+				}
+				t.Run(denial.name+" "+method+" "+name, func(t *testing.T) {
+					srv, st, _ := artifactProvenanceServer(t)
+					artifact := *denial.artifact
+					artifact.Visibility = types.ArtifactVisibilityProject
+					artifact.Kind = types.ArtifactKindPDF
+					artifact.ActiveVersion = &types.ArtifactVersion{ID: "artv_report", Files: []types.ArtifactFile{{Path: "report.pdf"}}}
+					st.EXPECT().GetArtifact(gomock.Any(), artifact.ID).Return(&artifact, nil)
+					denial.prepare(st)
+					req := httptest.NewRequest(method, "/artifacts/"+artifact.ID+"/"+name, http.NoBody)
+					req = mux.SetURLVars(req.WithContext(setRequestUser(req.Context(), *denial.user)), map[string]string{"artifact_id": artifact.ID})
+					rec := httptest.NewRecorder()
+					call(srv, rec, req)
+					assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+				})
+			}
+		}
+	}
+}
+
+func TestArtifactViewer_EmbedKeyMiddlewareAndTaskAuthorization(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		artifactTask   string
+		keyOrg         string
+		queryToken     bool
+		setUserState   func(*types.User)
+		wantStatus     int
+		handlerReached bool
+	}{
+		{name: "own task bearer", artifactTask: finderTaskID, wantStatus: http.StatusOK, handlerReached: true},
+		{name: "own task query beats browser session", artifactTask: finderTaskID, queryToken: true, wantStatus: http.StatusOK, handlerReached: true},
+		{name: "same project other task", artifactTask: verifierTaskID, wantStatus: http.StatusForbidden, handlerReached: true},
+		{name: "foreign org key", artifactTask: finderTaskID, keyOrg: "org_other", wantStatus: http.StatusForbidden, handlerReached: true},
+		{name: "waitlisted owner", artifactTask: finderTaskID, setUserState: func(u *types.User) { u.Waitlisted = true }, wantStatus: http.StatusForbidden},
+		{name: "deactivated owner", artifactTask: finderTaskID, setUserState: func(u *types.User) { u.Deactivated = true }, wantStatus: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			st := store.NewMockStore(ctrl)
+			owner := &types.User{ID: confinedOwnerID}
+			if tc.setUserState != nil {
+				tc.setUserState(owner)
+			}
+			key := &types.ApiKey{
+				Key: "hl-embed", Owner: owner.ID, OwnerType: types.OwnerTypeUser,
+				Type: types.APIkeytypeEmbed, OrganizationID: tc.keyOrg,
+				SpecTaskID: finderTaskID, SessionID: finderSessionID,
+			}
+			st.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: key.Key}).Return(key, nil)
+			st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: owner.ID}).Return(owner, nil).AnyTimes()
+			st.EXPECT().EnsureUserMeta(gomock.Any(), gomock.Any()).Return(&types.UserMeta{ID: owner.ID}, nil).AnyTimes()
+
+			artifact := &types.Artifact{
+				ID: "art_report", ProjectID: confinedProjectID, OrganizationID: "",
+				SpecTaskID: tc.artifactTask, Visibility: types.ArtifactVisibilityProject,
+			}
+			if tc.handlerReached {
+				st.EXPECT().GetArtifact(gomock.Any(), artifact.ID).Return(artifact, nil)
+				projectCalls := 1
+				if tc.wantStatus == http.StatusOK {
+					projectCalls = 2
+				}
+				st.EXPECT().GetProject(gomock.Any(), confinedProjectID).Return(confinedProject(), nil).Times(projectCalls)
+				if tc.wantStatus == http.StatusOK {
+					st.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: ""}).Return(&types.Organization{Name: "Personal"}, nil)
+					st.EXPECT().ListVHostRoutesByTarget(gomock.Any(), types.VHostTargetArtifact, artifact.ID).Return(nil, nil)
+				}
+			}
+
+			auth := newAuthMiddleware(nil, nil, st, authMiddlewareConfig{}, nil, authpkg.NewSessionManager(st, nil, nil))
+			auth.lastSeenCache.Store(owner.ID, time.Now())
+			srv := &HelixAPIServer{
+				Cfg:   &config.ServerConfig{WebServer: config.WebServer{URL: "https://helix.example"}},
+				Store: st, authMiddleware: auth,
+			}
+			router := mux.NewRouter()
+			router.Handle("/api/v1/public/artifacts/{artifact_id}", auth.extractMiddleware(http.HandlerFunc(srv.getArtifactViewer))).Methods(http.MethodGet)
+			target := "/api/v1/public/artifacts/" + artifact.ID
+			req := httptest.NewRequest(http.MethodGet, target, http.NoBody)
+			if tc.queryToken {
+				req.URL.RawQuery = "access_token=" + key.Key
+				req.AddCookie(&http.Cookie{Name: authpkg.SessionCookieName, Value: "existing-browser-session"})
+			} else {
+				req.Header.Set("Authorization", "Bearer "+key.Key)
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			assert.Equal(t, tc.wantStatus, rec.Code, rec.Body.String())
+			if tc.wantStatus == http.StatusOK {
+				assert.Contains(t, rec.Body.String(), `"can_edit":false`)
+			}
+		})
+	}
 }
 
 // A confined key may change or delete only its own task's artifacts; it can

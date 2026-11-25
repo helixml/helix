@@ -83,7 +83,7 @@ var credentialCases = []credentialCase{
 	apiKeyCase("project-key", false, http.MethodGet, "/api/v1/projects/prj-1", types.ApiKey{Type: types.APIkeytypeAPI, OrganizationID: "org-1", ProjectID: "prj-1"}),
 	apiKeyCase("project-key-proxy", true, http.MethodPost, "/v1/chat/completions", types.ApiKey{Type: types.APIkeytypeAPI, OrganizationID: "org-1", ProjectID: "prj-1"}),
 	apiKeyCase("session-scoped-key", false, http.MethodGet, "/api/v1/sessions/ses-1", types.ApiKey{Type: types.APIkeytypeAPI, SessionID: "ses-1"}),
-	apiKeyCase("embed-key", false, http.MethodGet, "/api/v1/auth/user", types.ApiKey{Type: types.APIkeytypeEmbed, SpecTaskID: "spt-1"}),
+	apiKeyCase("embed-key", false, http.MethodGet, "/api/v1/public/artifacts/art-1", types.ApiKey{Type: types.APIkeytypeEmbed, SpecTaskID: "spt-1"}),
 	apiKeyCase("openai-proxy-key", true, http.MethodPost, "/v1/chat/completions", types.ApiKey{Type: types.APIkeytypeAPI}),
 	apiKeyCase("anthropic-proxy-key", true, http.MethodPost, "/v1/messages", types.ApiKey{Type: types.APIkeytypeAPI}),
 }

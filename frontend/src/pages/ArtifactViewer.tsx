@@ -18,6 +18,7 @@ import Markdown from '../components/session/Markdown'
 import MarkdownCodeBlock from '../components/session/MarkdownCodeBlock'
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
+import { getEmbedAccessToken } from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import { useGetArtifactMarkdownSource, useGetArtifactViewer, useSetArtifactVisibility } from '../services/artifactService'
@@ -32,6 +33,7 @@ const ArtifactViewer: FC = () => {
   const visibilityMutation = useSetArtifactVisibility(artifactId)
   const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null)
   const [showRawMarkdown, setShowRawMarkdown] = useState(false)
+  const embedAccessToken = getEmbedAccessToken()
 
   const organizationSlug = artifact?.organization_name || artifact?.organization_id || ''
   const organizationTitle = artifact?.organization_name || 'Organization'
@@ -41,13 +43,18 @@ const ArtifactViewer: FC = () => {
   const isPDF = artifact?.kind === TypesArtifactKind.ArtifactKindPDF
   const isMarkdown = artifact?.kind === TypesArtifactKind.ArtifactKindMarkdown
   const markdownSource = useGetArtifactMarkdownSource(artifactId, isMarkdown)
+  const privateArtifactURL = (suffix: 'embed' | 'document') => {
+    const path = `/artifacts/${artifact?.id}/${suffix}`
+    if (!embedAccessToken || isPublic) return path
+    return `${path}?${new URLSearchParams({ access_token: embedAccessToken })}`
+  }
   const frameURL = isMarkdown
     ? undefined
     : isPDF
-      ? `/artifacts/${artifact.id}/document`
+      ? privateArtifactURL('document')
       : isPublic
         ? artifact?.subdomain_url
-        : artifact ? `/artifacts/${artifact.id}/embed` : undefined
+        : artifact ? privateArtifactURL('embed') : undefined
 
   useEffect(() => {
     setShowRawMarkdown(false)
@@ -95,7 +102,7 @@ const ArtifactViewer: FC = () => {
 
   return (
     <Page
-      breadcrumbs={[
+      breadcrumbs={embedAccessToken ? [] : [
         {
           title: organizationTitle,
           routeName: 'org_projects',
@@ -118,6 +125,7 @@ const ArtifactViewer: FC = () => {
         },
       ]}
       breadcrumbTitle={artifact.name || 'Artifact'}
+      breadcrumbShowHome={!embedAccessToken}
       showDrawerButton={false}
       notifications={false}
       themeToggle={false}
@@ -138,11 +146,11 @@ const ArtifactViewer: FC = () => {
               </IconButton>
             </Tooltip>
           )}
-          {account.initialized && !account.user ? (
+          {!embedAccessToken && account.initialized && !account.user ? (
             <Button size="small" onClick={login} sx={{ textTransform: 'none', fontWeight: 500, minWidth: 'auto' }}>
               Login
             </Button>
-          ) : artifact.can_edit ? (
+          ) : !embedAccessToken && artifact.can_edit ? (
             <Button
               size="small"
               onClick={openShareMenu}

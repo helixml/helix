@@ -6,16 +6,23 @@ import ArtifactViewer from './ArtifactViewer'
 const mocks = vi.hoisted(() => ({
   account: { initialized: true, user: undefined as undefined | { id: string } },
   artifactKind: 'single_file',
+  artifactVisibility: 'public',
+  embedAccessToken: null as string | null,
   navigate: vi.fn(),
   mutateAsync: vi.fn(),
   pageProps: undefined as undefined | {
     breadcrumbTitle?: string
+    breadcrumbShowHome?: boolean
     breadcrumbs?: Array<{ title: string, routeName?: string, params?: Record<string, string> }>
   },
 }))
 
 vi.mock('../hooks/useAccount', () => ({
   default: () => mocks.account,
+}))
+
+vi.mock('../hooks/useApi', () => ({
+  getEmbedAccessToken: () => mocks.embedAccessToken,
 }))
 
 vi.mock('../hooks/useRouter', () => ({
@@ -39,7 +46,7 @@ vi.mock('../services/artifactService', () => ({
       organization_name: 'example-org',
       name: 'Public artifact',
       kind: mocks.artifactKind,
-      visibility: 'public',
+      visibility: mocks.artifactVisibility,
       active_version_id: 'artv_test',
       subdomain_url: 'http://artifact.example.test/',
       can_edit: !!mocks.account.user,
@@ -71,6 +78,7 @@ vi.mock('../components/system/Page', () => ({
     topbarContent: React.ReactNode
     children: React.ReactNode
     breadcrumbTitle?: string
+    breadcrumbShowHome?: boolean
     breadcrumbs?: Array<{ title: string, routeName?: string, params?: Record<string, string> }>
   }) => {
     mocks.pageProps = props
@@ -87,6 +95,8 @@ describe('ArtifactViewer', () => {
   beforeEach(() => {
     mocks.account.user = undefined
     mocks.artifactKind = 'single_file'
+    mocks.artifactVisibility = 'public'
+    mocks.embedAccessToken = null
     mocks.navigate.mockReset()
     mocks.mutateAsync.mockReset()
     mocks.pageProps = undefined
@@ -149,5 +159,34 @@ describe('ArtifactViewer', () => {
 
     expect(screen.getByTitle('Public artifact')).toHaveAttribute('src', '/artifacts/art_public/document')
     expect(screen.getByTitle('Public artifact')).not.toHaveAttribute('sandbox')
+  })
+
+  it('keeps an embedded private viewer scoped and read only', () => {
+    mocks.account.user = { id: 'usr_test' }
+    mocks.artifactKind = 'image'
+    mocks.artifactVisibility = 'project'
+    mocks.embedAccessToken = 'embed secret'
+    render(<ArtifactViewer />)
+
+    expect(screen.getByRole('img', { name: 'Public artifact' })).toHaveAttribute(
+      'src',
+      '/artifacts/art_public/embed?access_token=embed+secret',
+    )
+    expect(screen.queryByRole('button', { name: 'Share' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Login' })).not.toBeInTheDocument()
+    expect(mocks.pageProps?.breadcrumbs).toEqual([])
+    expect(mocks.pageProps?.breadcrumbShowHome).toBe(false)
+  })
+
+  it('carries embed access to a private PDF document', () => {
+    mocks.artifactKind = 'pdf'
+    mocks.artifactVisibility = 'project'
+    mocks.embedAccessToken = 'embed secret'
+    render(<ArtifactViewer />)
+
+    expect(screen.getByTitle('Public artifact')).toHaveAttribute(
+      'src',
+      '/artifacts/art_public/document?access_token=embed+secret',
+    )
   })
 })

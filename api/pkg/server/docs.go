@@ -32572,7 +32572,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "spec_task_id": {
-                    "description": "SpecTaskID is the spec task whose task-confined key created the\nartifact, set by the server from the key and never from the request.\nSuch a key may change or delete only its own task's artifacts, and a\nreader can tell one lane's artifacts from another's. Empty for\nartifacts created any other way.",
+                    "description": "SpecTaskID is the spec task whose task-bound key created the\nartifact, set by the server from the key and never from the request.\nA reader can tell one lane's artifacts from another's. Empty for artifacts\ncreated outside a spec task.",
                     "type": "string"
                 },
                 "subdomain_url": {

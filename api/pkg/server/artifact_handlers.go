@@ -224,7 +224,7 @@ func (s *HelixAPIServer) getArtifactViewer(w http.ResponseWriter, r *http.Reques
 			writeArtifactHTTPError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		if err := s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionGet); err != nil {
+		if err := s.authorizeArtifactRead(r.Context(), user, artifact); err != nil {
 			writeArtifactHTTPError(w, http.StatusForbidden, err.Error())
 			return
 		}
@@ -245,7 +245,7 @@ func (s *HelixAPIServer) getArtifactViewer(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	canEdit := userID != "" && s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionUpdate) == nil
+	canEdit := userID != "" && user.APIKeyType != types.APIkeytypeEmbed && s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionUpdate) == nil
 	writeArtifactJSON(w, http.StatusOK, &types.ArtifactViewerResponse{
 		ID:               artifact.ID,
 		ProjectID:        artifact.ProjectID,
@@ -476,13 +476,23 @@ func (s *HelixAPIServer) requireArtifactAccess(w http.ResponseWriter, r *http.Re
 	return artifact, true
 }
 
-// artifactKeyTaskID is the provenance a new artifact or version records for
-// its creator: the spec task of a task-confined key, "" for any other caller.
+// artifactKeyTaskID is the provenance a new artifact records from the
+// authenticated task-bound credential, never from request fields.
 func artifactKeyTaskID(user *types.User) string {
-	if user == nil || !user.TaskConfined {
+	if user == nil {
 		return ""
 	}
 	return user.SpecTaskID
+}
+
+func (s *HelixAPIServer) authorizeArtifactRead(ctx context.Context, user *types.User, artifact *types.Artifact) error {
+	if err := s.authorizeUserToProjectByID(ctx, user, artifact.ProjectID, types.ActionGet); err != nil {
+		return err
+	}
+	if user.APIKeyType == types.APIkeytypeEmbed && (user.SpecTaskID == "" || artifact.SpecTaskID != user.SpecTaskID) {
+		return ErrEmbedKeyNotAllowed
+	}
+	return nil
 }
 
 // errArtifactOtherTask refuses a task-confined key an artifact another task
@@ -789,9 +799,9 @@ func artifactVersionFromUpload(r *http.Request, artifactID, versionID, storagePr
 		SourceSessionID: r.FormValue("source_session_id"), SourceSpecTaskID: r.FormValue("source_spec_task_id"),
 		CreatedBy: userID, CreatedAt: time.Now(),
 	}
-	// A task-confined key's version names its own task and session: the
+	// A task-bound key's version names its own task and session: the
 	// key cannot attribute its upload to another lane.
-	if user := getRequestUser(r); user != nil && user.TaskConfined {
+	if user := getRequestUser(r); user != nil && user.SpecTaskID != "" {
 		version.SourceSpecTaskID = user.SpecTaskID
 		version.SourceSessionID = user.SessionID
 	}
@@ -970,7 +980,7 @@ func (s *HelixAPIServer) serveArtifactEmbed(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if err := s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionGet); err != nil {
+		if err := s.authorizeArtifactRead(r.Context(), user, artifact); err != nil {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -989,6 +999,12 @@ func (s *HelixAPIServer) serveArtifactEmbed(w http.ResponseWriter, r *http.Reque
 func artifactAccessRedirectPath(requested, rawQuery string) (string, error) {
 	requested = strings.TrimPrefix(requested, "/")
 	rawQuery = strings.TrimPrefix(rawQuery, "?")
+	query, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return "", err
+	}
+	query.Del("access_token")
+	rawQuery = query.Encode()
 	if requested == "" {
 		redirectPath := "/"
 		if rawQuery != "" {
@@ -1090,7 +1106,7 @@ func (s *HelixAPIServer) serveArtifactDocument(w http.ResponseWriter, r *http.Re
 			http.Error(w, "artifact access required", http.StatusUnauthorized)
 			return
 		}
-		if err := s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionGet); err != nil {
+		if err := s.authorizeArtifactRead(r.Context(), user, artifact); err != nil {
 			http.Error(w, "artifact access denied", http.StatusForbidden)
 			return
 		}
@@ -1116,7 +1132,7 @@ func (s *HelixAPIServer) serveArtifactDownload(w http.ResponseWriter, r *http.Re
 			http.Error(w, "artifact access required", http.StatusUnauthorized)
 			return
 		}
-		if err := s.authorizeUserToProjectByID(r.Context(), user, artifact.ProjectID, types.ActionGet); err != nil {
+		if err := s.authorizeArtifactRead(r.Context(), user, artifact); err != nil {
 			http.Error(w, "artifact access denied", http.StatusForbidden)
 			return
 		}

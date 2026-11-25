@@ -54,6 +54,7 @@ import {
 
 import useRouter from "../hooks/useRouter";
 import useAccount from "../hooks/useAccount";
+import { getEmbedAccessToken } from "../hooks/useApi";
 import useLightTheme from "../hooks/useLightTheme";
 import useThemeConfig from "../hooks/useThemeConfig";
 import useIsBigScreen from "../hooks/useIsBigScreen";
@@ -630,7 +631,7 @@ const Layout: FC<{
   // Still include CssBaseline so MUI's typography + body styles apply — without it,
   // embed pages get browser defaults (Times New Roman, undefined text color → black
   // on whatever bg the page paints).
-  if (router.meta.fullscreen) {
+  if (router.meta.fullscreen || (router.name === "artifact_viewer" && getEmbedAccessToken())) {
     return (
       <>
         <CssBaseline />
