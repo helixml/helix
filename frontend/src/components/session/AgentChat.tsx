@@ -151,7 +151,7 @@ const AgentChatContent: FC<AgentChatProps> = ({
   const steeringSupported = !!steeringSessionResponse?.data?.config?.agent_steering_supported
   // Session-keyed queue for sessions without a spec task; the spec-task
   // composer carries its own backend-backed queue instead.
-  const sessionQueue = useSessionPromptQueue(showSessionPromptQueue ? sessionId : '', isAgentBusy)
+  const sessionQueue = useSessionPromptQueue(showSessionPromptQueue || welcomeWhenEmpty ? sessionId : '', isAgentBusy)
   const hasSessionQueue = showSessionPromptQueue && sessionQueue.entries.length > 0
   const latestInteraction = latestInteractionsResponse?.data?.interactions?.[0]
   const latestInteractionId = latestInteraction?.id || null
@@ -172,24 +172,23 @@ const AgentChatContent: FC<AgentChatProps> = ({
   )
   const pendingQuestionInteractions = pendingQuestionsResponse?.data?.interactions ?? []
   const totalInteractionCount = latestInteractionsResponse?.data?.totalCount ?? 0
-  // A bot that has already been given work never goes back to the welcome
-  // screen. Each activation of a bot without preserved context clears the
-  // session first, so between turns the current generation is empty while the
-  // next prompt waits to run. A cleared session (generation > 0), or one we
-  // have watched run a real turn, has had instructions.
-  const { data: welcomeSessionResponse } = useGetSession(sessionId, {
-    enabled: !!sessionId && welcomeWhenEmpty,
-    skipInteractions: true,
-  })
+  // A bot that has been given an instruction never goes back to the welcome
+  // screen. A bot without preserved context has its session cleared before
+  // each activation, which deletes the previous turns, so between turns the
+  // interaction list is empty while the next prompt waits to run. Prompts
+  // survive the clear, and a bot's hire briefing is not one, so any prompt in
+  // the session's history means the bot has had work. Until that history has
+  // loaded we don't know, so the welcome waits for it.
   const [workedSessionId, setWorkedSessionId] = useState<string | null>(null)
   const latestIsInstruction = !!latestInteraction && latestInteraction.trigger !== 'org_hire'
   useEffect(() => {
     if (latestIsInstruction) setWorkedSessionId(sessionId)
   }, [latestIsInstruction, sessionId])
-  const botHasHadInstructions = welcomeWhenEmpty && (
-    latestIsInstruction
+  const botWelcomeBlocked = welcomeWhenEmpty && (
+    !sessionQueue.historySettled
+    || sessionQueue.hasHistory
+    || latestIsInstruction
     || workedSessionId === sessionId
-    || (welcomeSessionResponse?.data?.generation_id ?? 0) > 0
   )
   const hasOrgHireBriefing = welcomeWhenEmpty
     && totalInteractionCount === 1
@@ -205,7 +204,7 @@ const AgentChatContent: FC<AgentChatProps> = ({
   // poll, which would otherwise flash the welcome screen back for a moment.
   const showWelcome = pendingQuestionInteractions.length === 0
     && (!welcomeWhenEmpty || !hasSessionQueue)
-    && !botHasHadInstructions
+    && !botWelcomeBlocked
     && shouldShowWelcome(
       minimal || welcomeWhenEmpty,
       hasSentInWelcome,

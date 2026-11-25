@@ -686,6 +686,17 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ClearSessionInteractions(
 	suite.NoError(err)
 	suite.Equal(n, int(total), "should have seeded N interactions")
 
+	// The session's prompts outlive a clear: the bot chat reads them to tell a
+	// bot that has had work apart from a new one.
+	prompt := &types.PromptHistoryEntry{
+		ID:        system.GeneratePromptHistoryID(),
+		UserID:    userID,
+		SessionID: session.ID,
+		Content:   "msg",
+		Status:    "sent",
+	}
+	suite.Require().NoError(suite.db.CreatePromptHistoryEntry(ctx, prompt))
+
 	// Clear them.
 	err = suite.db.ClearSessionInteractions(ctx, session.ID)
 	suite.NoError(err)
@@ -702,6 +713,11 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_ClearSessionInteractions(
 	gotSession, err := suite.db.GetSession(ctx, session.ID)
 	suite.NoError(err)
 	suite.Equal(session.ID, gotSession.ID)
+
+	prompts, err := suite.db.ListPromptHistory(ctx, &types.PromptHistoryListRequest{SessionID: session.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(prompts.Entries, 1, "clearing must keep the session's prompt history")
+	suite.Equal(prompt.ID, prompts.Entries[0].ID)
 
 	// Idempotent: clearing again succeeds.
 	err = suite.db.ClearSessionInteractions(ctx, session.ID)
