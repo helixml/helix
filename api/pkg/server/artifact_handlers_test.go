@@ -145,8 +145,47 @@ func TestArtifactAccessRedirectPath(t *testing.T) {
 	redirectPath, err = artifactAccessRedirectPath("", "preview=true")
 	require.NoError(t, err)
 	require.Equal(t, "/?preview=true", redirectPath)
+	redirectPath, err = artifactAccessRedirectPath("", "access%5Ftoken=secret&tab=billing&access_token=other")
+	require.NoError(t, err)
+	require.Equal(t, "/?tab=billing", redirectPath)
 	_, err = artifactAccessRedirectPath("../secrets", "")
 	require.Error(t, err)
+}
+
+func TestServeArtifactEmbedDoesNotForwardAccessToken(t *testing.T) {
+	for _, visibility := range []types.ArtifactVisibility{types.ArtifactVisibilityPublic, types.ArtifactVisibilityProject} {
+		t.Run(string(visibility), func(t *testing.T) {
+			srv, st, _ := artifactProvenanceServer(t)
+			artifact := &types.Artifact{
+				ID: "art_finder", ProjectID: confinedProjectID, SpecTaskID: finderTaskID, Visibility: visibility,
+			}
+			st.EXPECT().GetArtifact(gomock.Any(), artifact.ID).Return(artifact, nil)
+			if visibility == types.ArtifactVisibilityPublic {
+				st.EXPECT().ListVHostRoutesByTarget(gomock.Any(), types.VHostTargetArtifact, artifact.ID).
+					Return([]*types.VHostRoute{{Hostname: "public.dev.helix.example"}}, nil)
+			} else {
+				st.EXPECT().GetProject(gomock.Any(), confinedProjectID).Return(confinedProject(), nil)
+				expires := time.Now().Add(time.Hour)
+				st.EXPECT().ListVHostRoutesByTarget(gomock.Any(), types.VHostTargetArtifactPrivate, artifact.ID).
+					Return([]*types.VHostRoute{{
+						Hostname: "private.dev.helix.example", TargetKind: types.VHostTargetArtifactPrivate,
+						TargetID: artifact.ID, AccessUserID: confinedOwnerID, ExpiresAt: &expires,
+					}}, nil)
+			}
+			user := finderKeyUser()
+			user.APIKeyType = types.APIkeytypeEmbed
+			req := httptest.NewRequest(http.MethodGet, "/artifacts/"+artifact.ID+"/embed/reports/today?access_token=secret&tab=summary", http.NoBody)
+			req = mux.SetURLVars(req.WithContext(setRequestUser(req.Context(), *user)), map[string]string{
+				"artifact_id": artifact.ID, "artifact_path": "reports/today",
+			})
+			rec := httptest.NewRecorder()
+			srv.serveArtifactEmbed(rec, req)
+			require.Equal(t, http.StatusTemporaryRedirect, rec.Code, rec.Body.String())
+			require.NotContains(t, rec.Header().Get("Location"), "access_token")
+			require.NotContains(t, rec.Header().Get("Location"), "secret")
+			require.Contains(t, rec.Header().Get("Location"), "/reports/today?tab=summary")
+		})
+	}
 }
 
 func TestActivePrivateArtifactRouteUser(t *testing.T) {

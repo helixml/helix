@@ -2884,11 +2884,10 @@ export interface TypesArtifact {
   organization_id?: string;
   project_id?: string;
   /**
-   * SpecTaskID is the spec task whose task-confined key created the
+   * SpecTaskID is the spec task whose task-bound key created the
    * artifact, set by the server from the key and never from the request.
-   * Such a key may change or delete only its own task's artifacts, and a
-   * reader can tell one lane's artifacts from another's. Empty for
-   * artifacts created any other way.
+   * A reader can tell one lane's artifacts from another's. Empty for artifacts
+   * created outside a spec task.
    */
   spec_task_id?: string;
   subdomain_url?: string;

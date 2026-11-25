@@ -133,6 +133,39 @@ var embedRules = []embedRule{
 	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/progress", scope: scopeTask},
 }
 
+// Artifact IDs do not encode their task. These routes pass the read-only
+// request through so the handler can load the artifact and compare its
+// server-recorded SpecTaskID with the key's task.
+func embedArtifactReadRequest(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if strings.HasPrefix(path, "/api/v1/public/artifacts/") {
+		id := strings.TrimPrefix(path, "/api/v1/public/artifacts/")
+		return id != "" && !strings.Contains(id, "/")
+	}
+	if strings.HasPrefix(path, "/api/v1/artifacts/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/artifacts/"), "/")
+		return len(parts) == 2 && parts[0] != "" && parts[1] == "download"
+	}
+	if !strings.HasPrefix(path, "/artifacts/") {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/artifacts/"), "/")
+	if len(parts) < 2 || parts[0] == "" {
+		return false
+	}
+	switch parts[1] {
+	case "embed":
+		return true
+	case "document", "download":
+		return len(parts) == 2
+	default:
+		return false
+	}
+}
+
 // embedInteractiveRules are granted ONLY to interactive embed keys: driving the
 // bound session's desktop. Interactive keys are minted for the desktop's own
 // operator (a tenant watching and taking over its own agent) — never for a
@@ -252,6 +285,9 @@ func embedKeyAllows(user *types.User, r *http.Request) bool {
 	// chat is embedded exactly as a task's is, through /embed/session.
 	if user.SpecTaskID == "" && user.SessionID == "" {
 		return false
+	}
+	if user.SpecTaskID != "" && embedArtifactReadRequest(r) {
+		return true
 	}
 
 	// The websocket carries its subject as a query parameter rather than a path

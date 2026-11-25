@@ -57,6 +57,12 @@ func TestEmbedKeyAllowsItsOwnTaskAndSession(t *testing.T) {
 		{"GET", "/api/v1/external-agents/ses_A/file"},
 		{"GET", "/api/v1/external-agents/ses_A/ws/stream"},
 		{"GET", "/api/v1/prompt-history?spec_task_id=spt_A&project_id=prj_1"},
+		{"GET", "/api/v1/public/artifacts/art_A"},
+		{"GET", "/api/v1/artifacts/art_A/download"},
+		{"GET", "/artifacts/art_A/embed"},
+		{"HEAD", "/artifacts/art_A/embed/assets/app.js"},
+		{"GET", "/artifacts/art_A/document"},
+		{"HEAD", "/artifacts/art_A/download"},
 	}
 	for _, c := range allowed {
 		if !embedKeyAllows(u, req(c.method, c.path)) {
@@ -203,6 +209,9 @@ func TestEmbedKeyCannotMutateOrDriveDesktop(t *testing.T) {
 		{"GET", "/api/v1/sessions/ses_A/terminal"},
 		{"GET", "/api/v1/external-agents/ses_A/workspace-files"},
 		{"GET", "/api/v1/external-agents/ses_A/workspace-skills"},
+		{"PUT", "/api/v1/artifacts/art_A"},
+		{"DELETE", "/api/v1/artifacts/art_A"},
+		{"POST", "/artifacts/art_A/download"},
 	}
 	for _, c := range denied {
 		if embedKeyAllows(u, req(c.method, c.path)) {
