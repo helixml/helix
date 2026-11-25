@@ -29,10 +29,11 @@ afterEach(() => {
 
 const NOW = Date.parse('2026-09-07T12:00:00Z')
 
-const renderRow = (item: SidebarItem, active = false) => render(
+const renderRow = (item: SidebarItem, active = false, linkedProjectName?: string) => render(
   <ProjectChatItemRow
     item={item}
     active={active}
+    linkedProjectName={linkedProjectName}
     relativeTimeNow={NOW}
     archivingItemId={null}
     organizationMembers={[]}
@@ -81,6 +82,18 @@ describe('ProjectChatItemRow', () => {
     expect(screen.queryByText('keel')).not.toBeInTheDocument()
     expect(screen.queryByTestId('sidebar-item-metadata')).not.toBeInTheDocument()
     expect(container.querySelector('.project-chat-item')).toHaveStyle({ height: '32px' })
+  })
+
+  it('marks a task listed outside its project as a link to it', async () => {
+    renderRow(quietTask, false, 'keel')
+    const marker = screen.getByTestId('sidebar-item-linked')
+    fireEvent.mouseOver(marker)
+    expect(await screen.findByText('Linked: the same task as in project keel, not a copy')).toBeInTheDocument()
+  })
+
+  it('does not mark a task listed under its own project', () => {
+    renderRow(quietTask)
+    expect(screen.queryByTestId('sidebar-item-linked')).not.toBeInTheDocument()
   })
 
   it('explains why a planning task has no branch yet', async () => {

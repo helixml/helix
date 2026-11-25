@@ -42,6 +42,7 @@ const renderBot = (bot: SidebarBot, activeItemId = '', collapsed = true, onOpenM
     onToggle={vi.fn()}
     onOpen={vi.fn()}
     onOpenMenu={onOpenMenu}
+    hiddenProjectIds={new Set()}
     onOpenItem={vi.fn()}
     onOpenItemContextMenu={vi.fn()}
     onArchiveItem={vi.fn()}
