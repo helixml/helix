@@ -70,8 +70,11 @@ const (
 type embedRule struct {
 	methods []string // empty = any
 	prefix  string
-	suffix  string // "" = prefix must match the whole remaining path
-	scope   embedScope
+	// suffix follows the scoped id; "" = prefix must match the whole remaining
+	// path. A "{}" segment matches exactly one non-empty segment, for ids of
+	// sub-resources the handler itself binds to the scoped id.
+	suffix string
+	scope  embedScope
 
 	// queryParam names a query parameter to read the scoped id from, for
 	// endpoints that take their subject there rather than in the path.
@@ -112,6 +115,15 @@ var embedRules = []embedRule{
 	// (POST .../pr-proposals/{id}/decide) grants push rights and is an owner's
 	// decision, so it has no rule here.
 	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/pr-proposals", scope: scopeTask},
+	// The task's plan, which the Plan tab renders from its design reviews.
+	// Without these the tab reports a published plan as still in progress.
+	// Read only: comments, document edits and submitting a review stay denied.
+	// Each handler 404s a review that is not this task's (getTaskDesignReview),
+	// so {} cannot name another task's review.
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/design-reviews", scope: scopeTask},
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/design-reviews/{}", scope: scopeTask},
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/design-reviews/{}/comments", scope: scopeTask},
+	{methods: []string{"GET"}, prefix: "/api/v1/spec-tasks/", suffix: "/design-reviews/{}/comment-queue-status", scope: scopeTask},
 
 	// The one conversation this key may read and post to.
 	{methods: []string{"GET"}, prefix: "/api/v1/sessions/", scope: scopeSession},
@@ -430,12 +442,28 @@ func (rule embedRule) match(path string) (string, bool) {
 		}
 		return rest, true
 	}
-	if !strings.HasSuffix(rest, rule.suffix) {
-		return "", false
-	}
-	id := strings.TrimSuffix(rest, rule.suffix)
-	if id == "" || strings.Contains(id, "/") {
+	id, tail, found := strings.Cut(rest, "/")
+	if !found || id == "" || !embedTailMatches("/"+tail, rule.suffix) {
 		return "", false
 	}
 	return id, true
+}
+
+// embedTailMatches reports whether tail has exactly the segments of pattern,
+// where a "{}" pattern segment matches one non-empty segment.
+func embedTailMatches(tail, pattern string) bool {
+	got, want := strings.Split(tail, "/"), strings.Split(pattern, "/")
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if want[i] == "{}" {
+			if got[i] == "" {
+				return false
+			}
+		} else if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

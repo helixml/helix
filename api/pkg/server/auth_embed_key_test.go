@@ -63,6 +63,10 @@ func TestEmbedKeyAllowsItsOwnTaskAndSession(t *testing.T) {
 		{"HEAD", "/artifacts/art_A/embed/assets/app.js"},
 		{"GET", "/artifacts/art_A/document"},
 		{"HEAD", "/artifacts/art_A/download"},
+		{"GET", "/api/v1/spec-tasks/spt_A/design-reviews"},
+		{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1"},
+		{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comments"},
+		{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comment-queue-status"},
 	}
 	for _, c := range allowed {
 		if !embedKeyAllows(u, req(c.method, c.path)) {
@@ -91,6 +95,10 @@ func TestEmbedKeyCannotReachAnotherTaskOrSession(t *testing.T) {
 		{"GET", "/api/v1/prompt-history?spec_task_id=spt_B&project_id=prj_1"},
 		// No subject named at all is not "unscoped", it is out of scope.
 		{"GET", "/api/v1/prompt-history"},
+		{"GET", "/api/v1/spec-tasks/spt_B/design-reviews"},
+		{"GET", "/api/v1/spec-tasks/spt_B/design-reviews/rev_1"},
+		{"GET", "/api/v1/spec-tasks/spt_B/design-reviews/rev_1/comments"},
+		{"GET", "/api/v1/spec-tasks/spt_B/design-reviews/rev_1/comment-queue-status"},
 	}
 	for _, c := range denied {
 		if embedKeyAllows(u, req(c.method, c.path)) {
@@ -615,6 +623,27 @@ func TestEmbedKeyMiddlewareQuestionActionsStayInBoundSession(t *testing.T) {
 					t.Fatalf("handler reached = %v", reached)
 				}
 			})
+		}
+	}
+}
+
+// The plan is readable; reviewing it is the owner's, not the embed's.
+func TestEmbedKeyReadsButCannotReviewItsPlan(t *testing.T) {
+	for _, u := range []*types.User{embedUser(), func() *types.User { i := embedUser(); i.EmbedInteractive = true; return i }()} {
+		denied := []struct{ method, path string }{
+			{"POST", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comments"},
+			{"POST", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/submit"},
+			{"PUT", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/document"},
+			{"POST", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comments/c_1/resolve"},
+			// {} is one segment: no empty id, no extra depth.
+			{"GET", "/api/v1/spec-tasks/spt_A/design-reviews//comments"},
+			{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/comments/c_1"},
+			{"GET", "/api/v1/spec-tasks/spt_A/design-reviews/rev_1/../../../spt_B/design-reviews"},
+		}
+		for _, c := range denied {
+			if embedKeyAllows(u, req(c.method, c.path)) {
+				t.Errorf("SECURITY: embed key (interactive=%v) allowed %s %s", u.EmbedInteractive, c.method, c.path)
+			}
 		}
 	}
 }
