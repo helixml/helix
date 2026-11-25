@@ -73,12 +73,18 @@ func TestBuildApprovalInstructionPrompt_PullRequestsViaProposals(t *testing.T) {
 		"Propose each further slice with its own new `head_branch` BEFORE pushing to it",
 		"Propose one pull request per repository you changed",
 		"`list_pull_request_proposals`",
+		"use CI result notifications when available",
+		"do not start CI polling loops or background pollers",
+		"use authenticated information or provider tools already available in the session",
+		"instead of falling back to anonymous provider API requests",
+		"Stop on every non-success HTTP response; do not treat it as a pending result",
+		"`Retry-After` and `X-RateLimit-Reset`",
 	} {
 		if !strings.Contains(external, want) {
 			t.Errorf("external-repo prompt is missing %q", want)
 		}
 	}
-	for _, banned := range []string{"creates the GitHub PR automatically", "pull_request.md"} {
+	for _, banned := range []string{"creates the GitHub PR automatically", "pull_request.md", "let Helix monitor CI and wait for its result message"} {
 		if strings.Contains(external, banned) {
 			t.Errorf("external-repo prompt still contains %q", banned)
 		}
