@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +10,20 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+func (auth *authMiddleware) embedKeyAllows(ctx context.Context, user *types.User, r *http.Request) bool {
+	path, ok := strings.CutPrefix(strings.TrimSuffix(r.URL.Path, "/"), "/api/v1/interactions/")
+	parts := strings.Split(path, "/")
+	if !ok || r.Method != http.MethodPost || len(parts) != 4 || parts[0] == "" ||
+		parts[1] != "questions" || parts[2] == "" || (parts[3] != "respond" && parts[3] != "cancel") {
+		return embedKeyAllows(user, r)
+	}
+	if user.SessionID == "" {
+		return false
+	}
+	interaction, err := auth.store.GetInteraction(ctx, parts[0])
+	return err == nil && interaction.SessionID == user.SessionID
+}
 
 // Authorization for embed API keys.
 //

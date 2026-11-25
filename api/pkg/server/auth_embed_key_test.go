@@ -548,3 +548,73 @@ func TestEmbedKeyMiddlewarePRProposalsAndExecutionConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestEmbedKeyMiddlewareQuestionActionsStayInBoundSession(t *testing.T) {
+	cases := []struct {
+		name               string
+		method             string
+		path               string
+		interactionID      string
+		interactionSession string
+		lookupErr          error
+		boundSession       string
+		wantCode           int
+	}{
+		{"respond to own session", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/respond", "int_A", "ses_A", nil, "ses_A", http.StatusNoContent},
+		{"cancel in own session", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/cancel", "int_A", "ses_A", nil, "ses_A", http.StatusNoContent},
+		{"respond to sibling session", http.MethodPost, "/api/v1/interactions/int_B/questions/question_B/respond", "int_B", "ses_B", nil, "ses_A", http.StatusForbidden},
+		{"cancel in sibling session", http.MethodPost, "/api/v1/interactions/int_B/questions/question_B/cancel", "int_B", "ses_B", nil, "ses_A", http.StatusForbidden},
+		{"missing interaction", http.MethodPost, "/api/v1/interactions/int_missing/questions/question_A/respond", "int_missing", "", store.ErrNotFound, "ses_A", http.StatusForbidden},
+		{"unbound key", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/respond", "", "", nil, "", http.StatusForbidden},
+		{"wrong method", http.MethodGet, "/api/v1/interactions/int_A/questions/question_A/respond", "", "", nil, "ses_A", http.StatusForbidden},
+		{"empty interaction id", http.MethodPost, "/api/v1/interactions//questions/question_A/respond", "", "", nil, "ses_A", http.StatusForbidden},
+		{"empty request id", http.MethodPost, "/api/v1/interactions/int_A/questions//respond", "", "", nil, "ses_A", http.StatusForbidden},
+		{"extra interaction segment", http.MethodPost, "/api/v1/interactions/int_A/extra/questions/question_A/respond", "", "", nil, "ses_A", http.StatusForbidden},
+		{"extra action segment", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/respond/extra", "", "", nil, "ses_A", http.StatusForbidden},
+		{"unknown action", http.MethodPost, "/api/v1/interactions/int_A/questions/question_A/delete", "", "", nil, "ses_A", http.StatusForbidden},
+	}
+	for _, middleware := range []string{"extract", "auth"} {
+		for _, c := range cases {
+			t.Run(middleware+"/"+c.name, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				st := store.NewMockStore(ctrl)
+				owner := &types.User{ID: "user_service"}
+				key := &types.ApiKey{
+					Key: "hl-embed", Owner: owner.ID, OwnerType: types.OwnerTypeUser,
+					Type: types.APIkeytypeEmbed, ProjectID: "prj_A", SpecTaskID: "spt_A", SessionID: c.boundSession, TaskConfined: true,
+				}
+				st.EXPECT().GetAPIKey(gomock.Any(), &types.ApiKey{Key: key.Key}).Return(key, nil)
+				st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: owner.ID}).Return(owner, nil).AnyTimes()
+				st.EXPECT().EnsureUserMeta(gomock.Any(), gomock.Any()).Return(&types.UserMeta{ID: owner.ID}, nil).AnyTimes()
+				if c.interactionID != "" {
+					st.EXPECT().GetInteraction(gomock.Any(), c.interactionID).Return(&types.Interaction{
+						ID: c.interactionID, SessionID: c.interactionSession,
+					}, c.lookupErr)
+				}
+				auth := newAuthMiddleware(nil, nil, st, authMiddlewareConfig{}, nil, nil)
+				auth.lastSeenCache.Store(owner.ID, time.Now())
+
+				reached := false
+				handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					reached = true
+					w.WriteHeader(http.StatusNoContent)
+				})
+				r := httptest.NewRequest(c.method, c.path, nil)
+				r.Header.Set("Authorization", "Bearer "+key.Key)
+				w := httptest.NewRecorder()
+				if middleware == "extract" {
+					auth.extractMiddleware(handler).ServeHTTP(w, r)
+				} else {
+					auth.auth(handler).ServeHTTP(w, r)
+				}
+
+				if w.Code != c.wantCode {
+					t.Fatalf("status %d, want %d (body %q)", w.Code, c.wantCode, w.Body.String())
+				}
+				if reached != (c.wantCode == http.StatusNoContent) {
+					t.Fatalf("handler reached = %v", reached)
+				}
+			})
+		}
+	}
+}
