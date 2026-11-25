@@ -21,7 +21,7 @@ export const useSessionPromptQueue = (sessionId: string, isAgentBusy: boolean) =
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
 
-  const { data } = useQuery({
+  const { data, isSuccess, isError } = useQuery({
     queryKey: sessionPromptQueueKey(sessionId),
     enabled: !!sessionId,
     // Poll while open so queued items appear and clear promptly (the
@@ -43,7 +43,12 @@ export const useSessionPromptQueue = (sessionId: string, isAgentBusy: boolean) =
   )
   const restartAgent = () => apiClient.v1SessionsRestartAgentCreate(sessionId)
 
-  return { entries, remove, restartAgent }
+  // The list keeps sent prompts too, and clearing a session leaves them in
+  // place: any entry means the session has been given an instruction.
+  const hasHistory = (data?.entries?.length ?? 0) > 0
+  const historySettled = isSuccess || isError
+
+  return { entries, remove, restartAgent, hasHistory, historySettled }
 }
 
 export type SessionPromptQueueEntry = ReturnType<typeof useSessionPromptQueue>['entries'][number]
