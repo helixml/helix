@@ -17,7 +17,8 @@ const pendingQuestion = {
     },
   ],
 };
-const { latestInteractions, newInference, pendingQuestionInteractions, sessionQueueEntries } = vi.hoisted(() => ({
+const { latestInteractions, newInference, pendingQuestionInteractions, sessionQueueEntries, sessionData } = vi.hoisted(() => ({
+  sessionData: { current: undefined as { generation_id?: number } | undefined },
   latestInteractions: {
     current: {
       totalCount: 12,
@@ -43,7 +44,7 @@ vi.mock("../../hooks/useSnackbar", () => ({
 
 vi.mock("../../services/sessionService", () => ({
   // AgentChat reads the session for the agent's steering capability.
-  useGetSession: () => ({ data: undefined }),
+  useGetSession: () => ({ data: sessionData.current ? { data: sessionData.current } : undefined }),
   useListInteractions: (
     _sessionId: string,
     _page: number,
@@ -125,6 +126,7 @@ describe("AgentChat pending question placement", () => {
     newInference.mockReset();
     newInference.mockResolvedValue(undefined);
     sessionQueueEntries.current = [];
+    sessionData.current = undefined;
     pendingQuestionInteractions.current = [{
       id: "interaction-old",
       state: TypesInteractionState.InteractionStateWaiting,
@@ -262,6 +264,47 @@ describe("AgentChat pending question placement", () => {
     );
 
     expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("does not show the welcome while a cleared bot session waits for its next turn", () => {
+    latestInteractions.current = {
+      totalCount: 1,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    };
+    pendingQuestionInteractions.current = [];
+    const props = {
+      sessionId: "session-1",
+      welcomeWhenEmpty: true,
+      welcomeHeading: "Start a conversation",
+      starterPrompts: ["What can you help with?"],
+    };
+    const view = render(<AgentChat {...props} />);
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+
+    // The next activation clears the session before its prompt becomes a turn.
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    view.rerender(<AgentChat {...props} />);
+
+    expect(screen.queryByText("Start a conversation")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("does not show the welcome on a bot session that has been cleared before", () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+    sessionData.current = { generation_id: 3 };
+
+    render(
+      <AgentChat
+        sessionId="session-1"
+        welcomeWhenEmpty
+        welcomeHeading="Start a conversation"
+        starterPrompts={["What can you help with?"]}
+      />,
+    );
+
+    expect(screen.queryByText("Start a conversation")).not.toBeInTheDocument();
     expect(screen.getByTestId("session-view")).toBeInTheDocument();
   });
 
