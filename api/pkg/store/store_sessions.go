@@ -473,16 +473,19 @@ func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projec
 }
 
 // ClearStaleStartingSessions marks sessions stuck in "starting" or "restarting"
-// state as "stopped" and clears status_message. Called on API startup — if the
-// API just started, no session can legitimately be mid-startup, and a restart
+// state since before the given time as "stopped" and clears status_message.
+// The leader calls it with its own start time: a start begun before that was
+// orchestrated by a process that is gone (MarkSessionStartingIfIdle and
+// MarkSessionRestarting set updated), and a restart
 // interrupted mid-teardown would otherwise pin the session on a spinner forever
 // (nothing else clears "restarting"). "stopped", not "": a session with no
 // lifecycle state reads as one whose first launch has not begun yet. Discovery
 // upgrades the row to "running" if the container did come up.
-func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
+func (s *PostgresStore) ClearStaleStartingSessions(ctx context.Context, before time.Time) (int64, error) {
 	result := s.gdb.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("config->>'external_agent_status' IN ?", []string{"starting", "restarting"}).
+		Where("updated < ?", before).
 		Updates(map[string]interface{}{
 			"config": gorm.Expr(`config || '{"external_agent_status":"stopped","status_message":""}'::jsonb`),
 		})
@@ -516,7 +519,8 @@ func (s *PostgresStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID
 		Where("id = ?", sessionID).
 		Where("COALESCE(config->>'external_agent_status', '') NOT IN ('starting', 'restarting', 'running')").
 		Updates(map[string]interface{}{
-			"config": gorm.Expr(`config || '{"external_agent_status":"starting","status_message":"Starting Desktop..."}'::jsonb`),
+			"config":  gorm.Expr(`config || '{"external_agent_status":"starting","status_message":"Starting Desktop..."}'::jsonb`),
+			"updated": gorm.Expr("NOW()"),
 		})
 	if result.Error != nil {
 		return false, result.Error
@@ -546,7 +550,8 @@ func (s *PostgresStore) MarkSessionRestarting(ctx context.Context, sessionID str
 		Model(&types.Session{}).
 		Where("id = ?", sessionID).
 		Updates(map[string]interface{}{
-			"config": gorm.Expr(`config || '{"external_agent_status":"restarting","status_message":"Restarting desktop..."}'::jsonb`),
+			"config":  gorm.Expr(`config || '{"external_agent_status":"restarting","status_message":"Restarting desktop..."}'::jsonb`),
+			"updated": gorm.Expr("NOW()"),
 		}).Error
 }
 
@@ -740,19 +745,28 @@ func (s *PostgresStore) backfillSessionAgentConnections(ctx context.Context) err
 	if !s.gdb.Migrator().HasTable(&types.Session{}) {
 		return nil
 	}
-	err := s.gdb.WithContext(ctx).Exec(`
-		UPDATE sessions s
-		SET config = jsonb_set(s.config::jsonb, '{external_agent_id}', to_jsonb(p.id))
-		FROM sessions p
-		WHERE p.id = s.parent_session
-		  AND COALESCE(s.parent_session, '') <> ''
+	// Sessions s missing the link to their parent agent session p.
+	const unlinked = `FROM sessions s JOIN sessions p ON p.id = s.parent_session
+		WHERE COALESCE(s.parent_session, '') <> ''
 		  AND p.id <> s.id
 		  AND COALESCE(s.config->>'spec_task_id', '') <> ''
 		  AND p.config->>'spec_task_id' = s.config->>'spec_task_id'
 		  AND COALESCE(s.config->>'zed_thread_id', '') <> ''
 		  AND COALESCE(s.config->>'external_agent_id', '') = ''
-		  AND s.deleted_at IS NULL
-	`).Error
+		  AND s.deleted_at IS NULL`
+	found, err := s.exists(ctx, "SELECT 1 "+unlinked)
+	if err != nil {
+		return fmt.Errorf("probe sessions.config.external_agent_id backfill: %w", err)
+	}
+	if !found {
+		return nil
+	}
+	err = s.execBatches(ctx, fmt.Sprintf(`
+		UPDATE sessions
+		SET config = jsonb_set(sessions.config::jsonb, '{external_agent_id}', to_jsonb(p.id))
+		FROM sessions p
+		WHERE p.id = sessions.parent_session
+		  AND sessions.id IN (SELECT s.id %s LIMIT %d)`, unlinked, backfillBatchSize))
 	if err != nil {
 		return fmt.Errorf("backfill sessions.config.external_agent_id: %w", err)
 	}

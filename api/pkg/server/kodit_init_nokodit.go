@@ -30,5 +30,11 @@ func InitKodit(_ *config.ServerConfig, _ *services.GitRepositoryService, _ store
 	}, nil
 }
 
+// MigrateKodit is a no-op for the nokodit build.
+func MigrateKodit(_ context.Context, _ *config.ServerConfig) error { return nil }
+
 // Reinit is a no-op for the nokodit build.
 func (k *KoditResult) Reinit(_ context.Context) error { return nil }
+
+// RunWorkers is a no-op for the nokodit build.
+func (k *KoditResult) RunWorkers(_ context.Context) {}

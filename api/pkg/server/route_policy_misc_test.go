@@ -7,6 +7,7 @@ func init() {
 		"POST /api/v1/teams/webhook/{appID}": webhook("Bot Framework JWT validated by the Teams adapter"),
 		"GET /api/v1/config":                 public("frontend bootstrap config; resolves the caller itself and returns no secrets"),
 		"GET /api/v1/swagger":                public("OpenAPI document"),
+		"GET /api/v1/readyz":                 public("readiness probe for load balancers and deploys; reveals only ready/draining/db-down"),
 		"GET /api/v1/organization-domains":   admin(),
 		"GET /api/v1/llm_calls":              admin(),
 		"GET /api/v1/system/host-history":    admin(),

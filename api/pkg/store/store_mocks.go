@@ -308,18 +308,18 @@ func (mr *MockStoreMockRecorder) ClearStaleGitRepositorySync(ctx, id, staleSince
 }
 
 // ClearStaleStartingSessions mocks base method.
-func (m *MockStore) ClearStaleStartingSessions(ctx context.Context) (int64, error) {
+func (m *MockStore) ClearStaleStartingSessions(ctx context.Context, before time.Time) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClearStaleStartingSessions", ctx)
+	ret := m.ctrl.Call(m, "ClearStaleStartingSessions", ctx, before)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ClearStaleStartingSessions indicates an expected call of ClearStaleStartingSessions.
-func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx, before any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx, before)
 }
 
 // CompleteWebhookDelivery mocks base method.
@@ -2644,18 +2644,18 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta any) *gomock.Call 
 }
 
 // FailInFlightWebServiceDeploys mocks base method.
-func (m *MockStore) FailInFlightWebServiceDeploys(ctx context.Context) (int64, error) {
+func (m *MockStore) FailInFlightWebServiceDeploys(ctx context.Context, before time.Time) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FailInFlightWebServiceDeploys", ctx)
+	ret := m.ctrl.Call(m, "FailInFlightWebServiceDeploys", ctx, before)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FailInFlightWebServiceDeploys indicates an expected call of FailInFlightWebServiceDeploys.
-func (mr *MockStoreMockRecorder) FailInFlightWebServiceDeploys(ctx any) *gomock.Call {
+func (mr *MockStoreMockRecorder) FailInFlightWebServiceDeploys(ctx, before any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailInFlightWebServiceDeploys", reflect.TypeOf((*MockStore)(nil).FailInFlightWebServiceDeploys), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailInFlightWebServiceDeploys", reflect.TypeOf((*MockStore)(nil).FailInFlightWebServiceDeploys), ctx, before)
 }
 
 // FindAvailableSandboxInstance mocks base method.
@@ -6718,6 +6718,20 @@ func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTask
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
 }
 
+// Ping mocks base method.
+func (m *MockStore) Ping(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Ping", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Ping indicates an expected call of Ping.
+func (mr *MockStoreMockRecorder) Ping(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ping", reflect.TypeOf((*MockStore)(nil).Ping), ctx)
+}
+
 // PruneRequestAuditEvents mocks base method.
 func (m *MockStore) PruneRequestAuditEvents(ctx context.Context, before time.Time, batchSize int) (int64, error) {
 	m.ctrl.T.Helper()
@@ -6953,17 +6967,31 @@ func (mr *MockStoreMockRecorder) ResetCrashedPromptsForSession(ctx, sessionID an
 }
 
 // ResetRunningExecutions mocks base method.
-func (m *MockStore) ResetRunningExecutions(ctx context.Context) error {
+func (m *MockStore) ResetRunningExecutions(ctx context.Context, before time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ResetRunningExecutions", ctx)
+	ret := m.ctrl.Call(m, "ResetRunningExecutions", ctx, before)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ResetRunningExecutions indicates an expected call of ResetRunningExecutions.
-func (mr *MockStoreMockRecorder) ResetRunningExecutions(ctx any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ResetRunningExecutions(ctx, before any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetRunningExecutions", reflect.TypeOf((*MockStore)(nil).ResetRunningExecutions), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetRunningExecutions", reflect.TypeOf((*MockStore)(nil).ResetRunningExecutions), ctx, before)
+}
+
+// ResetRunningInteractions mocks base method.
+func (m *MockStore) ResetRunningInteractions(ctx context.Context, before time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResetRunningInteractions", ctx, before)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ResetRunningInteractions indicates an expected call of ResetRunningInteractions.
+func (mr *MockStoreMockRecorder) ResetRunningInteractions(ctx, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetRunningInteractions", reflect.TypeOf((*MockStore)(nil).ResetRunningInteractions), ctx, before)
 }
 
 // ResetSandboxOnReconnect mocks base method.
@@ -6981,18 +7009,18 @@ func (mr *MockStoreMockRecorder) ResetSandboxOnReconnect(ctx, id any) *gomock.Ca
 }
 
 // ResetStuckComments mocks base method.
-func (m *MockStore) ResetStuckComments(ctx context.Context) (int64, error) {
+func (m *MockStore) ResetStuckComments(ctx context.Context, before time.Time) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ResetStuckComments", ctx)
+	ret := m.ctrl.Call(m, "ResetStuckComments", ctx, before)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ResetStuckComments indicates an expected call of ResetStuckComments.
-func (mr *MockStoreMockRecorder) ResetStuckComments(ctx any) *gomock.Call {
+func (mr *MockStoreMockRecorder) ResetStuckComments(ctx, before any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetStuckComments", reflect.TypeOf((*MockStore)(nil).ResetStuckComments), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetStuckComments", reflect.TypeOf((*MockStore)(nil).ResetStuckComments), ctx, before)
 }
 
 // ResolveInteractionPendingQuestion mocks base method.

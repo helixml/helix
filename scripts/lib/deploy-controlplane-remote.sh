@@ -1,7 +1,14 @@
 #!/bin/bash
 # Runs ON the control-plane host, fed over `ssh host bash -s` by
 # scripts/deploy-prod.sh, which prepends these assignments:
-#   STACK_DIR VERSION SNAP HEALTH_HOST COMPOSE_SYNC RECREATE_POSTGRES REPO_COMPOSE_B64
+#   STACK_DIR VERSION SNAP HEALTH_HOST COMPOSE_SYNC RECREATE_POSTGRES
+#   REPO_COMPOSE_B64 REPO_BLUEGREEN_B64
+# and scripts/lib/bluegreen.sh.
+#
+# A host whose .env has HELIX_ACTIVE_COLOUR runs the API blue/green
+# (docker-compose.bluegreen.yaml): the API is not restarted in place but
+# deployed to the idle colour, which takes over from the active one with no
+# downtime (bg_deploy). Other hosts keep the in-place restart.
 #
 # Plan (read-only): diff the stack's docker-compose.yaml against the one being
 # deployed, compare each service's running image with the one it will get,
@@ -23,7 +30,9 @@ DB_SERVICES="postgres vectorchord-kodit"
 
 main() {
   set -euo pipefail
-  : "${STACK_DIR:?}" "${VERSION:?}" "${SNAP:?}" "${HEALTH_HOST:?}" "${REPO_COMPOSE_B64:?}"
+  : "${STACK_DIR:?}" "${VERSION:?}" "${SNAP:?}" "${HEALTH_HOST:?}" "${REPO_COMPOSE_B64:?}" "${REPO_BLUEGREEN_B64:?}"
+  # shellcheck disable=SC2034 # read by bluegreen.sh, prepended by deploy-prod.sh
+  BG_SUDO=sudo BG_HEALTH_HOST=$HEALTH_HOST
 
   die() { echo "controlplane: ERROR: $*" >&2; exit 1; }
   image_of() { awk -v s="$1" '$1 == s { print $2 }' "$2"; }
@@ -144,11 +153,16 @@ main() {
     set +e
     trap '' HUP TERM INT PIPE
     echo "controlplane: deploy failed after the snapshot - rolling back to ${old_version:-<none>}"
-    if ! { sudo cp -p "$tmp/compose.prev" docker-compose.yaml && sudo cp -p "$tmp/env.prev" .env; }; then
-      echo "controlplane: ROLLBACK FAILED - could not restore docker-compose.yaml/.env; services left untouched (snapshot $SNAP)" >&2
+    if ! { sudo cp -p "$tmp/compose.prev" docker-compose.yaml && sudo cp -p "$tmp/env.prev" .env &&
+      { [ "$bluegreen" != "true" ] || sudo cp -p "$tmp/bluegreen.prev" docker-compose.bluegreen.yaml; }; }; then
+      echo "controlplane: ROLLBACK FAILED - could not restore the compose files/.env; services left untouched (snapshot $SNAP)" >&2
       return 1
     fi
-    echo "controlplane: restored the previous docker-compose.yaml and .env"
+    echo "controlplane: restored the previous compose files and .env"
+    if [ "$bluegreen" = "true" ] && ! bg_rollback; then
+      echo "controlplane: ROLLBACK FAILED - the API colours need attention (snapshot $SNAP)" >&2
+      return 1
+    fi
     if ! sudo docker compose up -d --no-deps "${restore[@]}"; then
       echo "controlplane: ROLLBACK FAILED - previous services did not start (snapshot $SNAP)" >&2
       return 1
@@ -168,12 +182,26 @@ main() {
   trap 'exit 141' PIPE
   trap 'exit 143' TERM
   printf '%s' "$REPO_COMPOSE_B64" | base64 -d > "$tmp/docker-compose.yaml"
+  printf '%s' "$REPO_BLUEGREEN_B64" | base64 -d > "$tmp/docker-compose.bluegreen.yaml"
 
-  local override=() current
+  bluegreen=false
+  local override=() current target_env=(HELIX_VERSION="$VERSION")
   [ -f docker-compose.override.yaml ] && override=(-f docker-compose.override.yaml)
+  if bg_enabled; then
+    bluegreen=true
+    [ -f docker-compose.bluegreen.yaml ] || die "HELIX_ACTIVE_COLOUR is set but $STACK_DIR/docker-compose.bluegreen.yaml is missing"
+    bg_preflight
+    override+=(-f docker-compose.bluegreen.yaml)
+    target_env+=("HELIX_VERSION_$(bg_upper "$BG_NEW")=$VERSION")
+  fi
   current=(sudo docker compose --project-directory . -f docker-compose.yaml "${override[@]}")
   service_images "${current[@]}" > "$tmp/old"
-  target_compose=(sudo env HELIX_VERSION="$VERSION" docker compose --project-directory . -f "$tmp/docker-compose.yaml" "${override[@]}")
+  # The target's overlay sits next to its base file: the colours extend
+  # HELIX_COMPOSE_BASE relative to the overlay.
+  local target_files=(-f "$tmp/docker-compose.yaml")
+  [ -f docker-compose.override.yaml ] && target_files+=(-f docker-compose.override.yaml)
+  [ "$bluegreen" = "true" ] && target_files+=(-f "$tmp/docker-compose.bluegreen.yaml")
+  target_compose=(sudo env "${target_env[@]}" docker compose --project-directory . "${target_files[@]}")
   service_images "${target_compose[@]}" > "$tmp/new"
   if [ ! -s "$tmp/old" ] || [ ! -s "$tmp/new" ]; then die "could not resolve service images"; fi
 
@@ -192,6 +220,11 @@ main() {
 
   local drift=false
   sudo cmp -s docker-compose.yaml "$tmp/docker-compose.yaml" || drift=true
+  if [ "$bluegreen" = "true" ] && ! sudo cmp -s docker-compose.bluegreen.yaml "$tmp/docker-compose.bluegreen.yaml"; then
+    drift=true
+    echo "controlplane: $STACK_DIR/docker-compose.bluegreen.yaml differs from the $VERSION one" \
+      "($(diff docker-compose.bluegreen.yaml "$tmp/docker-compose.bluegreen.yaml" | grep -c '^[<>]' || true) lines)"
+  fi
 
   # --- image-pin diff: running -> deploying ------------------------------------
   local cur new rendered note data want db_changed=()
@@ -252,9 +285,16 @@ main() {
   done < "$tmp/old"
 
   # --- every image the deploy pulls must be pullable before anything changes ---
-  local unpullable=()
+  local unpullable=() pulled=()
   for svc in "${targets[@]}"; do
-    new=$(image_of "$svc" "$tmp/new")
+    pulled+=("$(image_of "$svc" "$tmp/new")")
+  done
+  if [ "$bluegreen" = "true" ]; then
+    new=$(service_images "${target_compose[@]}" --profile bluegreen | awk -v s="api-$BG_NEW" '$1 == s { print $2 }')
+    [ -n "$new" ] || die "could not resolve the api-$BG_NEW image"
+    pulled+=("$new")
+  fi
+  for new in "${pulled[@]}"; do
     sudo docker manifest inspect "$new" > /dev/null 2>&1 || unpullable+=("$(describe_image "$new")")
   done
   if [ "${#unpullable[@]}" -gt 0 ]; then
@@ -267,6 +307,7 @@ main() {
   # Byte-for-byte copies (owner and mode kept) for the rollback path.
   sudo cp -p .env "$tmp/env.prev"
   sudo cp -p docker-compose.yaml "$tmp/compose.prev"
+  [ "$bluegreen" != "true" ] || sudo cp -p docker-compose.bluegreen.yaml "$tmp/bluegreen.prev"
   # Crash-consistent DB snapshot for rollback (CHECKPOINT first to minimise WAL replay).
   local pg_cid
   pg_cid=$(running_cid postgres)
@@ -282,6 +323,12 @@ main() {
     # shellcheck disable=SC2024 # the new file is ours to read; sudo is for the write
     sudo tee docker-compose.yaml < "$tmp/docker-compose.yaml" > /dev/null
     echo "controlplane: installed the $VERSION docker-compose.yaml (previous kept as $STACK_DIR/$backup)"
+    if [ "$bluegreen" = "true" ]; then
+      sudo cp -p docker-compose.bluegreen.yaml "$backup.bluegreen"
+      # shellcheck disable=SC2024 # as above
+      sudo tee docker-compose.bluegreen.yaml < "$tmp/docker-compose.bluegreen.yaml" > /dev/null
+      echo "controlplane: installed the $VERSION docker-compose.bluegreen.yaml (previous kept as $STACK_DIR/$backup.bluegreen)"
+    fi
   fi
 
   # The api and chrome services share this secret; only this host needs it,
@@ -299,6 +346,13 @@ main() {
     sudo docker compose pull "$svc"
   done
   sudo docker compose up -d --no-deps "${targets[@]}"
+
+  if [ "$bluegreen" = "true" ]; then
+    bg_deploy "$VERSION"
+    applying=false
+    echo "controlplane healthy on $VERSION (api-$BG_NEW)"
+    return 0
+  fi
 
   local ok=0 code
   for _ in $(seq 1 36); do

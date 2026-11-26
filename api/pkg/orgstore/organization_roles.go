@@ -8,9 +8,20 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// AutoMigrateRoleConfig syncs all role configs in the database
+// AutoMigrateRoleConfig syncs all role configs in the database. Roles that
+// already match are left alone, so an up-to-date database sees reads only.
 func (s *Store) AutoMigrateRoleConfig(ctx context.Context) error {
 	for _, role := range types.Roles {
+		var stale bool
+		if err := s.gdb.WithContext(ctx).Raw(
+			"SELECT EXISTS (SELECT 1 FROM roles WHERE name = ? AND (config IS DISTINCT FROM CAST(? AS jsonb) OR description IS DISTINCT FROM ?))",
+			role.Name, role.Config, role.Description,
+		).Scan(&stale).Error; err != nil {
+			return fmt.Errorf("failed to check role config for %s: %w", role.Name, err)
+		}
+		if !stale {
+			continue
+		}
 		err := s.gdb.WithContext(ctx).
 			Model(&types.Role{}).
 			Where("name = ?", role.Name).

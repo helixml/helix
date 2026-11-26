@@ -39,6 +39,7 @@ import (
 	"github.com/helixml/helix/api/pkg/hosthistory"
 	"github.com/helixml/helix/api/pkg/inferencerouter"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/leader"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/netguard"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -111,6 +112,15 @@ type activeStreamProxy struct {
 type HelixAPIServer struct {
 	Cfg   *config.ServerConfig
 	Store store.Store
+	// leader runs the work only one of several API processes sharing the
+	// database may do (blue/green deploys run two); see package leader.
+	leader *leader.Elector
+	// startedAt is when this process started. Startup resets on gaining
+	// leadership only fail work begun before it: later work may be this
+	// process's own.
+	startedAt time.Time
+	// drainer shuts the HTTP listeners down gracefully (see graceful.go).
+	drainer *drainer
 	// sessionResources keeps heartbeat-reported sandbox utilization per session.
 	sessionResources *sessionresources.Store
 	// helixOrg is the optional helix-org subsystem, set once it is
@@ -289,6 +299,7 @@ func NewServer(
 	gitRepositoryService *services.GitRepositoryService,
 	preInitKodit *KoditResult,
 	webSearch websearch.Provider,
+	elector *leader.Elector,
 ) (*HelixAPIServer, error) {
 	if cfg.ConnectPortal.SecretIntakeEnabled && os.Getenv("HELIX_ENCRYPTION_KEY") == "" {
 		return nil, fmt.Errorf("HELIX_ENCRYPTION_KEY is required when secret intake is enabled")
@@ -468,6 +479,9 @@ func NewServer(
 	}
 
 	apiServer := &HelixAPIServer{
+		leader:                     elector,
+		startedAt:                  time.Now(),
+		drainer:                    newDrainer(),
 		Cfg:                        cfg,
 		sessionResources:           newSessionResourceStore(cfg),
 		attestations:               attestations,
@@ -562,9 +576,9 @@ func NewServer(
 		"/data/workspaces/sandboxes",
 	)
 	apiServer.webServiceController = webservice.New(store, apiServer.sandboxController)
-	go apiServer.backfillWebhookTriggerSecrets(context.Background())
-	go webservice.NewDomainVerifier(store,
-		netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}).Start(context.Background())
+	elector.Go("webhook-trigger-secret-backfill", apiServer.backfillWebhookTriggerSecrets)
+	elector.Go("domain-verifier", webservice.NewDomainVerifier(store,
+		netguard.Policy{AllowPrivate: cfg.Tools.AllowPrivateNetworks}).Start)
 
 	// Unify compute billing: desktops provisioned by the external-agent
 	// executor (spec tasks, exploratory sessions, subscription desktops) get a
@@ -820,45 +834,15 @@ func NewServer(
 	// this server's GitHub-compatible API, in-process.
 	gitRepositoryService.SetInternalGitHubCompat(cfg.WebServer.URL, apiServer.newInternalCompatDispatch())
 
-	// Start orchestrator
-	go func() {
-		if err := apiServer.specTaskOrchestrator.Start(context.Background()); err != nil {
-			log.Error().Err(err).Msg("Failed to start SpecTask orchestrator")
-		}
-	}()
+	elector.Go("spec-task-orchestrator", apiServer.specTaskOrchestrator.Run)
 
-	// Start the auto-wake worker for stuck `state=waiting` interactions.
+	// The auto-wake worker for stuck `state=waiting` interactions.
 	// Papers over the upstream ACP turn-locked-events bug where buffered
 	// session_update notifications only flush on a fresh session/prompt.
 	// See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
-	apiServer.startAutoWakeStuckInteractionsWorker(context.Background())
+	elector.Go("auto-wake-stuck-interactions", apiServer.runAutoWakeStuckInteractionsWorker)
 
-	// Clear sessions stuck in "starting" state from a previous API crash.
-	// If the API just started, no session can legitimately be mid-startup.
-	if cleaned, err := store.ClearStaleStartingSessions(context.Background()); err != nil {
-		log.Error().Err(err).Msg("Failed to clear stale starting sessions")
-	} else if cleaned > 0 {
-		log.Info().Int64("cleaned", cleaned).Msg("Cleared stale 'starting' sessions from previous API crash")
-	}
-
-	// One-shot reconciliation: catch up prompt_history_entries stuck in
-	// 'sending' because the old in-memory interactionToPromptMapping was lost
-	// before MarkPromptAsSent could fire (typically across an API restart).
-	// See design/2026-04-30-queue-and-other-stuck-state-bugs.md. New rows
-	// shouldn't get stuck — Interaction.PromptID persists the link — but this
-	// also unsticks legacy rows from before that schema change. Run in a
-	// goroutine so it doesn't block server startup; the queries are cheap and
-	// idempotent.
-	go func() {
-		fixed, err := store.ReconcileStuckSendingPrompts(context.Background())
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to reconcile stuck 'sending' prompts at startup")
-			return
-		}
-		if fixed > 0 {
-			log.Info().Int("count", fixed).Msg("✅ [QUEUE] Reconciled stuck 'sending' prompts at startup (legacy in-memory-mapping orphans)")
-		}
-	}()
+	elector.Go("startup-resets", apiServer.resetAbandonedWork)
 
 	// Assign admin alerter to server (initialized earlier for OIDC wiring)
 	if adminAlerter != nil {
@@ -913,7 +897,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Request audit trail sinks: batched Postgres inserts and daily retention.
 	if apiServer.requestAudit != nil {
 		go apiServer.requestAudit.Run(ctx)
-		go apiServer.requestAudit.RunPruner(ctx)
+		apiServer.leader.Go("request-audit-pruner", apiServer.requestAudit.RunPruner)
 	}
 
 	// Close kodit client on shutdown
@@ -939,7 +923,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	apiServer.StartModelCacheRefresh(ctx)
 
 	// Resume comment queue processing for any comments that were pending before restart
-	go apiServer.ResumeCommentQueueProcessing(ctx)
+	apiServer.leader.Go("comment-queue-resume", apiServer.ResumeCommentQueueProcessing)
 
 	// Automatically shut down desktops that have been idle for too long
 	go external_agent.RunDesktopIdleChecker(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.DesktopIdleTimeout, apiServer.Cfg.DesktopIdleCheckInterval)
@@ -947,7 +931,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Durable, DB-driven garbage collection of leaked session zvols and
 	// per-task/session workspace dirs (survives host reboots / API restarts).
 	if apiServer.Cfg.OrphanReaperEnabled {
-		go external_agent.RunOrphanResourceReaper(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.OrphanReaperInterval, apiServer.Cfg.OrphanReaperGracePeriod, apiServer.Cfg.OrphanReaperDryRun)
+		apiServer.leader.Go("orphan-resource-reaper", func(ctx context.Context) {
+			external_agent.RunOrphanResourceReaper(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.OrphanReaperInterval, apiServer.Cfg.OrphanReaperGracePeriod, apiServer.Cfg.OrphanReaperDryRun)
+		})
 	}
 
 	// Reap expired sandboxes (Sandboxes API).
@@ -955,16 +941,21 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	// Claude OAuth access tokens last ~8h and their refresh tokens ~9 days.
 	// Without this, a subscription only survived while sessions were running.
-	go apiServer.StartClaudeSubscriptionRefresher(ctx, claudeRefreshInterval)
+	apiServer.leader.Go("claude-subscription-refresher", func(ctx context.Context) {
+		apiServer.StartClaudeSubscriptionRefresher(ctx, claudeRefreshInterval)
+	})
 
 	// Probe live web services and auto-recover any that stop responding
 	// (crashed/hung stack heals without a human).
-	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController).Start(ctx)
+	healthMonitor := webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController)
+	apiServer.leader.Go("web-service-health-monitor", func(ctx context.Context) {
+		healthMonitor.Start(ctx, apiServer.startedAt)
+	})
 
 	// Continuous delivery for agent-created apps: when a GitHub-hosted project's
 	// default branch advances (e.g. a PR is merged), redeploy its web service.
 	// (Helix-hosted repos already auto-deploy via the git post-receive hook.)
-	go webservice.NewGitHubDeployWatcher(apiServer.Store, apiServer.webServiceController, apiServer.gitRepositoryService).Start(ctx)
+	apiServer.leader.Go("github-deploy-watcher", webservice.NewGitHubDeployWatcher(apiServer.Store, apiServer.webServiceController, apiServer.gitRepositoryService).Start)
 
 	// Deliver durable, signed Standard Webhooks events from the transactional outbox.
 	go webhooks.NewDispatcher(apiServer.Store, apiServer.getEncryptionKey, apiServer.Cfg.Webhooks).Start(ctx)
@@ -994,11 +985,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// host path and no goroutine is started. Logged-and-skip rather
 	// than fatal so existing deployments are unaffected.
 	if apiServer.computeManager != nil {
-		go func() {
+		apiServer.leader.Go("compute-manager", func(ctx context.Context) {
 			if err := apiServer.computeManager.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				log.Error().Err(err).Msg("compute manager Run exited with unexpected error")
 			}
-		}()
+		})
 	}
 
 	// Zed Agent Runner WebSocket Server
@@ -1059,7 +1050,19 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		IdleTimeout:       time.Minute * 60,
 		Handler:           handler,
 	}
-	return srv.ListenAndServe()
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		return err
+	}
+	served := make(chan error, 1)
+	go func() { served <- apiServer.drainer.serve(srv, ln, false) }()
+	select {
+	case err := <-served:
+		return err
+	case <-ctx.Done():
+	}
+	apiServer.drainer.drain()
+	return <-served
 }
 
 func matchAllRoutes(*http.Request, *mux.RouteMatch) bool {
@@ -1151,6 +1154,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	}))).Methods(http.MethodGet)
 
 	insecureRouter.Handle("/swagger", apiServer.swaggerHandler()).Methods(http.MethodGet)
+
+	// Public: load balancers and the blue/green deploy poll it before any
+	// credentials exist. It returns only "ok", "draining" or "database
+	// unreachable".
+	insecureRouter.HandleFunc("/readyz", apiServer.readyz).Methods(http.MethodGet)
 
 	// this is not authenticated because we use the webhook signing secret
 	// the stripe library handles http management
@@ -2127,11 +2135,9 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	go func() {
 		<-ctx.Done()
 		log.Info().Msg("shutting down embeddings socket server")
+		// Shutdown also closes the listener.
 		if err := srv.Shutdown(context.Background()); err != nil {
 			log.Error().Err(err).Msg("error shutting down embeddings socket server")
-		}
-		if err := listener.Close(); err != nil {
-			log.Error().Err(err).Msg("error closing embeddings socket listener")
 		}
 	}()
 

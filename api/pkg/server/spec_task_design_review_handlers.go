@@ -62,7 +62,7 @@ func (s *HelixAPIServer) ResumeCommentQueueProcessing(ctx context.Context) {
 	// Step 1b: Reset any comments still stuck mid-processing (request_id set, no
 	// response, interaction NOT terminal — a genuine crash mid-flight). Clearing
 	// request_id lets them be re-sent on the next processing pass.
-	resetCount, err := s.Store.ResetStuckComments(ctx)
+	resetCount, err := s.Store.ResetStuckComments(ctx, s.startedAt)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to reset stuck comments")
 	} else if resetCount > 0 {

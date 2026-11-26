@@ -446,12 +446,14 @@ func (s *PostgresStore) GetSessionsWithPendingComments(ctx context.Context) ([]s
 	return sessionIDs, nil
 }
 
-// ResetStuckComments clears RequestID on comments that were mid-processing when server crashed.
-// These are comments with RequestID set but no AgentResponse (stuck in processing state).
-// Returns the number of comments reset.
-func (s *PostgresStore) ResetStuckComments(ctx context.Context) (int64, error) {
+// ResetStuckComments clears RequestID on comments that were mid-processing,
+// last updated before the given time, when the process sending them died.
+// These are comments with RequestID set but no AgentResponse (stuck in
+// processing state). Returns the number of comments reset.
+func (s *PostgresStore) ResetStuckComments(ctx context.Context, before time.Time) (int64, error) {
 	result := s.gdb.WithContext(ctx).
 		Model(&types.SpecTaskDesignReviewComment{}).
+		Where("updated_at < ?", before).
 		Where("request_id IS NOT NULL AND request_id != ''").
 		Where("(agent_response IS NULL OR agent_response = '')").
 		Updates(map[string]interface{}{

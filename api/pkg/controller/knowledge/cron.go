@@ -33,10 +33,10 @@ func (r *Reconciler) startCron(ctx context.Context) error {
 	// Block until the context is done
 	<-ctx.Done()
 
-	// when you're done, shut it down
-	err := r.cron.Shutdown()
-	if err != nil {
-		return fmt.Errorf("failed to shutdown scheduler: %w", err)
+	// Stop, not Shutdown: Start runs again if this instance regains the
+	// leader lease, and a shut-down scheduler can't be restarted.
+	if err := r.cron.StopJobs(); err != nil {
+		return fmt.Errorf("failed to stop scheduler: %w", err)
 	}
 
 	return nil

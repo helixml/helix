@@ -71,13 +71,15 @@ func NewHealthMonitor(s store.Store, c *Controller) *HealthMonitor {
 	}
 }
 
-// Start runs the monitor on a ticker until ctx is cancelled.
-func (m *HealthMonitor) Start(ctx context.Context) {
+// Start runs the monitor on a ticker until ctx is cancelled. Deploys still
+// in flight that started before orphanedBefore (the leader's start time) were
+// orchestrated by a process that is gone, and are failed first.
+func (m *HealthMonitor) Start(ctx context.Context, orphanedBefore time.Time) {
 	// A build cannot survive the process that was orchestrating it. On startup
 	// (e.g. after a CD upgrade) fail any deploy still marked in-flight so a
 	// web service whose build was interrupted recovers on the first tick,
 	// instead of the stale in-flight row wedging recovery until buildTimeout.
-	if n, err := m.store.FailInFlightWebServiceDeploys(ctx); err != nil {
+	if n, err := m.store.FailInFlightWebServiceDeploys(ctx, orphanedBefore); err != nil {
 		log.Warn().Err(err).Msg("web-service health-monitor: failing orphaned in-flight deploys on startup failed")
 	} else if n > 0 {
 		log.Info().Int64("count", n).Msg("web-service health-monitor: failed orphaned in-flight deploys on startup")

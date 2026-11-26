@@ -253,9 +253,16 @@ func installAttachmentConstraints(db *gorm.DB) error {
 	if !db.Migrator().HasTable("org_worker_attachments") {
 		return nil
 	}
-	statements := []string{
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_attachment_trigger ON org_worker_attachments (org_id, worker_id, trigger_id) WHERE trigger_id IS NOT NULL`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_attachment_processor_output ON org_worker_attachments (org_id, worker_id, processor_id, output_id) WHERE processor_id IS NOT NULL`,
+	// Each statement runs only while its index is missing: CREATE INDEX takes
+	// a SHARE lock (blocking writes) even when IF NOT EXISTS makes it a no-op.
+	var statements []string
+	for _, idx := range []struct{ name, ddl string }{
+		{"idx_attachment_trigger", `CREATE UNIQUE INDEX IF NOT EXISTS idx_attachment_trigger ON org_worker_attachments (org_id, worker_id, trigger_id) WHERE trigger_id IS NOT NULL`},
+		{"idx_attachment_processor_output", `CREATE UNIQUE INDEX IF NOT EXISTS idx_attachment_processor_output ON org_worker_attachments (org_id, worker_id, processor_id, output_id) WHERE processor_id IS NOT NULL`},
+	} {
+		if !db.Migrator().HasIndex("org_worker_attachments", idx.name) {
+			statements = append(statements, idx.ddl)
+		}
 	}
 	if db.Dialector.Name() != "postgres" {
 		for _, stmt := range statements {
@@ -378,12 +385,14 @@ func installAgentAppLinks(db *gorm.DB) error {
 	if err := repairDuplicateAgentAppLinks(db); err != nil {
 		return err
 	}
-	if err := db.Exec(`
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_org_bots_agent_app
-		ON org_bots (org_id, agent_app_id)
-		WHERE agent_app_id IS NOT NULL
-	`).Error; err != nil {
-		return fmt.Errorf("add unique index: %w", err)
+	if !db.Migrator().HasIndex("org_bots", "idx_org_bots_agent_app") {
+		if err := db.Exec(`
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_org_bots_agent_app
+			ON org_bots (org_id, agent_app_id)
+			WHERE agent_app_id IS NOT NULL
+		`).Error; err != nil {
+			return fmt.Errorf("add unique index: %w", err)
+		}
 	}
 	if err := db.Exec(`
 		DO $$ BEGIN
@@ -402,6 +411,19 @@ func installAgentAppLinks(db *gorm.DB) error {
 	}
 	if err := backfillProjectAgentApps(db); err != nil {
 		return err
+	}
+	// Only while some Org Bot App lacks the kind, so an up-to-date database
+	// sees reads only.
+	var unmarked bool
+	if err := db.Raw(`
+		SELECT EXISTS (
+			SELECT 1 FROM apps AS app JOIN org_bots AS bot ON bot.agent_app_id = app.id
+			WHERE COALESCE(app.agent_kind, '') <> ?
+		)`, types.AgentKindOrg).Scan(&unmarked).Error; err != nil {
+		return fmt.Errorf("check Org Bot App kinds: %w", err)
+	}
+	if !unmarked {
+		return nil
 	}
 	if err := db.Exec(`
 		UPDATE apps AS app
@@ -728,10 +750,13 @@ var removedTables = []string{
 	"org_environments", // Environment aggregate; config moved to helix-specs branch
 }
 
-// dropRemovedTables drops the removedTables if present. Idempotent
-// (DROP TABLE IF EXISTS); a no-op on a fresh DB that never created them.
+// dropRemovedTables drops the removedTables if present; a no-op (reads only)
+// on a DB that never created them or already dropped them.
 func dropRemovedTables(db *gorm.DB) error {
 	for _, t := range removedTables {
+		if !db.Migrator().HasTable(t) {
+			continue
+		}
 		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", t)).Error; err != nil {
 			return fmt.Errorf("drop %s: %w", t, err)
 		}

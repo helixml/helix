@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/caddyserver/certmagic"
 	"github.com/helixml/helix/api/pkg/store"
@@ -116,11 +119,7 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 			Msg("vhost TLS auto mode enabled (certmagic + Let's Encrypt)")
 
 		// :80 serves custom-domain verification and the HTTP→HTTPS redirect.
-		go func() {
-			if err := http.ListenAndServe(":80", httpToHTTPSRedirect(handler)); err != nil {
-				log.Warn().Err(err).Msg("vhost TLS: :80 listener exited")
-			}
-		}()
+		apiServer.serveVHostListener(":80", httpToHTTPSRedirect(handler), nil)
 	} else {
 		// No DNS provider: HTTP-01 + TLS-ALPN-01 for all names, with a :80
 		// challenge listener. Only works when LE can reach the origin directly.
@@ -132,29 +131,35 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 			Str("challenge", challengeDesc).
 			Msg("vhost TLS auto mode enabled (certmagic + Let's Encrypt)")
 
-		go func() {
-			if err := http.ListenAndServe(":80", magicACME.HTTPChallengeHandler(httpToHTTPSRedirect(handler))); err != nil {
-				log.Warn().Err(err).Msg("vhost TLS: :80 challenge listener exited")
-			}
-		}()
+		apiServer.serveVHostListener(":80", magicACME.HTTPChallengeHandler(httpToHTTPSRedirect(handler)), nil)
 	}
 
 	// HTTPS listener on :443 — same handler as the plain HTTP listener,
 	// so the vhost middleware runs there too.
 	tlsConfig := cfg.TLSConfig()
 	tlsConfig.NextProtos = append([]string{"h2", "http/1.1"}, tlsConfig.NextProtos...)
+	apiServer.serveVHostListener(":443", handler, tlsConfig)
+	return nil
+}
+
+// serveVHostListener serves handler on addr (TLS when tlsConfig is set) in
+// the background, under the drainer so SIGTERM shuts it down gracefully.
+func (apiServer *HelixAPIServer) serveVHostListener(addr string, handler http.Handler, tlsConfig *tls.Config) {
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		TLSConfig:         tlsConfig,
+		ReadHeaderTimeout: 60 * time.Second,
+	}
 	go func() {
-		srv := &http.Server{
-			Addr:              ":443",
-			Handler:           handler,
-			TLSConfig:         tlsConfig,
-			ReadHeaderTimeout: 60 * 1_000_000_000, // 60s
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			err = apiServer.drainer.serve(srv, ln, tlsConfig != nil)
 		}
-		if err := srv.ListenAndServeTLS("", ""); err != nil {
-			log.Warn().Err(err).Msg("vhost TLS: :443 listener exited")
+		if err != nil {
+			log.Warn().Err(err).Str("addr", addr).Msg("vhost TLS: listener exited")
 		}
 	}()
-	return nil
 }
 
 // vhostShouldIssueCert returns nil if certmagic is allowed to issue a

@@ -318,7 +318,7 @@ type Store interface {
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
-	ClearStaleStartingSessions(ctx context.Context) (int64, error)
+	ClearStaleStartingSessions(ctx context.Context, before time.Time) (int64, error)
 	// MarkSessionStartingIfIdle atomically flips external_agent_status to
 	// "starting" + status_message to "Starting Desktop..." for a session,
 	// but only if its current status is neither "starting" nor "running".
@@ -684,7 +684,11 @@ type Store interface {
 	CreateTriggerExecutionUnlessRunning(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, bool, error)
 	FinishTriggerExecution(ctx context.Context, sessionID string, status types.TriggerExecutionStatus, message string) (*types.TriggerExecution, error)
 	UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
-	ResetRunningExecutions(ctx context.Context) error
+	ResetRunningExecutions(ctx context.Context, before time.Time) error
+	ResetRunningInteractions(ctx context.Context, before time.Time) error
+
+	// Ping reports whether the database answers (readiness checks).
+	Ping(ctx context.Context) error
 
 	// system settings
 	GetSystemSettings(ctx context.Context) (*types.SystemSettings, error)
@@ -785,7 +789,7 @@ type Store interface {
 	GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
 	IsCommentBeingProcessedForSession(ctx context.Context, planningSessionID string) (bool, error)
 	GetSessionsWithPendingComments(ctx context.Context) ([]string, error)
-	ResetStuckComments(ctx context.Context) (int64, error)
+	ResetStuckComments(ctx context.Context, before time.Time) (int64, error)
 
 	// design review comment replies
 	CreateSpecTaskDesignReviewCommentReply(ctx context.Context, reply *types.SpecTaskDesignReviewCommentReply) error
@@ -1121,7 +1125,7 @@ type Store interface {
 	CreateWebServiceDeploy(ctx context.Context, d *types.WebServiceDeploy) error
 	UpdateWebServiceDeploy(ctx context.Context, id string, updates map[string]interface{}) error
 	ListWebServiceDeploys(ctx context.Context, projectID string, limit int) ([]*types.WebServiceDeploy, error)
-	FailInFlightWebServiceDeploys(ctx context.Context) (int64, error)
+	FailInFlightWebServiceDeploys(ctx context.Context, before time.Time) (int64, error)
 	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
 	ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error)
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)

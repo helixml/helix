@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lib/pq"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"gorm.io/gorm"
@@ -134,7 +133,7 @@ type OrganizationInvitation struct {
 	// dialog passes an app, project (prj_…) or repository ID. Pending
 	// invitations are unique per (organization, email, app_id).
 	AppID      string         `json:"app_id,omitempty" gorm:"index"`
-	GrantRoles pq.StringArray `json:"grant_roles,omitempty" gorm:"type:text[];default:'{}'"`
+	GrantRoles TextArray `json:"grant_roles,omitempty" gorm:"type:text[];default:'{}'"`
 
 	// TokenHash is the SHA-256 of the invitation's secret token. The token
 	// itself is only ever put in the invite link (sent to Email, or handed
@@ -365,7 +364,7 @@ type User struct {
 
 	// AlphaFeatures lists feature flags granted to this user.
 	// Granted per-user via SQL (no deploy).
-	AlphaFeatures pq.StringArray `gorm:"type:text[];default:'{}'" json:"alpha_features"`
+	AlphaFeatures TextArray `gorm:"type:text[];default:'{}'" json:"alpha_features"`
 }
 
 // AccountAccessDenied says why an account may not use the API. Its text is

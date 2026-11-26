@@ -764,7 +764,7 @@ func (suite *PostgresStoreTestSuite) TestExternalAgentInteractionLifecycleSurviv
 	suite.Equal(external.ID, byRequest.ID)
 	suite.NotNil(byRequest.ExternalAgentDispatchedAt)
 
-	suite.NoError(suite.db.ResetRunningInteractions(ctx))
+	suite.NoError(suite.db.ResetRunningInteractions(ctx, time.Now()))
 	externalAfterRestart, err := suite.db.GetInteraction(ctx, external.ID)
 	suite.NoError(err)
 	suite.Equal(types.InteractionStateWaiting, externalAfterRestart.State,

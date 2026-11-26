@@ -252,8 +252,12 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		statusHandlers: make([]ConnectionStatusHandler, 0),
 	}
 
-	// Clean up old streams
-	gcJetStream(js)
+	// Clean up legacy streams, only in our own embedded server: an external
+	// server is shared with other API instances (blue/green), whose live
+	// streams and consumers this would delete.
+	if ns != nil {
+		gcJetStream(js)
+	}
 
 	// Create ZED_AGENTS stream for external agent runners
 	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{

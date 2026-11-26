@@ -15,16 +15,12 @@ printf '%s' "$META_DEPLOY_SSH_KEY" | base64 -d > "$KEY_FILE"
 chmod 600 "$KEY_FILE"
 printf '%s\n' 'node01.lukemarsden.net ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJAfN0P9SELddDmpBwgQNnL+r2+af0U5We3ds89NjrwO' > "$KNOWN_HOSTS_FILE"
 
-ssh \
-  -i "$KEY_FILE" \
-  -o BatchMode=yes \
-  -o IdentitiesOnly=yes \
-  -o StrictHostKeyChecking=yes \
-  -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
-  -o ConnectTimeout=20 \
-  -o ServerAliveInterval=30 \
-  luke@node01.lukemarsden.net \
-  bash -s -- "$TARGET_SHA" <<'REMOTE'
+REPO_DIR=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
+
+# The remote script is scripts/lib/bluegreen.sh followed by the heredoc below.
+{
+  cat "$REPO_DIR/scripts/lib/bluegreen.sh"
+  cat <<'REMOTE'
 # The whole remote body is one function so bash has read all of it before
 # anything runs; it is then invoked with stdin from /dev/null. Without this,
 # any child that reads stdin (docker, compose, ssh, ...) swallows the rest of
@@ -46,9 +42,17 @@ STATE_FILE=/prod/home/luke/.local/state/helix-meta-deploy
 PRE_DEPLOY_SHA=$(git -C "$HELIX_DIR" rev-parse HEAD)
 
 sandbox_restart_started=false
+bluegreen=false
+env_backup=
 report_failure() {
   status=$?
   if (( status != 0 )); then
+    # A failed API deploy restores .env and puts the previous colour back
+    # in front (bg_rollback undoes only the steps that ran).
+    if [[ "$bluegreen" == true && -n "$env_backup" ]]; then
+      (cd "$HELIX_DIR" && sudo cp -p "$env_backup" .env && bg_rollback) ||
+        echo "CRITICAL: Meta API rollback failed; check api-blue/api-green and /etc/nginx/helix-active" >&2
+    fi
     # A failed sandbox restart must not leave Meta without a sandbox: bring one
     # back up (the new image, else the pre-deploy one) and still fail.
     if [[ "$sandbox_restart_started" == true ]]; then
@@ -118,11 +122,25 @@ if [[ -f "$STATE_FILE" ]]; then
 fi
 
 cd "$HELIX_DIR"
-(cd frontend && yarn build)
-
-if [[ -z "$deployed_helix_sha" ]] ||
-  ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- go.mod go.sum; then
-  ./stack up --force-recreate --no-deps api
+if bg_enabled; then
+  # Blue/green: the API is CI's image of this commit, started on the idle
+  # colour while the active one keeps serving (scripts/lib/bluegreen.sh).
+  bluegreen=true
+  BG_SUDO=sudo
+  BG_HEALTH_HOST=meta.helix.ml
+  bg_preflight
+  env_backup=$(mktemp /tmp/helix-meta-env.XXXXXX)
+  sudo cp -p .env "$env_backup"
+  bg_deploy "${TARGET_SHA:0:7}-linux-amd64"
+  # The API is committed: a later failure (sandbox, Zed) must not revert it.
+  sudo rm -f "$env_backup"
+  env_backup=
+else
+  (cd frontend && yarn build)
+  if [[ -z "$deployed_helix_sha" ]] ||
+    ! git diff --quiet "$deployed_helix_sha" "$TARGET_SHA" -- go.mod go.sum; then
+    ./stack up --force-recreate --no-deps api
+  fi
 fi
 
 zed_changed=false
@@ -244,3 +262,13 @@ exit 1
 }
 deploy_meta "$@" </dev/null
 REMOTE
+} | ssh \
+  -i "$KEY_FILE" \
+  -o BatchMode=yes \
+  -o IdentitiesOnly=yes \
+  -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+  -o ConnectTimeout=20 \
+  -o ServerAliveInterval=30 \
+  luke@node01.lukemarsden.net \
+  bash -s -- "$TARGET_SHA"

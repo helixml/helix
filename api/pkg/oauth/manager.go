@@ -56,47 +56,41 @@ func NewManager(store store.Store, tlsSkipVerify bool) *Manager {
 	}
 }
 
-// TODO: sync provider configuration periodically
-// Start starts the OAuth manager. Which:
-// Reloads configuration every 10 seconds
-// Refetches tokens for all connections every 1 minute
-func (m *Manager) Start(ctx context.Context) error {
-
-	err := m.LoadProviders(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to load OAuth providers")
-	}
-
-	err = m.RefreshExpiredTokens(ctx, 5*time.Minute)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to refresh expired tokens")
-	}
-
+// Start reloads the provider configuration every 10 seconds until ctx is
+// cancelled. Every API instance runs it: request handlers read the providers.
+func (m *Manager) Start(ctx context.Context) {
 	go func() {
-		// Creating two tickers for each of the tasks, we don't
-		// want to run them at the same time
-		providerTicker := time.NewTicker(10 * time.Second)
-		tokenTicker := time.NewTicker(1 * time.Minute)
-
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-providerTicker.C:
-				err := m.LoadProviders(ctx)
-				if err != nil {
+			case <-ticker.C:
+				if err := m.LoadProviders(ctx); err != nil {
 					log.Error().Err(err).Msg("Failed to load OAuth providers")
-				}
-			case <-tokenTicker.C:
-				err := m.RefreshExpiredTokens(ctx, 5*time.Minute)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to refresh expired tokens")
 				}
 			}
 		}
 	}()
+}
 
-	return nil
+// RunTokenRefresh refreshes tokens about to expire, now and then every
+// minute, until ctx is cancelled. Only the leader runs it: a refresh token
+// used twice concurrently can invalidate the connection.
+func (m *Manager) RunTokenRefresh(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for {
+		if err := m.RefreshExpiredTokens(ctx, 5*time.Minute); err != nil {
+			log.Error().Err(err).Msg("Failed to refresh expired tokens")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // LoadProviders loads all enabled OAuth providers from the database.

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
@@ -35,6 +36,7 @@ type PingService struct {
 	launchpadURL  string
 	ticker        *time.Ticker
 	done          chan bool
+	stopOnce      sync.Once
 	envLicenseKey string // renamed from licenseKey to be more explicit
 	latestVersion string
 	edition       string // e.g. "mac-desktop", "server", ""
@@ -76,9 +78,11 @@ func (s *PingService) Start(ctx context.Context) {
 	}()
 }
 
+// Stop stops the ping loop. It must not block: the loop has already returned
+// if Start's context was cancelled first (shutdown).
 func (s *PingService) Stop() {
 	s.ticker.Stop()
-	s.done <- true
+	s.stopOnce.Do(func() { close(s.done) })
 }
 
 func (s *PingService) SendPing(ctx context.Context) {

@@ -818,7 +818,8 @@ func (m *MemoryStore) GetSessionsWithPendingComments(_ context.Context) ([]strin
 	return nil, nil
 }
 
-func (m *MemoryStore) ResetStuckComments(_ context.Context) (int64, error) {
+// ResetStuckComments has nothing to reset in memory.
+func (m *MemoryStore) ResetStuckComments(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }
 

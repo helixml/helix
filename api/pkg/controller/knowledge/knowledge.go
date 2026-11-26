@@ -114,11 +114,13 @@ func (r *Reconciler) Start(ctx context.Context) error {
 
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		r.runIndexer(ctx)
 	}()
 
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if err := r.startCron(ctx); err != nil {
 			log.Error().Err(err).Msg("failed to start reconciling cron")
 		}
@@ -126,12 +128,14 @@ func (r *Reconciler) Start(ctx context.Context) error {
 
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		r.runCronManager(ctx)
 	}()
 
 	if r.koditService != nil && r.koditService.IsEnabled() {
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			r.runKoditStatusChecker(ctx)
 		}()
 	}

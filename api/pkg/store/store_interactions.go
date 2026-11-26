@@ -24,9 +24,13 @@ const externalAgentUserEntryIndex = "idx_interactions_external_agent_user_entry"
 // session generation already has a turn for the same agent thread and entry.
 var ErrDuplicateExternalAgentUserEntry = errors.New("interaction for this external agent user entry already exists")
 
-func (s *PostgresStore) ResetRunningInteractions(ctx context.Context) error {
+// ResetRunningInteractions fails waiting interactions created before the
+// given time, whose process is gone. The leader calls it with its own start
+// time, so interactions it is serving itself are left alone.
+func (s *PostgresStore) ResetRunningInteractions(ctx context.Context, before time.Time) error {
 	err := s.gdb.WithContext(ctx).Model(&types.Interaction{}).
 		Where("state = ?", types.InteractionStateWaiting).
+		Where("created < ?", before).
 		// External-agent runtimes live outside the API process and commonly keep
 		// working through an API hot reload. Their Waiting rows are therefore not
 		// abandoned. Reconnect/cancel recovery owns their eventual transition.
