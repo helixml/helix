@@ -40,6 +40,7 @@ func (s *HelixAPIServer) setupOAuthRoutes(r *mux.Router) {
 
 	// OAuth flow routes (except callback which is registered in insecureRouter)
 	r.HandleFunc("/oauth/flow/start/{provider_id}", system.DefaultWrapper(s.handleStartOAuthFlow)).Methods("GET")
+	r.HandleFunc("/oauth/flow/browser-ticket/{provider_id}", system.DefaultWrapper(s.handleCreateOAuthBrowserTicket)).Methods("POST")
 
 	// SharePoint helper routes
 	r.HandleFunc("/oauth/sharepoint/resolve-site", system.DefaultWrapper(s.handleResolveSharePointSite)).Methods("POST")
@@ -700,7 +701,9 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	// the flow. The state alone only proves the flow exists; a link carrying
 	// someone else's state would otherwise attach the visitor's provider account
 	// to the account that started the flow.
-	if caller := getRequestUser(r); !hasUser(caller) || caller.ID != requestToken.UserID {
+	// A browser bound to this flow by a ticket (oauth_browser_flow.go) needs no
+	// Helix session: only the browser that opened the ticket carries the cookie.
+	if caller := getRequestUser(r); !oauthBrowserBound(r, state) && (!hasUser(caller) || caller.ID != requestToken.UserID) {
 		log.Warn().
 			Str("provider_id", requestToken.ProviderID).
 			Str("flow_user_id", requestToken.UserID).
