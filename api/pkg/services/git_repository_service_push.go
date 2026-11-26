@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"code.gitea.io/gitea/modules/git/gitcmd"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -87,6 +89,10 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 			Dur("elapsed", time.Since(startTime)).
 			Msg("[GitPush] Starting native git push to external repository")
 
+		if err := s.seedEmptyUpstream(ctx, gitRepo, remote, branchName); err != nil {
+			return err
+		}
+
 		err = pushBranchNative(ctx, gitRepo.LocalPath, remote, branchName, force)
 		if err != nil {
 			log.Error().
@@ -116,6 +122,98 @@ func (s *GitRepositoryService) PushBranchToRemote(ctx context.Context, repoID, b
 		Msg("[GitPush] Successfully pushed local branch to external repository")
 
 	return nil
+}
+
+// seedEmptyUpstream makes the default branch the first branch an empty
+// upstream receives. Providers such as GitHub make the first branch pushed to
+// an empty repository its default branch, so pushing helix-specs or a feature
+// branch first would leave the repository defaulting to that branch. When the
+// default branch does not exist locally yet it is created with a README, as
+// the desktop workspace setup does for an empty clone.
+func (s *GitRepositoryService) seedEmptyUpstream(ctx context.Context, gitRepo *types.GitRepository, remote upstreamRemote, branchName string) error {
+	defaultBranch := gitRepo.DefaultBranch
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
+	if branchName == defaultBranch {
+		return nil
+	}
+	if v, ok := s.upstreamHasBranches.Load(gitRepo.ID); ok {
+		seen := v.(upstreamBranchesSeen)
+		if seen.url == gitRepo.ExternalURL && time.Since(seen.at) < upstreamHasBranchesTTL {
+			return nil
+		}
+	}
+
+	stdout, stderr, err := runUpstreamGit(ctx, "", upstreamSeedCheckTimeout, remote.env(), "ls-remote", "--heads", "--", remote.URL)
+	if err != nil {
+		return upstreamGitError("list upstream branches", err, stderr)
+	}
+	if len(parseLsRemoteBranches(stdout)) > 0 {
+		s.markUpstreamHasBranches(gitRepo)
+		return nil
+	}
+
+	head, err := branchHead(ctx, gitRepo.LocalPath, defaultBranch)
+	if err != nil {
+		return err
+	}
+	if head == "" {
+		name, email, err := branchTipAuthor(ctx, gitRepo.LocalPath, branchName)
+		if err != nil {
+			return err
+		}
+		readme := fmt.Sprintf("# %s\n\nThis repository was initialized by Helix.\n", gitRepo.Name)
+		if _, _, err := CommitFileToBareBranch(ctx, gitRepo.LocalPath, defaultBranch, "README.md", []byte(readme), name, email, "Initial commit"); err != nil {
+			return fmt.Errorf("failed to create initial %s commit: %w", defaultBranch, err)
+		}
+	}
+
+	log.Info().
+		Str("repo_id", gitRepo.ID).
+		Str("default_branch", defaultBranch).
+		Str("branch", branchName).
+		Msg("[GitPush] Upstream is empty; pushing the default branch first")
+	if err := pushBranchNative(ctx, gitRepo.LocalPath, remote, defaultBranch, false); err != nil {
+		return fmt.Errorf("failed to push %s to the empty external repository: %w", defaultBranch, err)
+	}
+	s.markUpstreamHasBranches(gitRepo)
+	return nil
+}
+
+// upstreamBranchesSeen records that the upstream at url had branches at time at.
+// The URL catches a repository repointed at another upstream; the expiry
+// bounds how long an upstream deleted and recreated at the same URL is missed.
+type upstreamBranchesSeen struct {
+	url string
+	at  time.Time
+}
+
+const (
+	upstreamHasBranchesTTL = 5 * time.Minute
+	// An ls-remote of an empty repository is one round trip. Keep it well
+	// inside the git push handler's per-branch budget so the real push keeps
+	// most of it.
+	upstreamSeedCheckTimeout = 15 * time.Second
+)
+
+func (s *GitRepositoryService) markUpstreamHasBranches(gitRepo *types.GitRepository) {
+	s.upstreamHasBranches.Store(gitRepo.ID, upstreamBranchesSeen{url: gitRepo.ExternalURL, at: time.Now()})
+}
+
+// branchTipAuthor returns the author of the commit branch points at.
+func branchTipAuthor(ctx context.Context, repoPath, branch string) (string, string, error) {
+	stdout, stderr, err := gitcmd.NewCommand("log", "-1", "--format=%an%x00%ae").
+		AddDynamicArguments("refs/heads/"+branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read author of %s: %w - %s", branch, err, stderr)
+	}
+	name, email, ok := strings.Cut(strings.TrimSpace(stdout), "\x00")
+	if !ok || name == "" || email == "" {
+		return "", "", fmt.Errorf("branch %s has no commit author", branch)
+	}
+	return name, email, nil
 }
 
 // pushBranchNative pushes a branch from the bare repo to the upstream remote.

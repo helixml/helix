@@ -87,6 +87,10 @@ type GitRepositoryService struct {
 	upstreamSyncedAt map[string]time.Time
 	upstreamStateMu  sync.Mutex
 
+	// upstreamHasBranches maps a repo ID to an upstreamBranchesSeen, so pushes
+	// do not check for an empty upstream every time.
+	upstreamHasBranches sync.Map
+
 	// prListCache absorbs duplicate ListPullRequests calls (orchestrator polls,
 	// concurrent handler hits) so we don't hammer GitHub and trip its 5000 req/hr
 	// rate limit. Set on construction; safe for concurrent use.
@@ -1225,6 +1229,8 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 			}
 		}
 	}
+
+	s.upstreamHasBranches.Delete(repoID)
 
 	// Delete repository directory
 	repoPath := filepath.Join(s.gitRepoBase, repoID)
