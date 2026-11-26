@@ -448,6 +448,7 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 		{"GET", "/api/v1/external-agents/ses_A/clipboard"},
 		{"POST", "/api/v1/external-agents/ses_A/clipboard"},
 		{"POST", "/api/v1/sessions/ses_A/resume"},
+		{"POST", "/api/v1/external-agents/ses_A/upload"},
 	} {
 		if !embedKeyAllows(u, req(c.method, c.path)) {
 			t.Errorf("interactive embed key denied %s %s on its own session", c.method, c.path)
@@ -460,6 +461,7 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 		{"GET", "/api/v1/external-agents/ses_B/ws/input"},
 		{"POST", "/api/v1/external-agents/ses_B/clipboard"},
 		{"POST", "/api/v1/sessions/ses_B/resume"},
+		{"POST", "/api/v1/external-agents/ses_B/upload"},
 		{"DELETE", "/api/v1/sessions/ses_A/stop-external-agent"},
 		{"GET", "/api/v1/sessions/ses_A/terminal"},
 		{"GET", "/api/v1/external-agents/ses_A/screenshot"},
@@ -473,7 +475,8 @@ func TestInteractiveEmbedKeyDrivesOnlyItsOwnDesktop(t *testing.T) {
 	readOnly := embedUser()
 	if embedKeyAllows(readOnly, req("GET", "/api/v1/sessions/ses_A/operator-access")) ||
 		embedKeyAllows(readOnly, req("GET", "/api/v1/spec-tasks/spt_A/interactive-embed-model")) ||
-		embedKeyAllows(readOnly, req("PATCH", "/api/v1/spec-tasks/spt_A/interactive-embed-model")) {
+		embedKeyAllows(readOnly, req("PATCH", "/api/v1/spec-tasks/spt_A/interactive-embed-model")) ||
+		embedKeyAllows(readOnly, req("POST", "/api/v1/external-agents/ses_A/upload")) {
 		t.Error("SECURITY: read-only embed key reached an interactive endpoint")
 	}
 	// A session-less key has no desktop to drive.

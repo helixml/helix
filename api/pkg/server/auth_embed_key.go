@@ -206,6 +206,13 @@ var embedInteractiveRules = []embedRule{
 	// sandbox idled out). Without it the operator sees "Desktop paused" with a
 	// Start button that is refused, and has to abandon the run.
 	{methods: []string{"POST"}, prefix: "/api/v1/sessions/", suffix: "/resume", scope: scopeSession},
+	// Handing the agent a file: the chat's attach button, a long paste the
+	// composer turns into an attachment, and a drop onto the desktop all post
+	// here, and the file lands in the session's ~/work/incoming. Without it
+	// every upload in an embedded chat fails with a 403 while the same upload
+	// works on Helix itself. The handler still demands update rights on the
+	// session, as it does for the clipboard write above.
+	{methods: []string{"POST"}, prefix: "/api/v1/external-agents/", suffix: "/upload", scope: scopeSession},
 }
 
 // embedBodyRules covers endpoints whose subject is in the JSON body rather than
