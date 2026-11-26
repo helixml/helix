@@ -102,6 +102,9 @@ type GitRepositoryService struct {
 	// deliveries. Deliveries are signed with a per-repo secret stored on the
 	// repo row. Set via SetGitHubReviewWebhooks from server wiring.
 	githubReviewWebhooksURL string
+	// reviewWebhookBackfilled records repos EnsureReviewWebhook already
+	// handled in this process, so the PR poller upserts each hook once.
+	reviewWebhookBackfilled sync.Map
 
 	// compatBaseURL / compatDispatch bridge the go-github client used for
 	// Helix-hosted repositories to this instance's in-process
@@ -989,12 +992,6 @@ func (s *GitRepositoryService) UpdateRepository(
 	}
 	if request.AzureDevOps != nil {
 		existing.AzureDevOps = request.AzureDevOps
-	}
-	if request.ReviewBotUserID != nil {
-		if existing.GitHub == nil {
-			existing.GitHub = &types.GitHub{}
-		}
-		existing.GitHub.ReviewBotUserID = *request.ReviewBotUserID
 	}
 
 	// After external URL and credentials are applied, so an upstream lookup uses them.

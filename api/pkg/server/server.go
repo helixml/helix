@@ -815,6 +815,7 @@ func NewServer(
 		reviewWebhookURL = fmt.Sprintf("%s/api/v1/webhooks/github/reviews", strings.TrimSuffix(cfg.WebServer.URL, "/"))
 	}
 	gitRepositoryService.SetGitHubReviewWebhooks(reviewWebhookURL)
+	apiServer.specTaskOrchestrator.SetReviewWebhookEnsurer(gitRepositoryService)
 
 	// Helix-hosted repositories take the GitHub pull request code path against
 	// this server's GitHub-compatible API, in-process.

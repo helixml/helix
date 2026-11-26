@@ -68,7 +68,7 @@ var expectedSystemTurnSites = map[string][]string{
 	"server/session_switch_agent_handlers.go:transitionSpecTaskToImplementation": {"SystemTurnImplementationPrompt"},
 	"server/spec_task_design_review_handlers.go:sendCommentToAgentNow":           {"SystemTurnDesignReviewComment"},
 	"server/spec_task_design_review_handlers.go:submitDesignReview":              {"SystemTurnRevisionRequested"},
-	"server/spec_task_github_review_webhook.go:handleGitHubPRReview":             {"SystemTurnReviewComment"},
+	"server/spec_task_github_review_webhook.go:deliverGitHubPRFeedback":          {"SystemTurnReviewComment"},
 	"server/spec_task_workflow_handlers.go:approveImplementation":                {"SystemTurnPushRequired", "SystemTurnRebaseRequired"},
 	"server/websocket_external_agent_questions.go:settledByHelix":                {"SystemTurnQuestionSettled"},
 	"services/agent_instruction_service.go:SendApprovalInstructionMessage":       {"SystemTurnImplementationPrompt"},
