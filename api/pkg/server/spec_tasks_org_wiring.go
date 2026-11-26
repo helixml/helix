@@ -60,6 +60,22 @@ func (w specTaskWorkflow) StartAgent(ctx context.Context, task *types.SpecTask, 
 	return nil
 }
 
+func (w specTaskWorkflow) UnarchiveTask(ctx context.Context, task *types.SpecTask, userID string) (*types.SpecTask, error) {
+	restored, wasArchived, err := w.apiServer.prProposals.UnarchiveForAgent(ctx, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	if wasArchived && w.apiServer.auditLogService != nil {
+		userEmail := ""
+		user, getErr := w.apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+		if getErr == nil && user != nil {
+			userEmail = user.Email
+		}
+		w.apiServer.auditLogService.LogTaskUnarchived(ctx, restored, userID, userEmail)
+	}
+	return restored, nil
+}
+
 func (w specTaskWorkflow) StopAgent(ctx context.Context, task *types.SpecTask) error {
 	if task.PlanningSessionID == "" || w.apiServer.externalAgentExecutor == nil {
 		return nil

@@ -208,3 +208,55 @@ func (s *PRProposalSuite) TestStartingADoneTasksAgentReopensIt() {
 	s.Require().NoError(s.svc.ReopenForAgent(s.ctx, "spt_1"))
 	s.Equal(types.TaskStatusPullRequest, s.task("spt_1").Status)
 }
+
+func (s *PRProposalSuite) TestUnarchiveForAgentRestoresCompletedTaskAtomically() {
+	task := s.task("spt_1")
+	task.Status = types.TaskStatusDone
+	task.Archived = true
+	task.PlanningSessionID = "ses_existing"
+	task.RepoPullRequests = []types.RepoPR{{PRID: "316"}}
+	completed := time.Now()
+	task.CompletedAt = &completed
+	s.Require().NoError(s.store.UpdateSpecTask(s.ctx, task))
+	updatesBefore := s.store.taskUpdates
+
+	restored, wasArchived, err := s.svc.UnarchiveForAgent(s.ctx, task.ID)
+	s.Require().NoError(err)
+	s.True(wasArchived)
+	s.False(restored.Archived)
+	s.Equal(types.TaskStatusPullRequest, restored.Status)
+	s.Nil(restored.CompletedAt)
+	s.Equal("ses_existing", restored.PlanningSessionID)
+	s.Equal(updatesBefore+1, s.store.taskUpdates, "archive and status must change in one write")
+
+	_, wasArchived, err = s.svc.UnarchiveForAgent(s.ctx, task.ID)
+	s.Require().NoError(err)
+	s.False(wasArchived)
+	s.Equal(updatesBefore+1, s.store.taskUpdates, "retry must be idempotent")
+
+	task = s.task("spt_1")
+	task.Status = types.TaskStatusDone
+	task.Archived = true
+	task.RepoPullRequests = nil
+	task.CompletedAt = &completed
+	s.Require().NoError(s.store.UpdateSpecTask(s.ctx, task))
+	restored, _, err = s.svc.UnarchiveForAgent(s.ctx, task.ID)
+	s.Require().NoError(err)
+	s.Equal(types.TaskStatusImplementation, restored.Status, "review tasks without linked PR rows resume implementation")
+
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	task = s.task("spt_1")
+	task.Status = types.TaskStatusImplementation
+	task.Archived = true
+	task.CreatedAt = old
+	task.StatusUpdatedAt = &old
+	s.Require().NoError(s.store.UpdateSpecTask(s.ctx, task))
+	restored, _, err = s.svc.UnarchiveForAgent(s.ctx, task.ID)
+	s.Require().NoError(err)
+	s.NotNil(restored.StatusUpdatedAt)
+	s.Equal(restored.UpdatedAt, *restored.StatusUpdatedAt)
+	s.False(shouldArchiveStaleTask(&types.Project{
+		ArchiveStaleTasksEnabled: true,
+		ArchiveStaleTasksDays:    6,
+	}, restored, time.Now()), "restored implementation task must not be immediately stale")
+}

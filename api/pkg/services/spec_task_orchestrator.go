@@ -1758,6 +1758,22 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 }
 
 func (o *SpecTaskOrchestrator) handleDone(ctx context.Context, task *types.SpecTask) error {
+	if o.prProposals != nil && o.prProposals.git != nil {
+		return o.prProposals.git.WithRepoLock("task:"+task.ID, func() error {
+			latest, err := o.store.GetSpecTask(ctx, task.ID)
+			if err != nil {
+				return fmt.Errorf("failed to reload completed task: %w", err)
+			}
+			if latest.Archived || latest.Status != types.TaskStatusDone {
+				return nil
+			}
+			return o.cleanupDone(ctx, latest)
+		})
+	}
+	return o.cleanupDone(ctx, task)
+}
+
+func (o *SpecTaskOrchestrator) cleanupDone(ctx context.Context, task *types.SpecTask) error {
 	if task.Archived {
 		return nil
 	}
@@ -1916,34 +1932,46 @@ func (o *SpecTaskOrchestrator) staleArchiveSweep(ctx context.Context) {
 			continue
 		}
 
-		// Reload the task and re-check it, so a status change, fresh activity
-		// or manual archive between list and write is never clobbered.
-		latest, err := o.store.GetSpecTask(ctx, task.ID)
-		if err != nil {
-			log.Warn().Err(err).
+		archive := func() error {
+			// Reload and re-check under the lifecycle lock, so restore cannot
+			// race the agent stop and archive write.
+			latest, err := o.store.GetSpecTask(ctx, task.ID)
+			if err != nil {
+				log.Warn().Err(err).
+					Str("task_id", task.ID).
+					Msg("Failed to reload task during archive sweep")
+				return nil
+			}
+			if latest.Archived || !shouldArchiveStaleTask(project, latest, now) {
+				return nil
+			}
+
+			o.stopTaskAgentsBeforeArchive(ctx, latest)
+
+			latest.Archived = true
+			if err := o.store.UpdateSpecTask(ctx, latest); err != nil {
+				log.Warn().Err(err).
+					Str("task_id", task.ID).
+					Msg("Failed to archive task during archive sweep")
+				return nil
+			}
+
+			log.Info().
 				Str("task_id", task.ID).
-				Msg("Failed to reload task during archive sweep")
-			continue
+				Str("project_id", task.ProjectID).
+				Str("status", latest.Status.String()).
+				Msg("Auto-archived stale task")
+			return nil
 		}
-		if latest.Archived || !shouldArchiveStaleTask(project, latest, now) {
-			continue
+		if o.prProposals != nil && o.prProposals.git != nil {
+			if err := o.prProposals.git.WithRepoLock("task:"+task.ID, archive); err != nil {
+				log.Warn().Err(err).
+					Str("task_id", task.ID).
+					Msg("Failed to lock task during archive sweep")
+			}
+		} else {
+			_ = archive()
 		}
-
-		o.stopTaskAgentsBeforeArchive(ctx, latest)
-
-		latest.Archived = true
-		if err := o.store.UpdateSpecTask(ctx, latest); err != nil {
-			log.Warn().Err(err).
-				Str("task_id", task.ID).
-				Msg("Failed to archive task during archive sweep")
-			continue
-		}
-
-		log.Info().
-			Str("task_id", task.ID).
-			Str("project_id", task.ProjectID).
-			Str("status", latest.Status.String()).
-			Msg("Auto-archived stale task")
 	}
 }
 

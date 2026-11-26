@@ -493,6 +493,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		NewStartSpecTaskPlanning(deps),
 		NewSendSpecTaskAgentMessage(deps),
 		NewListSpecTaskAgentMessages(deps),
+		NewUnarchiveSpecTask(deps),
 		NewStartSpecTaskAgent(deps),
 		NewStopSpecTaskAgent(deps),
 		NewRestartSpecTaskAgent(deps),
