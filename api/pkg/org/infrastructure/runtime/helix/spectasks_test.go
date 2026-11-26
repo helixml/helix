@@ -51,6 +51,9 @@ func (f *fakeSpecTaskStore) ListSpecTasks(_ context.Context, filters *types.Spec
 		if filters.Status != "" && t.Status != filters.Status {
 			continue
 		}
+		if !filters.IncludeArchived && t.Archived {
+			continue
+		}
 		excluded := false
 		for _, status := range filters.ExcludeStatuses {
 			if t.Status == status {
@@ -103,10 +106,12 @@ type fakeSpecTaskWorkflow struct {
 	lastMessage         string
 	lastInterrupt       bool
 	startCalls          []string
+	unarchiveCalls      []string
 	stopCalls           []string
 	restartCalls        []string
 	completeCalls       []string
 	lastProvenance      types.TurnProvenance
+	lifecycleEvents     []string
 }
 
 func (f *fakeSpecTaskWorkflow) ApproveSpecs(_ context.Context, task *types.SpecTask) error {
@@ -138,8 +143,20 @@ func (f *fakeSpecTaskWorkflow) SendAgentMessage(_ context.Context, task *types.S
 }
 func (f *fakeSpecTaskWorkflow) StartAgent(_ context.Context, task *types.SpecTask, userID string) error {
 	f.startCalls = append(f.startCalls, task.ID)
+	f.lifecycleEvents = append(f.lifecycleEvents, "start:"+task.PlanningSessionID)
 	f.lastRequestUserID = userID
 	return nil
+}
+func (f *fakeSpecTaskWorkflow) UnarchiveTask(_ context.Context, task *types.SpecTask, userID string) (*types.SpecTask, error) {
+	f.unarchiveCalls = append(f.unarchiveCalls, task.ID)
+	f.lifecycleEvents = append(f.lifecycleEvents, "unarchive:"+task.PlanningSessionID)
+	f.lastRequestUserID = userID
+	task.Archived = false
+	if task.Status == types.TaskStatusDone {
+		task.Status = types.TaskStatusPullRequest
+		task.CompletedAt = nil
+	}
+	return task, nil
 }
 func (f *fakeSpecTaskWorkflow) StopAgent(_ context.Context, task *types.SpecTask) error {
 	f.stopCalls = append(f.stopCalls, task.ID)
@@ -259,6 +276,43 @@ func TestSpecTasks_HidesPreparingTasksFromWorkers(t *testing.T) {
 	}
 }
 
+func TestSpecTasks_ListIncludesArchivedOnRequest(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_01abc", "app_x", "repo_y", "ses_z")
+
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task-active"] = &types.SpecTask{ID: "task-active", ProjectID: "prj_01abc"}
+	fs.tasks["task-archived"] = &types.SpecTask{ID: "task-archived", ProjectID: "prj_01abc", Archived: true, PlanningSessionID: "ses_existing", Description: "Review `https://github.com/example/repo/pull/316`."}
+	fs.tasks["task-other"] = &types.SpecTask{ID: "task-other", ProjectID: "prj_01abc", Archived: true, Description: "Review https://github.com/example/repo/pull/3160."}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+
+	active, err := st.List(context.Background(), "org-test", wid, "", runtime.ListSpecTasksFilter{})
+	if err != nil {
+		t.Fatalf("List active: %v", err)
+	}
+	all, err := st.List(context.Background(), "org-test", wid, "", runtime.ListSpecTasksFilter{IncludeArchived: true})
+	if err != nil {
+		t.Fatalf("List archived: %v", err)
+	}
+	targeted, err := st.List(context.Background(), "org-test", wid, "", runtime.ListSpecTasksFilter{IncludeArchived: true, PullRequestURL: "https://github.com/example/repo/pull/316"})
+	if err != nil {
+		t.Fatalf("List by PR: %v", err)
+	}
+	if len(active) != 1 || len(all) != 3 || len(targeted) != 1 || targeted[0].ID != "task-archived" {
+		t.Fatalf("active/all counts = %d/%d", len(active), len(all))
+	}
+	for _, view := range all {
+		if view.ID == "task-archived" && (!view.Archived || view.SessionID != "ses_existing") {
+			t.Fatalf("archived view = %+v", view)
+		}
+	}
+}
+
 // TestSpecTasks_GetForeignTaskRejected pins ownership enforcement: a task
 // in another project is not readable.
 func TestSpecTasks_GetForeignTaskRejected(t *testing.T) {
@@ -268,13 +322,20 @@ func TestSpecTasks_GetForeignTaskRejected(t *testing.T) {
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
 
 	fs := newFakeSpecTaskStore()
-	fs.tasks["task_other"] = &types.SpecTask{ID: "task_other", ProjectID: "prj_other"}
-	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	fs.tasks["task_other"] = &types.SpecTask{ID: "task_other", ProjectID: "prj_other", Archived: true, PlanningSessionID: "ses_foreign"}
+	wf := &fakeSpecTaskWorkflow{}
+	st, err := NewSpecTasks(&wrap.Store, fs, wf)
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
 	if _, err := st.Get(context.Background(), "org-test", wid, "", "task_other"); err == nil {
 		t.Error("expected ownership error for foreign task")
+	}
+	if _, err := st.Unarchive(context.Background(), "org-test", wid, "", "task_other"); err == nil {
+		t.Error("expected ownership error when unarchiving foreign task")
+	}
+	if len(wf.unarchiveCalls) != 0 || len(fs.updated) != 0 || !fs.tasks["task_other"].Archived {
+		t.Fatalf("foreign task mutated: workflow=%v updates=%d task=%+v", wf.unarchiveCalls, len(fs.updated), fs.tasks["task_other"])
 	}
 }
 
@@ -356,13 +417,20 @@ func TestSpecTasks_CrossOrgProjectRejected(t *testing.T) {
 	fs := newFakeSpecTaskStore()
 	// Project exists but belongs to a DIFFERENT org.
 	fs.projects["prj_foreign"] = &types.Project{ID: "prj_foreign", OrganizationID: "org-other"}
-	fs.tasks["task_f"] = &types.SpecTask{ID: "task_f", ProjectID: "prj_foreign"}
-	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	fs.tasks["task_f"] = &types.SpecTask{ID: "task_f", ProjectID: "prj_foreign", Archived: true, PlanningSessionID: "ses_foreign"}
+	wf := &fakeSpecTaskWorkflow{}
+	st, err := NewSpecTasks(&wrap.Store, fs, wf)
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
 	if _, err := st.Get(context.Background(), "org-test", wid, "prj_foreign", "task_f"); err == nil {
 		t.Error("expected cross-org rejection when targeting another org's project")
+	}
+	if _, err := st.Unarchive(context.Background(), "org-test", wid, "prj_foreign", "task_f"); err == nil {
+		t.Error("expected cross-org unarchive rejection")
+	}
+	if len(fs.updated) != 0 || len(wf.unarchiveCalls) != 0 || !fs.tasks["task_f"].Archived {
+		t.Fatalf("cross-org task mutated: updates=%d workflow=%v task=%+v", len(fs.updated), wf.unarchiveCalls, fs.tasks["task_f"])
 	}
 }
 
@@ -534,6 +602,53 @@ func TestSpecTasks_AgentLifecycleDelegates(t *testing.T) {
 	}
 }
 
+func TestSpecTasks_UnarchivesBeforeResumingExistingSession(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.NodeID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	if err := SaveHiringUser(context.Background(), &wrap.Store, "org-test", wid, "user_hiring"); err != nil {
+		t.Fatalf("SaveHiringUser: %v", err)
+	}
+
+	completed := time.Now()
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task_1"] = &types.SpecTask{
+		ID: "task_1", ProjectID: "prj_mine", PlanningSessionID: "ses_existing",
+		Status: types.TaskStatusDone, Archived: true, CompletedAt: &completed,
+		RepoPullRequests: []types.RepoPR{{PRID: "316"}},
+	}
+	wf := &fakeSpecTaskWorkflow{}
+	st, err := NewSpecTasks(&wrap.Store, fs, wf)
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	if _, err := st.StartAgent(context.Background(), "org-test", wid, "", "task_1"); err == nil {
+		t.Fatal("StartAgent must reject an archived task")
+	}
+	if len(wf.lifecycleEvents) != 0 {
+		t.Fatalf("archived task reached workflow: %v", wf.lifecycleEvents)
+	}
+	restored, err := st.Unarchive(context.Background(), "org-test", wid, "", "task_1")
+	if err != nil {
+		t.Fatalf("Unarchive: %v", err)
+	}
+	started, err := st.StartAgent(context.Background(), "org-test", wid, "", "task_1")
+	if err != nil {
+		t.Fatalf("StartAgent: %v", err)
+	}
+	if restored.Archived || restored.Status != string(types.TaskStatusPullRequest) || restored.SessionID != "ses_existing" {
+		t.Fatalf("restored = %+v", restored)
+	}
+	if started.SessionID != "ses_existing" {
+		t.Fatalf("started session = %q", started.SessionID)
+	}
+	want := []string{"unarchive:ses_existing", "start:ses_existing"}
+	if len(wf.lifecycleEvents) != len(want) || wf.lifecycleEvents[0] != want[0] || wf.lifecycleEvents[1] != want[1] {
+		t.Fatalf("lifecycle events = %v, want %v", wf.lifecycleEvents, want)
+	}
+}
+
 func TestSpecTasks_AgentOperationsRequirePlanningSession(t *testing.T) {
 	t.Parallel()
 	wrap := newSpecTasksTestStore(t)
@@ -551,6 +666,9 @@ func TestSpecTasks_AgentOperationsRequirePlanningSession(t *testing.T) {
 	}
 	if _, err := st.StartAgent(context.Background(), "org-test", wid, "", "task_1"); err == nil {
 		t.Error("StartAgent should reject a task without a planning session")
+	}
+	if _, err := st.Unarchive(context.Background(), "org-test", wid, "", "task_1"); err == nil {
+		t.Error("Unarchive should reject a task without a planning session")
 	}
 	if _, err := st.RestartAgent(context.Background(), "org-test", wid, "", "task_1"); err == nil {
 		t.Error("RestartAgent should reject a task without a planning session")
@@ -712,9 +830,10 @@ func TestSpecTasks_CrossProjectActionsAreVerbSpecific(t *testing.T) {
 	}
 	fs := newFakeSpecTaskStore()
 	fs.projects["prj_other"] = &types.Project{ID: "prj_other", OrganizationID: "org-test"}
-	fs.tasks["task_o"] = &types.SpecTask{ID: "task_o", ProjectID: "prj_other", Status: types.TaskStatusBacklog}
+	fs.tasks["task_o"] = &types.SpecTask{ID: "task_o", ProjectID: "prj_other", Status: types.TaskStatusDone, Archived: true, PlanningSessionID: "ses_other"}
 	auth := &fakeProjectAuthorizer{allowed: map[string]bool{"u-reader/prj_other/" + string(types.ActionGet): true}}
-	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	wf := &fakeSpecTaskWorkflow{}
+	st, err := NewSpecTasks(&wrap.Store, fs, wf)
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
@@ -742,8 +861,11 @@ func TestSpecTasks_CrossProjectActionsAreVerbSpecific(t *testing.T) {
 	if _, err := st.ApproveSpec(context.Background(), "org-test", wid, "prj_other", "task_o"); err == nil {
 		t.Fatal("read-only access must not allow ApproveSpec")
 	}
-	if len(fs.updated) != 0 {
-		t.Fatalf("updated %d tasks with read-only access", len(fs.updated))
+	if _, err := st.Unarchive(context.Background(), "org-test", wid, "prj_other", "task_o"); err == nil {
+		t.Fatal("read-only access must not allow Unarchive")
+	}
+	if len(fs.updated) != 0 || len(wf.unarchiveCalls) != 0 || !fs.tasks["task_o"].Archived {
+		t.Fatalf("read-only task mutated: updates=%d workflow=%v task=%+v", len(fs.updated), wf.unarchiveCalls, fs.tasks["task_o"])
 	}
 }
 

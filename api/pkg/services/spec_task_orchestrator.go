@@ -1758,6 +1758,22 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 }
 
 func (o *SpecTaskOrchestrator) handleDone(ctx context.Context, task *types.SpecTask) error {
+	if o.prProposals != nil && o.prProposals.git != nil {
+		return o.prProposals.git.WithRepoLock("task:"+task.ID, func() error {
+			latest, err := o.store.GetSpecTask(ctx, task.ID)
+			if err != nil {
+				return fmt.Errorf("failed to reload completed task: %w", err)
+			}
+			if latest.Archived || latest.Status != types.TaskStatusDone {
+				return nil
+			}
+			return o.cleanupDone(ctx, latest)
+		})
+	}
+	return o.cleanupDone(ctx, task)
+}
+
+func (o *SpecTaskOrchestrator) cleanupDone(ctx context.Context, task *types.SpecTask) error {
 	if task.Archived {
 		return nil
 	}

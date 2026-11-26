@@ -101,10 +101,12 @@ type ListSpecTasks struct{ deps Deps }
 func NewListSpecTasks(deps Deps) *ListSpecTasks { return &ListSpecTasks{deps: deps} }
 
 type listSpecTasksArgs struct {
-	ProjectID string `json:"project_id,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Priority  string `json:"priority,omitempty"`
-	Type      string `json:"type,omitempty"`
+	ProjectID       string `json:"project_id,omitempty"`
+	Status          string `json:"status,omitempty"`
+	Priority        string `json:"priority,omitempty"`
+	Type            string `json:"type,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"`
+	PullRequestURL  string `json:"pull_request_url,omitempty"`
 }
 
 var listSpecTasksSchema = mustSchema[listSpecTasksArgs]()
@@ -112,8 +114,9 @@ var listSpecTasksSchema = mustSchema[listSpecTasksArgs]()
 func (t *ListSpecTasks) Name() tool.Name                 { return ListSpecTasksName }
 func (t *ListSpecTasks) InputSchema() *jsonschema.Schema { return listSpecTasksSchema }
 func (t *ListSpecTasks) Description() string {
-	return "List spec tasks, optionally filtered by status, priority, or type. Pass project_id " +
-		"to list tasks in a project you manage in your org; omit it to list your own project's tasks."
+	return "List spec tasks, optionally filtered by status, priority, type, or pull_request_url. Archived tasks are " +
+		"excluded unless include_archived is true. Pass project_id to list tasks in a project you " +
+		"manage in your org; omit it to list your own project's tasks."
 }
 func (t *ListSpecTasks) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args listSpecTasksArgs
@@ -121,9 +124,11 @@ func (t *ListSpecTasks) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
 	views, err := t.deps.SpecTasks.List(ctx, inv.Caller, args.ProjectID, runtime.ListSpecTasksFilter{
-		Status:   args.Status,
-		Priority: args.Priority,
-		Type:     args.Type,
+		Status:          args.Status,
+		Priority:        args.Priority,
+		Type:            args.Type,
+		IncludeArchived: args.IncludeArchived,
+		PullRequestURL:  args.PullRequestURL,
 	})
 	if err != nil {
 		return nil, err
@@ -333,6 +338,36 @@ func (t *ListSpecTaskAgentMessages) Invoke(ctx context.Context, inv tool.Invocat
 		return nil, err
 	}
 	return json.Marshal(views)
+}
+
+// --- unarchive_spectask --------------------------------------------------
+
+const UnarchiveSpecTaskName tool.Name = "unarchive_spectask"
+
+type UnarchiveSpecTask struct{ deps Deps }
+
+func NewUnarchiveSpecTask(deps Deps) *UnarchiveSpecTask { return &UnarchiveSpecTask{deps: deps} }
+
+var unarchiveSpecTaskSchema = mustSchema[taskIDArgs]()
+
+func (t *UnarchiveSpecTask) Name() tool.Name                 { return UnarchiveSpecTaskName }
+func (t *UnarchiveSpecTask) InputSchema() *jsonschema.Schema { return unarchiveSpecTaskSchema }
+func (t *UnarchiveSpecTask) Description() string {
+	return "Restore an archived spec task to active work for reuse of its existing planning session. " +
+		"This does not recreate an explicitly destroyed workspace. A completed task returns to pull_request when it has pull requests, " +
+		"otherwise implementation. Call start_spectask_agent afterwards to resume its stopped desktop. " +
+		"Pass project_id for a task in a project you manage in your org."
+}
+func (t *UnarchiveSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	args, err := parseTaskID(inv.Args)
+	if err != nil {
+		return nil, err
+	}
+	view, err := t.deps.SpecTasks.Unarchive(ctx, inv.Caller, args.ProjectID, args.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
 }
 
 // --- start_spectask_agent -------------------------------------------------

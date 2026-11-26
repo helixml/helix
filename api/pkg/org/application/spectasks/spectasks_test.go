@@ -64,6 +64,10 @@ func (f *fakePort) StartAgent(_ context.Context, org string, w orgchart.NodeID, 
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.action, f.err
 }
+func (f *fakePort) Unarchive(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskView, error) {
+	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
+	return f.view, f.err
+}
 func (f *fakePort) StopAgent(_ context.Context, org string, w orgchart.NodeID, projectID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err

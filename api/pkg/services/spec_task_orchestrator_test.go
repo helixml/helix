@@ -91,6 +91,136 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_SettlesTheFinishedAgent()
 	s.Require().NoError(s.orchestrator.handleDone(ctx, task))
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_DoesNotCleanUpAConcurrentRestoredTask() {
+	ctx := context.Background()
+	stale := &types.SpecTask{
+		ID:                "task-123",
+		PlanningSessionID: "session-456",
+		Status:            types.TaskStatusDone,
+	}
+	stored := *stale
+	stored.Archived = true
+	provider := &fakeProvider{}
+	proposals := NewPRProposalService(s.store, provider, nil, "")
+	s.orchestrator.SetPRProposals(proposals)
+
+	restoreWriting := make(chan struct{})
+	allowRestore := make(chan struct{})
+	var restored types.SpecTask
+	s.store.EXPECT().GetSpecTask(ctx, stale.ID).Return(&stored, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, task *types.SpecTask) error {
+		restored = *task
+		close(restoreWriting)
+		<-allowRestore
+		return nil
+	})
+	s.store.EXPECT().GetSpecTask(ctx, stale.ID).DoAndReturn(func(context.Context, string) (*types.SpecTask, error) {
+		return &restored, nil
+	})
+	var stops atomic.Int32
+	s.executor.EXPECT().StopDesktop(ctx, stale.PlanningSessionID).DoAndReturn(func(context.Context, string) error {
+		stops.Add(1)
+		return nil
+	}).AnyTimes()
+	s.store.EXPECT().ReapWaitingInteractions(ctx, stale.PlanningSessionID, types.InteractionStateInterrupted, "task marked done").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().ListPromptHistoryBySession(ctx, stale.PlanningSessionID).Return(nil, nil).AnyTimes()
+
+	restoreDone := make(chan error, 1)
+	go func() {
+		_, _, err := proposals.UnarchiveForAgent(ctx, stale.ID)
+		restoreDone <- err
+	}()
+	<-restoreWriting
+	cleanupDone := make(chan error, 1)
+	go func() { cleanupDone <- s.orchestrator.handleDone(ctx, stale) }()
+	close(allowRestore)
+
+	s.Require().NoError(<-restoreDone)
+	s.Require().NoError(<-cleanupDone)
+	s.Zero(stops.Load(), "a stale done event must not stop the restored task")
+	s.Equal(types.TaskStatusImplementation, restored.Status)
+	s.False(restored.Archived)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleDone_SerializesCleanupWithRestore() {
+	ctx := context.Background()
+	stored := types.SpecTask{
+		ID:                "task-123",
+		PlanningSessionID: "session-456",
+		Status:            types.TaskStatusDone,
+	}
+
+	var lockAttempts atomic.Int32
+	var wrongLockKey atomic.Bool
+	restoreAttempted := make(chan struct{})
+	provider := &fakeProvider{onLockAttempt: func(key string) {
+		if key != "task:"+stored.ID {
+			wrongLockKey.Store(true)
+		}
+		if lockAttempts.Add(1) == 2 {
+			close(restoreAttempted)
+		}
+	}}
+	proposals := NewPRProposalService(s.store, provider, nil, "")
+	s.orchestrator.SetPRProposals(proposals)
+
+	var reads atomic.Int32
+	s.store.EXPECT().GetSpecTask(ctx, stored.ID).Times(2).DoAndReturn(func(context.Context, string) (*types.SpecTask, error) {
+		reads.Add(1)
+		current := stored
+		return &current, nil
+	})
+	cleanupStopping := make(chan struct{})
+	releaseCleanup := make(chan struct{})
+	var cleanupReleased atomic.Bool
+	s.executor.EXPECT().StopDesktop(ctx, stored.PlanningSessionID).DoAndReturn(func(context.Context, string) error {
+		close(cleanupStopping)
+		<-releaseCleanup
+		cleanupReleased.Store(true)
+		return nil
+	})
+	s.store.EXPECT().ReapWaitingInteractions(ctx, stored.PlanningSessionID, types.InteractionStateInterrupted, "task marked done").Return(nil, nil)
+	s.store.EXPECT().ListPromptHistoryBySession(ctx, stored.PlanningSessionID).Return(nil, nil)
+	var restoredBeforeCleanup atomic.Bool
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(func(context.Context, *types.SpecTask) error {
+		restoredBeforeCleanup.Store(!cleanupReleased.Load())
+		return nil
+	})
+
+	cleanupDone := make(chan error, 1)
+	go func() { cleanupDone <- s.orchestrator.handleDone(ctx, &stored) }()
+	<-cleanupStopping
+	if lockAttempts.Load() != 1 {
+		close(releaseCleanup)
+		s.Require().NoError(<-cleanupDone)
+		s.Fail("completion cleanup did not acquire the task lifecycle lock")
+		return
+	}
+
+	restoreDone := make(chan error, 1)
+	go func() {
+		_, _, err := proposals.UnarchiveForAgent(ctx, stored.ID)
+		restoreDone <- err
+	}()
+	select {
+	case <-restoreAttempted:
+	case <-time.After(time.Second):
+		close(releaseCleanup)
+		s.Require().NoError(<-cleanupDone)
+		s.Fail("restore did not attempt the shared task lifecycle lock")
+		return
+	}
+	s.EqualValues(1, reads.Load(), "restore must not reload while completion cleanup holds its lifecycle lock")
+	close(releaseCleanup)
+
+	s.Require().NoError(<-cleanupDone)
+	s.Require().NoError(<-restoreDone)
+	s.False(restoredBeforeCleanup.Load(), "restore must not write until completion cleanup releases its lifecycle lock")
+	s.False(wrongLockKey.Load())
+	s.EqualValues(2, lockAttempts.Load())
+	s.EqualValues(2, reads.Load())
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestPreparingTaskWaitsForAttachmentIngestion() {
 	task := &types.SpecTask{
 		ID:        "task-preparing",

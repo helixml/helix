@@ -22,12 +22,13 @@ import (
 // proposal flow touches; any other method panics via the nil embedded store.
 type proposalStore struct {
 	store.Store
-	mu        sync.Mutex
-	tasks     map[string]*types.SpecTask
-	repos     map[string]*types.GitRepository
-	project   *types.Project
-	proposals map[string]*types.SpecTaskPRProposal
-	dismissed []string
+	mu          sync.Mutex
+	tasks       map[string]*types.SpecTask
+	repos       map[string]*types.GitRepository
+	project     *types.Project
+	proposals   map[string]*types.SpecTaskPRProposal
+	dismissed   []string
+	taskUpdates int
 }
 
 func clone[T any](v *T) *T { c := *v; return &c }
@@ -50,6 +51,7 @@ func (s *proposalStore) UpdateSpecTask(_ context.Context, t *types.SpecTask) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tasks[t.ID] = clone(t)
+	s.taskUpdates++
 	return nil
 }
 func (s *proposalStore) ListSpecTasks(_ context.Context, f *types.SpecTaskFilters) ([]*types.SpecTask, error) {
@@ -146,12 +148,17 @@ type fakeProvider struct {
 	nextPR    int
 	// onCreate, if set, runs inside CreatePullRequest (e.g. to pause it).
 	onCreate func()
-	locks    sync.Map // key -> *sync.Mutex, like GitRepositoryService
+	// onLockAttempt, if set, runs before waiting for the task lock.
+	onLockAttempt func(string)
+	locks         sync.Map // key -> *sync.Mutex, like GitRepositoryService
 	// states overrides a PR's state by id; unset PRs are open.
 	states map[string]types.PullRequestState
 }
 
 func (f *fakeProvider) WithRepoLock(key string, fn func() error) error {
+	if f.onLockAttempt != nil {
+		f.onLockAttempt(key)
+	}
 	m, _ := f.locks.LoadOrStore(key, &sync.Mutex{})
 	m.(*sync.Mutex).Lock()
 	defer m.(*sync.Mutex).Unlock()

@@ -212,6 +212,43 @@ func (s *PRProposalService) ReopenForAgent(ctx context.Context, taskID string) e
 	return err
 }
 
+// UnarchiveForAgent restores a completed task in one write so the archive
+// automation cannot re-archive it between restoration and status reopening.
+func (s *PRProposalService) UnarchiveForAgent(ctx context.Context, taskID string) (*types.SpecTask, bool, error) {
+	var restored *types.SpecTask
+	var wasArchived bool
+	err := s.git.WithRepoLock("task:"+taskID, func() error {
+		task, err := s.store.GetSpecTask(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		wasArchived = task.Archived
+		if !task.Archived && task.Status != types.TaskStatusDone {
+			restored = task
+			return nil
+		}
+		task.Archived = false
+		if task.Status == types.TaskStatusDone {
+			target := types.TaskStatusImplementation
+			if task.HasAnyPR() {
+				target = types.TaskStatusPullRequest
+			}
+			setTaskStatus(task, target, time.Now())
+		} else {
+			task.UpdatedAt = time.Now()
+		}
+		restored = task
+		return s.store.UpdateSpecTask(ctx, task)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if wasArchived {
+		log.Info().Str("task_id", taskID).Str("status", string(restored.Status)).Msg("Unarchived task for agent reuse")
+	}
+	return restored, wasArchived, nil
+}
+
 // setTaskStatus moves a task to status, clearing completion when it leaves done.
 func setTaskStatus(task *types.SpecTask, status types.SpecTaskStatus, now time.Time) {
 	if task.Status == types.TaskStatusDone && status != types.TaskStatusDone {

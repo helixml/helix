@@ -218,6 +218,9 @@ type SpecTasks interface {
 	// StartAgent resumes the task's existing stopped desktop and preserves its
 	// conversation thread. The task must already have a planning session.
 	StartAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskAgentActionView, error)
+	// Unarchive restores an archived task to active work without replacing its
+	// planning session or conversation thread.
+	Unarchive(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
 	// StopAgent stops the task's running desktop, if any. It leaves the task
 	// and session records intact so work can be resumed.
 	StopAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, projectID, taskID string) (SpecTaskView, error)
@@ -326,9 +329,11 @@ type SpecTaskAgentActionView struct {
 
 // ListSpecTasksFilter narrows a List call. Empty fields = no filter.
 type ListSpecTasksFilter struct {
-	Status   string `json:"status,omitempty"`
-	Priority string `json:"priority,omitempty"`
-	Type     string `json:"type,omitempty"`
+	Status          string `json:"status,omitempty"`
+	Priority        string `json:"priority,omitempty"`
+	Type            string `json:"type,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"`
+	PullRequestURL  string `json:"pull_request_url,omitempty"`
 }
 
 // SpecTaskView is the tool-facing projection of a spec task. Append-only
@@ -341,6 +346,8 @@ type SpecTaskView struct {
 	Priority     string            `json:"priority,omitempty"`
 	Type         string            `json:"type,omitempty"`
 	BranchName   string            `json:"branch_name,omitempty"`
+	Archived     bool              `json:"archived,omitempty"`
+	SessionID    string            `json:"session_id,omitempty"`
 	PullRequests []PullRequestView `json:"pull_requests,omitempty"`
 
 	// What the task will actually run on. Reported back so a Worker can
@@ -399,6 +406,9 @@ func (NoopSpecTasks) ListAgentMessages(_ context.Context, _ string, _ orgchart.N
 }
 func (NoopSpecTasks) StartAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskAgentActionView, error) {
 	return SpecTaskAgentActionView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) Unarchive(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
 func (NoopSpecTasks) StopAgent(_ context.Context, _ string, _ orgchart.NodeID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
