@@ -140,6 +140,7 @@ type HelixAPIServer struct {
 	// attestations mints and verifies identity attestations.
 	attestations                *attestation.Signer
 	Stripe                      *stripe.Stripe
+	orgLookupCache              map[string]*types.Organization
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
 	Janitor                     *janitor.Janitor
