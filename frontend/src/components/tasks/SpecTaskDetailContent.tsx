@@ -3034,6 +3034,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           handleViewChange(isHeadless ? "changes" : "desktop");
                         }}
                         hideTitle
+                        hideReviewActions={hideControls}
                         onQueueComment={upsertWorkspaceComment}
                         onSendComment={sendWorkspaceComment}
                       />
@@ -3309,6 +3310,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       handleViewChange("chat");
                     }}
                     hideTitle
+                    hideReviewActions={hideControls}
                     onQueueComment={upsertWorkspaceComment}
                     onSendComment={sendWorkspaceComment}
                   />

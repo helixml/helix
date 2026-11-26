@@ -85,7 +85,7 @@ vi.mock("./InlineCommentForm", () => ({
   ) : null,
 }));
 vi.mock("./CommentLogSidebar", () => ({ default: () => null }));
-vi.mock("./ReviewActionFooter", () => ({ default: () => null }));
+vi.mock("./ReviewActionFooter", () => ({ default: () => <div data-testid="review-actions" /> }));
 vi.mock("./ReviewSubmitDialog", () => ({ default: () => null }));
 
 class ResizeObserverStub {
@@ -137,6 +137,25 @@ describe("DesignReviewContent document editing", () => {
       original_content: "# Requirements\n\nOriginal text",
     }));
     expect(snackbarSuccess).toHaveBeenCalledWith("Requirements Specification saved");
+  });
+
+  // An embed whose host owns the task's controls (?controls=0) cannot approve:
+  // embed keys are read-only, so the host shows its own Approve instead.
+  it("shows Approve / Start implementation only when the host does not own them", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <DesignReviewContent specTaskId="task-1" reviewId="review-1" onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId("review-actions")).toBeInTheDocument();
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <DesignReviewContent specTaskId="task-1" reviewId="review-1" onClose={vi.fn()} hideReviewActions />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByTestId("review-actions")).not.toBeInTheDocument();
   });
 
   it("does not intercept typing keys as global review shortcuts", () => {
