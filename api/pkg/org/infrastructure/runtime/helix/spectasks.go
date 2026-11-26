@@ -46,6 +46,7 @@ type SpecTaskWorkflow interface {
 	RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string, provenance types.TurnProvenance) error
 	SendAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, userID string, provenance types.TurnProvenance) (string, error)
 	StartAgent(ctx context.Context, task *types.SpecTask, userID string) error
+	UnarchiveTask(ctx context.Context, task *types.SpecTask, userID string) (*types.SpecTask, error)
 	StopAgent(ctx context.Context, task *types.SpecTask) error
 	// CompleteTask marks the task done, which stops its desktop.
 	CompleteTask(ctx context.Context, task *types.SpecTask) error
@@ -322,12 +323,21 @@ func (s *SpecTasks) List(ctx context.Context, orgID string, workerID orgchart.No
 		Type:            filter.Type,
 		Priority:        filter.Priority,
 		ExcludeStatuses: []types.SpecTaskStatus{types.TaskStatusPreparing},
+		IncludeArchived: filter.IncludeArchived,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list spec tasks: %w", err)
 	}
 	out := make([]runtime.SpecTaskView, 0, len(tasks))
+	pullRequestURL := strings.TrimRight(strings.TrimSpace(filter.PullRequestURL), "/")
+	var pullRequestPattern *regexp.Regexp
+	if pullRequestURL != "" {
+		pullRequestPattern = regexp.MustCompile(regexp.QuoteMeta(pullRequestURL) + `(?:[^0-9]|$)`)
+	}
 	for _, t := range tasks {
+		if filter.PullRequestURL != "" && (pullRequestPattern == nil || !pullRequestPattern.MatchString(t.Description)) {
+			continue
+		}
 		out = append(out, toView(t))
 	}
 	return out, nil
@@ -439,6 +449,9 @@ func (s *SpecTasks) SendAgentMessage(ctx context.Context, orgID string, workerID
 	if task.PlanningSessionID == "" {
 		return runtime.SpecTaskMessageView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
 	}
+	if task.Archived {
+		return runtime.SpecTaskMessageView{}, fmt.Errorf("spec task %s is archived; unarchive it before messaging its agent", task.ID)
+	}
 	promptID, err := s.workflow.SendAgentMessage(ctx, task, message, in.Interrupt, hiringUserID,
 		types.OrgBotSystemTurn(types.SystemTurnOrgBotSpecTaskMessage, string(workerID)))
 	if err != nil {
@@ -512,6 +525,9 @@ func (s *SpecTasks) StartAgent(ctx context.Context, orgID string, workerID orgch
 	if task.PlanningSessionID == "" {
 		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
 	}
+	if task.Archived {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s is archived; unarchive it before starting its agent", task.ID)
+	}
 	if err := s.workflow.StartAgent(ctx, task, hiringUserID); err != nil {
 		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("start spec task agent: %w", err)
 	}
@@ -520,6 +536,25 @@ func (s *SpecTasks) StartAgent(ctx context.Context, orgID string, workerID orgch
 		SessionID: task.PlanningSessionID,
 		Status:    "started",
 	}, nil
+}
+
+func (s *SpecTasks) Unarchive(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID, types.ActionUpdate)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	if task.PlanningSessionID == "" {
+		return runtime.SpecTaskView{}, fmt.Errorf("spec task %s has no planning session to resume", task.ID)
+	}
+	restored, err := s.workflow.UnarchiveTask(ctx, task, hiringUserID)
+	if err != nil {
+		return runtime.SpecTaskView{}, fmt.Errorf("unarchive spec task: %w", err)
+	}
+	return toView(restored), nil
 }
 
 func (s *SpecTasks) StopAgent(ctx context.Context, orgID string, workerID orgchart.NodeID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
@@ -567,6 +602,9 @@ func (s *SpecTasks) RestartAgent(ctx context.Context, orgID string, workerID org
 	if task.PlanningSessionID == "" {
 		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
 	}
+	if task.Archived {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s is archived; unarchive it before restarting its agent", task.ID)
+	}
 	promptsReset, threadReset, err := s.workflow.RestartAgent(ctx, task, hiringUserID)
 	if err != nil {
 		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("restart spec task agent: %w", err)
@@ -610,6 +648,9 @@ func (s *SpecTasks) ApproveSpec(ctx context.Context, orgID string, workerID orgc
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
+	if task.Archived {
+		return runtime.SpecTaskView{}, fmt.Errorf("spec task %s is archived; unarchive it before approving its spec", task.ID)
+	}
 	// Stamp the approver (the worker's hiring user) and persist before
 	// delegating: ApproveSpecs reads SpecApprovedBy/At to build the
 	// approval record.
@@ -643,6 +684,9 @@ func (s *SpecTasks) RequestChanges(ctx context.Context, orgID string, workerID o
 	task, err := s.ownedTask(ctx, projectID, taskID)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
+	}
+	if task.Archived {
+		return runtime.SpecTaskView{}, fmt.Errorf("spec task %s is archived; unarchive it before requesting changes", task.ID)
 	}
 	// Send the spec back for revision: the same status transition the
 	// orchestrator reacts to, plus a revision-count bump.
@@ -701,6 +745,8 @@ func toView(t *types.SpecTask) runtime.SpecTaskView {
 		Priority:       string(t.Priority),
 		Type:           t.Type,
 		BranchName:     t.BranchName,
+		Archived:       t.Archived,
+		SessionID:      t.PlanningSessionID,
 		SandboxRuntime: string(t.SandboxRuntime),
 	}
 	if t.SandboxResourceOverrides != nil {

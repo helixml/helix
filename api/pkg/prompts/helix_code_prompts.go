@@ -8,6 +8,13 @@ import (
 	"github.com/helixml/helix/api/pkg/prompts/templates"
 )
 
+// PullRequestStatusGuidance prevents task agents from polling provider APIs anonymously.
+func PullRequestStatusGuidance() string {
+	return "**CI and review status:** After pushing, use CI result notifications when available; do not start CI polling loops or background pollers. " +
+		"For one-off status, pull request, or review checks, use authenticated information or provider tools already available in the session. " +
+		"If authenticated access is unavailable, report that instead of falling back to anonymous provider API requests. Stop on every non-success HTTP response; do not treat it as a pending result. Honor `Retry-After` and `X-RateLimit-Reset`."
+}
+
 func ImplementationApprovedPushInstruction(branchName, primaryRepoName, baseBranch, taskDirName string, nonPrimaryRepoNames []string) (string, error) {
 	if branchName == "" {
 		return "", errors.New("branch name is required")

@@ -137,6 +137,14 @@ func (s *Service) StartAgent(ctx context.Context, caller tool.Caller, projectID,
 	return s.port.StartAgent(ctx, orgID, workerID, projectID, taskID)
 }
 
+func (s *Service) Unarchive(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecTaskView, error) {
+	orgID, workerID, err := s.callerIdentity(ctx, caller)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	return s.port.Unarchive(ctx, orgID, workerID, projectID, taskID)
+}
+
 func (s *Service) StopAgent(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecTaskView, error) {
 	orgID, workerID, err := s.callerIdentity(ctx, caller)
 	if err != nil {

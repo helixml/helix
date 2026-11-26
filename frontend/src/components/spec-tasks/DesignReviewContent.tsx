@@ -88,6 +88,8 @@ interface DesignReviewContentProps {
   hideTitle?: boolean;
   /** If provided, renders a "← Back to task" tab as the first tab in the tab strip */
   onBack?: () => void;
+  /** Hide Approve / Start implementation: the embedding host decides those (embed ?controls=0). */
+  hideReviewActions?: boolean;
   onQueueComment?: (comment: WorkspaceReviewComment) => void;
   onSendComment?: (comment: WorkspaceReviewComment) => Promise<{
     sessionId: string;
@@ -202,6 +204,7 @@ export default function DesignReviewContent({
   initialTab = "requirements",
   hideTitle = false,
   onBack,
+  hideReviewActions = false,
   onQueueComment,
   onSendComment,
 }: DesignReviewContentProps) {
@@ -2016,7 +2019,7 @@ export default function DesignReviewContent({
       </Box>
 
       {/* Review Actions Footer */}
-      {review && task?.status !== TypesSpecTaskStatus.TaskStatusDone && (
+      {review && !hideReviewActions && task?.status !== TypesSpecTaskStatus.TaskStatusDone && (
         <ReviewActionFooter
           reviewStatus={review.status}
           unresolvedCount={unresolvedCount}

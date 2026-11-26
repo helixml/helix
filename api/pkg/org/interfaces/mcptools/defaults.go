@@ -144,10 +144,10 @@ func DefaultBotTools() []tool.Name {
 		GetAssetName,
 	}
 	standard = append(standard, SpecTaskAgentTools...)
-	// Bots may open PRs for and complete the tasks they manage; spec-task
+	// Bots may restore, open PRs for, and complete the tasks they manage; spec-task
 	// agents may not (see SpecTaskBlockedTools), so these sit outside
 	// SpecTaskAgentTools.
-	standard = append(standard, CreateSpecTaskPRsName, CompleteSpecTaskName)
+	standard = append(standard, UnarchiveSpecTaskName, CreateSpecTaskPRsName, CompleteSpecTaskName)
 	return MergeBaseReadTools(standard)
 }
 
@@ -226,6 +226,8 @@ var SpecTaskBlockedTools = []tool.Name{
 	LinkAssetName, UnlinkAssetName,
 	CreateSandboxName, UpdateSandboxName, DeleteSandboxName,
 	SandboxSSHAccessName,
+	// Only the managing Bot may reopen an archived task.
+	UnarchiveSpecTaskName,
 	// A spec task's PRs open only from proposals its user approved
 	// (propose_pull_request); this tool would open them without approval.
 	CreateSpecTaskPRsName,

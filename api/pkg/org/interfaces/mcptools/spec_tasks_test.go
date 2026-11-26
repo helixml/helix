@@ -17,24 +17,25 @@ import (
 // recordingPort is a configurable runtime.SpecTasks for the tool tests.
 type recordingPort struct {
 	runtime.NoopSpecTasks
-	createIn      runtime.CreateSpecTaskInput
-	lastProject   string
-	lastTaskID    string
-	lastComment   string
-	lastFilter    runtime.ListSpecTasksFilter
-	updateIn      runtime.UpdateSpecTaskInput
-	stopCalls     int
-	completeCalls int
-	startCalls    int
-	restartCalls  int
-	messageIn     runtime.SpecTaskMessageInput
-	view          runtime.SpecTaskView
-	review        runtime.SpecReviewView
-	action        runtime.SpecTaskAgentActionView
-	message       runtime.SpecTaskMessageView
-	messages      []runtime.SpecTaskAgentMessageView
-	lastLimit     int
-	err           error
+	createIn       runtime.CreateSpecTaskInput
+	lastProject    string
+	lastTaskID     string
+	lastComment    string
+	lastFilter     runtime.ListSpecTasksFilter
+	updateIn       runtime.UpdateSpecTaskInput
+	stopCalls      int
+	completeCalls  int
+	startCalls     int
+	unarchiveCalls int
+	restartCalls   int
+	messageIn      runtime.SpecTaskMessageInput
+	view           runtime.SpecTaskView
+	review         runtime.SpecReviewView
+	action         runtime.SpecTaskAgentActionView
+	message        runtime.SpecTaskMessageView
+	messages       []runtime.SpecTaskAgentMessageView
+	lastLimit      int
+	err            error
 }
 
 func (p *recordingPort) Create(_ context.Context, _ string, _ orgchart.NodeID, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
@@ -72,6 +73,11 @@ func (p *recordingPort) StartAgent(_ context.Context, _ string, _ orgchart.NodeI
 	p.lastProject, p.lastTaskID = projectID, id
 	p.startCalls++
 	return p.action, p.err
+}
+func (p *recordingPort) Unarchive(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
+	p.unarchiveCalls++
+	return p.view, p.err
 }
 func (p *recordingPort) Complete(_ context.Context, _ string, _ orgchart.NodeID, projectID, id string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
@@ -154,12 +160,12 @@ func TestListSpecTasksTool(t *testing.T) {
 	if tl.Name() != mcptools.ListSpecTasksName {
 		t.Errorf("Name = %q", tl.Name())
 	}
-	out, err := tl.Invoke(context.Background(), callerInv(`{"status":"backlog"}`))
+	out, err := tl.Invoke(context.Background(), callerInv(`{"status":"backlog","include_archived":true,"pull_request_url":"https://github.com/example/repo/pull/316"}`))
 	if err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
-	if p.lastFilter.Status != "backlog" {
-		t.Errorf("filter status = %q", p.lastFilter.Status)
+	if p.lastFilter.Status != "backlog" || !p.lastFilter.IncludeArchived || p.lastFilter.PullRequestURL != "https://github.com/example/repo/pull/316" {
+		t.Errorf("filter = %+v", p.lastFilter)
 	}
 	if !strings.Contains(string(out), "task_1") {
 		t.Errorf("output missing task: %s", out)
@@ -306,6 +312,21 @@ func TestSpecTaskAgentLifecycleTools(t *testing.T) {
 	}
 	if p.startCalls != 1 || p.restartCalls != 1 {
 		t.Errorf("start/restart calls = %d/%d", p.startCalls, p.restartCalls)
+	}
+}
+
+func TestUnarchiveSpecTaskTool(t *testing.T) {
+	t.Parallel()
+	p := &recordingPort{view: runtime.SpecTaskView{ID: "task_1", SessionID: "ses_1", Status: "pull_request"}}
+	out, err := mcptools.NewUnarchiveSpecTask(depsWithPort(p)).Invoke(context.Background(), callerInv(`{"project_id":"prj_other","task_id":"task_1"}`))
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if p.unarchiveCalls != 1 || p.lastProject != "prj_other" || p.lastTaskID != "task_1" {
+		t.Errorf("unarchive calls/project/task = %d/%q/%q", p.unarchiveCalls, p.lastProject, p.lastTaskID)
+	}
+	if !strings.Contains(string(out), "ses_1") {
+		t.Errorf("output missing preserved session: %s", out)
 	}
 }
 

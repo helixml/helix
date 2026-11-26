@@ -101,3 +101,23 @@ func TestBuildJustDoItPrompt_HelixSkills(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildJustDoItPromptPreventsCIPolling(t *testing.T) {
+	out := buildJustDoItPrompt("do x", "", "repo", "", "", "", PullRequestProposalGuidance("feature/x"))
+
+	for _, want := range []string{
+		"use CI result notifications when available",
+		"do not start CI polling loops or background pollers",
+		"use authenticated information or provider tools already available in the session",
+		"instead of falling back to anonymous provider API requests",
+		"Stop on every non-success HTTP response; do not treat it as a pending result",
+		"`Retry-After` and `X-RateLimit-Reset`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Just Do It prompt is missing %q", want)
+		}
+	}
+	if strings.Contains(out, "let Helix monitor CI and wait for its result message") {
+		t.Error("Just Do It prompt unconditionally promises Helix CI monitoring")
+	}
+}

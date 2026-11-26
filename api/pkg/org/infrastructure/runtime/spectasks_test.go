@@ -38,6 +38,9 @@ func TestNoopSpecTasks_AllVerbsUnsupported(t *testing.T) {
 	if _, err := st.StartAgent(ctx, org, wid, "", "task_1"); !errors.Is(err, ErrSpecTasksUnsupported) {
 		t.Errorf("StartAgent err = %v, want ErrSpecTasksUnsupported", err)
 	}
+	if _, err := st.Unarchive(ctx, org, wid, "", "task_1"); !errors.Is(err, ErrSpecTasksUnsupported) {
+		t.Errorf("Unarchive err = %v, want ErrSpecTasksUnsupported", err)
+	}
 	if _, err := st.StopAgent(ctx, org, wid, "", "task_1"); !errors.Is(err, ErrSpecTasksUnsupported) {
 		t.Errorf("StopAgent err = %v, want ErrSpecTasksUnsupported", err)
 	}

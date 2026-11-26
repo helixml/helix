@@ -17,6 +17,7 @@ var specTaskToolNames = []tool.Name{
 	mcptools.StartSpecTaskPlanningName,
 	mcptools.SendSpecTaskAgentMessageName,
 	mcptools.ListSpecTaskAgentMessagesName,
+	mcptools.UnarchiveSpecTaskName,
 	mcptools.StartSpecTaskAgentName,
 	mcptools.StopSpecTaskAgentName,
 	mcptools.RestartSpecTaskAgentName,

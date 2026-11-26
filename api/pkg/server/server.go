@@ -267,6 +267,9 @@ type HelixAPIServer struct {
 	// runnerTokenTunnels maps a RevDial key to the per-runner token that
 	// registered its current tunnel (closeRunnerTokenTunnels).
 	runnerTokenTunnels sync.Map
+	// oauthBrowserKey* sign OAuth browser tickets (oauth_browser_flow.go).
+	oauthBrowserKeyOnce  sync.Once
+	oauthBrowserKeyBytes []byte
 }
 
 func NewServer(
@@ -1132,6 +1135,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// Setup OAuth callback route (no auth required)
 	insecureRouter.Handle("/oauth/flow/callback", apiServer.oauthCallbackHandler()).Methods("GET")
+	// A popup opened from an app embedding Helix finishes a flow the app started
+	// with the person's key; the signed ticket is the credential.
+	insecureRouter.Handle("/oauth/flow/browser/{ticket}", apiServer.oauthBrowserFlowHandler()).Methods("GET")
 
 	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
 

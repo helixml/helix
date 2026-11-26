@@ -158,6 +158,7 @@ func TestDefaultBotToolsGolden(t *testing.T) {
 		ReviewSpecTaskSpecName,
 		ApproveSpecTaskSpecName,
 		RequestSpecTaskChangesName,
+		UnarchiveSpecTaskName,
 		CreateSpecTaskPRsName,
 		CompleteSpecTaskName,
 		ManagersName,
@@ -233,5 +234,17 @@ func TestCompleteSpecTaskIsBotOnly(t *testing.T) {
 	}
 	if !slices.Contains(DefaultBotTools(), CompleteSpecTaskName) {
 		t.Fatal("bots need complete_spectask to finish the tasks they manage")
+	}
+}
+
+func TestUnarchiveSpecTaskIsBotOnly(t *testing.T) {
+	if IsSpecTaskAgentTool(UnarchiveSpecTaskName) {
+		t.Fatal("unarchive_spectask must not be offered to spec-task agents")
+	}
+	if !IsSpecTaskBlockedTool(UnarchiveSpecTaskName) {
+		t.Fatal("unarchive_spectask must be blocked on spec-task surfaces")
+	}
+	if !slices.Contains(DefaultBotTools(), UnarchiveSpecTaskName) {
+		t.Fatal("bots need unarchive_spectask to resume tasks they manage")
 	}
 }

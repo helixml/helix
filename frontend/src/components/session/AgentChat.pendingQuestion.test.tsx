@@ -17,7 +17,8 @@ const pendingQuestion = {
     },
   ],
 };
-const { latestInteractions, newInference, pendingQuestionInteractions, sessionQueueEntries } = vi.hoisted(() => ({
+const { latestInteractions, newInference, pendingQuestionInteractions, sessionQueueEntries, promptHistory } = vi.hoisted(() => ({
+  promptHistory: { current: { hasHistory: false, historySettled: true } },
   latestInteractions: {
     current: {
       totalCount: 12,
@@ -109,6 +110,8 @@ vi.mock("./useSessionPromptQueue", () => ({
     entries: sessionQueueEntries.current,
     remove: vi.fn(),
     restartAgent: vi.fn(),
+    hasHistory: promptHistory.current.hasHistory || sessionQueueEntries.current.length > 0,
+    historySettled: promptHistory.current.historySettled,
   }),
 }));
 
@@ -125,6 +128,7 @@ describe("AgentChat pending question placement", () => {
     newInference.mockReset();
     newInference.mockResolvedValue(undefined);
     sessionQueueEntries.current = [];
+    promptHistory.current = { hasHistory: false, historySettled: true };
     pendingQuestionInteractions.current = [{
       id: "interaction-old",
       state: TypesInteractionState.InteractionStateWaiting,
@@ -265,6 +269,65 @@ describe("AgentChat pending question placement", () => {
     expect(screen.getByTestId("session-view")).toBeInTheDocument();
   });
 
+  it("does not show the welcome while a cleared bot session waits for its next turn", () => {
+    latestInteractions.current = {
+      totalCount: 1,
+      interactions: [{ id: "interaction-new", state: "complete" }],
+    };
+    pendingQuestionInteractions.current = [];
+    const props = {
+      sessionId: "session-1",
+      welcomeWhenEmpty: true,
+      welcomeHeading: "Start a conversation",
+      starterPrompts: ["What can you help with?"],
+    };
+    const view = render(<AgentChat {...props} />);
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+
+    // The next activation clears the session before its prompt becomes a turn.
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    view.rerender(<AgentChat {...props} />);
+
+    expect(screen.queryByText("Start a conversation")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("does not show the welcome on a cleared bot session that has had prompts", () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+    promptHistory.current = { hasHistory: true, historySettled: true };
+
+    render(
+      <AgentChat
+        sessionId="session-1"
+        welcomeWhenEmpty
+        welcomeHeading="Start a conversation"
+        starterPrompts={["What can you help with?"]}
+      />,
+    );
+
+    expect(screen.queryByText("Start a conversation")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-view")).toBeInTheDocument();
+  });
+
+  it("waits for the prompt history before showing a bot the welcome", () => {
+    latestInteractions.current = { totalCount: 0, interactions: [] };
+    pendingQuestionInteractions.current = [];
+    promptHistory.current = { hasHistory: false, historySettled: false };
+    const props = {
+      sessionId: "session-1",
+      welcomeWhenEmpty: true,
+      welcomeHeading: "Start a conversation",
+      starterPrompts: ["What can you help with?"],
+    };
+    const view = render(<AgentChat {...props} />);
+    expect(screen.queryByText("Start a conversation")).not.toBeInTheDocument();
+
+    promptHistory.current = { hasHistory: false, historySettled: true };
+    view.rerender(<AgentChat {...props} />);
+    expect(screen.getByText("Start a conversation")).toBeInTheDocument();
+  });
+
   it("shows a queued prompt instead of empty-chat starters", () => {
     latestInteractions.current = { totalCount: 0, interactions: [] };
     pendingQuestionInteractions.current = [];
@@ -394,6 +457,7 @@ describe("AgentChat action card collapse", () => {
     newInference.mockReset();
     newInference.mockResolvedValue(undefined);
     sessionQueueEntries.current = [];
+    promptHistory.current = { hasHistory: false, historySettled: true };
     pendingQuestionInteractions.current = [];
   });
 

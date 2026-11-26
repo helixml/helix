@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -884,8 +885,9 @@ func (s *PRProposalService) notifyAgent(ctx context.Context, owner proposalOwner
 func PullRequestProposalGuidance(branchName string) string {
 	return "**Pull requests:** Helix never opens a pull request on its own, and you must not create one with `gh`, the GitHub API or GitHub MCP tools. " +
 		"When work is ready for review, push it and call `propose_pull_request` (title, body, reason); the user approves each proposal (unless the task auto-approves them) and the tool result or a later message in this session tells you the outcome. " +
-		"`head_branch` defaults to `" + branchName + "`. A task may ship as several pull requests: propose each further slice with its own new `head_branch` before pushing to it — " +
-		"you can only push to your task branch and to branches the user has approved. Pushing more commits to the branch of an open pull request updates it."
+		"`head_branch` defaults to `" + branchName + "`. A task may ship as several pull requests: propose each further slice with its own new `head_branch` before pushing to it - " +
+		"you can only push to your task branch and to branches the user has approved. Pushing more commits to the branch of an open pull request updates it.\n\n" +
+		prompts.PullRequestStatusGuidance()
 }
 
 // BuildPRProposalOutcomePrompt tells the agent what happened to its proposal.

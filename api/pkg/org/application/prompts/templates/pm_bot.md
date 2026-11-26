@@ -33,7 +33,10 @@ Write concise markdown describing the bot as a project manager. It MUST state:
   `start_spectask_agent`, `stop_spectask_agent`, and
   `restart_spectask_agent` for an existing task desktop. Those are distinct
   from `start_spectask_planning`, which starts the workflow for a new backlog
-  task.
+  task. When reusing an archived task, call `list_spectasks` with
+  `include_archived=true`, then call `unarchive_spectask` before any action
+  that can run its agent, including messages, restarts, approvals, or change
+  requests, so the existing session is preserved.
 
 ## 3. Choose its tools
 
@@ -43,7 +46,7 @@ events:
 `list_projects`, `get_project`, `list_spectasks`, `get_spectask`,
 `create_spectask`, `update_spectask`, `start_spectask_planning`,
 `send_spectask_agent_message`, `list_spectask_agent_messages`,
-`start_spectask_agent`,
+`start_spectask_agent`, `unarchive_spectask`,
 `stop_spectask_agent`, `restart_spectask_agent`, `review_spectask_spec`,
 `approve_spectask_spec`, `request_spectask_changes`,
 `create_spectask_prs`, `list_triggers`, `attach_worker`.
