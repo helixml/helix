@@ -2210,3 +2210,120 @@ func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweep_SkipsTaskActiveSin
 
 	s.orchestrator.staleArchiveSweep(ctx)
 }
+
+func (s *SpecTaskOrchestratorTestSuite) TestStaleArchiveSweep_SerializesWithUnarchive() {
+	ctx := context.Background()
+	now := time.Now()
+	listed := &types.SpecTask{
+		ID:                "task-race",
+		ProjectID:         "project-race",
+		PlanningSessionID: "session-race",
+		Status:            types.TaskStatusBacklog,
+		CreatedAt:         now.Add(-30 * 24 * time.Hour),
+	}
+	current := *listed
+
+	var lockAttempts atomic.Int32
+	var wrongLockKey atomic.Bool
+	restoreAttempted := make(chan struct{})
+	provider := &fakeProvider{onLockAttempt: func(key string) {
+		if key != "task:"+listed.ID {
+			wrongLockKey.Store(true)
+		}
+		if lockAttempts.Add(1) == 2 {
+			close(restoreAttempted)
+		}
+	}}
+	proposals := NewPRProposalService(s.store, provider, nil, "")
+	s.orchestrator.SetPRProposals(proposals)
+
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{SortBy: "last_message"}).Return([]*types.SpecTask{listed}, nil)
+	s.store.EXPECT().GetProject(ctx, listed.ProjectID).Return(&types.Project{
+		ID:                       listed.ProjectID,
+		ArchiveStaleTasksEnabled: true,
+		ArchiveStaleTasksDays:    6,
+	}, nil)
+	s.store.EXPECT().GetSpecTaskExternalAgent(ctx, listed.ID).Return(nil, store.ErrNotFound).Times(2)
+	s.store.EXPECT().GetSession(ctx, listed.PlanningSessionID).Return(&types.Session{
+		Metadata: types.SessionMetadata{AgentType: "zed_external", ExternalAgentStatus: "stopped"},
+	}, nil).Times(2)
+
+	var stateMu sync.Mutex
+	var reads atomic.Int32
+	s.store.EXPECT().GetSpecTask(ctx, listed.ID).Times(2).DoAndReturn(func(context.Context, string) (*types.SpecTask, error) {
+		reads.Add(1)
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		copy := current
+		return &copy, nil
+	})
+	var writes []bool
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Times(2).DoAndReturn(func(_ context.Context, task *types.SpecTask) error {
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		current = *task
+		writes = append(writes, task.Archived)
+		return nil
+	})
+
+	stopEntered := make(chan struct{})
+	releaseStop := make(chan struct{})
+	s.executor.EXPECT().StopDesktop(ctx, listed.PlanningSessionID).DoAndReturn(func(context.Context, string) error {
+		close(stopEntered)
+		<-releaseStop
+		return nil
+	})
+
+	sweepDone := make(chan struct{})
+	go func() {
+		s.orchestrator.staleArchiveSweep(ctx)
+		close(sweepDone)
+	}()
+	select {
+	case <-stopEntered:
+	case <-time.After(time.Second):
+		s.T().Fatal("archive sweep did not reach agent stop")
+	}
+	if lockAttempts.Load() != 1 {
+		close(releaseStop)
+		<-sweepDone
+		s.Fail("archive sweep did not acquire the task lifecycle lock")
+		return
+	}
+
+	restoreDone := make(chan error, 1)
+	go func() {
+		_, _, err := proposals.UnarchiveForAgent(ctx, listed.ID)
+		restoreDone <- err
+	}()
+	select {
+	case <-restoreAttempted:
+	case <-time.After(time.Second):
+		close(releaseStop)
+		<-sweepDone
+		s.Fail("unarchive did not attempt the shared task lifecycle lock")
+		return
+	}
+	s.EqualValues(1, reads.Load(), "unarchive must not reload while the archive sweep holds the lifecycle lock")
+	close(releaseStop)
+
+	select {
+	case <-sweepDone:
+	case <-time.After(time.Second):
+		s.T().Fatal("archive sweep did not complete")
+	}
+	select {
+	case err := <-restoreDone:
+		s.Require().NoError(err)
+	case <-time.After(time.Second):
+		s.T().Fatal("unarchive did not complete")
+	}
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	s.False(current.Archived)
+	s.Equal([]bool{true, false}, writes)
+	s.False(wrongLockKey.Load())
+	s.EqualValues(2, lockAttempts.Load())
+	s.EqualValues(2, reads.Load())
+}

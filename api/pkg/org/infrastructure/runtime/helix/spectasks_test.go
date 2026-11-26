@@ -626,8 +626,20 @@ func TestSpecTasks_UnarchivesBeforeResumingExistingSession(t *testing.T) {
 	if _, err := st.StartAgent(context.Background(), "org-test", wid, "", "task_1"); err == nil {
 		t.Fatal("StartAgent must reject an archived task")
 	}
-	if len(wf.lifecycleEvents) != 0 {
-		t.Fatalf("archived task reached workflow: %v", wf.lifecycleEvents)
+	if _, err := st.SendAgentMessage(context.Background(), "org-test", wid, "", "task_1", runtime.SpecTaskMessageInput{Content: "continue"}); err == nil {
+		t.Fatal("SendAgentMessage must reject an archived task")
+	}
+	if _, err := st.RestartAgent(context.Background(), "org-test", wid, "", "task_1"); err == nil {
+		t.Fatal("RestartAgent must reject an archived task")
+	}
+	if _, err := st.ApproveSpec(context.Background(), "org-test", wid, "", "task_1"); err == nil {
+		t.Fatal("ApproveSpec must reject an archived task")
+	}
+	if _, err := st.RequestChanges(context.Background(), "org-test", wid, "", "task_1", "revise"); err == nil {
+		t.Fatal("RequestChanges must reject an archived task")
+	}
+	if len(wf.lifecycleEvents) != 0 || len(wf.sendCalls) != 0 || len(wf.restartCalls) != 0 || len(wf.approveCalls) != 0 || len(wf.requestChangesCalls) != 0 || len(fs.updated) != 0 {
+		t.Fatalf("archived task had side effects: lifecycle=%v send=%v restart=%v approve=%v changes=%v writes=%d", wf.lifecycleEvents, wf.sendCalls, wf.restartCalls, wf.approveCalls, wf.requestChangesCalls, len(fs.updated))
 	}
 	restored, err := st.Unarchive(context.Background(), "org-test", wid, "", "task_1")
 	if err != nil {
@@ -637,11 +649,19 @@ func TestSpecTasks_UnarchivesBeforeResumingExistingSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartAgent: %v", err)
 	}
+	messaged, err := st.SendAgentMessage(context.Background(), "org-test", wid, "", "task_1", runtime.SpecTaskMessageInput{Content: "continue"})
+	if err != nil {
+		t.Fatalf("SendAgentMessage: %v", err)
+	}
+	restarted, err := st.RestartAgent(context.Background(), "org-test", wid, "", "task_1")
+	if err != nil {
+		t.Fatalf("RestartAgent: %v", err)
+	}
 	if restored.Archived || restored.Status != string(types.TaskStatusPullRequest) || restored.SessionID != "ses_existing" {
 		t.Fatalf("restored = %+v", restored)
 	}
-	if started.SessionID != "ses_existing" {
-		t.Fatalf("started session = %q", started.SessionID)
+	if started.SessionID != "ses_existing" || messaged.SessionID != "ses_existing" || restarted.SessionID != "ses_existing" {
+		t.Fatalf("resumed sessions = start:%q message:%q restart:%q", started.SessionID, messaged.SessionID, restarted.SessionID)
 	}
 	want := []string{"unarchive:ses_existing", "start:ses_existing"}
 	if len(wf.lifecycleEvents) != len(want) || wf.lifecycleEvents[0] != want[0] || wf.lifecycleEvents[1] != want[1] {

@@ -235,7 +235,9 @@ func (s *PRProposalService) UnarchiveForAgent(ctx context.Context, taskID string
 			}
 			setTaskStatus(task, target, time.Now())
 		} else {
-			task.UpdatedAt = time.Now()
+			now := time.Now()
+			task.StatusUpdatedAt = &now
+			task.UpdatedAt = now
 		}
 		restored = task
 		return s.store.UpdateSpecTask(ctx, task)

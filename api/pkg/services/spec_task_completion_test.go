@@ -243,4 +243,20 @@ func (s *PRProposalSuite) TestUnarchiveForAgentRestoresCompletedTaskAtomically()
 	restored, _, err = s.svc.UnarchiveForAgent(s.ctx, task.ID)
 	s.Require().NoError(err)
 	s.Equal(types.TaskStatusImplementation, restored.Status, "review tasks without linked PR rows resume implementation")
+
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	task = s.task("spt_1")
+	task.Status = types.TaskStatusImplementation
+	task.Archived = true
+	task.CreatedAt = old
+	task.StatusUpdatedAt = &old
+	s.Require().NoError(s.store.UpdateSpecTask(s.ctx, task))
+	restored, _, err = s.svc.UnarchiveForAgent(s.ctx, task.ID)
+	s.Require().NoError(err)
+	s.NotNil(restored.StatusUpdatedAt)
+	s.Equal(restored.UpdatedAt, *restored.StatusUpdatedAt)
+	s.False(shouldArchiveStaleTask(&types.Project{
+		ArchiveStaleTasksEnabled: true,
+		ArchiveStaleTasksDays:    6,
+	}, restored, time.Now()), "restored implementation task must not be immediately stale")
 }

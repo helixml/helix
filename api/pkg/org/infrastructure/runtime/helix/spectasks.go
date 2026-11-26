@@ -449,6 +449,9 @@ func (s *SpecTasks) SendAgentMessage(ctx context.Context, orgID string, workerID
 	if task.PlanningSessionID == "" {
 		return runtime.SpecTaskMessageView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
 	}
+	if task.Archived {
+		return runtime.SpecTaskMessageView{}, fmt.Errorf("spec task %s is archived; unarchive it before messaging its agent", task.ID)
+	}
 	promptID, err := s.workflow.SendAgentMessage(ctx, task, message, in.Interrupt, hiringUserID,
 		types.OrgBotSystemTurn(types.SystemTurnOrgBotSpecTaskMessage, string(workerID)))
 	if err != nil {
@@ -599,6 +602,9 @@ func (s *SpecTasks) RestartAgent(ctx context.Context, orgID string, workerID org
 	if task.PlanningSessionID == "" {
 		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s has no planning session; start planning first", task.ID)
 	}
+	if task.Archived {
+		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("spec task %s is archived; unarchive it before restarting its agent", task.ID)
+	}
 	promptsReset, threadReset, err := s.workflow.RestartAgent(ctx, task, hiringUserID)
 	if err != nil {
 		return runtime.SpecTaskAgentActionView{}, fmt.Errorf("restart spec task agent: %w", err)
@@ -642,6 +648,9 @@ func (s *SpecTasks) ApproveSpec(ctx context.Context, orgID string, workerID orgc
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
+	if task.Archived {
+		return runtime.SpecTaskView{}, fmt.Errorf("spec task %s is archived; unarchive it before approving its spec", task.ID)
+	}
 	// Stamp the approver (the worker's hiring user) and persist before
 	// delegating: ApproveSpecs reads SpecApprovedBy/At to build the
 	// approval record.
@@ -675,6 +684,9 @@ func (s *SpecTasks) RequestChanges(ctx context.Context, orgID string, workerID o
 	task, err := s.ownedTask(ctx, projectID, taskID)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
+	}
+	if task.Archived {
+		return runtime.SpecTaskView{}, fmt.Errorf("spec task %s is archived; unarchive it before requesting changes", task.ID)
 	}
 	// Send the spec back for revision: the same status transition the
 	// orchestrator reacts to, plus a revision-count bump.
