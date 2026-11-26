@@ -2,12 +2,14 @@ package spectask
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +27,25 @@ import (
 // taskRequest performs an authenticated JSON request against the control plane
 // and, when out is non-nil, decodes the response body into it.
 func taskRequest(method, path string, body interface{}, out interface{}) error {
+	return taskRequestWithTimeout(method, path, body, out, defaultTaskRequestTimeout)
+}
+
+// defaultTaskRequestTimeout is the client timeout for ordinary task requests.
+const defaultTaskRequestTimeout = 60 * time.Second
+
+// createRequestTimeout returns the client timeout for a create request. A
+// request carrying inline attachments must outlive the server's attachment
+// ingestion window, otherwise the CLI reports a failure while the server still
+// finishes creating the task and a retry would duplicate it.
+func createRequestTimeout(attachmentCount int) time.Duration {
+	if attachmentCount > 0 {
+		return types.SpecTaskInlineAttachmentIngestionTimeout + time.Minute
+	}
+	return defaultTaskRequestTimeout
+}
+
+// taskRequestWithTimeout is taskRequest with an explicit http.Client timeout.
+func taskRequestWithTimeout(method, path string, body interface{}, out interface{}, timeout time.Duration) error {
 	var reader io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -43,7 +64,7 @@ func taskRequest(method, path string, body interface{}, out interface{}) error {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
 		return err
 	}
@@ -421,15 +442,19 @@ Examples:
 			}
 			request.ConfineAgentKey = confineAgentKey
 
-			var task types.SpecTask
-			if err := taskRequest(http.MethodPost, "/api/v1/spec-tasks/from-prompt", request, &task); err != nil {
-				return fmt.Errorf("failed to create task: %w", err)
+			// Send attachments inline with the create request so they are stored
+			// before the task becomes dispatchable. Uploading them afterwards races
+			// with --auto-start: planning can begin first and the agent then gets
+			// an "attachment added after this session started" note.
+			attachments, err := buildInlineAttachments(attachFiles)
+			if err != nil {
+				return err
 			}
+			request.Attachments = attachments
 
-			if len(attachFiles) > 0 {
-				if err := uploadSpecTaskAttachments(getAPIURL(), getToken(), task.ID, attachFiles); err != nil {
-					return fmt.Errorf("task %s created but attachments failed: %w", task.ID, err)
-				}
+			var task types.SpecTask
+			if err := taskRequestWithTimeout(http.MethodPost, "/api/v1/spec-tasks/from-prompt", request, &task, createRequestTimeout(len(request.Attachments))); err != nil {
+				return fmt.Errorf("failed to create task: %w", err)
 			}
 
 			if quiet {
@@ -439,7 +464,7 @@ Examples:
 			fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
 			fmt.Printf("   Status: %s\n", task.Status)
 			if len(attachFiles) > 0 {
-				fmt.Printf("   📎 %d attachment(s) uploaded\n", len(attachFiles))
+				fmt.Printf("   📎 %d attachment(s) attached\n", len(attachFiles))
 			}
 			fmt.Printf("\n💡 Start planning: helix spectask start %s\n", task.ID)
 			return nil
@@ -882,4 +907,47 @@ func newProgressCommand() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// buildInlineAttachments reads the --attach files and validates them against
+// the server limits before any request is built, so oversized or colliding
+// files fail fast instead of after buffering and uploading them.
+func buildInlineAttachments(paths []string) ([]types.SpecTaskInlineAttachment, error) {
+	var (
+		attachments []types.SpecTaskInlineAttachment
+		total       int
+		seen        = map[string]string{}
+	)
+	for _, f := range paths {
+		name := filepath.Base(f)
+		if prev, dup := seen[name]; dup {
+			return nil, fmt.Errorf("--attach %q and %q have the same filename %q; rename one of them", prev, f, name)
+		}
+		seen[name] = f
+
+		info, err := os.Stat(f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read --attach %q: %w", f, err)
+		}
+		if info.Size() > types.SpecTaskAttachmentMaxBytes {
+			return nil, fmt.Errorf("--attach %q is %d bytes, over the %d byte per-file limit", f, info.Size(), types.SpecTaskAttachmentMaxBytes)
+		}
+		if total+int(info.Size()) > types.SpecTaskInlineAttachmentsMaxBytes {
+			return nil, fmt.Errorf("--attach files total more than the %d byte limit for a create request; attach the rest with `helix spectask attach` after creating the task", types.SpecTaskInlineAttachmentsMaxBytes)
+		}
+
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read --attach %q: %w", f, err)
+		}
+		total += len(data)
+		if total > types.SpecTaskInlineAttachmentsMaxBytes {
+			return nil, fmt.Errorf("--attach files total more than the %d byte limit for a create request; attach the rest with `helix spectask attach` after creating the task", types.SpecTaskInlineAttachmentsMaxBytes)
+		}
+		attachments = append(attachments, types.SpecTaskInlineAttachment{
+			Name:          name,
+			ContentBase64: base64.StdEncoding.EncodeToString(data),
+		})
+	}
+	return attachments, nil
 }
