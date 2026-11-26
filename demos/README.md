@@ -4,9 +4,9 @@ These are example APIs that the Helix can interact with using it's tools feature
 
 The APIs are intended to showcase how large language models can interact with enterprise data living behind inside on-prem services.
 
- * [Product Inventory](product-inventory)
- * [Hiring Interview](hiring-interview)
- * [Sales Pipeline](sales-pipeline)
+ * [Product Inventory](products.go)
+ * [Hiring Interview](jobvacancy.go)
+ * [Sales Pipeline](saleslead.go)
 
 ### Product Inventory
 
