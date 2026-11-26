@@ -33,6 +33,12 @@ const (
 	TimeRangeYear  = "year"
 )
 
+// enginesWithoutTimeRange are engines with time_range_support false in
+// SearXNG's /config. SearXNG leaves such an engine out of any query that
+// sets time_range, so a date-limited query to them alone (Yandex is the
+// default engine) returns nothing at all.
+var enginesWithoutTimeRange = []string{"yandex"}
+
 // requestTimeout bounds one SearXNG call, so a hung instance cannot hold a
 // search open (the API server itself has no write timeout).
 const requestTimeout = 15 * time.Second
@@ -112,7 +118,10 @@ func (c *Client) Search(ctx context.Context, q Query) (*Response, error) {
 	if q.Language != "" {
 		values.Set("language", q.Language)
 	}
-	if q.TimeRange != "" {
+	// A time range is sent only when every engine can apply it; otherwise
+	// the caller's own date filter on results is all there is, which keeps
+	// those engines' results instead of silently dropping them.
+	if q.TimeRange != "" && !slices.ContainsFunc(engines, func(e string) bool { return slices.Contains(enginesWithoutTimeRange, e) }) {
 		values.Set("time_range", q.TimeRange)
 	}
 	if q.PageNo > 1 {
