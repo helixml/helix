@@ -209,6 +209,13 @@ func TestExtractVerbosity(t *testing.T) {
 	assertLacks(t, full, markScript, "font-family", "tracking comment", "- title:")
 }
 
+func TestExtractCompactFallsBackWhenReadabilityFindsNothing(t *testing.T) {
+	page := extractFixture(t, "hidden-until-js.html", "https://docs.example/zero/sub-ghz")
+	text := extractPage(t, page, websearch.TextOptions{}).Text
+	assertContains(t, text, "# Sub-GHz", "300 to 928 MHz", "## Saving captures")
+	assertLacks(t, text, "Basics", "Copyright Example Devices")
+}
+
 func TestExtractSections(t *testing.T) {
 	cases := []struct {
 		name    string
