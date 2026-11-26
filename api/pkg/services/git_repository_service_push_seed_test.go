@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	giteagit "code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/git/gitcmd"
@@ -21,14 +22,9 @@ import (
 func seedTestRepos(t *testing.T) (service *GitRepositoryService, repo *types.GitRepository, upstream, refLog string) {
 	t.Helper()
 	ctx := context.Background()
-	dir := t.TempDir()
-	upstream = filepath.Join(dir, "upstream.git")
-	local := filepath.Join(dir, "local.git")
-	refLog = filepath.Join(dir, "received.log")
-	require.NoError(t, giteagit.InitRepository(ctx, upstream, true, "sha1"))
+	upstream, refLog = emptyUpstream(t)
+	local := filepath.Join(t.TempDir(), "local.git")
 	require.NoError(t, giteagit.InitRepository(ctx, local, true, "sha1"))
-	hook := "#!/bin/sh\nwhile read old new ref; do echo \"$ref\" >> '" + refLog + "'; done\n"
-	require.NoError(t, os.WriteFile(filepath.Join(upstream, "hooks", "pre-receive"), []byte(hook), 0o755))
 
 	mockStore := store.NewMockStore(gomock.NewController(t))
 	service = NewGitRepositoryService(mockStore, t.TempDir(), "http://localhost:8080", "test", "test@example.com")
@@ -140,4 +136,65 @@ func TestEmptyUpstreamWithUnsetDefaultBranchSeedsMain(t *testing.T) {
 	require.NoError(t, service.PushBranchToRemote(ctx, repo.ID, SpecsBranchName, false))
 
 	require.Equal(t, []string{"refs/heads/main", "refs/heads/helix-specs"}, receivedRefs(t, refLog))
+}
+
+// Repointing the repository at another, empty upstream seeds it again even
+// though the previous upstream was already known to have branches.
+func TestRepointedToEmptyUpstreamPushesMainFirst(t *testing.T) {
+	ctx := context.Background()
+	service, repo, _, refLog := seedTestRepos(t)
+	commitFile(t, repo.LocalPath, SpecsBranchName, ".helix/startup.sh", "#!/bin/bash\n")
+	require.NoError(t, service.PushBranchToRemote(ctx, repo.ID, SpecsBranchName, false))
+	require.Equal(t, []string{"refs/heads/main", "refs/heads/helix-specs"}, receivedRefs(t, refLog))
+
+	other, otherLog := emptyUpstream(t)
+	repo.ExternalURL = "file://" + other
+	commitFile(t, repo.LocalPath, SpecsBranchName, "design/notes.md", "notes")
+	require.NoError(t, service.PushBranchToRemote(ctx, repo.ID, SpecsBranchName, false))
+
+	require.Equal(t, []string{"refs/heads/main", "refs/heads/helix-specs"}, receivedRefs(t, otherLog))
+}
+
+// An upstream deleted and recreated at the same URL is seeded again once the
+// cached check has expired, and not re-checked before then.
+func TestRecreatedUpstreamAtSameURLPushesMainFirstAfterExpiry(t *testing.T) {
+	ctx := context.Background()
+	service, repo, upstream, refLog := seedTestRepos(t)
+	commitFile(t, repo.LocalPath, SpecsBranchName, ".helix/startup.sh", "#!/bin/bash\n")
+	require.NoError(t, service.PushBranchToRemote(ctx, repo.ID, SpecsBranchName, false))
+
+	hooks := filepath.Join(upstream, "hooks", "pre-receive")
+	hook, err := os.ReadFile(hooks)
+	require.NoError(t, err)
+	require.NoError(t, os.RemoveAll(upstream))
+	require.NoError(t, giteagit.InitRepository(ctx, upstream, true, "sha1"))
+	require.NoError(t, os.WriteFile(hooks, hook, 0o755))
+	require.NoError(t, os.Remove(refLog))
+
+	// Within the expiry the cached result stands.
+	commitFile(t, repo.LocalPath, SpecsBranchName, "design/a.md", "a")
+	require.NoError(t, service.PushBranchToRemote(ctx, repo.ID, SpecsBranchName, false))
+	require.Equal(t, []string{"refs/heads/helix-specs"}, receivedRefs(t, refLog))
+
+	// Recreate again, and age the cached entry past the expiry.
+	require.NoError(t, os.RemoveAll(upstream))
+	require.NoError(t, giteagit.InitRepository(ctx, upstream, true, "sha1"))
+	require.NoError(t, os.WriteFile(hooks, hook, 0o755))
+	require.NoError(t, os.Remove(refLog))
+	service.upstreamHasBranches.Store(repo.ID, upstreamBranchesSeen{url: repo.ExternalURL, at: time.Now().Add(-upstreamHasBranchesTTL - time.Second)})
+
+	commitFile(t, repo.LocalPath, SpecsBranchName, "design/b.md", "b")
+	require.NoError(t, service.PushBranchToRemote(ctx, repo.ID, SpecsBranchName, false))
+	require.Equal(t, []string{"refs/heads/main", "refs/heads/helix-specs"}, receivedRefs(t, refLog))
+}
+
+func emptyUpstream(t *testing.T) (path, refLog string) {
+	t.Helper()
+	dir := t.TempDir()
+	path = filepath.Join(dir, "upstream.git")
+	refLog = filepath.Join(dir, "received.log")
+	require.NoError(t, giteagit.InitRepository(context.Background(), path, true, "sha1"))
+	hook := "#!/bin/sh\nwhile read old new ref; do echo \"$ref\" >> '" + refLog + "'; done\n"
+	require.NoError(t, os.WriteFile(filepath.Join(path, "hooks", "pre-receive"), []byte(hook), 0o755))
+	return path, refLog
 }

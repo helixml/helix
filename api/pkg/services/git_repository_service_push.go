@@ -138,16 +138,19 @@ func (s *GitRepositoryService) seedEmptyUpstream(ctx context.Context, gitRepo *t
 	if branchName == defaultBranch {
 		return nil
 	}
-	if _, known := s.upstreamHasBranches.Load(gitRepo.ID); known {
-		return nil
+	if v, ok := s.upstreamHasBranches.Load(gitRepo.ID); ok {
+		seen := v.(upstreamBranchesSeen)
+		if seen.url == gitRepo.ExternalURL && time.Since(seen.at) < upstreamHasBranchesTTL {
+			return nil
+		}
 	}
 
-	stdout, stderr, err := runUpstreamGit(ctx, "", time.Minute, remote.env(), "ls-remote", "--heads", "--", remote.URL)
+	stdout, stderr, err := runUpstreamGit(ctx, "", upstreamSeedCheckTimeout, remote.env(), "ls-remote", "--heads", "--", remote.URL)
 	if err != nil {
 		return upstreamGitError("list upstream branches", err, stderr)
 	}
 	if len(parseLsRemoteBranches(stdout)) > 0 {
-		s.upstreamHasBranches.Store(gitRepo.ID, true)
+		s.markUpstreamHasBranches(gitRepo)
 		return nil
 	}
 
@@ -174,8 +177,28 @@ func (s *GitRepositoryService) seedEmptyUpstream(ctx context.Context, gitRepo *t
 	if err := pushBranchNative(ctx, gitRepo.LocalPath, remote, defaultBranch, false); err != nil {
 		return fmt.Errorf("failed to push %s to the empty external repository: %w", defaultBranch, err)
 	}
-	s.upstreamHasBranches.Store(gitRepo.ID, true)
+	s.markUpstreamHasBranches(gitRepo)
 	return nil
+}
+
+// upstreamBranchesSeen records that the upstream at url had branches at time at.
+// The URL catches a repository repointed at another upstream; the expiry
+// bounds how long an upstream deleted and recreated at the same URL is missed.
+type upstreamBranchesSeen struct {
+	url string
+	at  time.Time
+}
+
+const (
+	upstreamHasBranchesTTL = 5 * time.Minute
+	// An ls-remote of an empty repository is one round trip. Keep it well
+	// inside the git push handler's per-branch budget so the real push keeps
+	// most of it.
+	upstreamSeedCheckTimeout = 15 * time.Second
+)
+
+func (s *GitRepositoryService) markUpstreamHasBranches(gitRepo *types.GitRepository) {
+	s.upstreamHasBranches.Store(gitRepo.ID, upstreamBranchesSeen{url: gitRepo.ExternalURL, at: time.Now()})
 }
 
 // branchTipAuthor returns the author of the commit branch points at.
